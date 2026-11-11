@@ -257,6 +257,48 @@ print(len(guards), len(empty)).unwrap()
     );
 }
 
+// Issue #949: a hit by borrowed bytes allocates nothing; a miss that cannot
+// allocate its key or row reports `DataError.Allocation`, destroys the
+// default and leaves the dictionary unchanged.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_get_or_insert_utf8_destroys_the_default_and_hits_need_no_allocation() {
+    native(
+        r#"
+class Guard:
+    label: str
+    def __del__(self: &mut Guard) -> ():
+        print(self.label).unwrap()
+def report(result: Result[&mut Guard, DataError]) -> ():
+    match result:
+        case Ok(guard):
+            print(guard.label).unwrap()
+        case Err(DataError.Allocation(AllocError.OutOfMemory)):
+            print("handled").unwrap()
+        case Err(_):
+            print("wrong error").unwrap()
+mut guards = {"a": Guard("a"), "GGTATTTTAATTTATAGT": Guard("long")}.unwrap()
+unused = Guard("unused")
+spare = Guard("spare")
+short = Guard("b")
+long = Guard("c")
+# An empty dictionary has no storage, so its first entry must allocate.
+mut empty = dict[str, Guard]().unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+report(guards.get_or_insert_utf8(b"a", unused))
+report(guards.get_or_insert_utf8(b"GGTATTTTAATTTATAGT", spare))
+report(empty.get_or_insert_utf8(b"b", short))
+# A key over seven bytes is a heap text: its allocation fails first.
+report(guards.get_or_insert_utf8(b"TTTATAGTGGTATTTTAA", long))
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(len(guards), len(empty)).unwrap()
+"#,
+        "unused\na\nspare\nlong\nb\nhandled\nc\nhandled\n2 0\na\nlong",
+    );
+}
+
 #[rstest]
 #[case("values = [1].unwrap()\nvalues.append(2)", "immutable")]
 #[case("mut values = [1].unwrap()\nvalues.reserve(1u8)", "expected i64")]

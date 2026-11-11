@@ -508,3 +508,108 @@ fn a_heap_key_hit_compares_every_length_class() {
     assert_heap_key_hits::<18>();
     assert_heap_key_hits::<40>();
 }
+
+// Issue #949: `get_or_insert_utf8` hashes a key's bytes where they lie. The
+// hash must be the one the owned `str` gets, inline or heap, at every length
+// class of the block loop and the final block.
+#[test]
+fn key_bytes_hash_as_the_owned_text_does() {
+    for length in 0..=40usize {
+        let bytes: Vec<u8> = (0..length).map(|i| b'a' + (i % 26) as u8).collect();
+        let owned = OwnedValue {
+            value: strings::new(&bytes) as u128,
+            ty: &TEXT,
+        };
+        // SAFETY: the guard owns a text of these bytes.
+        let expected = unsafe { hash(owned.value, &TEXT) };
+        assert_eq!(hashing::hash_text_bytes(&bytes), expected, "{length}");
+        assert_eq!(hashing::text_bytes(&bytes), Some(expected), "{length}");
+    }
+}
+
+// Issue #949: for every key length the borrowed form inserts on a miss,
+// hits its own entry and the owned form's, and is hit by the owned form;
+// each call hashes once. A miss that is not UTF-8 stores nothing, also when
+// a bucket with its hash bits already exists.
+#[test]
+fn get_or_insert_utf8_agrees_with_the_owned_key_at_every_length() {
+    let owner = OwnedValue {
+        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
+        ty: &COUNTS,
+    };
+    let reference = &owner.value as *const u128;
+    let hit = GET_OR_INSERT_HIT as u64;
+    // SAFETY: the guard owns the dictionary; each owned key is adopted by a
+    // miss or released here after a hit, as generated code does.
+    unsafe {
+        let borrowed = |bytes: &[u8], value: u64| {
+            let before = HASHES.with(std::cell::Cell::get);
+            let words = plenty_dict_get_or_insert_utf8(
+                reference,
+                bytes.as_ptr(),
+                bytes.len() as u64,
+                value,
+                0,
+            );
+            assert_eq!(HASHES.with(std::cell::Cell::get), before + 1);
+            (words.0 as *mut u128, words.1)
+        };
+        let owned = |bytes: &[u8], value: u64| {
+            let key = strings::new(bytes) as u128;
+            let words = plenty_dict_get_or_insert_text(reference, key as u64, value, 0);
+            if words.1 == hit {
+                release(key, &TEXT);
+            }
+            (words.0 as *mut u128, words.1)
+        };
+        let contents = |length: usize, first: u8| -> Vec<u8> {
+            (0..length).map(|i| first + (i % 26) as u8).collect()
+        };
+        let c = &mut *(owner.value as *mut Collection);
+        for length in 0..=40usize {
+            // Inserted by bytes, found by bytes and by an owned key.
+            let key = contents(length, b'a');
+            let (slot, flag) = borrowed(&key, length as u64);
+            assert_eq!((*slot as u64, flag), (length as u64, 0), "{length}");
+            assert_eq!(borrowed(&key, 99), (slot, hit), "{length}");
+            assert_eq!(owned(&key, 99), (slot, hit), "{length}");
+            assert_eq!(*slot as u64, length as u64);
+            if length == 0 {
+                continue;
+            }
+            // Inserted by an owned key, found by bytes.
+            let other = contents(length, b'A');
+            let (slot, flag) = owned(&other, 1000 + length as u64);
+            assert_eq!(flag, 0);
+            assert_eq!(borrowed(&other, 99), (slot, hit), "{length}");
+            // The same length differing in the last byte is another key.
+            let mut changed = key.clone();
+            changed[length - 1] ^= 1;
+            let (inserted, flag) = borrowed(&changed, 7);
+            assert_eq!(flag, 0, "{length}");
+            assert_ne!(inserted, slot);
+        }
+        assert_eq!(c.len(), 1 + 40 * 3);
+        // A stored literal is heap text at any length; short bytes hit it.
+        let stored = literal(b"ACG");
+        let words =
+            plenty_dict_get_or_insert_text(reference, &stored as *const Literal<3> as u64, 5, 0);
+        assert_eq!(words.1, 0);
+        assert_eq!(borrowed(b"ACG", 99), (words.0 as *mut u128, hit));
+
+        // Invalid UTF-8 matches no key: an error, nothing stored. The second
+        // probe meets a bucket carrying its own hash bits, as a full
+        // collision would leave, and still compares bytes.
+        let length = c.len();
+        for invalid in [&b"\xff"[..], b"ab\xc3", b"0123456789abcdef\xe2\x82"] {
+            assert_eq!(borrowed(invalid, 9), (std::ptr::null_mut(), 1));
+            c.table.insert_unique(hashing::hash_text_bytes(invalid), 0);
+            assert_eq!(borrowed(invalid, 9), (std::ptr::null_mut(), 1));
+            assert_eq!(c.len(), length);
+        }
+        for (row, _) in (0..c.len()).enumerate() {
+            let key = c.entries.key(row) as usize as *const Text;
+            assert!(std::str::from_utf8(strings::bytes(&key)).is_ok());
+        }
+    }
+}

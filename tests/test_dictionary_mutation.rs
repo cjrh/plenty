@@ -298,3 +298,102 @@ fn writes_through_shared_value_loops_name_the_exclusive_projection() {
         assert!(error.contains(HINT), "{body}: {error}");
     }
 }
+
+// Issue #949: `get_or_insert_utf8` looks a `str` key up by a view of its
+// bytes and builds the key only on a miss.
+const UTF8_MAIN: &str = "import std.bytes\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64] | DataError | std.bytes.BytesError]:\n";
+
+#[test]
+fn get_or_insert_utf8_and_an_owned_key_find_the_same_entry_at_every_length() {
+    assert_stdout(
+        &format!(
+            "{UTF8_MAIN}    source = std.bytes.from_text(\"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\")?\n    mut counts: dict[str, i64] = {{}}?\n    for length in range(1, 41):\n        *counts.get_or_insert_utf8(&source[0:length], 0)? += 1\n        *counts.get_or_insert_utf8(&source[0:length], 100)? += 1\n        *counts.get_or_insert(source.to_text_range(0, length)?, 100)? += 1\n        *counts.get_or_insert(source.to_text_range(5, 5 + length)?, 0)? += 10\n        *counts.get_or_insert_utf8(&source[5:5 + length], 100)? += 10\n    mut wrong = 0\n    for length in range(1, 41):\n        if counts[source.to_text_range(0, length)?] != 3:\n            wrong += 1\n        if counts[source.to_text_range(5, 5 + length)?] != 20:\n            wrong += 1\n    *counts.get_or_insert_utf8(&source[0:0], 7)? += 1\n    *counts.get_or_insert_utf8(b\"\", 0)? += 1\n    print(len(counts), wrong, counts[\"\"], counts[\"abc\"], counts[\"fghijklmnopqrstuvwx\"])?\n    Ok(())\n"
+        ),
+        "81 0 9 3 20\n",
+    );
+}
+
+#[test]
+fn get_or_insert_utf8_takes_literals_text_bytes_and_non_ascii_keys() {
+    assert_stdout(
+        &format!(
+            "{UTF8_MAIN}    mut counts = {{\"é🙂\": 1, \"GGT\": 1}}?\n    word = \"é🙂\"\n    *counts.get_or_insert_utf8(word.as_bytes(), 0)? += 1\n    *counts.get_or_insert_utf8(b\"GGT\", 0)? += 1\n    *counts.get_or_insert_utf8(b\"\\xc3\\xa9\", 0)? += 5\n    print(counts)?\n    Ok(())\n"
+        ),
+        "{\"é🙂\": 2, \"GGT\": 2, \"é\": 5}\n",
+    );
+}
+
+#[test]
+fn get_or_insert_utf8_rejects_invalid_bytes_on_a_miss_and_stores_nothing() {
+    assert_stdout(
+        &format!(
+            "class Guard:\n    label: str\n    def __del__(self) -> ():\n        print(\"drop\", self.label).unwrap()\n{UTF8_MAIN}    mut guards = {{\"a\": Guard(\"a\")}}?\n    for source in [b\"\\xff\", b\"ab\\xc3\", b\"0123456789abcdef\\xe2\\x82\"]?:\n        match guards.get_or_insert_utf8(source, Guard(\"unused\")):\n            case Ok(guard):\n                print(\"stored\", guard.label)?\n            case Err(DataError.InvalidUtf8):\n                print(\"invalid\")?\n            case Err(DataError.Allocation(_)):\n                print(\"allocation\")?\n    print(len(guards))?\n    hit = guards.get_or_insert_utf8(b\"a\", Guard(\"spare\"))?\n    print(\"hit\", hit.label)?\n    missed = guards.get_or_insert_utf8(b\"b\", Guard(\"b\"))?\n    missed.label = \"b2\"\n    for key in guards.keys():\n        print(*key)?\n    Ok(())\n"
+        ),
+        "drop unused\ninvalid\ndrop unused\ninvalid\ndrop unused\ninvalid\n1\ndrop spare\nhit a\na\nb\ndrop a\ndrop b2\n",
+    );
+}
+
+#[test]
+fn get_or_insert_utf8_calls_its_helper_without_building_a_key() {
+    let source = "def bump(counts: &mut dict[str, i64], source: &[u8]) -> Result[(), DataError | OverflowError[i64]]:\n    *counts.get_or_insert_utf8(source, 0)? += 1\n    Ok(())\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64] | DataError]:\n    mut counts = {\"a\": 1}?\n    bump(&mut counts, b\"a\")?\n    print(counts)?\n    Ok(())\n";
+    let calls = crate::test_text_bytes_fast_paths::runtime_calls(source, "bump");
+    assert_eq!(calls, ["plenty_dict_get_or_insert_utf8"], "{calls:?}");
+}
+
+#[test]
+fn get_or_insert_utf8_borrows_the_source_and_the_dictionary_for_the_call() {
+    let body = |lines: &str| {
+        format!(
+            "{UTF8_MAIN}    mut d = {{\"a\": 1}}?\n    mut buffer = std.bytes.from_text(\"abc\")?\n{lines}    Ok(())\n"
+        )
+    };
+    // The source is free again once the call returns.
+    assert_stdout(
+        &body(
+            "    count = d.get_or_insert_utf8(&buffer[0:1], 0)?\n    buffer.clear()\n    *count += 1\n    print(d)?\n",
+        ),
+        "{\"a\": 2}\n",
+    );
+    let error = diagnostic(&body(
+        "    count = d.get_or_insert_utf8(&buffer[0:1], 0)?\n    print(d)?\n    *count = 3\n",
+    ));
+    assert!(error.contains("conflicting borrow"), "{error}");
+    let error = diagnostic(&body(
+        "    for key in d.keys():\n        *d.get_or_insert_utf8(key.as_bytes(), 0)? += 1\n",
+    ));
+    assert!(error.contains("conflicting borrow"), "{error}");
+}
+
+#[test]
+fn get_or_insert_utf8_requires_str_keys_a_byte_view_and_a_default() {
+    let body = |lines: &str| {
+        format!(
+            "{UTF8_MAIN}    mut d = {{\"a\": 1}}?\n    mut numbers = {{1: 1}}?\n{lines}    Ok(())\n"
+        )
+    };
+    for (lines, expected) in [
+        (
+            "    *numbers.get_or_insert_utf8(b\"a\", 0)? += 1\n",
+            "get_or_insert_utf8 requires a dictionary with str keys, got dict[i64, i64]; use get_or_insert with an owned key",
+        ),
+        (
+            "    *d.get_or_insert_utf8(b\"a\")? += 1\n",
+            "get_or_insert_utf8 requires a byte view and a default value",
+        ),
+        ("    *d.get_or_insert_utf8(\"a\", 0)? += 1\n", "slice view"),
+        (
+            "    *d.get_or_insert_utf8(b\"a\", \"b\")? += 1\n",
+            "expected i64, got str",
+        ),
+    ] {
+        let error = diagnostic(&body(lines));
+        assert!(error.contains(expected), "{lines}: {error}");
+    }
+    let immutable = format!(
+        "{UTF8_MAIN}    d = {{\"a\": 1}}?\n    *d.get_or_insert_utf8(b\"a\", 0)? = 2\n    Ok(())\n"
+    );
+    assert!(diagnostic(&immutable).contains("immutable binding"));
+    let unhandled = "def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut d = {\"a\": 1}?\n    *d.get_or_insert_utf8(b\"a\", 0)? = 2\n    Ok(())\n";
+    let error = diagnostic(unhandled);
+    assert!(error.contains("DataError"), "{error}");
+}

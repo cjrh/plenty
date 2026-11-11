@@ -1836,6 +1836,128 @@ unsafe extern "C" fn get_or_insert_text(
     byte_storage::Words::new(result)
 }
 
+/// `dict[str, V].get_or_insert_utf8(source, default)` (issue #949): the
+/// words of `Result[&mut V, DataError]`, with the high word
+/// `GET_OR_INSERT_HIT` on a hit. The key's bytes are hashed and compared in
+/// place; a `str` is built from them only on a miss.
+///
+/// A first candidate holding the same bytes is a hit answered here with no
+/// call. Stored keys are valid UTF-8, so bytes equal to one need no
+/// validation. The caller keeps the default on a hit and releases it.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn plenty_dict_get_or_insert_utf8(
+    reference: *const u128,
+    address: *const u8,
+    count: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    // SAFETY: generated code passes a live exclusive dictionary reference
+    // with `str` keys, a view its loan keeps in place, and an owned default.
+    unsafe {
+        let c = &*(*reference as *const Collection);
+        let bytes = byte_storage::view_bytes(address as usize as u128 | u128::from(count) << 64);
+        if !c.table.is_empty()
+            && let Some(hash) = hashing::text_bytes(bytes)
+        {
+            #[cfg(test)]
+            HASHES.with(|count| count.set(count.get() + 1));
+            let (_, candidate) = c.first_candidate(hash);
+            if let Some((candidate, slot)) = candidate {
+                let text = candidate as usize as *const Text;
+                // A stored literal of at most seven bytes is not inline and
+                // an inline key never equals longer bytes; both are left to
+                // the probed path.
+                let same = if bytes.len() <= strings::INLINE_MAX {
+                    candidate == strings::pack(bytes) as usize as u64
+                } else {
+                    !strings::is_inline(text)
+                        && strings::bytes_equal(strings::heap_bytes(text), bytes)
+                };
+                if same {
+                    return byte_storage::Words(slot as u64, GET_OR_INSERT_HIT as u64);
+                }
+            }
+            return get_or_insert_utf8_probed(
+                reference, address, count, value_low, value_high, hash,
+            );
+        }
+        get_or_insert_utf8_unhashed(reference, address, count, value_low, value_high)
+    }
+}
+
+/// `plenty_dict_get_or_insert_utf8` for an empty table or the first hash of
+/// the process.
+#[inline(never)]
+unsafe extern "C" fn get_or_insert_utf8_unhashed(
+    reference: *const u128,
+    address: *const u8,
+    count: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_utf8`.
+    unsafe {
+        #[cfg(test)]
+        HASHES.with(|count| count.set(count.get() + 1));
+        let bytes = byte_storage::view_bytes(address as usize as u128 | u128::from(count) << 64);
+        let hash = hashing::hash_text_bytes(bytes);
+        get_or_insert_utf8_probed(reference, address, count, value_low, value_high, hash)
+    }
+}
+
+/// `plenty_dict_get_or_insert_utf8` when the first candidate did not answer:
+/// the whole probe by byte comparison, then the miss. A miss validates the
+/// bytes before anything is stored: invalid UTF-8 returns
+/// `DataError.InvalidUtf8` and a failed key or row allocation returns
+/// `DataError.Allocation`, both with the default dropped and the dictionary
+/// unchanged.
+#[inline(never)]
+unsafe extern "C" fn get_or_insert_utf8_probed(
+    reference: *const u128,
+    address: *const u8,
+    count: u64,
+    value_low: u64,
+    value_high: u64,
+    hash: u64,
+) -> byte_storage::Words {
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_utf8`.
+    let result = unsafe {
+        let c = &mut *(*reference as *mut Collection);
+        let bytes = byte_storage::view_bytes(address as usize as u128 | u128::from(count) << 64);
+        let value = u128::from(value_high) << 64 | u128::from(value_low);
+        let bucket = (!c.table.is_empty()).then(|| {
+            c.table.probe(hash, |entry| {
+                let key = c.entries.key_word(entry) as usize as *const Text;
+                strings::bytes(&key) == bytes
+            })
+        });
+        if let Some(position) = bucket.and_then(|bucket| c.table.entry(bucket)) {
+            wrap(c.entries.slot(position, true) as u128, 0) | (GET_OR_INSERT_HIT as u128) << 64
+        } else {
+            let allocation = |error: AllocError| wrap(wrap(wrap(0, error as u64), 1), 1);
+            match strings::try_from_utf8(bytes) {
+                Some(Ok(key)) => {
+                    // A failed insert releases the new key and the default.
+                    match c.try_add_missing(key as usize as u128, value, true, hash, bucket) {
+                        Ok(position) => wrap(c.entries.slot(position, true) as u128, 0),
+                        Err(error) => allocation(error),
+                    }
+                }
+                invalid_or_failed => {
+                    release(value, c.ty().value.expect("dictionary value"));
+                    match invalid_or_failed {
+                        Some(Err(error)) => allocation(error),
+                        // DataError.InvalidUtf8 is variant 0 with no payload.
+                        _ => wrap(wrap(0, 0), 1),
+                    }
+                }
+            }
+        }
+    };
+    byte_storage::Words::new(result)
+}
+
 /// Structural equality. Every value has one owner, so traversal is bounded by
 /// the value's own size; nothing is shared except immutable strings.
 unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
@@ -3523,6 +3645,16 @@ pub(crate) unsafe fn collection_at(
             // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
             // code tests to release its copyable operands and then clears.
             DICT_GET_OR_INSERT => get_or_insert(a as *const u128, b, value),
+            DICT_GET_OR_INSERT_UTF8 => {
+                let words = plenty_dict_get_or_insert_utf8(
+                    a as *const u128,
+                    b as u64 as usize as *const u8,
+                    (b >> 64) as u64,
+                    value as u64,
+                    (value >> 64) as u64,
+                );
+                u128::from(words.1) << 64 | u128::from(words.0)
+            }
             // `list.get_ref` and `list.get_mut`: the row's address, or Nothing
             // outside the list; never traps.
             LIST_GET_REF => {
