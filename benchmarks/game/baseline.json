@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "date": "2026-11-10T12:37:02+00:00",
+  "date": "2026-11-11T20:37:45+00:00",
   "mode": "full",
   "repeats": 3,
-  "commit": "400dc7c9ba37d6d2f88ba5c406f6ed26e03eeb6c",
+  "commit": "1ade579c5682673980641b0fec3e986d9b673b36",
   "dirty": false,
   "versions": {
     "plenty": "plenty 0.8.25 (x86_64-unknown-linux-gnu)",
@@ -32,34 +32,34 @@
       "reference_build": "clang -pipe -Wall -O3 -fomit-frame-pointer -march=native {source} -o {output} -lm",
       "programs": {
         "reference": {
-          "median_s": 11.613,
-          "min_s": 11.0603,
-          "user_s": 11.4333,
-          "max_rss_kb": 264424,
+          "median_s": 10.9605,
+          "min_s": 10.912,
+          "user_s": 10.7825,
+          "max_rss_kb": 264348,
           "runs": [
-            11.7101,
-            11.0603,
-            11.613
+            10.912,
+            10.9605,
+            11.5274
           ],
           "threads": 1,
-          "instructions": 230904285197,
-          "cycles": 53718928578
+          "instructions": 230904270925,
+          "cycles": 55875908199
         },
         "plenty-idiomatic": {
-          "median_s": 20.3799,
-          "min_s": 20.3147,
-          "user_s": 20.0296,
-          "max_rss_kb": 395708,
+          "median_s": 20.1046,
+          "min_s": 20.0668,
+          "user_s": 19.767,
+          "max_rss_kb": 395716,
           "runs": [
-            20.3147,
-            20.524,
-            20.3799
+            20.0668,
+            20.1046,
+            20.4174
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 303739847799,
-          "cycles": 93702060731,
-          "ratio_to_reference": 1.755
+          "instructions": 296694060952,
+          "cycles": 93031537139,
+          "ratio_to_reference": 1.834
         }
       }
     },
@@ -70,50 +70,50 @@
       "reference_build": "clang -pipe -Wall -O3 -fomit-frame-pointer -march=native {source} -o {output}",
       "programs": {
         "reference": {
-          "median_s": 25.7068,
-          "min_s": 25.5352,
-          "user_s": 25.5905,
-          "max_rss_kb": 2076,
+          "median_s": 25.3987,
+          "min_s": 25.394,
+          "user_s": 25.2743,
+          "max_rss_kb": 2024,
           "runs": [
-            25.7133,
-            25.7068,
-            25.5352
+            25.3987,
+            25.394,
+            25.4387
           ],
           "threads": 1,
-          "instructions": 234458658892,
-          "cycles": 119724744916
+          "instructions": 234458644125,
+          "cycles": 118940068721
         },
         "plenty-idiomatic": {
-          "median_s": 24.8596,
-          "min_s": 24.7441,
-          "user_s": 24.7414,
-          "max_rss_kb": 2240,
+          "median_s": 24.2534,
+          "min_s": 24.1499,
+          "user_s": 24.1322,
+          "max_rss_kb": 2248,
           "runs": [
-            24.8596,
-            24.9384,
-            24.7441
+            24.2534,
+            24.2979,
+            24.1499
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 289019301113,
-          "cycles": 115665796422,
-          "ratio_to_reference": 0.967
+          "instructions": 264481092576,
+          "cycles": 113740900783,
+          "ratio_to_reference": 0.955
         },
         "plenty-parallel": {
-          "median_s": 2.9352,
-          "min_s": 2.9055,
-          "user_s": 22.7193,
-          "max_rss_kb": 2776,
+          "median_s": 2.7736,
+          "min_s": 2.7573,
+          "user_s": 21.3816,
+          "max_rss_kb": 2760,
           "runs": [
-            2.9055,
-            2.9352,
-            2.9794
+            2.8007,
+            2.7736,
+            2.7573
           ],
           "threads": 8,
           "matches_reference": true,
-          "instructions": 275132148719,
-          "cycles": 100500006064,
-          "ratio_to_reference": 0.114
+          "instructions": 241595664368,
+          "cycles": 95508201511,
+          "ratio_to_reference": 0.109
         }
       }
     },
@@ -124,34 +124,34 @@
       "reference_build": "rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 {source} -o {output}",
       "programs": {
         "reference": {
-          "median_s": 1.3451,
-          "min_s": 1.3404,
-          "user_s": 1.2346,
-          "max_rss_kb": 2244,
+          "median_s": 1.3347,
+          "min_s": 1.333,
+          "user_s": 1.2252,
+          "max_rss_kb": 2212,
           "runs": [
-            1.3451,
-            1.3461,
-            1.3404
+            1.3383,
+            1.3347,
+            1.333
           ],
           "threads": 1,
-          "instructions": 5263989159,
-          "cycles": 5766140187
+          "instructions": 5263974851,
+          "cycles": 5740106962
         },
         "plenty-idiomatic": {
-          "median_s": 2.3089,
-          "min_s": 2.3033,
-          "user_s": 2.209,
+          "median_s": 1.6349,
+          "min_s": 1.6228,
+          "user_s": 1.5309,
           "max_rss_kb": 2572,
           "runs": [
-            2.3109,
-            2.3033,
-            2.3089
+            1.6419,
+            1.6349,
+            1.6228
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 21865621939,
-          "cycles": 10356573985,
-          "ratio_to_reference": 1.717
+          "instructions": 10634921285,
+          "cycles": 7224067546,
+          "ratio_to_reference": 1.225
         }
       }
     },
@@ -162,50 +162,50 @@
       "reference_build": "rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 {source} -o {output}",
       "programs": {
         "reference": {
-          "median_s": 11.741,
-          "min_s": 11.5917,
-          "user_s": 37.5704,
-          "max_rss_kb": 157176,
+          "median_s": 11.4219,
+          "min_s": 11.1847,
+          "user_s": 37.0469,
+          "max_rss_kb": 156960,
           "runs": [
-            11.741,
-            11.5917,
-            12.554
+            11.4647,
+            11.1847,
+            11.4219
           ],
           "threads": 7,
-          "instructions": 329493732365,
-          "cycles": 168196024657
+          "instructions": 329469844746,
+          "cycles": 200663001707
         },
         "plenty-idiomatic": {
-          "median_s": 33.2001,
-          "min_s": 32.7642,
-          "user_s": 32.8246,
-          "max_rss_kb": 373244,
+          "median_s": 13.8724,
+          "min_s": 13.5429,
+          "user_s": 13.5874,
+          "max_rss_kb": 373120,
           "runs": [
-            33.9444,
-            32.7642,
-            33.2001
+            13.8724,
+            13.5429,
+            13.9956
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 619599544213,
-          "cycles": 151184304137,
-          "ratio_to_reference": 2.828
+          "instructions": 203575371262,
+          "cycles": 64016171882,
+          "ratio_to_reference": 1.215
         },
         "plenty-parallel": {
-          "median_s": 10.0893,
-          "min_s": 10.0285,
-          "user_s": 38.4011,
-          "max_rss_kb": 373032,
+          "median_s": 6.7358,
+          "min_s": 4.819,
+          "user_s": 19.875,
+          "max_rss_kb": 373040,
           "runs": [
-            10.0946,
-            10.0285,
-            10.0893
+            6.7358,
+            6.7422,
+            4.819
           ],
           "threads": 7,
           "matches_reference": true,
-          "instructions": 618560098529,
-          "cycles": 169170439428,
-          "ratio_to_reference": 0.859
+          "instructions": 205925437518,
+          "cycles": 78225754497,
+          "ratio_to_reference": 0.59
         }
       }
     },
@@ -216,34 +216,34 @@
       "reference_build": "clang -pipe -Wall -O3 -fomit-frame-pointer -march=native {source} -o {output}",
       "programs": {
         "reference": {
-          "median_s": 11.7174,
-          "min_s": 11.6641,
-          "user_s": 11.6481,
-          "max_rss_kb": 1964,
+          "median_s": 11.8028,
+          "min_s": 11.7754,
+          "user_s": 11.7206,
+          "max_rss_kb": 2024,
           "runs": [
-            11.7545,
-            11.7174,
-            11.6641
+            11.8671,
+            11.7754,
+            11.8028
           ],
           "threads": 1,
-          "instructions": 87290437244,
-          "cycles": 56003410333
+          "instructions": 87290422367,
+          "cycles": 55993375268
         },
         "plenty-idiomatic": {
-          "median_s": 11.9283,
-          "min_s": 11.928,
-          "user_s": 11.8504,
-          "max_rss_kb": 2124,
+          "median_s": 11.9171,
+          "min_s": 11.8848,
+          "user_s": 11.8273,
+          "max_rss_kb": 2312,
           "runs": [
-            11.928,
-            11.9283,
-            11.9669
+            12.0813,
+            11.8848,
+            11.9171
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 134101491769,
-          "cycles": 56571341948,
-          "ratio_to_reference": 1.018
+          "instructions": 132533298143,
+          "cycles": 56398225705,
+          "ratio_to_reference": 1.01
         }
       }
     },
@@ -254,67 +254,67 @@
       "reference_build": "rustc -C opt-level=3 -C target-cpu=native -C codegen-units=1 {source} -o {output}",
       "programs": {
         "reference": {
-          "median_s": 1.2879,
-          "min_s": 1.2806,
-          "user_s": 1.2815,
-          "max_rss_kb": 2152,
+          "median_s": 1.2966,
+          "min_s": 1.2901,
+          "user_s": 1.2886,
+          "max_rss_kb": 2208,
           "runs": [
-            1.2885,
-            1.2879,
-            1.2806
+            1.2901,
+            1.2982,
+            1.2966
           ],
           "threads": 1,
-          "instructions": 11450656279,
-          "cycles": 6113854305
+          "instructions": 11450641606,
+          "cycles": 6120774822
         },
         "plenty-idiomatic": {
-          "median_s": 2.5753,
-          "min_s": 2.5743,
-          "user_s": 2.5634,
-          "max_rss_kb": 2388,
+          "median_s": 2.6014,
+          "min_s": 2.5915,
+          "user_s": 2.5873,
+          "max_rss_kb": 2452,
           "runs": [
-            2.5753,
-            2.5743,
-            2.5766
+            2.6156,
+            2.5915,
+            2.6014
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 34550733258,
-          "cycles": 12179798294,
-          "ratio_to_reference": 2.0
+          "instructions": 32100715842,
+          "cycles": 12235565055,
+          "ratio_to_reference": 2.006
         },
         "plenty-clist": {
-          "median_s": 6.0954,
-          "min_s": 6.0908,
-          "user_s": 6.0694,
-          "max_rss_kb": 2448,
+          "median_s": 4.0697,
+          "min_s": 4.0558,
+          "user_s": 4.0484,
+          "max_rss_kb": 2628,
           "runs": [
-            6.0954,
-            6.1172,
-            6.0908
+            4.0697,
+            4.0558,
+            4.1154
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 128350719744,
-          "cycles": 28499327109,
-          "ratio_to_reference": 4.733
+          "instructions": 78900699749,
+          "cycles": 18876410403,
+          "ratio_to_reference": 3.139
         },
         "plenty-unchecked": {
-          "median_s": 3.5158,
-          "min_s": 3.4974,
-          "user_s": 3.4997,
-          "max_rss_kb": 2308,
+          "median_s": 2.9282,
+          "min_s": 2.9251,
+          "user_s": 2.9126,
+          "max_rss_kb": 2508,
           "runs": [
-            3.5158,
-            3.4974,
-            3.5497
+            2.9485,
+            2.9282,
+            2.9251
           ],
           "threads": 1,
           "matches_reference": true,
           "flags": "--unchecked assume",
-          "instructions": 59900717394,
-          "cycles": 16806446022,
-          "ratio_to_reference": 2.73
+          "instructions": 50600699251,
+          "cycles": 13681827405,
+          "ratio_to_reference": 2.258
         }
       }
     },
@@ -333,34 +333,34 @@
       "reference_build": "cargo build --offline --locked --release --manifest-path reference/Cargo.toml (RUSTFLAGS='-C target-cpu=native')",
       "programs": {
         "reference": {
-          "median_s": 0.7377,
-          "min_s": 0.7269,
-          "user_s": 0.6498,
-          "max_rss_kb": 154168,
+          "median_s": 0.7382,
+          "min_s": 0.7362,
+          "user_s": 0.6276,
+          "max_rss_kb": 154080,
           "runs": [
-            0.7443,
-            0.7269,
-            0.7377
+            0.7362,
+            0.7451,
+            0.7382
           ],
           "threads": 9,
-          "instructions": 8411362082,
-          "cycles": 2919182388
+          "instructions": 8411347362,
+          "cycles": 2964764129
         },
         "plenty-idiomatic": {
-          "median_s": 3.3332,
-          "min_s": 3.3262,
-          "user_s": 2.9688,
-          "max_rss_kb": 344384,
+          "median_s": 3.3994,
+          "min_s": 3.3402,
+          "user_s": 3.0404,
+          "max_rss_kb": 344084,
           "runs": [
-            3.3332,
-            3.3262,
-            3.3625
+            3.3402,
+            3.3994,
+            3.4544
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 49386911273,
-          "cycles": 14223197058,
-          "ratio_to_reference": 4.518
+          "instructions": 47918462098,
+          "cycles": 13851604109,
+          "ratio_to_reference": 4.605
         }
       }
     },
@@ -371,34 +371,34 @@
       "reference_build": "clang -pipe -Wall -O3 -fomit-frame-pointer -march=native {source} -o {output}",
       "programs": {
         "reference": {
-          "median_s": 0.3771,
-          "min_s": 0.3709,
-          "user_s": 0.1542,
+          "median_s": 0.3895,
+          "min_s": 0.3832,
+          "user_s": 0.1551,
           "max_rss_kb": 249744,
           "runs": [
-            0.3829,
-            0.3771,
-            0.3709
+            0.3988,
+            0.3895,
+            0.3832
           ],
           "threads": 1,
-          "instructions": 3617210073,
-          "cycles": 725720744
+          "instructions": 3617194686,
+          "cycles": 722154408
         },
         "plenty-idiomatic": {
-          "median_s": 0.5463,
-          "min_s": 0.5424,
-          "user_s": 0.3374,
-          "max_rss_kb": 251176,
+          "median_s": 0.411,
+          "min_s": 0.4099,
+          "user_s": 0.1949,
+          "max_rss_kb": 251120,
           "runs": [
-            0.5463,
-            0.5501,
-            0.5424
+            0.4161,
+            0.411,
+            0.4099
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 6554312304,
-          "cycles": 1574938092,
-          "ratio_to_reference": 1.449
+          "instructions": 4884709428,
+          "cycles": 879379594,
+          "ratio_to_reference": 1.055
         }
       }
     },
@@ -409,34 +409,34 @@
       "reference_build": "clang -pipe -Wall -O3 -fomit-frame-pointer -march=native {source} -o {output} -lm",
       "programs": {
         "reference": {
-          "median_s": 1.1603,
-          "min_s": 1.1574,
-          "user_s": 1.155,
-          "max_rss_kb": 2400,
+          "median_s": 1.1812,
+          "min_s": 1.1784,
+          "user_s": 1.1736,
+          "max_rss_kb": 2316,
           "runs": [
-            1.1646,
-            1.1574,
-            1.1603
+            1.1812,
+            1.1849,
+            1.1784
           ],
           "threads": 1,
-          "instructions": 10906924500,
-          "cycles": 5549087858
+          "instructions": 10906909125,
+          "cycles": 5546863615
         },
         "plenty-idiomatic": {
-          "median_s": 1.1683,
-          "min_s": 1.1683,
-          "user_s": 1.162,
-          "max_rss_kb": 2520,
+          "median_s": 1.1985,
+          "min_s": 1.1925,
+          "user_s": 1.1912,
+          "max_rss_kb": 2652,
           "runs": [
-            1.1683,
-            1.1683,
-            1.1704
+            1.2004,
+            1.1985,
+            1.1925
           ],
           "threads": 1,
           "matches_reference": true,
-          "instructions": 20582641604,
-          "cycles": 5522473925,
-          "ratio_to_reference": 1.007
+          "instructions": 20581251023,
+          "cycles": 5640992512,
+          "ratio_to_reference": 1.015
         }
       }
     }
