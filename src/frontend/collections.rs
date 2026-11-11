@@ -18,6 +18,12 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 /// move a list (a list mutation other than a row write, a write to the
 /// binding, a call that could reach it), `uncache` restores ordinary indexed
 /// access for that list.
+///
+/// A cache that survives its loop is read before that loop and offered to
+/// the enclosing one, if the binding precedes it too. When the enclosing
+/// loop passes the same test, it takes the read over: the read moves before
+/// it, and inner loops that cached the same place share it (issue #943).
+/// Otherwise the read stays where it is.
 pub(super) struct IndexedLists {
     before: usize,
     views: HashMap<(u8, Vec<usize>), [u8; 2]>,
@@ -33,6 +39,10 @@ pub(super) struct IndexedLists {
     stop: Option<((u8, Vec<usize>), u8)>,
     setup: Vec<Op>,
     provisional: Vec<Provisional>,
+    /// Caches that finished inner loops kept and this loop may take over.
+    offered: Vec<Offer>,
+    /// The slots `setup` reads each takeable part into.
+    read: HashMap<Part, Vec<u8>>,
     /// Callees of the direct calls lowered in this loop, in any order. The
     /// finished loop must call exactly these, so every call was classified.
     calls: Vec<String>,
@@ -40,15 +50,44 @@ pub(super) struct IndexedLists {
     reaches: Vec<Reach>,
 }
 
-/// A provisionally cached list, or clist row count or column, rooted at
-/// binding `source`.
+/// What a cache's setup reads. Caches of one part hold equal values while
+/// nothing replaces, resizes or moves the place.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Part {
+    /// A list's or `Bytes` buffer's length and row address.
+    Rows((u8, Vec<usize>)),
+    /// A clist's row count.
+    Count((u8, Vec<usize>)),
+    /// The address of a clist's column for one field.
+    Column((u8, Vec<usize>), usize),
+}
+
+/// A cached list, or clist row count or column, rooted at binding `source`,
+/// that the finished loop decides on.
 struct Provisional {
     source: u8,
-    /// The length slot, and the rows or column slot.
-    view: [u8; 2],
+    part: Part,
+    /// The length slot of the cached accesses `uncache` restores.
+    length: u8,
+    /// The slots `setup` stores, in a fixed order for the part.
+    slots: Vec<u8>,
     setup: Vec<Op>,
     /// The owner a reference `source` borrows from, if it has a loan.
     owner: Option<u8>,
+    /// Whether the place cannot change while its binding lives, so every
+    /// loop keeps the cache.
+    stable: bool,
+    /// Whether a loop that encloses this one may take the setup over. A
+    /// length taken from the loop's range stop belongs to that loop, and a
+    /// `Bytes` read is not an operation `Scan` accepts.
+    takeable: bool,
+}
+
+/// A cache an inner loop kept, with the operations `inner` that loop's
+/// setup holds for it: the read itself, or copies of another cache's slots.
+struct Offer {
+    entry: Provisional,
+    inner: Vec<Op>,
 }
 
 /// A list or clist place a loop may cache; see [`Lower::cached_place`].
@@ -83,6 +122,8 @@ impl IndexedLists {
             stop: None,
             setup: Vec::new(),
             provisional: Vec::new(),
+            offered: Vec::new(),
+            read: HashMap::default(),
             calls: Vec::new(),
             reaches: Vec::new(),
         }
@@ -103,34 +144,93 @@ impl IndexedLists {
 
     /// Ends the loop whose `parts` (condition, body, step) were lowered under
     /// this context; returns the setup to run before it. Rewrites the parts
-    /// to ordinary indexed access for lists whose rows the loop may change.
+    /// to ordinary indexed access for lists whose rows the loop may change,
+    /// and removes from them the setups this loop takes over from inner
+    /// loops. Offers the caches it keeps to `parent`, the enclosing loop.
     ///
     /// Also returns the `Bytes` methods it restored as calls, which enclosing
     /// loops must classify like any other call.
-    pub(super) fn finish(mut self, parts: &mut [&mut Vec<Op>]) -> (Vec<Op>, Vec<String>) {
+    pub(super) fn finish(
+        mut self,
+        parts: &mut [&mut Vec<Op>],
+        mut parent: Option<&mut IndexedLists>,
+    ) -> (Vec<Op>, Vec<String>) {
         let mut restored = Vec::new();
-        if self.provisional.is_empty() {
+        if self.provisional.is_empty() && self.offered.is_empty() {
             return (self.setup, restored);
         }
-        let mut scan = Scan {
-            stable: true,
-            stored: Vec::new(),
-            calls: Vec::new(),
+        let provisional = std::mem::take(&mut self.provisional);
+        let offered = std::mem::take(&mut self.offered);
+        let stable = provisional.iter().all(|entry| entry.stable)
+            && offered.iter().all(|offer| offer.entry.stable);
+        // Without a provisional place, every cache is kept unseen.
+        let (unchanged, stored) = if stable {
+            (true, Vec::new())
+        } else {
+            let mut scan = Scan {
+                stable: true,
+                stored: Vec::new(),
+                calls: Vec::new(),
+            };
+            for ops in parts.iter() {
+                scan.ops(ops);
+            }
+            let mut called = std::mem::take(&mut scan.calls);
+            called.sort_unstable();
+            self.calls.sort_unstable();
+            (scan.stable && called == self.calls, scan.stored)
         };
-        for ops in parts.iter() {
-            scan.ops(ops);
-        }
-        let mut called = std::mem::take(&mut scan.calls);
-        called.sort_unstable();
-        self.calls.sort_unstable();
-        let classified = called == self.calls;
+        let keeps = |context: &Self, entry: &Provisional| {
+            entry.stable || unchanged && !context.resized(entry) && !stored.contains(&entry.source)
+        };
+        let mut kept = Vec::new();
         let mut lengths = Vec::new();
-        for entry in std::mem::take(&mut self.provisional) {
-            let reached = self.resized(&entry);
-            if scan.stable && classified && !reached && !scan.stored.contains(&entry.source) {
-                self.setup.extend(entry.setup);
+        for entry in provisional {
+            if keeps(&self, &entry) {
+                kept.push(entry);
             } else {
-                lengths.push(entry.view[0]);
+                lengths.push(entry.length);
+            }
+        }
+        // An offer this loop cannot keep stays in the inner loop's setup.
+        let mut taken = Vec::new();
+        for offer in offered {
+            if keeps(&self, &offer.entry) {
+                taken.push(offer.inner);
+                kept.push(offer.entry);
+            }
+        }
+        if !taken.is_empty() {
+            for ops in parts.iter_mut() {
+                if let Some(remaining) = without_setups(ops, &taken) {
+                    **ops = remaining;
+                }
+            }
+        }
+        for entry in kept {
+            let before = self.setup.len();
+            match self.read.get(&entry.part).filter(|_| entry.takeable) {
+                // Another cache already read this part before this loop.
+                Some(slots) => {
+                    for (&from, &to) in slots.iter().zip(&entry.slots) {
+                        self.setup.extend([Op::LoadLocal(from), Op::StoreLocal(to)]);
+                    }
+                }
+                None => {
+                    self.setup.extend(entry.setup.iter().cloned());
+                    if entry.takeable {
+                        self.read.insert(entry.part.clone(), entry.slots.clone());
+                    }
+                }
+            }
+            if entry.takeable
+                && let Some(parent) = parent.as_deref_mut()
+                && usize::from(entry.source) < parent.before
+            {
+                parent.offered.push(Offer {
+                    inner: self.setup[before..].to_vec(),
+                    entry,
+                });
             }
         }
         if !lengths.is_empty() {
@@ -140,6 +240,80 @@ impl IndexedLists {
         }
         (self.setup, restored)
     }
+}
+
+/// `ops` without the sequences `setups`, at any depth of nested loops and
+/// branches; `None` when it holds none of them. Each sequence stores a slot
+/// nothing else stores, so only an inner loop's setup matches.
+fn without_setups(ops: &[Op], setups: &[Vec<Op>]) -> Option<Vec<Op>> {
+    let nested = |ops: &Arc<[Op]>| without_setups(ops, setups).map(Arc::<[Op]>::from);
+    let or = |changed: Option<Arc<[Op]>>, ops: &Arc<[Op]>| changed.unwrap_or_else(|| ops.clone());
+    let mut remaining: Option<Vec<Op>> = None;
+    let mut i = 0;
+    while i < ops.len() {
+        if let Some(setup) = setups.iter().find(|setup| ops[i..].starts_with(setup)) {
+            remaining.get_or_insert_with(|| ops[..i].to_vec());
+            i += setup.len();
+            continue;
+        }
+        let changed = match &ops[i] {
+            Op::Loop { condition, body } => {
+                let (new_condition, new_body) = (nested(condition), nested(body));
+                (new_condition.is_some() || new_body.is_some()).then(|| Op::Loop {
+                    condition: or(new_condition, condition),
+                    body: or(new_body, body),
+                })
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                let (new_then, new_otherwise) = (nested(then), nested(otherwise));
+                let arms: Vec<_> = elifs
+                    .iter()
+                    .map(|arm| (nested(&arm.condition), nested(&arm.body)))
+                    .collect();
+                let any = new_then.is_some()
+                    || new_otherwise.is_some()
+                    || arms.iter().any(|(c, b)| c.is_some() || b.is_some());
+                any.then(|| Op::If {
+                    then: or(new_then, then),
+                    elifs: elifs
+                        .iter()
+                        .zip(arms)
+                        .map(|(arm, (condition, body))| crate::op::ElifArm {
+                            condition: or(condition, &arm.condition),
+                            body: or(body, &arm.body),
+                        })
+                        .collect(),
+                    otherwise: or(new_otherwise, otherwise),
+                })
+            }
+            Op::Match(arms) => {
+                let bodies: Vec<_> = arms.iter().map(|arm| nested(&arm.body)).collect();
+                bodies.iter().any(Option::is_some).then(|| {
+                    Op::Match(
+                        arms.iter()
+                            .zip(bodies)
+                            .map(|(arm, body)| crate::op::MatchArm {
+                                pattern: arm.pattern,
+                                body: or(body, &arm.body),
+                            })
+                            .collect(),
+                    )
+                })
+            }
+            _ => None,
+        };
+        match (changed, &mut remaining) {
+            (Some(op), _) => remaining.get_or_insert_with(|| ops[..i].to_vec()).push(op),
+            (None, Some(remaining)) => remaining.push(ops[i].clone()),
+            (None, None) => {}
+        }
+        i += 1;
+    }
+    remaining
 }
 
 /// The finished loop's operations, as they affect cached lists.
@@ -248,6 +422,8 @@ impl Scan {
                 | Op::Drop
                 | Op::Dup
                 | Op::Swap
+                // An inner `range` loop's count: integer arithmetic.
+                | Op::RangeLength(_)
                 | Op::LoadLocal(_)
                 | Op::BorrowLocal(..)
                 | Op::Loop { .. }
@@ -3399,7 +3575,8 @@ impl Lower<'_> {
 
     /// Ends the innermost loop's list cache; see [`IndexedLists::finish`].
     pub(super) fn finish_loop(&mut self, parts: &mut [&mut Vec<Op>]) -> Vec<Op> {
-        let (setup, restored) = self.indexed_lists.pop().unwrap().finish(parts);
+        let finished = self.indexed_lists.pop().unwrap();
+        let (setup, restored) = finished.finish(parts, self.indexed_lists.last_mut());
         // A byte access is not resizing, so the call reaches nothing.
         for callee in &restored {
             for context in &mut self.indexed_lists {
@@ -3467,14 +3644,18 @@ impl Lower<'_> {
         for context in &mut self.indexed_lists[home..] {
             context.views.insert(place.key.clone(), view);
         }
-        Self::cache_setup(&mut self.indexed_lists[home], &place, view, setup);
+        let part = Part::Rows(place.key.clone());
+        let context = &mut self.indexed_lists[home];
+        Self::cache_setup(context, &place, part, view, stop.is_none(), setup);
         Ok(Some(view))
     }
 
     /// The cached (row count, column address) slots for `base[i].field` on
     /// the clist `base` of type `ty` inside the innermost loop, if it
-    /// qualifies; see [`IndexedLists`]. Called before `base` is borrowed for
-    /// the access, since caching borrows it.
+    /// qualifies; see [`IndexedLists`]. A shared reference's caches are kept
+    /// by every loop, so they reach the outermost loop the binding precedes.
+    /// Called before `base` is borrowed for the access, since caching
+    /// borrows it.
     pub(super) fn indexed_clist_view(
         &mut self,
         base: &Expr,
@@ -3490,36 +3671,53 @@ impl Lower<'_> {
         if let (Some(length), Some(&column)) = (length, context.columns.get(&column_key)) {
             return Ok(Some([length, column]));
         }
-        let mut setup = Vec::new();
-        self.mark(&base.at, &mut setup);
-        let mut reads = Vec::new();
+        // The row count and each column are separate caches, so an
+        // enclosing loop shares each between its inner loops.
+        let mut caches = Vec::new();
         let length = match length {
             Some(length) => length,
             None => {
                 let slot = self.slot(Ty::I64, &base.at)?;
-                match self.cached_stop(&place.key) {
-                    Some(stop) => setup.extend([Op::LoadLocal(stop), Op::StoreLocal(slot)]),
-                    None => reads.push((ClistOp::Len(ty.clone()), slot)),
-                }
+                let stop = self.cached_stop(&place.key);
+                let part = Part::Count(place.key.clone());
+                caches.push((part, slot, ClistOp::Len(ty.clone()), stop));
                 slot
             }
         };
         let column = self.slot(Ty::I64, &base.at)?;
-        reads.push((ClistOp::Column(ty.clone(), field), column));
-        for (operation, slot) in reads {
-            let (_, loan) = self.borrow(base, false, &mut setup)?;
-            setup.extend([
-                Op::Collection(CollectionOp::Clist(operation)),
-                Op::StoreLocal(slot),
-                Op::UseLoan(loan),
-            ]);
+        let part = Part::Column(place.key.clone(), field);
+        caches.push((part, column, ClistOp::Column(ty.clone(), field), None));
+        for (part, slot, operation, stop) in caches {
+            let mut setup = Vec::new();
+            self.mark(&base.at, &mut setup);
+            match stop {
+                Some(stop) => setup.extend([Op::LoadLocal(stop), Op::StoreLocal(slot)]),
+                None => {
+                    let (_, loan) = self.borrow(base, false, &mut setup)?;
+                    setup.extend([
+                        Op::Collection(CollectionOp::Clist(operation)),
+                        Op::StoreLocal(slot),
+                        Op::UseLoan(loan),
+                    ]);
+                }
+            }
+            let context = self.indexed_lists.last_mut().unwrap();
+            let entry = Provisional {
+                source: place.source,
+                part,
+                length,
+                slots: vec![slot],
+                setup,
+                owner: place.owner,
+                stable: place.stable,
+                takeable: stop.is_none(),
+            };
+            context.provisional.push(entry);
         }
         let context = self.indexed_lists.last_mut().unwrap();
         context.clist_lengths.insert(place.key.clone(), length);
         context.columns.insert(column_key, column);
-        let view = [length, column];
-        Self::cache_setup(context, &place, view, setup);
-        Ok(Some(view))
+        Ok(Some([length, column]))
     }
 
     /// The cached (length, first-byte address) slots for `base.get(i)` and
@@ -3555,7 +3753,8 @@ impl Lower<'_> {
         }
         let context = self.indexed_lists.last_mut().unwrap();
         context.views.insert(place.key.clone(), view);
-        Self::cache_setup(context, &place, view, setup);
+        let part = Part::Rows(place.key.clone());
+        Self::cache_setup(context, &place, part, view, false, setup);
         Ok(Some(view))
     }
 
@@ -3617,17 +3816,29 @@ impl Lower<'_> {
             .map(|(_, stop)| *stop)
     }
 
-    /// Adds a cached place's `setup` to the loop: at once when the place is
-    /// stable, otherwise provisionally; see [`IndexedLists`].
-    fn cache_setup(context: &mut IndexedLists, place: &CachedPlace, view: [u8; 2], setup: Vec<Op>) {
+    /// Adds the `setup` of a cached list or `Bytes` place to the loop: at
+    /// once when the place is stable, otherwise provisionally; see
+    /// [`IndexedLists`].
+    fn cache_setup(
+        context: &mut IndexedLists,
+        place: &CachedPlace,
+        part: Part,
+        view: [u8; 2],
+        takeable: bool,
+        setup: Vec<Op>,
+    ) {
         if place.stable {
             context.setup.extend(setup);
         } else {
             context.provisional.push(Provisional {
                 source: place.source,
-                view,
+                part,
+                length: view[0],
+                slots: view.to_vec(),
                 setup,
                 owner: place.owner,
+                stable: false,
+                takeable,
             });
         }
     }

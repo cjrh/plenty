@@ -136,6 +136,23 @@ ordinary locals rather than in loads marked `readonly`: Cranelift treats a
 `readonly` load as valid for the whole function, which a later `append` would
 violate.
 
+A loop that keeps a cache offers it to the enclosing loop (issue #943). When
+the binding precedes the enclosing loop and that loop passes the same test
+over all of its operations, the header reads are removed from before the
+inner loop and emitted before the enclosing one, which offers them outward in
+turn. Otherwise they stay where they were. Sibling loops that cache the same
+list, clist row count or clist column share one read: later ones copy the
+cached locals. Three caches stay before their own loop: a length that is the
+loop's `range(len(xs))` stop, because the
+[range bounds proof](../../facilities/01-builtins/lists.md) needs the stop and
+the length in one local; a `Bytes` cache; and any cache in a loop the test
+rejects, such as a `for` loop over a collection. An inner `range` loop's
+`RangeLength` passes the test.
+
+Where the [guarded numerical state pass](numerical-loops.md) replaces the
+outer loop, it returns these reads to the fallback path, so its guarded
+version carries no cached header.
+
 After a successful row bounds check, the original `i64` index cannot equal
 `i64.MAX`: collection/view lengths fit in `i64`, and negative-index
 normalization cannot admit a positive maximum. While the cached check still
