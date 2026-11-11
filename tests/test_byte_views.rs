@@ -324,3 +324,33 @@ fn unproven_cached_indexes_trap_at_the_call() {
         assert_eq!(String::from_utf8_lossy(&output.stdout), "4\n");
     }
 }
+
+// Issue #939: the failing arm is one block that calls the method and has no
+// successor, which the register allocator keeps from constraining the loop.
+// Lowering the method's body there instead spread it over blocks that stay
+// in the loop: a second length call and the runtime's store.
+#[test]
+fn failing_cached_index_calls_the_method_out_of_line() {
+    let asm = dump(TRAPS, &["--release"], "asm");
+    for (function, method, runtime) in [
+        ("read", "Bytes.get", "plenty_bytes_get"),
+        ("write", "Bytes.set", "plenty_bytes_set"),
+    ] {
+        let body = support::asm_body(&asm, function);
+        let calls = |symbol: &str| {
+            body.lines()
+                .filter(|line| support::native_call(line) && line.contains(symbol))
+                .count()
+        };
+        assert_eq!(calls(method), 1, "{function}:\n{body}");
+        assert_eq!(calls("plenty_bytes_len"), 1, "{function}:\n{body}");
+        assert_eq!(calls(runtime), 0, "{function}:\n{body}");
+        assert_eq!(calls("plenty_trap"), 0, "{function}:\n{body}");
+        // The call's arguments wait in a stack slot across the context call.
+        // Kept in registers they would be live across it, and the allocator
+        // then moves the cached row address on every pass and closes the
+        // loop with a jump.
+        let hot = body.split_once(" ret").unwrap().0;
+        assert!(!hot.contains(" jmp "), "{function}:\n{body}");
+    }
+}

@@ -193,8 +193,11 @@ Fixed here: ... Upstream: ... Remaining issues: #...
   path, because regalloc2 keeps the value in the call's fixed argument
   register. The regalloc2 fork prevents this for a cold block that ends the
   function (a trap or return entered from inside a loop); a cold block that
-  rejoins the loop still has the cost (issue #939). PR #917 passes
-  list-index failure operands through a stack slot, which predates the fork's
-  fix.
+  rejoins the loop still has the cost, so keep a failing arm that traps as
+  one block rather than an inlined body. A value such a block passes after
+  another call in the same block is live across that call and still costs
+  moves in the loop: store it to a stack slot first (PR #917 for list-index
+  failures, issue #939 for a method call after `plenty_caller_enter`;
+  `experiments/kernels/bytes-literals/`).
 - Iterating a collection directly (`for x in xs`) has no bounds check;
   indexing in a loop has one unless the compiler proves it unnecessary.
