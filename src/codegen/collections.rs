@@ -1406,7 +1406,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::TryInsert(_)
                 | CollectionOp::ListTryInsert(_)
                 | CollectionOp::DictGetOrInsert(_)
-                | CollectionOp::DictGetOrInsertUtf8(_)
+                | CollectionOp::DictGetOrInsertBytes(_)
         );
         let mut values = Vec::new();
         let mut held = Vec::new();
@@ -1549,10 +1549,10 @@ impl Lowerer<'_, '_> {
             let text = matches!(inputs[1], Ty::Str) && !inputs[2].affine();
             let result = self.get_or_insert_call(&arguments, text);
             self.get_or_insert_hit(result, &values[1..], &inputs[1..], false)
-        } else if let CollectionOp::DictGetOrInsertUtf8(_) = operation {
+        } else if let CollectionOp::DictGetOrInsertBytes(_) = operation {
             // The key is a view, which owns nothing. A hit leaves the
             // default with the caller whether or not it is affine.
-            let result = self.get_or_insert_utf8_call(&arguments);
+            let result = self.get_or_insert_bytes_call(&arguments);
             self.get_or_insert_hit(result, &values[2..], &inputs[2..], true)
         } else {
             self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?
@@ -1616,22 +1616,22 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().iconcat(low, high)
     }
 
-    /// `dict[str, V].get_or_insert_utf8` through
-    /// `plenty_dict_get_or_insert_utf8` (issue #949): the view's address and
+    /// `dict[str, V].get_or_insert_bytes` through
+    /// `plenty_dict_get_or_insert_bytes` (issue #949): the view's address and
     /// count and the default travel in registers.
-    fn get_or_insert_utf8_call(
+    fn get_or_insert_bytes_call(
         &mut self,
         arguments: &[cranelift_codegen::ir::Value],
     ) -> cranelift_codegen::ir::Value {
         let &[dictionary, view, value] = arguments else {
-            unreachable!("get_or_insert_utf8 takes the dictionary, a view and a default")
+            unreachable!("get_or_insert_bytes takes the dictionary, a view and a default")
         };
         let (dictionary, _) = self.bcx.ins().isplit(dictionary);
         let (address, count) = self.bcx.ins().isplit(view);
         let (value_low, value_high) = self.bcx.ins().isplit(value);
         let function = self
             .module
-            .declare_func_in_func(self.runtime.dict_get_or_insert_utf8, self.bcx.func);
+            .declare_func_in_func(self.runtime.dict_get_or_insert_bytes, self.bcx.func);
         let call = self.bcx.ins().call(
             function,
             &[dictionary, address, count, value_low, value_high],

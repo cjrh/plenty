@@ -1148,9 +1148,9 @@ struct Runtime {
     /// `plenty_dict_get_or_insert(dictionary, key, value) -> (low, high)`:
     /// the dispatcher's result words for `dict.get_or_insert`.
     dict_get_or_insert: FuncId,
-    /// `plenty_dict_get_or_insert_utf8(dictionary, address, count, value)`:
-    /// the result words of `dict[str, V].get_or_insert_utf8` (issue #949).
-    dict_get_or_insert_utf8: FuncId,
+    /// `plenty_dict_get_or_insert_bytes(dictionary, address, count, value)`:
+    /// the result words of `dict[str, V].get_or_insert_bytes` (issue #949).
+    dict_get_or_insert_bytes: FuncId,
     /// `plenty_dict_get_or_insert_text(dictionary, key word, value)`: the
     /// same for a `str` key and a value type that is not affine.
     dict_get_or_insert_text: FuncId,
@@ -1488,9 +1488,9 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             "plenty_dict_get_or_insert",
             &[PTR_TY, types::I64, types::I64, types::I64, types::I64],
         )?,
-        dict_get_or_insert_utf8: pair_helper(
+        dict_get_or_insert_bytes: pair_helper(
             module,
-            "plenty_dict_get_or_insert_utf8",
+            "plenty_dict_get_or_insert_bytes",
             &[PTR_TY, PTR_TY, types::I64, types::I64, types::I64],
         )?,
         dict_get_or_insert_text: pair_helper(

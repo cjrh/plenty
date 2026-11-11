@@ -509,7 +509,7 @@ fn a_heap_key_hit_compares_every_length_class() {
     assert_heap_key_hits::<40>();
 }
 
-// Issue #949: `get_or_insert_utf8` hashes a key's bytes where they lie. The
+// Issue #949: `get_or_insert_bytes` hashes a key's bytes where they lie. The
 // hash must be the one the owned `str` gets, inline or heap, at every length
 // class of the block loop and the final block.
 #[test]
@@ -532,7 +532,7 @@ fn key_bytes_hash_as_the_owned_text_does() {
 // each call hashes once. A miss that is not UTF-8 stores nothing, also when
 // a bucket with its hash bits already exists.
 #[test]
-fn get_or_insert_utf8_agrees_with_the_owned_key_at_every_length() {
+fn get_or_insert_bytes_agrees_with_the_owned_key_at_every_length() {
     let owner = OwnedValue {
         value: try_collection_new(&COUNTS, 0).unwrap() as u128,
         ty: &COUNTS,
@@ -544,7 +544,7 @@ fn get_or_insert_utf8_agrees_with_the_owned_key_at_every_length() {
     unsafe {
         let borrowed = |bytes: &[u8], value: u64| {
             let before = HASHES.with(std::cell::Cell::get);
-            let words = plenty_dict_get_or_insert_utf8(
+            let words = plenty_dict_get_or_insert_bytes(
                 reference,
                 bytes.as_ptr(),
                 bytes.len() as u64,

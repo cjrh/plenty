@@ -1836,7 +1836,7 @@ unsafe extern "C" fn get_or_insert_text(
     byte_storage::Words::new(result)
 }
 
-/// `dict[str, V].get_or_insert_utf8(source, default)` (issue #949): the
+/// `dict[str, V].get_or_insert_bytes(source, default)` (issue #949): the
 /// words of `Result[&mut V, DataError]`, with the high word
 /// `GET_OR_INSERT_HIT` on a hit. The key's bytes are hashed and compared in
 /// place; a `str` is built from them only on a miss.
@@ -1845,7 +1845,7 @@ unsafe extern "C" fn get_or_insert_text(
 /// call. Stored keys are valid UTF-8, so bytes equal to one need no
 /// validation. The caller keeps the default on a hit and releases it.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn plenty_dict_get_or_insert_utf8(
+unsafe extern "C" fn plenty_dict_get_or_insert_bytes(
     reference: *const u128,
     address: *const u8,
     count: u64,
@@ -1878,42 +1878,42 @@ unsafe extern "C" fn plenty_dict_get_or_insert_utf8(
                     return byte_storage::Words(slot as u64, GET_OR_INSERT_HIT as u64);
                 }
             }
-            return get_or_insert_utf8_probed(
+            return get_or_insert_bytes_probed(
                 reference, address, count, value_low, value_high, hash,
             );
         }
-        get_or_insert_utf8_unhashed(reference, address, count, value_low, value_high)
+        get_or_insert_bytes_unhashed(reference, address, count, value_low, value_high)
     }
 }
 
-/// `plenty_dict_get_or_insert_utf8` for an empty table or the first hash of
+/// `plenty_dict_get_or_insert_bytes` for an empty table or the first hash of
 /// the process.
 #[inline(never)]
-unsafe extern "C" fn get_or_insert_utf8_unhashed(
+unsafe extern "C" fn get_or_insert_bytes_unhashed(
     reference: *const u128,
     address: *const u8,
     count: u64,
     value_low: u64,
     value_high: u64,
 ) -> byte_storage::Words {
-    // SAFETY: forwarded from `plenty_dict_get_or_insert_utf8`.
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_bytes`.
     unsafe {
         #[cfg(test)]
         HASHES.with(|count| count.set(count.get() + 1));
         let bytes = byte_storage::view_bytes(address as usize as u128 | u128::from(count) << 64);
         let hash = hashing::hash_text_bytes(bytes);
-        get_or_insert_utf8_probed(reference, address, count, value_low, value_high, hash)
+        get_or_insert_bytes_probed(reference, address, count, value_low, value_high, hash)
     }
 }
 
-/// `plenty_dict_get_or_insert_utf8` when the first candidate did not answer:
+/// `plenty_dict_get_or_insert_bytes` when the first candidate did not answer:
 /// the whole probe by byte comparison, then the miss. A miss validates the
 /// bytes before anything is stored: invalid UTF-8 returns
 /// `DataError.InvalidUtf8` and a failed key or row allocation returns
 /// `DataError.Allocation`, both with the default dropped and the dictionary
 /// unchanged.
 #[inline(never)]
-unsafe extern "C" fn get_or_insert_utf8_probed(
+unsafe extern "C" fn get_or_insert_bytes_probed(
     reference: *const u128,
     address: *const u8,
     count: u64,
@@ -1921,7 +1921,7 @@ unsafe extern "C" fn get_or_insert_utf8_probed(
     value_high: u64,
     hash: u64,
 ) -> byte_storage::Words {
-    // SAFETY: forwarded from `plenty_dict_get_or_insert_utf8`.
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_bytes`.
     let result = unsafe {
         let c = &mut *(*reference as *mut Collection);
         let bytes = byte_storage::view_bytes(address as usize as u128 | u128::from(count) << 64);
@@ -3645,8 +3645,8 @@ pub(crate) unsafe fn collection_at(
             // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
             // code tests to release its copyable operands and then clears.
             DICT_GET_OR_INSERT => get_or_insert(a as *const u128, b, value),
-            DICT_GET_OR_INSERT_UTF8 => {
-                let words = plenty_dict_get_or_insert_utf8(
+            DICT_GET_OR_INSERT_BYTES => {
+                let words = plenty_dict_get_or_insert_bytes(
                     a as *const u128,
                     b as u64 as usize as *const u8,
                     (b >> 64) as u64,

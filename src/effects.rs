@@ -221,7 +221,7 @@ impl CollectionOp {
             | DictGetRef(..)
             | ListGetRef(..)
             | DictGetOrInsert(_)
-            | DictGetOrInsertUtf8(_)
+            | DictGetOrInsertBytes(_)
             | ListPop(_)
             | SetDiscard(_)
             | ListReverse(_)

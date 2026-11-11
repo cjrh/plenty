@@ -4773,8 +4773,8 @@ impl Lower<'_> {
         if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
             return self.dict_get_or_insert(base, args, ops).map(Some);
         }
-        if name == "get_or_insert_utf8" && matches!(collection, Some(Ty::Dict(..))) {
-            return self.dict_get_or_insert_utf8(base, args, ops).map(Some);
+        if name == "get_or_insert_bytes" && matches!(collection, Some(Ty::Dict(..))) {
+            return self.dict_get_or_insert_bytes(base, args, ops).map(Some);
         }
         if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
             return self
@@ -5606,11 +5606,11 @@ impl Lower<'_> {
         Ok(Some(result))
     }
 
-    /// `dictionary.get_or_insert_utf8(source, default)` for `dict[str, V]`
+    /// `dictionary.get_or_insert_bytes(source, default)` for `dict[str, V]`
     /// (issue #949): `get_or_insert` keyed by a `&[u8]` view of the key's
     /// UTF-8 bytes. The view is read during the call only; the dictionary
     /// builds its own `str` key on a miss.
-    fn dict_get_or_insert_utf8(
+    fn dict_get_or_insert_bytes(
         &mut self,
         base: &Expr,
         args: &[Expr],
@@ -5619,15 +5619,15 @@ impl Lower<'_> {
         let [source_arg, default_arg] = args else {
             return Err(base
                 .at
-                .error("get_or_insert_utf8 requires a byte view and a default value"));
+                .error("get_or_insert_bytes requires a byte view and a default value"));
         };
         let ty = classes::unbox(self.place_type(base).expect("dictionary place"));
         if !matches!(&ty, Ty::Dict(key, _) if **key == Ty::Str) {
             return Err(base.at.error(format!(
-                "get_or_insert_utf8 requires a dictionary with str keys, got {ty}; use get_or_insert with an owned key"
+                "get_or_insert_bytes requires a dictionary with str keys, got {ty}; use get_or_insert with an owned key"
             )));
         }
-        let operation = CollectionOp::DictGetOrInsertUtf8(ty);
+        let operation = CollectionOp::DictGetOrInsertBytes(ty);
         let (inputs, result) = operation.signature();
         // The view and the default are evaluated before the receiver is
         // borrowed, in that order.
@@ -6905,7 +6905,7 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
-        "get_or_insert" | "get_or_insert_utf8" if matches!(ty, Ty::Dict(..)) => {
+        "get_or_insert" | "get_or_insert_bytes" if matches!(ty, Ty::Dict(..)) => {
             "a mutable dictionary binding or class field"
         }
         "get_mut" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {

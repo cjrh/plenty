@@ -53,11 +53,11 @@ pub const DICT_GET_OR_INSERT: i64 = 601;
 /// the caller still owns the copyable operands; on a miss the table owns them
 /// (issue #762).
 pub const GET_OR_INSERT_HIT: i64 = 2;
-/// `dict[str, V].get_or_insert_utf8`: the dictionary reference, a `&[u8]`
+/// `dict[str, V].get_or_insert_bytes`: the dictionary reference, a `&[u8]`
 /// view of the key's bytes and the owned default (issue #949). An `Ok` word
 /// is `DICT_GET_OR_INSERT`'s, with the same hit flag; on a hit the caller
 /// still owns the default, affine or not.
-pub const DICT_GET_OR_INSERT_UTF8: i64 = 607;
+pub const DICT_GET_OR_INSERT_BYTES: i64 = 607;
 /// `list.insert(index, element)`: the list, the index and the owned element
 /// (issue #798).
 pub const LIST_INSERT: i64 = 602;

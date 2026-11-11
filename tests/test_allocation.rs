@@ -262,7 +262,7 @@ print(len(guards), len(empty)).unwrap()
 // default and leaves the dictionary unchanged.
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn failed_get_or_insert_utf8_destroys_the_default_and_hits_need_no_allocation() {
+fn failed_get_or_insert_bytes_destroys_the_default_and_hits_need_no_allocation() {
     native(
         r#"
 class Guard:
@@ -286,11 +286,11 @@ long = Guard("c")
 mut empty = dict[str, Guard]().unwrap()
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
-report(guards.get_or_insert_utf8(b"a", unused))
-report(guards.get_or_insert_utf8(b"GGTATTTTAATTTATAGT", spare))
-report(empty.get_or_insert_utf8(b"b", short))
+report(guards.get_or_insert_bytes(b"a", unused))
+report(guards.get_or_insert_bytes(b"GGTATTTTAATTTATAGT", spare))
+report(empty.get_or_insert_bytes(b"b", short))
 # A key over seven bytes is a heap text: its allocation fails first.
-report(guards.get_or_insert_utf8(b"TTTATAGTGGTATTTTAA", long))
+report(guards.get_or_insert_bytes(b"TTTATAGTGGTATTTTAA", long))
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(len(guards), len(empty)).unwrap()
