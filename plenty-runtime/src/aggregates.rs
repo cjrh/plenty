@@ -1027,11 +1027,62 @@ impl Collection {
     /// `hash` must be `hash(key, ...)`; callers that insert after a miss pass
     /// the same hash to `vacant_bucket` instead of hashing the key again.
     /// Keys are compared only where the bucket's stored hash bits match.
+    #[inline]
     unsafe fn probe(&self, key: u128, hash: u64) -> usize {
+        // A text key is one word in an ordinary row. Deciding that once
+        // keeps `key`'s storage dispatch and the general `equal` out of the
+        // candidate loop (issue #931).
+        if matches!(self.ty().key().kind, b's' | b'y') {
+            unsafe { self.probe_text(key as u64, hash) }
+        } else {
+            unsafe { self.probe_general(key, hash) }
+        }
+    }
+    #[inline(never)]
+    unsafe fn probe_general(&self, key: u128, hash: u64) -> usize {
         let key_ty = self.ty().key();
         self.table.probe(hash, |entry| unsafe {
             equal(self.entries.key(entry), key, key_ty)
         })
+    }
+    /// `probe` for a text key. The first candidate with the key's hash bits
+    /// is nearly always the key, and an equal word is the same inline text
+    /// or the same object. Any other candidate continues in
+    /// `probe_text_bytes`, so this loop calls nothing and keeps no frame.
+    #[inline(never)]
+    unsafe fn probe_text(&self, key: u64, hash: u64) -> usize {
+        let mut candidate = key;
+        let bucket = self.table.probe(hash, |entry| {
+            candidate = self.entries.key_word(entry);
+            true
+        });
+        if candidate == key {
+            bucket
+        } else {
+            unsafe { self.probe_text_bytes(key, hash, bucket, candidate) }
+        }
+    }
+    /// `probe_text` once `bucket`'s `candidate` is another word than `key`:
+    /// a heap text, or a literal against an inline text, may still hold the
+    /// same bytes.
+    #[inline(never)]
+    unsafe fn probe_text_bytes(&self, key: u64, hash: u64, bucket: usize, candidate: u64) -> usize {
+        let text = |word: u64| word as usize as *const Text;
+        if unsafe { strings::equal(text(candidate), text(key)) } {
+            bucket
+        } else {
+            unsafe { self.probe_text_rest(key, hash, bucket) }
+        }
+    }
+    /// The rare remainder of a text probe: `bucket` holds the key's hash bits
+    /// for a different key.
+    #[inline(never)]
+    unsafe fn probe_text_rest(&self, key: u64, hash: u64, bucket: usize) -> usize {
+        let text = |word: u64| word as usize as *const Text;
+        self.table
+            .probe_from(self.table.after(bucket), hash, |entry| unsafe {
+                strings::equal(text(self.entries.key_word(entry)), text(key))
+            })
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(found) = unsafe { self.entries.find_bitset(key) } {
@@ -1420,9 +1471,32 @@ impl Collection {
     ) -> Result<(usize, bool), AllocError> {
         unsafe {
             let ty = &*self.ty;
+            let key_ty = ty.key();
+            // `locate`, with the hit kept in registers: a returned `Slot`
+            // is seven words of stores that only a miss reads (issue #931).
+            let hashed = ty.kind != b'L';
+            let hash = if hashed { hash(key, key_ty) } else { 0 };
+            if hashed && !self.table.is_empty() {
+                let bucket = self.probe(key, hash);
+                self.try_settle(key, value, hash, bucket)
+            } else {
+                self.try_add_missing(key, value, hashed, hash, None)
+                    .map(|i| (i, false))
+            }
+        }
+    }
+    /// `try_get_or_insert` once `key`, with `hash`, has probed to `bucket`.
+    unsafe fn try_settle(
+        &mut self,
+        key: u128,
+        value: u128,
+        hash: u64,
+        bucket: usize,
+    ) -> Result<(usize, bool), AllocError> {
+        unsafe {
+            let ty = &*self.ty;
             let (key_ty, value_ty) = (ty.key(), ty.value.expect("dictionary value"));
-            let slot = self.locate(key);
-            if let Some(i) = slot.found {
+            if let Some(i) = self.table.entry(bucket) {
                 if key_ty.affine {
                     release(key, key_ty);
                 }
@@ -1431,12 +1505,51 @@ impl Collection {
                 }
                 return Ok((i, true));
             }
+            self.try_add_missing(key, value, true, hash, Some(bucket))
+                .map(|i| (i, false))
+        }
+    }
+    /// The Result words of `get_or_insert`: the value slot's address, with
+    /// the high word `GET_OR_INSERT_HIT` on a hit.
+    fn get_or_insert_result(&mut self, settled: Result<(usize, bool), AllocError>) -> u128 {
+        match settled {
+            Ok((position, hit)) => {
+                let flag = if hit {
+                    (GET_OR_INSERT_HIT as u128) << 64
+                } else {
+                    0
+                };
+                wrap(self.entries.slot(position, true) as u128, 0) | flag
+            }
+            Err(error) => wrap(wrap(0, error as u64), 1),
+        }
+    }
+    /// The miss of `try_get_or_insert`, out of line so the hit does not
+    /// carry its frame.
+    #[inline(never)]
+    unsafe fn try_add_missing(
+        &mut self,
+        key: u128,
+        value: u128,
+        hashed: bool,
+        hash: u64,
+        vacant: Option<usize>,
+    ) -> Result<usize, AllocError> {
+        unsafe {
+            let slot = Slot {
+                found: None,
+                hashed,
+                hash,
+                vacant,
+                table_len: self.table.len(),
+            };
             let added = self.try_add(key, value, slot);
             if added.is_err() {
-                release(key, key_ty);
-                release(value, value_ty);
+                let ty = &*self.ty;
+                release(key, ty.key());
+                release(value, ty.value.expect("dictionary value"));
             }
-            added.map(|i| (i, false))
+            added
         }
     }
     /// Hash `key` once and find its row, or the empty bucket a miss would
@@ -1538,6 +1651,151 @@ impl Collection {
     }
 }
 
+/// `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError). A
+/// hit sets the high word to `GET_OR_INSERT_HIT`.
+unsafe fn get_or_insert(reference: *const u128, key: u128, value: u128) -> u128 {
+    unsafe {
+        let c = &mut *(*reference as *mut Collection);
+        let settled = c.try_get_or_insert(key, value);
+        c.get_or_insert_result(settled)
+    }
+}
+
+/// `get_or_insert` with its operands and result words in registers, for
+/// generated code (issue #931).
+#[unsafe(no_mangle)]
+unsafe extern "C" fn plenty_dict_get_or_insert(
+    reference: *const u128,
+    key_low: u64,
+    key_high: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    let word = |low: u64, high: u64| u128::from(high) << 64 | u128::from(low);
+    // SAFETY: generated code passes a live exclusive dictionary reference
+    // and owned operands of its key and value types.
+    let result = unsafe {
+        get_or_insert(
+            reference,
+            word(key_low, key_high),
+            word(value_low, value_high),
+        )
+    };
+    byte_storage::Words::new(result)
+}
+
+/// `plenty_dict_get_or_insert` for a `str` key and a value type that is not
+/// affine: the key's kind is known, and its form selects the path with a
+/// tail call, so neither path carries the other's frame (issue #931).
+#[unsafe(no_mangle)]
+unsafe extern "C" fn plenty_dict_get_or_insert_text(
+    reference: *const u128,
+    key: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    // SAFETY: generated code passes a live exclusive dictionary reference
+    // and owned operands of its key and value types.
+    unsafe {
+        if strings::is_inline(key as usize as *const Text) {
+            get_or_insert_inline_text(reference, key, value_low, value_high)
+        } else {
+            get_or_insert_text(reference, key, value_low, value_high)
+        }
+    }
+}
+
+/// `plenty_dict_get_or_insert_text` for an inline key. A first candidate
+/// holding the same word is a hit answered here with no call: the hash of
+/// at most seven bytes and the probe are inline.
+#[inline(never)]
+unsafe extern "C" fn get_or_insert_inline_text(
+    reference: *const u128,
+    key: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_text`.
+    unsafe {
+        let c = &*(*reference as *const Collection);
+        if !c.table.is_empty()
+            && let Some(hash) = hashing::inline_text(key)
+        {
+            #[cfg(test)]
+            HASHES.with(|count| count.set(count.get() + 1));
+            let mut candidate = key;
+            let bucket = c.table.probe(hash, |entry| {
+                candidate = c.entries.key_word(entry);
+                true
+            });
+            if candidate == key
+                && let Some(entry) = c.table.entry(bucket)
+            {
+                return byte_storage::Words(
+                    c.entries.slot_address(entry, true) as u64,
+                    GET_OR_INSERT_HIT as u64,
+                );
+            }
+            return get_or_insert_text_probed(reference, key, value_low, value_high, hash, bucket);
+        }
+        get_or_insert_text(reference, key, value_low, value_high)
+    }
+}
+
+/// `get_or_insert_inline_text` after its probe stopped at `bucket`: empty,
+/// or holding another word with the key's hash bits.
+#[inline(never)]
+unsafe extern "C" fn get_or_insert_text_probed(
+    reference: *const u128,
+    key: u64,
+    value_low: u64,
+    value_high: u64,
+    hash: u64,
+    bucket: usize,
+) -> byte_storage::Words {
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_text`.
+    let result = unsafe {
+        let c = &mut *(*reference as *mut Collection);
+        let bucket = match c.table.entry(bucket) {
+            Some(entry) => c.probe_text_bytes(key, hash, bucket, c.entries.key_word(entry)),
+            None => bucket,
+        };
+        let value = u128::from(value_high) << 64 | u128::from(value_low);
+        let settled = c.try_settle(u128::from(key), value, hash, bucket);
+        c.get_or_insert_result(settled)
+    };
+    byte_storage::Words::new(result)
+}
+
+/// `plenty_dict_get_or_insert_text` for a heap key, an empty table, or the
+/// first hash of the process: `try_get_or_insert` without the dispatch on
+/// the key's kind.
+#[inline(never)]
+unsafe extern "C" fn get_or_insert_text(
+    reference: *const u128,
+    key: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    let value = u128::from(value_high) << 64 | u128::from(value_low);
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_text`.
+    let result = unsafe {
+        let c = &mut *(*reference as *mut Collection);
+        #[cfg(test)]
+        HASHES.with(|count| count.set(count.get() + 1));
+        let hash = hashing::hash_text(key as usize as *const Text);
+        let settled = if c.table.is_empty() {
+            c.try_add_missing(u128::from(key), value, true, hash, None)
+                .map(|i| (i, false))
+        } else {
+            let bucket = c.probe_text(key, hash);
+            c.try_settle(u128::from(key), value, hash, bucket)
+        };
+        c.get_or_insert_result(settled)
+    };
+    byte_storage::Words::new(result)
+}
+
 /// Structural equality. Every value has one owner, so traversal is bounded by
 /// the value's own size; nothing is shared except immutable strings.
 unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
@@ -1567,9 +1825,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
-            b's' | b'y' => {
-                strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text))
-            }
+            b's' | b'y' => strings::equal(a as *const Text, b as *const Text),
             b'U' => byte_storage::equal(a, b),
             b'Q' => clist::equal(a, b, ty),
             b'O' | b'W' => {
@@ -3226,21 +3482,7 @@ pub(crate) unsafe fn collection_at(
             // `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError).
             // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
             // code tests to release its copyable operands and then clears.
-            DICT_GET_OR_INSERT => {
-                let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
-                match c.try_get_or_insert(b, value) {
-                    Ok((position, hit)) => {
-                        let flag = if hit {
-                            (GET_OR_INSERT_HIT as u128) << 64
-                        } else {
-                            0
-                        };
-                        wrap(c.entries.slot(position, true) as u128, 0) | flag
-                    }
-                    Err(error) => wrap(wrap(0, error as u64), 1),
-                }
-            }
+            DICT_GET_OR_INSERT => get_or_insert(a as *const u128, b, value),
             // `list.get_ref` and `list.get_mut`: the row's address, or Nothing
             // outside the list; never traps.
             LIST_GET_REF => {

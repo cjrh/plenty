@@ -1,0 +1,8 @@
+# Hit-only dictionary updates with an owned 3-byte key: no key construction
+# or growth in the loop.
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut counts: dict[str, i64] = {"GGT": 0, "ACG": 0, "TTTATAGTGGTATTTTAA": 0}?
+    for i in range(1000000):
+        *counts.get_or_insert("GGT", 0)? += 1
+    print(counts["GGT"])?
+    Ok(())

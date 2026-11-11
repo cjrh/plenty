@@ -1145,6 +1145,12 @@ struct Runtime {
     /// `plenty_bytes_to_text(address, count) -> the two words of
     /// Result[Option[str], AllocError]`.
     bytes_to_text: FuncId,
+    /// `plenty_dict_get_or_insert(dictionary, key, value) -> (low, high)`:
+    /// the dispatcher's result words for `dict.get_or_insert`.
+    dict_get_or_insert: FuncId,
+    /// `plenty_dict_get_or_insert_text(dictionary, key word, value)`: the
+    /// same for a `str` key and a value type that is not affine.
+    dict_get_or_insert_text: FuncId,
     /// Narrow byte and text queries on a borrowed owner (issue #364); see
     /// `CollectionCodegen::narrow_query`.
     bytes_len: FuncId,
@@ -1474,6 +1480,16 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
         byte_view: pair_helper(module, "plenty_byte_view", &[PTR_TY])?,
         bytes_to_text: pair_helper(module, "plenty_bytes_to_text", &[PTR_TY, types::I64])?,
+        dict_get_or_insert: pair_helper(
+            module,
+            "plenty_dict_get_or_insert",
+            &[PTR_TY, types::I64, types::I64, types::I64, types::I64],
+        )?,
+        dict_get_or_insert_text: pair_helper(
+            module,
+            "plenty_dict_get_or_insert_text",
+            &[PTR_TY, types::I64, types::I64, types::I64],
+        )?,
         // Owner or text word, then index and trap site where the query has them.
         bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
         bytes_get: helper(

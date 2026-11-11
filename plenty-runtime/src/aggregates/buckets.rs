@@ -136,10 +136,24 @@ impl Buckets {
     /// `same`, or the empty bucket that ends the probe. The table must be
     /// non-empty.
     #[inline]
-    pub fn probe(&self, hash: u64, mut same: impl FnMut(usize) -> bool) -> usize {
+    pub fn probe(&self, hash: u64, same: impl FnMut(usize) -> bool) -> usize {
+        self.probe_from(hash as usize & self.mask(), hash, same)
+    }
+    /// The bucket a probe visits after `bucket`.
+    pub fn after(&self, bucket: usize) -> usize {
+        (bucket + 1) & self.mask()
+    }
+    /// [`Self::probe`] continued from `bucket`, which lies on `hash`'s probe
+    /// path before any match.
+    #[inline]
+    pub fn probe_from(
+        &self,
+        mut bucket: usize,
+        hash: u64,
+        mut same: impl FnMut(usize) -> bool,
+    ) -> usize {
         let mask = self.mask();
         let tag = hash << self.shift();
-        let mut bucket = hash as usize & mask;
         loop {
             let slot = self.slots[bucket];
             if slot == 0 || slot & !(mask as u64) == tag && same((slot as usize & mask) - 1) {

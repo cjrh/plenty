@@ -32,6 +32,20 @@ instructions instead of 173; k-nucleotide at fasta 50,000 falls from 1.403B to
 by 0.4%. The in-range slice path applies to every list, view and byte slice
 with a written bound.
 
+`dict.get_or_insert` passes its operands in registers to a narrow helper
+instead of the dispatcher, probes text keys by word with byte comparison out
+of the loop, hashes text without the streaming hasher, settles a hit without
+building the miss's `Slot`, and answers an inline `str` key's hit in one
+function with no call (issue #931, `experiments/dictionary-hits/`). An update
+of a present key built from a byte range falls from 528 to 317 instructions
+(3-byte key) and from 843 to 724 (18-byte key); Rust's `HashMap` entry update
+takes 243 and 286 without key construction, against 333 and 371 here.
+k-nucleotide at the quick benchmark size falls from 5.733B to 4.184B
+instructions (27.0%) with identical output, and the parallel program by 26.2%;
+regex-redux falls 1.4% and no other Benchmarks Game program changes. An
+insert-heavy run of 400,000 new 6-byte keys falls 1.9%. Hash values, the table
+and iteration order are unchanged.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed
