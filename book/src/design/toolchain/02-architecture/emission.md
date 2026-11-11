@@ -744,6 +744,42 @@ below the length of a `&[f64]` keeps one check, for the product: the sums and
 the final additions are bounded by `i64.MAX / 4`. Counters below the length
 of a `&[u8]` or a list get no bound from it, so their sums keep the check.
 
+### Division by a constant
+
+Cranelift replaces a division by a constant with a multiplication by a
+reciprocal chosen from the divisor alone. For an unsigned 64-bit dividend
+some divisors, `1000` and `7` among them, need a 65-bit reciprocal, which
+costs `mulq; mov; sub; shr; add; shr`. In an optimized build the lowerer
+chooses the reciprocal itself for an unsigned 32- or 64-bit `//` or `%` by a
+constant that is not a power of two (`src/codegen/bounded_division.rs`;
+issue #953). The dividend is of an unsigned type, or a signed value proved
+nonnegative, and its bound is the one recorded above or its type's maximum:
+
+- With `N` the width, the multiplier is `m = ceil(2**(N + s) / d)` for the
+  smallest shift `s` such that `m` fits in `N` bits and
+  `bound * (m * d - 2**(N + s)) < 2**(N + s)`. Then
+  `(x * m) >> (N + s)` is `x // d` for every `0 <= x <= bound`; the module
+  comment has the proof, and its tests check every 8-bit divisor, bound and
+  dividend.
+- A dividend below `2**(N - 1)`, which every nonnegative signed value is,
+  always has such a multiplier: `mulq; shr`. A smaller bound often needs no
+  shift: fasta's `(seed * 3877 + 29573) % 139968` with `seed` below `139968`
+  is one `mulq`.
+- Without a proved one-word multiplier (`x // 1000` of an unbounded `u64`)
+  the division instruction stays, and Cranelift expands it as before. 8- and
+  16-bit divisions, signed divisions of a value that may be negative, and
+  `--fast-compile` builds are unchanged.
+
+The remainder is `x - q * d`, or `q * (-d) + x` when `x` is not itself a sum
+with a constant. x86-64's subtract overwrites its first operand, so the
+register allocator copies the dividend before it and the result after it
+(issue #954); the add has no such copies. For a dividend such as
+`seed * 3877 + 29573`, Cranelift would fold the constant into the add as a
+three-component `lea`, one cycle slower than `sub` on the generator's
+dependency chain, while the two copies are eliminated at register renaming.
+The lowerer therefore subtracts there. See
+`experiments/kernels/field-rng/README.md` for the measurements.
+
 A unit step that follows a successful index check of the same value, as in
 `while limits[k] < r: k += 1`, is below the row count and needs no check.
 In an unrotated loop the check runs in the header, and the body continues

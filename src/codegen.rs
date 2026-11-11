@@ -68,6 +68,7 @@ use cranelift_object::ObjectModule;
 use crate::cache::{Cache, Lookup, ProgramKey};
 use crate::frontend::Sources;
 mod atomic;
+mod bounded_division;
 mod box_release;
 mod byte_views;
 mod casts;
@@ -3649,7 +3650,7 @@ impl Lowerer<'_, '_> {
         }
 
         let v = if !signed {
-            let quotient = self.bcx.ins().udiv(a, b);
+            let quotient = self.unsigned_quotient(a, b);
             // Nonnegative operands: the quotient is at most the dividend,
             // divided by a constant divisor.
             if is_signed(ty.clone())
@@ -3693,7 +3694,7 @@ impl Lowerer<'_, '_> {
             };
             self.floored_remainder(a, divisor, b, proof == crate::numeric::Divisor::Positive)
         } else {
-            self.bcx.ins().urem(a, b)
+            self.unsigned_remainder(a, b)
         };
         self.note_remainder(result, b, &ty, proof);
         self.stack.push((result, ty));

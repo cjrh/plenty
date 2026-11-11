@@ -205,6 +205,14 @@ verdict to code generation (issue #952):
 Remaining there: narrowing by a dominating `if` or `while` comparison, and
 intervals for loop counters, `min`/`max` and call results, each only as one
 exception-free rule.
+An unsigned division or remainder by a constant uses a one-word reciprocal
+chosen from the dividend's bound (issues #953 and #954):
+[division by a constant](design/toolchain/02-architecture/emission.md#division-by-a-constant).
+Remaining there: an add of the precomputed dividend in place of the subtract
+and its two register copies needs a change to Cranelift's x86-64 address
+folding; a low-product multiplier for dividends below `2**32`; unsigned
+remainders record no bound; signed dividends that may be negative keep
+Cranelift's sequence.
 Not done: a plain integer field gets no bound (whole-program inference from
 its writes was rejected), `Bounded` intervals with a negative lower bound give
 codegen no bound, and the checker still requires `OverflowError` in the

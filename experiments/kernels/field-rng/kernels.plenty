@@ -83,6 +83,15 @@ def fill_unbounded(seed: i64, out: &mut [i64]) -> Result[i64, OverflowError[i64]
     Ok(s)
 
 
+# The dividend is a product, not a sum with a constant.
+def fill_product(seed: i64, out: &mut [i64]) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    mut s = seed % IM
+    for i in range(len(out)):
+        s = (s * IA) % IM
+        out[i] = s
+    Ok(s)
+
+
 type TimingError = AllocError | IoError | ParseError | OverflowError[i64] | ZeroDivisionError
 
 
@@ -113,6 +122,9 @@ def time(kernel: &str, rounds: i64) -> Result[(), TimingError]:
     elif kernel == "fill_unbounded":
         for _ in range(rounds):
             last = fill_unbounded(last, &mut out)?
+    elif kernel == "fill_product":
+        for _ in range(rounds):
+            last = fill_product(last, &mut out)?
     print(kernel, last)?
     Ok(())
 
@@ -131,5 +143,6 @@ def main() -> Result[(), TimingError]:
     arms = fill_arms(42, &mut out)?
     inner = fill_inner(42, &mut out, 3)?
     unbounded = fill_unbounded(42, &mut out)?
-    print(out, last, rng.seed, arms, inner, unbounded)?
+    product = fill_product(42, &mut out)?
+    print(out, last, rng.seed, arms, inner, unbounded, product)?
     Ok(())

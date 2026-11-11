@@ -539,15 +539,14 @@ fn range_counter_steps_lower_to_plain_adds() {
     assert_eq!(range.matches("sadd_overflow").count(), 1, "{range}");
 }
 
-/// A range counter from a nonnegative start is divided unsigned; one from a
-/// negative start keeps signed division.
+/// A range counter from a nonnegative start is divided unsigned, by its
+/// constants' reciprocals; one from a negative start keeps signed division.
 #[test]
 fn nonnegative_range_counters_use_unsigned_division() {
     let dir = write(SHAPES);
     let nonnegative = clif(dir.path(), "natural_range_mod");
-    for expected in ["urem", "udiv"] {
-        assert!(nonnegative.contains(expected), "{nonnegative}");
-    }
+    // Unsigned division by a constant is a multiply-high (issue #953).
+    assert_eq!(nonnegative.matches("umulhi").count(), 2, "{nonnegative}");
     // The range's length still has its own `select`s.
     for absent in ["srem", "sdiv"] {
         assert!(!nonnegative.contains(absent), "{nonnegative}");
@@ -564,9 +563,7 @@ fn nonnegative_range_counters_use_unsigned_division() {
 fn nonnegative_counters_use_unsigned_division() {
     let dir = write(SHAPES);
     let nonnegative = clif(dir.path(), "nonnegative_mod");
-    for expected in ["urem", "udiv"] {
-        assert!(nonnegative.contains(expected), "{nonnegative}");
-    }
+    assert_eq!(nonnegative.matches("umulhi").count(), 2, "{nonnegative}");
     for absent in ["srem", "sdiv", "select"] {
         assert!(!nonnegative.contains(absent), "{nonnegative}");
     }
@@ -593,7 +590,7 @@ fn result_counter_steps_lower_to_plain_arithmetic() {
     let range = clif(dir.path(), "result_range_next");
     assert_eq!(range.matches("sadd_overflow").count(), 1, "{range}");
     let modulo = clif(dir.path(), "result_counter_mod");
-    assert!(modulo.contains("urem"), "{modulo}");
+    assert!(modulo.contains("umulhi"), "{modulo}");
     assert!(!modulo.contains("srem"), "{modulo}");
 }
 

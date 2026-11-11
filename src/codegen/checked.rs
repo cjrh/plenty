@@ -354,7 +354,7 @@ impl Lowerer<'_, '_> {
             let value = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
                 self.floored(a, divisor, positive)
             } else {
-                self.bcx.ins().udiv(a, divisor)
+                self.unsigned_quotient(a, divisor)
             };
             return (value, failures);
         };
@@ -462,7 +462,7 @@ impl Lowerer<'_, '_> {
             let positive = proof == crate::numeric::Divisor::Positive;
             self.floored_remainder(a, divisor, b, positive)
         } else {
-            self.bcx.ins().urem(a, divisor)
+            self.unsigned_remainder(a, divisor)
         };
         self.note_remainder(value, b, ty, proof);
         (value, failures)

@@ -3,7 +3,7 @@
 The linear congruential generator of the fasta program in `benchmarks/game/`:
 a class field updated through a `&mut` receiver by a small fallible method,
 called with `?` in a loop (`fill`), and the same recurrence on a local
-(`fill_local`), in `kernels.plenty` and `kernels.c` (issues #936 and #937).
+(`fill_local`), in `kernels.plenty`, `kernels.c` and `kernels.rs` (issues #936 and #937).
 
 Optimized x86-64 Linux builds, Plenty before = `5f43644d`, Cranelift 0.137.0,
 gcc 16.2.1 `-O2 -fno-tree-vectorize`. Counts are instructions per pass of the
@@ -139,3 +139,98 @@ passes, before and after).
 `next` returns the local it stored, not `self.seed.get()`: a method whose
 final expression is a call is not inlined (issue #958), which costs 9
 instructions per pass here.
+
+## A multiplier from the dividend's bound (issues #953 and #954)
+
+Plenty before = `39506d02`, same Cranelift fork; gcc 16.2.1
+`-O2 -fno-tree-vectorize -fno-inline`, clang 22.1.8 `-O2 -fno-vectorize
+-fno-inline`, rustc 1.99.1 `-C opt-level=3 -C target-cpu=x86-64`
+(`kernels.rs`). `fill_product` is `fill_local` without the added constant:
+`s = (s * IA) % IM`.
+
+Instructions and cycles per pass, `perf stat -r 5` on one pinned core of a
+Ryzen 7 7840HS, 409.6 million passes, load average 1.6 to 2.8. Instructions
+are the measured average, so an unrolled or two-armed loop counts per element.
+Repeated rounds agree within 0.01 cycles.
+
+| Kernel | gcc | clang | Rust | Before | After | gcc cycles | clang cycles | Rust cycles | Before cycles | After cycles |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `fill` | 15.0 | 13.5 | 12.5 | 24.0 | 24.0 | 20.0 | 21.0 | 14.5 | 18.0 | 18.0 |
+| `fill_bounded` | 12.0 | 10.5 | 9.0 | 13.0 | 12.0 | 19.0 | 19.0 | 12.5 | 13.0 | 12.0 |
+| `fill_local` | 16.0 | 12.5 | 9.0 | 13.0 | 12.0 | 14.0 | 15.0 | 12.5 | 13.0 | 12.0 |
+| `fill_arms` | 17.5 | 16.5 | 14.0 | 18.0 | 15.0 | 13.0 | 14.0 | 12.5 | 14.5 | 12.0 |
+| `fill_inner` | 15.0 | 12.5 | 9.0 | 13.0 | 12.0 | 14.0 | 15.0 | 12.5 | 13.0 | 12.0 |
+| `fill_unbounded` | 18.0 | 14.5 | 15.0 | 22.0 | 22.0 | 16.0 | 14.9 | 14.5 | 19.0 | 19.0 |
+| `fill_product` | 15.0 | 11.5 | 7.0 | 12.0 | 9.0 | 13.0 | 13.5 | 10.8 | 12.0 | 11.0 |
+
+Every cycle count is the latency of the carried dependency chain, so the
+loop's placement does not move it: the same counts come from each binary on
+every round, and from loops at different start offsets (`fill_local` starts
+at function offset `0x4e` before and `0x49` after).
+
+### Attribution
+
+The dividend `s * IA + IC` is below `2**30`. Cranelift's multiplier for
+`139968` serves every 64-bit dividend and needs `shr $15`; the smallest one
+that is right below the bound, `ceil(2**64 / 139968)`, needs no shift. For
+`% 1000` in `fill_arms` the 65-bit sequence `mulq; mov; sub; shr; add; shr`
+becomes one `mulq`.
+
+`fill_local`, 13 to 12 instructions and 13 to 12 cycles:
+
+```text
+imul  $0xF25,%r9,%rax        3 cycles
+lea   0x7385(%rax),%r9       1
+mov   %r9,%rax
+mulq  [0x77dd5a03fada]       4 (high half)
+imul  $0x222C0,%rdx,%rax     3
+mov   %r9,%rcx
+sub   %rax,%r9               1
+mov   %r9,%rax
+mov   %rax,(%rsi,%rdi,8)
+add   $1,%rdi
+cmp   %r8,%rdi
+jl
+```
+
+The two moves around `sub` are the copies of issue #954: x86-64's `sub`
+overwrites its first operand, the dividend is also the `mulq` input, and
+regalloc2 copies it before the subtract and the result after it. They are
+eliminated at register renaming and are not on the chain.
+
+Computing the remainder as `q * (-IM) + x` removes them
+(`clif/remainder.clif`, variant `e`): 9 instructions. Cranelift then folds the
+dividend's `+ IC` into the add as `lea 0x7385(%rax,%rcx),%rax`, a
+three-component `lea` with two cycles of latency here, so the chain is 13
+cycles, the same as before:
+
+| `fill_local` remainder | Instructions | Cycles |
+| --- | ---: | ---: |
+| Before: `mulq; shr; imul; mov; sub; mov` | 13 | 13.0 |
+| `mulq; imul $-IM; lea c(%rax,%rcx)` | 9 | 13.0 |
+| `mulq; imul; mov; sub; mov` (chosen) | 12 | 12.0 |
+
+The lowerer therefore subtracts when the dividend is a sum with a constant and
+adds otherwise. `fill_product` has no constant to fold: `imul; mov; mulq;
+imul $-IM; add; mov; add; cmp; jl`, 9 instructions and 11 cycles. An add of
+the precomputed dividend (`add %r9,%rax`) would give `fill_local` 9
+instructions and, by the chain above, 12 cycles; that needs Cranelift's x86-64 address folding to
+leave a sum alone when it is already in a register for another use, a fork
+change that was not made.
+
+Rust's 12.5 cycles in the `% IM` kernels is the average of two unrolled
+copies. One uses the same `mul; shr; imul; sub` as Plenty before; the other
+uses LLVM's knowledge that the dividend fits in 32 bits:
+`imul $0x1df75681,%rax,%rcx; shr $46,%rcx`, a 3-cycle low multiply where the
+high half of `mulq` takes 4. Plenty does not choose a low-product multiplier;
+with the shift it would equal the current chain, and it would free `%rax` and
+`%rdx`.
+
+`fill` and `fill_unbounded` are unchanged: their dividend may be negative, so
+they keep Cranelift's signed sequence, both overflow checks and the floor
+fixup.
+
+fasta, 25,000,000 (`perf stat -r 5`, three interleaved rounds, load average
+2.4 to 5.0): 10,634.6M to 10,434.6M instructions (-1.9%), 7,216M to 7,236M
+cycles before against 7,021M to 7,039M after (-2.7%, one cycle for each of
+its 200 million random numbers). Output identical.
