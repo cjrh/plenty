@@ -40,9 +40,11 @@ selecting between them.
 
 The module also provides checked list loads and stores; they require a complete
 vector to fit and never allocate. Handle any leftover elements with a scalar
-loop. Ordinary lists and these initial vector values use tagged scalar storage,
-so explicit lanes do not promise packed storage or faster code. The default optimized profile
-enables supported native SIMD operations on x86-64. AArch64 currently uses the
+loop. Vector values stored in collections or passed to functions use tagged
+scalar storage, and every load and store checks its bounds, so explicit lanes do
+not promise faster code. The default optimized profile
+enables supported native SIMD operations on x86-64, including packed list loads
+and stores. AArch64 currently uses the
 scalar implementation, which preserves the same results. See the [reference](../../design/stdlib/simd.md)
 for the exact operations, bounds contracts and current limits.
 
