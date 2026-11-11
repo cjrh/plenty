@@ -250,6 +250,42 @@ impl Ty {
         let (name, _) = t.name.split_once('[')?;
         Some((IntegerDomain::named(name)?, t.get().fields[0].1.clone()))
     }
+    /// The integer domain type a C signature would expose through `self`,
+    /// with its underlying integer: `self`, a quantity's storage, or either
+    /// behind a reference, list, view, `Option` or `Result`. Foreign code is
+    /// unchecked, so such a type has no C ABI in either direction (issue #956).
+    pub fn foreign_domain(&self) -> Option<(Ty, Ty)> {
+        if let Some((_, element)) = self.integer_domain() {
+            return Some((self.clone(), element));
+        }
+        // `Bounded` is a reserved name, as `NonZero` is above.
+        if let Self::Class(t) = self
+            && t.name.starts_with("Bounded[")
+        {
+            return Some((self.clone(), t.get().fields[0].1.clone()));
+        }
+        if let Some(storage) = self.quantity_storage() {
+            return storage.foreign_domain();
+        }
+        match self {
+            Self::Ref(inner, _) | Self::List(inner) | Self::View(inner, _) => {
+                inner.foreign_domain()
+            }
+            Self::Enum(t) if t.propagatable() => t
+                .get()
+                .variants
+                .iter()
+                .flat_map(|variant| &variant.fields)
+                .find_map(Self::foreign_domain),
+            _ => None,
+        }
+    }
+    /// The diagnostic for a C signature that names `domain` over `element`.
+    pub fn foreign_domain_error(domain: &Ty, element: &Ty) -> String {
+        format!(
+            "`{domain}` has no C ABI: foreign code is unchecked and could supply a value outside the domain; declare `{element}` and convert a received value with `try_from`, or pass `.get()` to foreign code"
+        )
+    }
     pub fn domain_element(&self) -> Option<Ty> {
         self.integer_domain().map(|(_, element)| element)
     }

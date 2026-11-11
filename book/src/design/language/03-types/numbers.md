@@ -534,3 +534,43 @@ Both domains have `T`'s representation, copy without allocation, print and
 format as the integer, and work as dictionary keys and set elements. `len()`
 continues to return `i64`; convert a computed length explicitly when a domain
 is needed.
+
+## Domain types and foreign code
+
+`NonZero[T]`, `Positive[T]`, `NonNegative[T]` and
+[`Bounded[T, lo, hi]`](bounded.md) have no C ABI. Generated code omits zero,
+sign and overflow checks for their values, and the compiler cannot check what
+foreign code supplies. An `extern def` or `export def` signature that names
+one is a compile-time error. This covers arguments, results, `&` and `&mut`
+borrows, `Option` and `Result` payloads, strided lists, byte views, the raw
+`load` and `store` intrinsics, calls through a native address, aliases of a
+domain type, and a [quantity](quantities.md) stored as one. The rule is the
+same in both directions and has no trusted override.
+
+Declare the underlying integer instead. Convert a value received from foreign
+code with `try_from`, and pass `.get()` to it:
+
+```text
+extern def raw_block_size() -> i64 = "device_block_size"
+
+pub def block_size() -> Result[Positive[i64], RangeError]:
+    Positive.try_from(raw_block_size())
+```
+
+```plenty-error
+export def chunks(total: i64, size: NonZero[i64]) -> i64 = "split_chunks":
+    total // size
+
+def main() -> ():
+    pass
+```
+```error
+`NonZero[i64]` has no C ABI: foreign code is unchecked and could supply a value outside the domain; declare `i64` and convert a received value with `try_from`, or pass `.get()` to foreign code
+```
+
+A nongeneric class with domain-typed fields can still cross as an
+[owned export handle](../../facilities/04-interop/owned-exports.md): the
+handle is opaque, and only Plenty code constructs the object behind it.
+Domain types also have no serialization hooks, so `@serial` decoding cannot
+construct one, and `Atomic[T]` and the byte-conversion methods do not accept
+them.
