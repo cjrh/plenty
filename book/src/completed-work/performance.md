@@ -451,6 +451,18 @@ vector-register operations are tested. Public list-transfer overhead still
 prevents the n-body magnitude path from approaching the packed-pointer probe;
 this adds a numerical primitive, not a benchmark speedup.
 
+List loads and stores are packed on optimized x86-64 builds (issue #929): one
+unaligned vector move after the scalar bodies' bounds test, with `Nothing` or
+`False` for a span that does not fit. An unborrowed `Option[Vector]` local,
+`match` and `unwrap()` keep the loaded vector native. The retained
+`experiments/simd-transfers/` kernel falls from 4,194 executed instructions per
+two pairs at main `d6ed6f91` to 79 with nested `match`; scalar source runs
+36 and C 16. Header reloads, length arithmetic and bounds tests for each
+transfer account for 44 of the 79. An n-body variant using the transfers falls
+from 11,304M to 985M instructions at 500,000 steps and remains above the
+scalar source's 323M, which alone qualifies for guarded numerical state; the
+benchmark source stays scalar and every benchmark binary is unchanged.
+
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
 uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for
 8-bit, 8 for 16-bit and 4 for 32-bit integer columns (issue #904).

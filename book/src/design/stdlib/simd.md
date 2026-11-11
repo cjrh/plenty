@@ -95,8 +95,8 @@ types accept a shared list borrow and return `Option[Vector]`. They return
 whole vector does not fit. Negative offsets are invalid. Bounds are checked
 before adding lane offsets, including for `i64.MAX`.
 
-These operations neither allocate nor grow the list. They access ordinary list
-elements individually; lists are not packed native arrays. Returned vectors own
+These operations neither allocate nor grow the list. The list stays an ordinary
+`list` of scalars: no packed view or alignment is exposed. Returned vectors own
 copies of their scalar lanes, so no borrow persists after loading. Stores take
 an exclusive borrow and preserve length and capacity. Process full groups and
 then the scalar tail explicitly when writing a manual kernel.
@@ -149,7 +149,12 @@ borrows stay in vector registers across supported operations and loops. Values
 materialize in ordinary tagged storage at calls, containers and observable
 borrows; parameters, masks, generators and mutable-borrowed locals retain that
 storage path. This is an internal optimization, not a different ownership rule.
-Checked integer arithmetic, mask summaries, ordered float reductions and list access keep
+List loads and stores read or write all lanes as one unaligned packed vector
+after the same bounds test as the scalar bodies; each call reads the list's
+length and performs that test, and a span that does not fit still yields
+`Nothing` or `False` without a trap. An unborrowed `Option[Vector]` local,
+`match` and `unwrap()` keep a loaded vector native. Checked integer arithmetic,
+mask summaries and ordered float reductions keep
 their ordinary scalar implementations. On other compiler hosts, the module's
 scalar bodies remain available. The AArch64 implementation currently uses these
 scalar bodies, including in optimized builds; ARM vector acceleration is separate
