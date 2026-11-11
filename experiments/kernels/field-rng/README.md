@@ -127,14 +127,14 @@ both overflow checks and the floor fixup.
 
 ## Checker intervals (issue #952)
 
-Plenty before = `1ade579c`. The checker now proves `seed.get() * IA + IC`
+Plenty before = `584acca1`. The checker now proves `seed.get() * IA + IC`
 inside `i64`, so `BoundedRng.next` returns a plain `i64` and `fill_bounded`
 returns `()`. The generated loops are unchanged, because code generation's
 value bounds already removed these checks: every kernel has the same
 instructions per pass, and `perf stat -r 5` on one pinned core, three
-interleaved rounds (load average 1.6 to 2.0), gives the same cycles within
-0.1% (`fill_bounded` 5,330M instructions and 5,330M cycles for 409.6 million
-passes, before and after).
+interleaved rounds (load average 2.4 to 4.1), gives the same cycles within
+0.6% (`fill_bounded` 4,920M instructions for 409.6 million passes, 4,928M to
+4,951M cycles before and 4,919M to 4,923M after).
 
 `next` returns the local it stored, not `self.seed.get()`: a method whose
 final expression is a call is not inlined (issue #958), which costs 9

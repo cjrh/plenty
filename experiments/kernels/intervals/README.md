@@ -7,7 +7,7 @@ prove infallible (issue #952) and code generation's own
 do not: a masked operand with a negative result, a widened `i32`, and a
 negated remainder.
 
-Optimized x86-64 Linux builds, Plenty before = `1ade579c`. Counts are
+Optimized x86-64 Linux builds, Plenty before = `584acca1`. Counts are
 instructions per pass from [`loops.py`](../loops.py); each function has an
 entry copy and a rotated copy of its loop.
 

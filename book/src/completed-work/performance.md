@@ -889,15 +889,23 @@ is. Code generation's own
 [value bounds](../design/toolchain/02-architecture/emission.md#value-bounds)
 still remove further checks, with the error left in the contract.
 
-Against `1ade579c`, one pinned core of a Ryzen 7 7840HS, `perf stat -r 5`,
-three interleaved rounds (load average 1.5 to 2.0), identical output:
+Against `584acca1`, one pinned core of a Ryzen 7 7840HS, `perf stat -r 5`,
+three interleaved rounds (load average 2.4 to 4.1 from another task's builds
+on other cores), identical output; cycles and time are the range of the
+rounds:
 
 | Program | Instructions | Cycles | Time |
 | --- | ---: | ---: | ---: |
-| fasta 25,000,000, before | 10,634.6M | 7,214M | 1,552 ms |
-| fasta 25,000,000, after, generator returning `i64` | 10,634.6M | 7,227M | 1,551 ms |
-| `field-rng` `fill_bounded`, before | 5,330.1M | 5,331M | |
-| `field-rng` `fill_bounded`, after, returning `i64` | 5,329.7M | 5,329M | |
+| fasta 25,000,000, before | 10,434.6M | 7,010M to 7,030M | 1,507 to 1,513 ms |
+| fasta 25,000,000, after, generator returning `i64` | 10,434.6M | 7,045M to 7,073M | 1,513 to 1,522 ms |
+| `field-rng` `fill_bounded`, before | 4,920.5M | 4,928M to 4,951M | 1,044 to 1,049 ms |
+| `field-rng` `fill_bounded`, after, returning `i64` | 4,920.1M | 4,919M to 4,923M | 1,042 to 1,061 ms |
+
+fasta executes the same instructions in the same loops and takes 0.5% more
+cycles. Its hot loop is sensitive to where it is placed (the effect
+investigated under issue #437): the previous fasta source, compiled by this
+compiler to the same assembly as before, has that loop 32 bytes further into
+its 64-byte line and takes 7,307M to 7,335M cycles, 4% more.
 
 fasta's and `field-rng`'s loops are unchanged: value bounds had already
 removed their checks, and intervals now remove the errors from their
@@ -911,8 +919,8 @@ overflow branches (`experiments/kernels/intervals/`, instructions per pass):
 | `-(x % 1000) * 5` | 20 | 18 |
 
 Compile time, `compile_bench 1000 10 --workload aot` on cores 0-7, five
-interleaved runs: 436 to 480 ms before, 444 to 454 ms after (medians 445 and
-450); 35.16 against 35.23 billion instructions (+0.2%).
+interleaved runs: 442 to 469 ms before, 438 to 470 ms after (medians 448 and
+445); 64.45 against 64.69 billion instructions (+0.4%).
 
 A method whose final expression is a call is not inlined (issue #958), so
 fasta's generator returns the local it stored.
