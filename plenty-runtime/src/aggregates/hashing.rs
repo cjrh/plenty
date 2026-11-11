@@ -49,9 +49,19 @@ pub(super) unsafe fn hash_with_key(value: u128, ty: &Type, key: &[u8; 16]) -> u6
     match ty.kind {
         b's' | b'y' => {
             let text = value as *const Text;
-            // SAFETY: str/bytes keys hold a live Text pointer. Inline and heap
-            // texts with equal contents yield equal byte views.
-            SipHasher13::new_with_key(key).hash(unsafe { strings::bytes(&text) })
+            // Inline and heap texts with equal contents hash alike: both
+            // paths compute SipHash-1-3 of the bytes.
+            if strings::is_inline(text) {
+                // At most seven bytes: no whole block, and the bytes are
+                // already the low part of the final one (issue #931).
+                let word = text as usize as u64;
+                let len = (word & 0xff) >> 1;
+                let bytes = (word >> 8) & !(u64::MAX << (8 * len));
+                sip13_finish(sip13_start(key), bytes | len << 56)
+            } else {
+                // SAFETY: a str/bytes key that is not inline is a live Text.
+                sip13_bytes(key, unsafe { strings::heap_bytes(text) })
+            }
         }
         b'1'..=b'8' | b'b' => sip13_word(key, scalar(value, ty.kind)),
         _ => {
@@ -63,27 +73,80 @@ pub(super) unsafe fn hash_with_key(value: u128, ty: &Type, key: &[u8; 16]) -> u6
     }
 }
 
-/// `SipHasher13::hash(&word.to_le_bytes())` without the general tail
-/// handling: one message block and the length-8 final block.
-fn sip13_word(key: &[u8; 16], word: u64) -> u64 {
+#[inline(always)]
+fn sip13_start(key: &[u8; 16]) -> [u64; 4] {
     let k0 = u64::from_le_bytes(key[..8].try_into().unwrap());
     let k1 = u64::from_le_bytes(key[8..].try_into().unwrap());
-    let mut v = [
+    [
         k0 ^ 0x736f6d6570736575,
         k1 ^ 0x646f72616e646f6d,
         k0 ^ 0x6c7967656e657261,
         k1 ^ 0x7465646279746573,
-    ];
-    for block in [word, 8 << 56] {
-        v[3] ^= block;
-        sip_round(&mut v);
-        v[0] ^= block;
-    }
+    ]
+}
+
+#[inline(always)]
+fn sip13_block(v: &mut [u64; 4], block: u64) {
+    v[3] ^= block;
+    sip_round(v);
+    v[0] ^= block;
+}
+
+/// Absorb the final block, which holds the last `len % 8` message bytes and
+/// `len` in its top byte, then finalize.
+#[inline(always)]
+fn sip13_finish(mut v: [u64; 4], last: u64) -> u64 {
+    sip13_block(&mut v, last);
     v[2] ^= 0xff;
     for _ in 0..3 {
         sip_round(&mut v);
     }
     v[0] ^ v[1] ^ v[2] ^ v[3]
+}
+
+/// `SipHasher13::hash(&word.to_le_bytes())` without the general tail
+/// handling: one message block and the length-8 final block.
+fn sip13_word(key: &[u8; 16], word: u64) -> u64 {
+    let mut v = sip13_start(key);
+    sip13_block(&mut v, word);
+    sip13_finish(v, 8 << 56)
+}
+
+/// `SipHasher13::hash(bytes)` without the streaming hasher's buffer: whole
+/// blocks from the slice, then the tail from fixed-width loads (issue #931).
+fn sip13_bytes(key: &[u8; 16], bytes: &[u8]) -> u64 {
+    let mut v = sip13_start(key);
+    let mut blocks = bytes.chunks_exact(8);
+    for block in &mut blocks {
+        sip13_block(&mut v, u64::from_le_bytes(block.try_into().unwrap()));
+    }
+    let rest = blocks.remainder();
+    let tail = if let Some(last) = bytes.last_chunk::<8>() {
+        // The slice's last eight bytes end with the tail; shift out the
+        // bytes before it. A whole number of blocks leaves no tail.
+        match rest.len() {
+            0 => 0,
+            count => u64::from_le_bytes(*last) >> (8 * (8 - count)),
+        }
+    } else {
+        // Fewer than eight bytes: two loads that overlap in the middle.
+        match rest.len() {
+            0 => 0,
+            1 => u64::from(rest[0]),
+            len @ (2 | 3) => {
+                let (first, last) = ([rest[0], rest[1]], [rest[len - 2], rest[len - 1]]);
+                u64::from(u16::from_le_bytes(first))
+                    | u64::from(u16::from_le_bytes(last)) << (8 * (len - 2))
+            }
+            len => {
+                let first = [rest[0], rest[1], rest[2], rest[3]];
+                let last = [rest[len - 4], rest[len - 3], rest[len - 2], rest[len - 1]];
+                u64::from(u32::from_le_bytes(first))
+                    | u64::from(u32::from_le_bytes(last)) << (8 * (len - 4))
+            }
+        }
+    };
+    sip13_finish(v, tail | (bytes.len() as u64) << 56)
 }
 
 #[inline(always)]
@@ -184,6 +247,49 @@ mod tests {
                     sip13_word(&key, word),
                     SipHasher13::new_with_key(&key).hash(&word.to_le_bytes())
                 );
+            }
+        }
+    }
+
+    // Issue #931: the direct text paths compute the same SipHash-1-3 as the
+    // streaming hasher at every tail length, for heap and inline texts.
+    #[test]
+    fn text_hashes_match_the_general_implementation() {
+        static TEXT: Type = Type {
+            kind: b's',
+            affine: false,
+            reflexive: true,
+            inline_range: false,
+            inline_bytes: 0,
+            key: None,
+            value: None,
+            name: "",
+            variants: &[],
+            drop: None,
+            wrapper: None,
+            plan: None,
+            redacted: false,
+            transparent: false,
+            debug: None,
+            display: None,
+            quantity: None,
+            finite: None,
+            destroy: None,
+        };
+        let message: [u8; 40] = std::array::from_fn(|i| (i as u8).wrapping_mul(37) ^ 0x5a);
+        for key in [[0; 16], [0xa5; 16], std::array::from_fn(|i| i as u8)] {
+            let general = SipHasher13::new_with_key(&key);
+            for len in 0..=message.len() {
+                let bytes = &message[..len];
+                assert_eq!(sip13_bytes(&key, bytes), general.hash(bytes), "{len}");
+            }
+            for len in 0..=strings::INLINE_MAX {
+                let ascii: Vec<u8> = message[..len].iter().map(|byte| byte & 0x7f).collect();
+                let text = strings::new(&ascii);
+                assert!(strings::is_inline(text));
+                // SAFETY: an inline text owns nothing.
+                let hash = unsafe { hash_with_key(text as u128, &TEXT, &key) };
+                assert_eq!(hash, general.hash(&ascii), "{len}");
             }
         }
     }
