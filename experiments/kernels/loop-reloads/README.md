@@ -6,13 +6,11 @@ before the first use and handed it back to the slot at the back edge, once
 per iteration. The per-symbol loop of `random_fasta` in
 `benchmarks/game/fasta/plenty/fasta.plenty` did this for two values.
 
-Branch `issue-939-loop-extension` of the regalloc2 fork (commit `b2dc24b`,
-`docs/loop-extension.md` there) extends such a value's register over the
-loop after allocation, when a register is free for the whole loop.
-**`Cargo.lock` does not pin it**: the commit is not on the fork's `fork`
-branch. The numbers below come from a compiler built with a path override
-(`regalloc2 = { path = ... }` in `[patch.crates-io]`), compared with the
-pinned fork revision `a39b520`.
+The regalloc2 fork at `b2dc24b` (`docs/loop-extension.md` there) extends
+such a value's register over the loop after allocation, when a register is
+free for the whole loop. `Cargo.lock` pins it. The numbers below compare it
+with the previous fork revision `a39b520`; they were taken with `b2dc24b`
+as a path override before it was pinned.
 
 ## The rule
 
@@ -30,7 +28,7 @@ already uses.
 
 | Compiler | Stack loads | Stack stores |
 |---|---:|---:|
-| Fork `a39b520` (pinned) | 2 | 2 |
+| Fork `a39b520` | 2 | 2 |
 | Extension, own register only | 1 | 1 |
 | Extension (`b2dc24b`) | 0 | 0 |
 
@@ -38,7 +36,7 @@ already uses.
 
 `bench.py run --mode quick --repeats 1 --perf`, pinned to cores 0-7.
 
-| Program | Pinned | Extension | Change |
+| Program | `a39b520` | `b2dc24b` | Change |
 |---|---:|---:|---:|
 | binary-trees | 7,194,693,752 | 7,194,693,435 | 0.00% |
 | fannkuch-redux | 1,680,419,687 | 1,680,419,748 | 0.00% |
@@ -81,10 +79,18 @@ code), unchecked 575,860,425 → 562,360,453, clist 1,234,359,385 →
 
 | Build | Instructions |
 |---|---:|
-| Pinned | 125.21 bn |
+| `a39b520` | 125.21 bn |
 | Extension | 126.31 bn (+0.9%) |
 | Extension, pass switched off at run time | 125.92 bn |
 | Extension, pass on, same binary | 126.29 bn (+0.3%) |
 
 The pass itself costs 0.3%. The remaining difference between the two builds
 is in Cranelift functions the change does not touch (different inlining).
+
+## Not fixed
+
+The extension takes free registers only. A cut-down `random_fasta` (the
+same loops with a checksum call in place of `write_lines`, and the codes
+read from a constant) still loads and stores the block's length once per
+symbol: all 14 allocatable registers are in use in that loop, one of them
+holding a second copy of the loop count.

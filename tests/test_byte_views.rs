@@ -417,3 +417,48 @@ fn values_split_before_a_loop_keep_one_register_in_it() {
         .collect();
     assert!(moves.is_empty(), "{moves:?}\n{body}");
 }
+
+// Issue #939: the block's length and the limits' address are live across the
+// calls of the enclosing loop and sit in stack slots there. They are loaded
+// on entry to the per-symbol loop, not on each pass of it (regalloc2 fork,
+// `docs/loop-extension.md`).
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn values_spilled_around_a_loop_are_loaded_at_its_entry() {
+    let source = include_str!("../benchmarks/game/fasta/plenty/fasta.plenty");
+    let asm = dump(source, &["--release"], "asm");
+    let body = support::asm_body(&asm, "random_fasta");
+    let address = |line: &str| {
+        let (address, _) = line.trim_start().split_once(':')?;
+        usize::from_str_radix(address, 16).ok()
+    };
+    let target = |line: &str| {
+        let mut fields = line.split_whitespace().skip(1);
+        let jump = fields.next().is_some_and(|field| field.starts_with('j'));
+        let target = fields.next()?.strip_prefix("0x")?;
+        jump.then(|| usize::from_str_radix(target, 16).ok())?
+    };
+    let lines = |start: usize, end: usize| {
+        body.lines()
+            .filter(move |line| address(line).is_some_and(|at| (start..=end).contains(&at)))
+    };
+    // The per-symbol loop is the widest loop without a call: the block loop
+    // around it calls `write_lines`.
+    let (start, end) = body
+        .lines()
+        .filter_map(|line| Some((target(line)?, address(line)?)))
+        .filter(|&(start, end)| start < end && !lines(start, end).any(support::native_call))
+        .max_by_key(|(start, end)| end - start)
+        .unwrap_or_else(|| panic!("no loop:\n{body}"));
+    let inner = lines(start, end)
+        .filter(|line| target(line).is_some_and(|to| to < address(line).unwrap()))
+        .count();
+    assert_eq!(
+        inner, 2,
+        "expected the symbol loop and its search loop:\n{body}"
+    );
+    let stack: Vec<&str> = lines(start, end)
+        .filter(|line| line.contains("(%rsp)"))
+        .collect();
+    assert!(stack.is_empty(), "{stack:?}\n{body}");
+}
