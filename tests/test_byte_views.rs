@@ -355,6 +355,7 @@ fn failing_cached_index_calls_the_method_out_of_line() {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 const FILL: &str = r#"
 import std.bytes
 
