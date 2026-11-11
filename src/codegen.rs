@@ -4113,6 +4113,54 @@ impl Lowerer<'_, '_> {
         name: &str,
         captures: &[cranelift_codegen::ir::Value],
     ) -> Result<()> {
+        self.lower_call_placed(name, captures, true)
+    }
+
+    /// A call that is never lowered at its site: for a cold path inside a
+    /// loop that ends in a trap. One block holding one call can leave the
+    /// loop's registers alone; an inlined body spreads the cold path over
+    /// blocks with successors, which constrain the loop (issue #939). The
+    /// arguments cross the caller-context call in the scratch slot
+    /// ([`Self::enter_call_parking`]).
+    fn lower_call_out_of_line(&mut self, name: &str) -> Result<()> {
+        self.lower_call_placed(name, &[], false)
+    }
+
+    /// [`Self::enter_call`] with `args` kept in the scratch slot across it.
+    /// Left in registers, loop values passed by a cold call would be live
+    /// across the context call, and the allocator then moves them between
+    /// registers on every pass of the loop (issue #939).
+    fn enter_call_parking(
+        &mut self,
+        args: &mut [cranelift_codegen::ir::Value],
+    ) -> Result<Option<cranelift_codegen::ir::Value>> {
+        let mut offsets = Vec::with_capacity(args.len());
+        let mut bytes = 0;
+        for value in args.iter() {
+            let size = self.bcx.func.dfg.value_type(*value).bytes().max(8);
+            offsets.push(bytes as i32);
+            bytes += size;
+        }
+        let slot = self.scratch_slot(bytes);
+        for (value, offset) in args.iter().zip(&offsets) {
+            self.bcx.ins().stack_store(PTR_TY, *value, slot, *offset);
+        }
+        let saved = self.enter_call()?;
+        if saved.is_some() {
+            for (value, offset) in args.iter_mut().zip(&offsets) {
+                let ty = self.bcx.func.dfg.value_type(*value);
+                *value = self.bcx.ins().stack_load(PTR_TY, ty, slot, *offset);
+            }
+        }
+        Ok(saved)
+    }
+
+    fn lower_call_placed(
+        &mut self,
+        name: &str,
+        captures: &[cranelift_codegen::ir::Value],
+        may_inline: bool,
+    ) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let optimize = self.module.optimizes();
         let in_generator = self.generator.is_some();
@@ -4148,7 +4196,7 @@ impl Lowerer<'_, '_> {
         } else {
             (decl.standard_library || decl.source.is_none()) && !decl.reads_no_caller
         };
-        if let Some(inline) = decl.inline.clone() {
+        if let Some(inline) = decl.inline.clone().filter(|_| may_inline) {
             let caller = self.inline_caller(track_caller && decl.names_caller_in_sites);
             let saved = if track_caller && caller.is_none() {
                 self.enter_call()?
@@ -4161,6 +4209,7 @@ impl Lowerer<'_, '_> {
         }
         if let Some(body) = decl.inline_body.clone()
             && !in_generator
+            && may_inline
         {
             return self.lower_inlined_call(name, &body, args, track_caller, captures);
         }
@@ -4171,10 +4220,12 @@ impl Lowerer<'_, '_> {
             args.push(self.inline_storage(bytes));
         }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
-        let saved = if track_caller {
+        let saved = if !track_caller {
+            None
+        } else if may_inline {
             self.enter_call()?
         } else {
-            None
+            self.enter_call_parking(&mut args)?
         };
         let inst = self.bcx.ins().call(funcref, &args);
         let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();

@@ -721,3 +721,222 @@ def main() -> ():
         release,
     );
 }
+
+/// Every shape against a scalar statement of the transfer contract: a whole
+/// vector fits only when `0 <= offset <= len - lanes`, and nothing else moves.
+#[rstest]
+#[case(true)]
+#[case(false)]
+fn list_transfers_keep_scalar_bounds_at_every_offset(#[case] release: bool) {
+    for (vector, ty, count, zero, one, next, mark) in [
+        (
+            "i32x4",
+            "i32",
+            4,
+            "0i32",
+            "1i32",
+            "next.wrapping_add(3i32)",
+            "-7i32",
+        ),
+        (
+            "u32x4",
+            "u32",
+            4,
+            "0u32",
+            "1u32",
+            "next.wrapping_add(3u32)",
+            "77u32",
+        ),
+        (
+            "f32x4",
+            "f32",
+            4,
+            "0.0f32",
+            "1.5f32",
+            "next + 2.0f32",
+            "-0.25f32",
+        ),
+        ("f64x2", "f64", 2, "0.0", "1.5", "next + 2.0", "-0.25"),
+    ] {
+        let lanes = (0..count)
+            .map(|lane| format!("source[offset + {lane}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        passes(
+            &format!(
+                r#"import std.simd as s
+from std.test import check
+
+def filled(n: i64) -> Result[list[{ty}], AllocError]:
+    mut values: list[{ty}] = [{zero} for i in range(n)]?
+    mut next = {one}
+    for i in range(n):
+        values[i] = next
+        next = {next}
+    Ok(values)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    marker = s.splat_{vector}({mark})
+    missing: Option[s.{vector}] = Nothing
+    offsets = [-9223372036854775807, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9223372036854775804, 9223372036854775806, 9223372036854775807]?
+    for n in range(10):
+        source = filled(n)?
+        for at in range(len(offsets)):
+            offset = offsets[at]
+            fits = offset >= 0 and offset <= n - {count}
+            loaded = s.load_{vector}(&source, offset)
+            mut target = filled(n)?
+            check(marker.store(&mut target, offset) == fits, "store result").unwrap()
+            check(len(target) == n, "length").unwrap()
+            if fits:
+                expected = s.{vector}.Lanes({lanes})
+                check(loaded == Some(expected), "load").unwrap()
+                check(s.load_{vector}(&source, offset).unwrap() == expected, "unwrap").unwrap()
+                match loaded:
+                    case Some(vector):
+                        check(vector == expected, "match").unwrap()
+                    case Nothing:
+                        check(False, "missing").unwrap()
+            else:
+                check(loaded == missing, "invalid load").unwrap()
+            for i in range(n):
+                if fits and i >= offset and i < offset + {count}:
+                    check(target[i] == {mark}, "stored lane").unwrap()
+                else:
+                    check(target[i] == source[i], "untouched element").unwrap()
+    print("ok")?
+    Ok(())
+"#
+            ),
+            release,
+        );
+    }
+}
+
+/// A loaded `Option[Vector]` keeps value semantics as a local, across loop
+/// iterations, in a collection, through a borrow and across calls.
+#[rstest]
+#[case(true)]
+#[case(false)]
+fn loaded_options_copy_escape_and_survive_loops(#[case] release: bool) {
+    passes(
+        r#"import std.simd as s
+from std.test import check
+
+def first(values: &list[f64], offset: i64) -> Option[s.f64x2]:
+    s.load_f64x2(values, offset)
+
+def lanes(value: Option[s.f64x2]) -> (f64, f64):
+    match value:
+        case Some(vector):
+            vector.to_tuple()
+        case Nothing:
+            (-1.0, -1.0)
+
+def borrowed(value: &Option[s.f64x2]) -> (f64, f64):
+    lanes(*value)
+
+def choose(values: &list[f64], flag: bool) -> Option[s.f64x2]:
+    mut result: Option[s.f64x2] = Nothing
+    if flag:
+        result = s.load_f64x2(values, 1)
+    else:
+        result = Some(s.splat_f64x2(9.0))
+    result
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut values = [1.0, 2.0, 3.0, 4.0]?
+    mut previous: Option[s.f64x2] = Nothing
+    mut held: Option[s.f64x2] = Nothing
+    mut kept: list[Option[s.f64x2]] = []?
+    for offset in range(-1, 5):
+        current = s.load_f64x2(&values, offset)
+        if offset == 0:
+            check(lanes(previous) == (-1.0, -1.0), "first previous").unwrap()
+            held = current
+        if offset == 2:
+            check(lanes(previous) == (2.0, 3.0), "previous survives the next load").unwrap()
+            check(borrowed(&held) == (1.0, 2.0), "held value").unwrap()
+        check((previous == current) == (offset == -1 or offset == 4), "equality").unwrap()
+        kept.append(current)?
+        previous = current
+    check(len(kept) == 6, "kept").unwrap()
+    check(lanes(kept[0]) == (-1.0, -1.0) and lanes(kept[1]) == (1.0, 2.0), "kept start").unwrap()
+    check(lanes(kept[3]) == (3.0, 4.0) and lanes(kept[4]) == (-1.0, -1.0), "kept end").unwrap()
+    check(lanes(first(&values, 2)) == (3.0, 4.0), "returned").unwrap()
+    check(lanes(choose(&values, True)) == (2.0, 3.0), "assigned load").unwrap()
+    check(lanes(choose(&values, False)) == (9.0, 9.0), "assigned constructor").unwrap()
+    loaded = s.load_f64x2(&values, 1).unwrap()
+    mut copy = loaded
+    copy = copy.add(loaded)
+    check(loaded.store(&mut values, 0), "store").unwrap()
+    check(loaded.to_tuple() == (2.0, 3.0) and copy.to_tuple() == (4.0, 6.0), "copies").unwrap()
+    check(lanes(held) == (1.0, 2.0), "a load does not alias the list").unwrap()
+    values.pop()
+    values.pop()
+    check(lanes(s.load_f64x2(&values, 0)) == (2.0, 3.0), "shortened list").unwrap()
+    check(lanes(s.load_f64x2(&values, 1)) == (-1.0, -1.0), "removed elements").unwrap()
+    print("ok")?
+    Ok(())
+"#,
+        release,
+    );
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn list_transfers_are_packed_without_calls_or_enum_storage() {
+    for (vector, load, kernel) in [
+        (
+            "f64x2",
+            "movupd",
+            "match s.load_f64x2(x, p):\n            case Some(a):\n                if not a.mul(a).store(out, p):\n                    return False\n            case Nothing:\n                return False",
+        ),
+        (
+            "f64x2",
+            "movupd",
+            "a = s.load_f64x2(x, p).unwrap()\n        if not a.mul(a).store(out, p):\n            return False",
+        ),
+        (
+            "f32x4",
+            "movups",
+            "a = s.load_f32x4(x, p).unwrap()\n        if not a.mul(a).store(out, p):\n            return False",
+        ),
+        (
+            "i32x4",
+            "movdqu",
+            "a = s.load_i32x4(x, p).unwrap()\n        if not a.wrapping_add(a).store(out, p):\n            return False",
+        ),
+        (
+            "u32x4",
+            "movdqu",
+            "a = s.load_u32x4(x, p).unwrap()\n        if not a.wrapping_add(a).store(out, p):\n            return False",
+        ),
+    ] {
+        let lane = &vector[..3];
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("transfer.plenty");
+        std::fs::write(&input, format!("import std.simd as s\ndef kernel(x: &list[{lane}], out: &mut list[{lane}], n: i64) -> bool:\n    for p in range(n):\n        {kernel}\n    True\ndef main() -> ():\n    pass\n")).unwrap();
+        let out = Command::new(support::plenty_bin())
+            .env("PLENTY_CACHE", "off")
+            .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+            .arg(input)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let dump = String::from_utf8_lossy(&out.stdout);
+        let native = vector.replace('u', "i");
+        assert!(dump.contains(&format!("load.{native}")), "{dump}");
+        assert_eq!(dump.matches(load).count(), 2, "{dump}");
+        assert!(!dump.contains("call "), "{dump}");
+        assert!(
+            !dump.contains("stack_load") && !dump.contains("stack_store"),
+            "{dump}"
+        );
+    }
+}
