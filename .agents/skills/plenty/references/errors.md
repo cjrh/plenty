@@ -65,8 +65,7 @@ and [local pipelines](../../../../book/src/design/language/09-iteration/06-pipel
 ## Unchecked arithmetic
 
 Prefer declared arithmetic errors or local `checked:` recovery. When the
-intended policy is termination, use `unchecked:` (or the equivalent
-`unchecked trap:`). It asserts that integer arithmetic preconditions hold and
+intended policy is termination, use `unchecked:`. It asserts that integer arithmetic preconditions hold and
 traps when they do not; it never wraps. Indexing, allocation,
 floating-point arithmetic and called functions keep their own contracts. See
 [unchecked blocks](../../../../book/src/design/language/03-types/numbers.md#unchecked-blocks)

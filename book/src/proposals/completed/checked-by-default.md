@@ -103,9 +103,9 @@ not wrapping. Trapping stays the default, and a separate `unchecked trap:`
 form will always check and trap. Code that uses traps to reject invalid input
 must move to that form or validate explicitly before the mode can apply.
 
-> **Superseded 2026-11-12:** the `--unchecked` build mode was removed in
-> every form. Every plain `unchecked:` suite traps on a violation, and
-> `unchecked trap:` is an equivalent spelling. See the
+> **Superseded 2026-11-12:** the `--unchecked` build mode and the
+> `unchecked trap:` spelling were removed. Every `unchecked:` suite traps on a
+> violation. See the
 > [numeric reference](../../design/language/03-types/numbers.md#unchecked-blocks).
 
 `unchecked` is contextual, like `checked`: only `unchecked:` followed by a

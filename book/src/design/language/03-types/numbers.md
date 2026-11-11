@@ -196,13 +196,6 @@ def scale_in_bounds(value: i64, factor: i64) -> i64:
 
 A trap terminates the process; it never wraps or reaches an outer checked
 boundary. Use explicit wrapping operations for modular arithmetic.
-`unchecked trap:` is an equivalent spelling:
-
-```plenty fragment
-def checked_index(row: i64, width: i64, column: i64) -> i64:
-    unchecked trap:
-        row * width + column
-```
 
 The checked preconditions are representable results of `+`, `-`, `*`,
 negation and `pow`, nonzero divisors and representable quotients for `//` and
@@ -210,6 +203,13 @@ negation and `pow`, nonzero divisors and representable quotients for `//` and
 `0`, and a negative `pow` exponent traps. Floating-point arithmetic,
 allocation and explicit wrapping, saturating and checked methods keep their
 contracts. Indexing keeps its normal negative indexing and out-of-range traps.
+Every intermediate result must be representable, not only the final one:
+`a * b // c` traps when `a * b` overflows even if the quotient fits. Use a wider
+type, an algorithm without the overflowing intermediate, or explicit wrapping.
+
+Validate public inputs, then keep an `unchecked:` region small and confined to
+operations whose preconditions follow from those inputs and maintained
+invariants; enclosing code in a suite does not establish a bound.
 
 Suites apply lexically. Nested `checked:` restores local recoverability;
 leaving any suite restores the outer contract. Named functions and closures
@@ -217,8 +217,8 @@ keep their own contracts wherever they are defined or called. Calls still
 return their declared results, and `?`, `return`, `break` and `continue` keep
 their ordinary targets.
 
-`unchecked` and `trap` are contextual: only `unchecked:` or `unchecked trap:`
-followed by a newline opens a suite; `unchecked: i64 = 0` remains a typed
+`unchecked` is contextual: only `unchecked:` followed by a newline opens a
+suite; `unchecked: i64 = 0` remains a typed
 binding. Suites support binding, assignment, return, function-tail and
 match-arm-tail value positions.
 

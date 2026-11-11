@@ -3882,7 +3882,7 @@ impl Lower<'_> {
                 }
                 Statement::Expr(Expr {
                     at,
-                    kind: Expression::Checked(Suite::Unchecked | Suite::Trap, suite_body),
+                    kind: Expression::Checked(Suite::Unchecked, suite_body),
                 }) => match self.unchecked_suite(at, suite_body, tail, ops)? {
                     BlockResult::Continues(ty) => ty,
                     BlockResult::Exits => return exited_block(body, i),

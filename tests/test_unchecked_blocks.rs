@@ -1,5 +1,5 @@
-//! `unchecked:` and `unchecked trap:` suites check their arithmetic and
-//! indexing preconditions and trap on a violation (B14).
+//! `unchecked:` suites check their arithmetic and indexing preconditions
+//! and trap on a violation (B14).
 mod support;
 use plenty::CompileOptions;
 use std::path::Path;
@@ -53,18 +53,35 @@ fn plain_unchecked_traps_by_default() {
     assert_traps(&output, "integer overflow");
 }
 
-#[test]
-fn unchecked_trap_traps() {
-    let source = r#"
-def add(a: i64, b: i64) -> i64:
-    unchecked trap:
-        return a + b
-def main() -> Result[(), IoError]:
-    print(add(i64.MAX, 1))?
-    Ok(())
-"#;
+fn compile_error(source: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
-    assert_traps(&run(dir.path(), source, &options()), "integer overflow");
+    let path = dir.path().join("main.plenty");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &dir.path().join("program"),
+        None,
+        &options(),
+    )
+    .unwrap_err()
+    .to_string()
+}
+
+#[test]
+fn unchecked_trap_is_not_a_suite() {
+    // `unchecked trap:` was removed; `unchecked:` always traps.
+    for body in [
+        "    unchecked trap:\n        return a + b\n",
+        "    value = unchecked trap:\n        a + b\n    return value\n",
+    ] {
+        let error = compile_error(&format!(
+            "def add(a: i64, b: i64) -> i64:\n{body}def main() -> ():\n    pass\n"
+        ));
+        assert!(
+            error.contains("`unchecked trap:` is not a suite; write `unchecked:`"),
+            "{error}"
+        );
+    }
 }
 
 const KERNEL: &str = r#"
@@ -92,7 +109,7 @@ fn valid_preconditions_keep_their_results() {
 fn nested_suites_select_their_own_contracts() {
     let source = r#"
 def nested(a: i64, b: i64) -> i64:
-    unchecked trap:
+    unchecked:
         x = a * b
         y = unchecked:
             a + b
@@ -121,17 +138,7 @@ def apply(a: i64) -> i64:
 def main() -> ():
     pass
 "#;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    std::fs::write(&path, source).unwrap();
-    let error = plenty::compile_file_to_executable_with_options(
-        &path,
-        &dir.path().join("program"),
-        None,
-        &options(),
-    )
-    .unwrap_err()
-    .to_string();
+    let error = compile_error(source);
     assert!(error.contains("OverflowError[i64]"), "{error}");
 }
 
@@ -157,7 +164,7 @@ fn trap_stays_a_name() {
 def main() -> Result[(), IoError]:
     trap = 2
     unchecked: i64 = trap
-    unchecked trap:
+    unchecked:
         print(unchecked + trap)?
     Ok(())
 "#;
@@ -195,11 +202,7 @@ def main() -> Result[(), AllocError | IoError]:
         print(read(&xs, INDEX))?
     Ok(())
 "#;
-    for body in [
-        "return xs[i]",
-        "unchecked:\n        return xs[i]",
-        "unchecked trap:\n        return xs[i]",
-    ] {
+    for body in ["return xs[i]", "unchecked:\n        return xs[i]"] {
         let dir = tempfile::tempdir().unwrap();
         let source = template.replace("BODY", body);
         assert_eq!(
