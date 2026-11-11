@@ -49,6 +49,32 @@ impl Lower<'_> {
         }
     }
 
+    /// The proof a literal or module-constant divisor of `//` or `%`
+    /// supplies without intervals: `x // 2` cannot divide by zero, and only
+    /// `-1` can overflow (issue #796).
+    pub(super) fn known_divisor(&self, op: &str, divisor: Option<&Expr>) -> Divisor {
+        if !matches!(op, "//" | "%") {
+            return Divisor::Any;
+        }
+        divisor
+            .and_then(|divisor| self.known_integer(divisor))
+            .map_or(Divisor::Any, Divisor::literal)
+    }
+
+    /// Whether a shift count has the form `n & mask` (either operand order)
+    /// with a known mask in `0..width`: the masking idiom, valid without
+    /// intervals.
+    pub(super) fn masked_count(&self, count: &Expr, width: i128) -> bool {
+        let Expression::Binary(op, left, right) = &ungroup(count).kind else {
+            return false;
+        };
+        op == "&"
+            && [left, right].into_iter().any(|side| {
+                self.known_integer(side)
+                    .is_some_and(|mask| (0..width).contains(&mask))
+            })
+    }
+
     fn divisor_type(&self, op: &str, value: &Expr) -> Option<(Ty, Divisor)> {
         if !matches!(op, "//" | "%") {
             return None;

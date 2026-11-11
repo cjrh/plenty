@@ -1438,6 +1438,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let outcome = self.outcome(op, &ty, operands);
+        self.block_errors(op, &ty, Some(right), at)?;
         if let Some(kind) = IntegerOp::binary(op) {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
@@ -2501,6 +2502,7 @@ impl Lower<'_> {
                             right: operand,
                         },
                     );
+                    self.block_errors("-", &ty, None, &e.at)?;
                     if self.proved_arithmetic("-", &ty, outcome, ops) {
                         self.note_outcome(intervals::node(&e.at), &ty, outcome);
                     } else if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {

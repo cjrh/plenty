@@ -155,6 +155,18 @@ pub enum Divisor {
 }
 
 impl Divisor {
+    /// The proof an integer literal divisor with `value` supplies by
+    /// itself. A `checked:` block's error type uses this proof and not the
+    /// operands' intervals.
+    pub fn literal(value: i128) -> Self {
+        match value {
+            0 => Self::Any,
+            -1 => Self::NonZero,
+            v if v > 0 => Self::Positive,
+            _ => Self::BelowMinusOne,
+        }
+    }
+
     /// Whether the operands may be `MIN` and `-1` together: the one signed
     /// quotient that overflows, and the pair the hardware division faults on.
     pub fn may_be_minus_one(self) -> bool {

@@ -392,6 +392,7 @@ impl Lower<'_> {
                     return Err(e.at.error("bitwise operations require integers"));
                 }
                 let outcome = self.outcome(op, &a, operands);
+                self.block_errors(op, &a, Some(right), &e.at)?;
                 if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
                     self.shift_operation(kind, &a, right, outcome, &e.at, ops)?;
                 } else {
@@ -408,6 +409,7 @@ impl Lower<'_> {
             }
             self.mark_arithmetic(op, &a, &e.at, ops);
             let outcome = self.outcome(op, &a, operands);
+            self.block_errors(op, &a, Some(right), &e.at)?;
             if self.proved_arithmetic(op, &a, outcome, ops) {
                 self.note_outcome(operands.node, &a, outcome);
                 Self::end_reads(loans, ops);
