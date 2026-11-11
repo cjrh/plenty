@@ -305,3 +305,74 @@ fn scalar_keys_ignore_bits_above_their_width() {
         }
     }
 }
+
+static TEXTS: Type = Type {
+    kind: b'S',
+    affine: true,
+    key: Some(&TEXT),
+    ..INTEGER
+};
+
+/// `contents` is found at `row` through its stored word and through a
+/// literal-format text, another storage of the same bytes.
+fn assert_text_found<const N: usize>(c: &Collection, row: usize, contents: &[u8; N]) {
+    let other = literal(contents);
+    let other = &other as *const Literal<N> as u128;
+    // SAFETY: the set and the literal are live.
+    unsafe {
+        let stored = c.entries.key(row);
+        assert_ne!(stored, other);
+        assert_eq!(c.find(stored), Some(row), "{contents:?} by word");
+        assert_eq!(c.find(other), Some(row), "{contents:?} by bytes");
+    }
+}
+
+// Issue #931: a text probe answers an equal word without reading the text,
+// compares bytes for another storage of the same contents, and passes a
+// candidate that shares only the key's hash bits.
+#[test]
+fn text_probes_find_every_storage_and_pass_hash_collisions() {
+    let owner = OwnedValue {
+        value: try_collection_new(&TEXTS, 0).unwrap() as u128,
+        ty: &TEXTS,
+    };
+    let contents: [&[u8]; 6] = [
+        b"",
+        b"A",
+        b"GGT",
+        b"abcdefg",
+        b"abcdefgh",
+        b"GGTATTTTAATTTATAGT",
+    ];
+    // SAFETY: the guard owns the set, which owns its keys.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        for bytes in contents {
+            c.try_adopt(strings::new(bytes) as u128, 0).unwrap();
+        }
+        assert_text_found(c, 0, b"");
+        assert_text_found(c, 1, b"A");
+        assert_text_found(c, 2, b"GGT");
+        assert_text_found(c, 3, b"abcdefg");
+        assert_text_found(c, 4, b"abcdefgh");
+        assert_text_found(c, 5, b"GGTATTTTAATTTATAGT");
+        let absent = literal(b"GGA");
+        let absent = &absent as *const Literal<3> as u128;
+        assert_eq!(c.find(absent), None);
+
+        // Probing with another key's hash meets that key first, as a full
+        // hash collision would.
+        for (first, later) in [(2, 5), (5, 2), (4, 5)] {
+            let hash = hash(c.entries.key(first), &TEXT);
+            let later_key = c.entries.key(later);
+            assert_eq!(c.table.entry(c.probe(absent, hash)), None);
+            // A second bucket with the same hash bits, as a colliding key's
+            // insertion leaves it, is found past the first candidate.
+            c.table.insert_unique(hash, later);
+            assert_eq!(c.table.entry(c.probe(later_key, hash)), Some(later));
+            let copy = strings::new(strings::bytes(&(later_key as usize as *const Text)));
+            assert_eq!(c.table.entry(c.probe(copy as u128, hash)), Some(later));
+            plenty_release(copy.cast());
+        }
+    }
+}

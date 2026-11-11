@@ -430,6 +430,28 @@ impl Entries {
         }
     }
 
+    /// The first word of row `index`'s key, for a key type whose rows hold
+    /// whole key words: text keys are never bitset members or packed
+    /// scalars. A probe reads candidates through this instead of repeating
+    /// `key`'s storage dispatch for each one (issue #931).
+    #[inline]
+    pub fn key_word(&self, index: usize) -> u64 {
+        debug_assert!(self.bits().is_none() && !self.packed());
+        // Rows are whole, so a row that starts inside the data ends inside
+        // it. This form needs no division, unlike `index < len / stride`.
+        debug_assert!(self.data.len().is_multiple_of(self.stride));
+        let start = index.checked_mul(self.stride);
+        assert!(start.is_some_and(|start| start < self.data.len()));
+        // SAFETY: the row lies inside the initialized rows.
+        unsafe {
+            self.data
+                .as_ptr()
+                .add(index * self.stride)
+                .cast::<u64>()
+                .read()
+        }
+    }
+
     fn packed(&self) -> bool {
         self.order.is_none() && self.value.is_none() && scalar_bytes(self.key).is_some()
     }

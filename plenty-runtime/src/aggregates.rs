@@ -1027,11 +1027,62 @@ impl Collection {
     /// `hash` must be `hash(key, ...)`; callers that insert after a miss pass
     /// the same hash to `vacant_bucket` instead of hashing the key again.
     /// Keys are compared only where the bucket's stored hash bits match.
+    #[inline]
     unsafe fn probe(&self, key: u128, hash: u64) -> usize {
+        // A text key is one word in an ordinary row. Deciding that once
+        // keeps `key`'s storage dispatch and the general `equal` out of the
+        // candidate loop (issue #931).
+        if matches!(self.ty().key().kind, b's' | b'y') {
+            unsafe { self.probe_text(key as u64, hash) }
+        } else {
+            unsafe { self.probe_general(key, hash) }
+        }
+    }
+    #[inline(never)]
+    unsafe fn probe_general(&self, key: u128, hash: u64) -> usize {
         let key_ty = self.ty().key();
         self.table.probe(hash, |entry| unsafe {
             equal(self.entries.key(entry), key, key_ty)
         })
+    }
+    /// `probe` for a text key. The first candidate with the key's hash bits
+    /// is nearly always the key, and an equal word is the same inline text
+    /// or the same object. Any other candidate continues in
+    /// `probe_text_bytes`, so this loop calls nothing and keeps no frame.
+    #[inline(never)]
+    unsafe fn probe_text(&self, key: u64, hash: u64) -> usize {
+        let mut candidate = key;
+        let bucket = self.table.probe(hash, |entry| {
+            candidate = self.entries.key_word(entry);
+            true
+        });
+        if candidate == key {
+            bucket
+        } else {
+            unsafe { self.probe_text_bytes(key, hash, bucket, candidate) }
+        }
+    }
+    /// `probe_text` once `bucket`'s `candidate` is another word than `key`:
+    /// a heap text, or a literal against an inline text, may still hold the
+    /// same bytes.
+    #[inline(never)]
+    unsafe fn probe_text_bytes(&self, key: u64, hash: u64, bucket: usize, candidate: u64) -> usize {
+        let text = |word: u64| word as usize as *const Text;
+        if unsafe { strings::equal(text(candidate), text(key)) } {
+            bucket
+        } else {
+            unsafe { self.probe_text_rest(key, hash, bucket) }
+        }
+    }
+    /// The rare remainder of a text probe: `bucket` holds the key's hash bits
+    /// for a different key.
+    #[inline(never)]
+    unsafe fn probe_text_rest(&self, key: u64, hash: u64, bucket: usize) -> usize {
+        let text = |word: u64| word as usize as *const Text;
+        self.table
+            .probe_from(self.table.after(bucket), hash, |entry| unsafe {
+                strings::equal(text(self.entries.key_word(entry)), text(key))
+            })
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(found) = unsafe { self.entries.find_bitset(key) } {
@@ -1609,9 +1660,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'f' => f32::from_bits(a as u32) == f32::from_bits(b as u32),
             b'd' => f64::from_bits(a as u64) == f64::from_bits(b as u64),
-            b's' | b'y' => {
-                strings::bytes(&(a as *const Text)) == strings::bytes(&(b as *const Text))
-            }
+            b's' | b'y' => strings::equal(a as *const Text, b as *const Text),
             b'U' => byte_storage::equal(a, b),
             b'Q' => clist::equal(a, b, ty),
             b'O' | b'W' => {
