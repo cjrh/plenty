@@ -1,5 +1,8 @@
 # B48 regex acceleration (issues #742 and #752)
 
+> The `--unchecked assume` build mode used in this record was removed. The
+> measurements are historical; commands that pass `--unchecked` no longer run.
+
 This change keeps the regex-redux source, patterns and single-threaded counting
 unchanged. Prefix filtering, a bounded lazy DFA and a one-pass engine live in
 `stdlib/std/regex.plenty`; captures and unsupported cases retain the Pike VM.

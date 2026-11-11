@@ -182,11 +182,11 @@ errors: handle a local checked result or explicitly opt out.
 ## Unchecked blocks
 
 `unchecked:` states that integer arithmetic written in its lexical suite
-does not overflow or divide by zero; that is the programmer's precondition,
-not the compiler's. It yields the last expression's ordinary type, without wrapping or unwrapping a
-`Result`. It is also allowed as a statement suite, including an empty
-`pass` suite and suites whose paths exit. Locals remain block scoped and
-reference-valued suites are not supported.
+does not overflow or divide by zero, and traps when it does. It yields the last
+expression's ordinary type, without wrapping or unwrapping a `Result`. It is
+also allowed as a statement suite, including an empty `pass` suite and suites
+whose paths exit. Locals remain block scoped and reference-valued suites are
+not supported.
 
 ```plenty fragment
 def scale_in_bounds(value: i64, factor: i64) -> i64:
@@ -194,20 +194,9 @@ def scale_in_bounds(value: i64, factor: i64) -> i64:
         value * factor
 ```
 
-The `--unchecked MODE` build setting selects what a plain `unchecked:` suite
-does with its preconditions. `unchecked trap:` always checks them:
-
-| Suite | `--unchecked trap` (default) | `--unchecked assume` |
-| --- | --- | --- |
-| `unchecked:` | Check; trap on a violation | Omit the checks; a violation is undefined behavior |
-| `unchecked trap:` | Check; trap on a violation | Check; trap on a violation |
-
 A trap terminates the process; it never wraps or reaches an outer checked
-boundary. In assume mode, overflow is not wrapping: a violation may produce a
-silently wrong result or worse, and no crash is guaranteed. Use explicit
-wrapping operations for modular arithmetic, and `unchecked trap:` or ordinary
-validation when termination on bad input is part of the contract. The default
-does not change with optimization or [profile](../../toolchain/01-building/packages.md#profiles).
+boundary. Use explicit wrapping operations for modular arithmetic.
+`unchecked trap:` is an equivalent spelling:
 
 ```plenty fragment
 def checked_index(row: i64, width: i64, column: i64) -> i64:
@@ -215,35 +204,18 @@ def checked_index(row: i64, width: i64, column: i64) -> i64:
         row * width + column
 ```
 
-The preconditions are representable results of `+`, `-`, `*`, negation and
-`pow`, nonzero divisors and representable quotients for `//` and `%`, valid
-shift counts, and in-range integer conversions. `i64.MIN % -1` stays `0`, and
-a negative `pow` exponent still traps in either mode. Floating-point
-arithmetic, allocation and explicit wrapping, saturating and checked methods
-keep their contracts.
+The checked preconditions are representable results of `+`, `-`, `*`,
+negation and `pow`, nonzero divisors and representable quotients for `//` and
+`%`, valid shift counts, and in-range integer conversions. `i64.MIN % -1` stays
+`0`, and a negative `pow` exponent traps. Floating-point arithmetic,
+allocation and explicit wrapping, saturating and checked methods keep their
+contracts. Indexing keeps its normal negative indexing and out-of-range traps.
 
-In assume mode, list, slice-view and `Bytes` indexing written inside a plain
-`unchecked:` suite also requires `0 <= index < len(collection)`. Reads, writes,
-augmented assignments and element borrows omit both bounds checks and
-negative-index normalization. A negative or out-of-range index is undefined
-behavior, even when the negative index would normally count from the end.
-Default/trap builds retain normal negative indexing and out-of-range traps.
-This does not change slices, collection methods such as `swap`, or indexing of
-strings, immutable `bytes`, dictionaries, tuples or ranges.
-
-Modes apply lexically. Nested `checked:` restores local recoverability; a
-nested plain `unchecked:` follows the build setting, even inside
-`unchecked trap:`; leaving any suite restores the outer mode. Named functions
-and closures keep their own contracts wherever they are defined or called.
-Calls still return their declared results, and `?`, `return`, `break` and
-`continue` keep their ordinary targets.
-
-`std` always checks its `unchecked:` suites, so the setting cannot change
-library behavior before its preconditions are audited. The setting is part of
-the [compile cache](../../toolchain/02-architecture/cache.md) identity; there
-is no `plenty.toml` key yet. Cranelift has no no-overflow instruction flags,
-so assume mode removes checks but cannot give the backend further overflow
-facts.
+Suites apply lexically. Nested `checked:` restores local recoverability;
+leaving any suite restores the outer contract. Named functions and closures
+keep their own contracts wherever they are defined or called. Calls still
+return their declared results, and `?`, `return`, `break` and `continue` keep
+their ordinary targets.
 
 `unchecked` and `trap` are contextual: only `unchecked:` or `unchecked trap:`
 followed by a newline opens a suite; `unchecked: i64 = 0` remains a typed
@@ -400,8 +372,8 @@ its operands are constants, so `checked:` around `i8.MAX + 1i8` produces
 `Err(OverflowError[i8](wrapped=-128))`.
 
 Arithmetic uses plain values and a shared cold error exit at its nearest
-recoverable boundary. A trapping `unchecked:` operation uses an inline trap
-guard instead; assume mode emits the plain instruction. See the
+recoverable boundary. An `unchecked:` operation uses an inline trap
+guard instead. See the
 [design note](../../../proposals/completed/checked-arithmetic.md).
 
 ## Nonzero integers

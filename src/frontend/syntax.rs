@@ -239,9 +239,9 @@ pub(super) enum Suite {
     /// `checked:`: local recoverable arithmetic.
     Checked,
     /// `unchecked:`: the programmer guarantees the arithmetic preconditions;
-    /// the build's unchecked mode decides whether they are checked.
+    /// a violation traps.
     Unchecked,
-    /// `unchecked trap:`: checked, trapping on a violation, in every mode.
+    /// `unchecked trap:`: the same as `unchecked:`.
     Trap,
 }
 

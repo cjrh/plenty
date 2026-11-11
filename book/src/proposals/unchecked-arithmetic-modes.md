@@ -9,6 +9,11 @@
 > and `Bytes` index syntax. This builds on
 > [checked arithmetic by default](completed/checked-by-default.md).
 
+> **Superseded 2026-11-12:** the `--unchecked` build mode was removed in
+> every form. Every plain `unchecked:` suite traps on a violation, and
+> `unchecked trap:` is an equivalent spelling. See the
+> [numeric reference](../design/language/03-types/numbers.md#unchecked-blocks).
+
 ## Contract
 
 Plain `unchecked:` transfers responsibility for arithmetic preconditions to the

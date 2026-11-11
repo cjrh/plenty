@@ -54,6 +54,11 @@ undefined behavior on violation
 page adds to that escape hatch; the aim is the same code with a proof instead
 of an assumption.
 
+> **Superseded 2026-11-12:** the `--unchecked` build mode was removed in
+> every form. Every plain `unchecked:` suite traps on a violation, and
+> `unchecked trap:` is an equivalent spelling. See the
+> [numeric reference](../design/language/03-types/numbers.md#unchecked-blocks).
+
 ## Remaining checks, case by case
 
 | Case | Check left today | Would a runtime-value bound remove it? |

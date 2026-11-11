@@ -120,14 +120,10 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   negated constants prove nothing. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
   to recover.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
-  small, justified `unchecked trap:` suite for deliberate termination. Plain
-  `unchecked:` asserts arithmetic preconditions: violations trap by default but
-  are undefined behavior under `--unchecked assume`, never wrapping arithmetic. Functions and
-  closures keep independent declared contracts; a caller's mode never changes
-  them. In assume mode, list, slice-view and `Bytes` indices in a plain
-  `unchecked:` suite must also be nonnegative and in range; bounds checks and
-  negative-index normalization are omitted. Other indexing and collection
-  methods keep their contracts. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
+  small, justified `unchecked:` suite for deliberate termination. `unchecked:`
+  asserts arithmetic preconditions: violations trap, never wrap. Functions and
+  closures keep independent declared contracts; a caller's suite never changes
+  them. Indexing and collection methods keep their contracts. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
   helpers stay infallible, and float arithmetic keeps IEEE behavior. Serial
   pipeline integer `.sum()` also returns a public `Result`. For fallible
   accumulation callbacks use `try_fold`, as in [arithmetic and callbacks](references/errors.md#arithmetic-and-callbacks).

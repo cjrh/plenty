@@ -593,8 +593,8 @@ impl CollectionOp {
         Some(crate::record::method(&class.name, name))
     }
 
-    /// Index syntax whose caller may assert a nonnegative, in-range index.
-    /// Methods, slices, strings, dictionaries and iteration keep their own contracts.
+    /// Indexing that [`crate::op::Op::Assumed`] may hold once the compiler
+    /// proves the index nonnegative and in range.
     pub(crate) fn assumable_index(&self) -> bool {
         matches!(
             self,

@@ -5,6 +5,8 @@ Rust 1.99.1, GCC 16.2.1, Cranelift 0.137.0, Valgrind 3.27.1.
 Optimized Plenty builds, cache off; no compiler/runtime changes in this study.
 The stored [counts](counts.json) are three `instructions:u` observations per
 n-body executable at 1,000,000 steps, including the `taskset` launcher.
+The unchecked diagnostic rows used the `--unchecked assume` build mode, which
+has since been removed; `run.py` no longer builds them.
 
 The useful result is a separation of costs. Scalar magnitude arithmetic is
 already close to C. Packed magnitude arithmetic is supported by Cranelift but
@@ -216,8 +218,7 @@ python3 -B experiments/nbody-codegen/unroll.py target/nbody-specializations
 
 `run.py` uses core 0; the nucleotide script permits cores 0,2,4,6,8,10,12.
 Adapt those affinity selections on another machine. `unroll.py` only generates
-sources: compile fixed variants normally and unchecked variants with
-`--unchecked assume`. The fully unrolled variants are expected to hit the slot
+sources; compile them normally. The fully unrolled variants are expected to hit the slot
 limit. The specialized functions assume the benchmark's five bodies and are
 not general-purpose APIs.
 

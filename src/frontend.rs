@@ -3882,8 +3882,8 @@ impl Lower<'_> {
                 }
                 Statement::Expr(Expr {
                     at,
-                    kind: Expression::Checked(suite @ (Suite::Unchecked | Suite::Trap), suite_body),
-                }) => match self.unchecked_suite(at, *suite, suite_body, tail, ops)? {
+                    kind: Expression::Checked(Suite::Unchecked | Suite::Trap, suite_body),
+                }) => match self.unchecked_suite(at, suite_body, tail, ops)? {
                     BlockResult::Continues(ty) => ty,
                     BlockResult::Exits => return exited_block(body, i),
                 },
@@ -4682,18 +4682,12 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
         modules::single(source)?,
         heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )
 }
 
 /// [`compile`] with the checks `check` adds.
 pub(crate) fn check(source: &str, heap: &mut Heap, check: crate::CheckOptions) -> Result<Program> {
-    lower(
-        modules::single(source)?,
-        heap,
-        check,
-        crate::UncheckedMode::Trap,
-    )
+    lower(modules::single(source)?, heap, check)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -4703,14 +4697,8 @@ pub(crate) fn compile_file(
     require_main: bool,
     heap: &mut Heap,
     check: crate::CheckOptions,
-    unchecked: crate::UncheckedMode,
 ) -> Result<Program> {
-    lower(
-        modules::load(path, root, require_main)?,
-        heap,
-        check,
-        unchecked,
-    )
+    lower(modules::load(path, root, require_main)?, heap, check)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -4721,12 +4709,7 @@ pub(crate) fn compile_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(
-        modules::load_graph(path, graph, require_main)?,
-        heap,
-        check,
-        crate::UncheckedMode::Trap,
-    )
+    lower(modules::load_graph(path, graph, require_main)?, heap, check)
 }
 
 /// The test file at `path` as `plenty test` builds it, for checking without
@@ -4743,7 +4726,6 @@ pub(crate) fn compile_test_graph(
         modules::load_graph_with(path, graph, true, appendix, false)?,
         heap,
         check,
-        crate::UncheckedMode::Trap,
     )
 }
 
@@ -4756,7 +4738,6 @@ pub(crate) fn compile_script(
         modules::load_graph_with(path, graph, true, None, true)?,
         heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )
 }
 
@@ -4789,17 +4770,12 @@ impl<'a> Sources<'a> {
         })
     }
 
-    pub(crate) fn compile(
-        &self,
-        heap: &mut Heap,
-        unchecked: crate::UncheckedMode,
-    ) -> Result<Program> {
+    pub(crate) fn compile(&self, heap: &mut Heap) -> Result<Program> {
         match self {
             Sources::Text(source) => lower(
                 modules::single(source)?,
                 heap,
                 crate::CheckOptions::default(),
-                unchecked,
             ),
             Sources::Graph {
                 entry,
@@ -4810,7 +4786,6 @@ impl<'a> Sources<'a> {
                 modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
                 heap,
                 crate::CheckOptions::default(),
-                unchecked,
             ),
         }
     }
@@ -4865,7 +4840,6 @@ pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
         modules::generated_interface(source)?,
         &mut heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )?;
     crate::op::check(&program.ops)
 }
@@ -5381,7 +5355,6 @@ fn lower_body(
         start: 0,
         function: true,
         arithmetic: true,
-        assume: false,
         failures: Vec::new(),
         casts: false,
     });
@@ -5584,7 +5557,6 @@ fn lower(
     resolved: modules::Resolved,
     heap: &mut Heap,
     check: crate::CheckOptions,
-    unchecked: crate::UncheckedMode,
 ) -> Result<Program> {
     ide::declare_program(&resolved);
     let modules::Resolved {
@@ -5638,7 +5610,6 @@ fn lower(
     drop((generic_enums, generic_classes));
     generics.source_root = source_root;
     generics.standard_sources = standard_sources;
-    generics.unchecked = unchecked;
     // Queued functions are registered below, in queue order; unused data
     // methods are not queued, so they are registered after them.
     let mut unused_methods = Vec::new();

@@ -4,8 +4,7 @@ Every table on this page predates issue #756. Those runs generated
 `def main() -> ():` programs whose integer arithmetic trapped on failure; the
 current generator uses the default checked arithmetic instead. Compare new runs
 only with runs of the same generator. Wrapping a generated body in
-`unchecked:` (in the default `--unchecked trap` mode) reproduces the old
-trapping semantics.
+`unchecked:` reproduces the old trapping semantics.
 
 ## Keyed hashing (issue #329, 2026-10-19)
 

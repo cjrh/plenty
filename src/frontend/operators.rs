@@ -1082,7 +1082,6 @@ impl Lower<'_> {
                     start: self.locals.len(),
                     function: false,
                     arithmetic: false,
-                    assume: false,
                     failures: Vec::new(),
                     casts: false,
                 });

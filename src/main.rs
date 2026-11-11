@@ -27,10 +27,10 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
        plenty check [--tests] [--locked] [--offline] [--check-all-methods]
-       plenty build [--fast-compile] [--unchecked MODE] [--no-strip] [--locked] [--offline]
-       plenty run [--fast-compile] [--unchecked MODE] [--no-strip] [--locked] [--offline]
+       plenty build [--fast-compile] [--no-strip] [--locked] [--offline]
+       plenty run [--fast-compile] [--no-strip] [--locked] [--offline]
                   [--bin NAME] [-- ARGS...]
-       plenty test [--fast-compile] [--unchecked MODE] [--locked] [--offline] [--no-capture]
+       plenty test [--fast-compile] [--locked] [--offline] [--no-capture]
                    [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]
        plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR])
                   [--version REQ] [--offline]
@@ -46,8 +46,7 @@ check: type-check every target and warn about .plenty/.p files under src/ that n
 target imports; --check-all-methods also checks every method
 of every generic instance, including methods nothing calls; --tests also checks
 the files in tests/ as plenty test compiles them, without linking or running them. build: compile executables into target/optimized,
-or target/fast-compile with --fast-compile. --unchecked MODE: `trap` (default)
-or `assume` for plain `unchecked:` blocks outside std (see plentyc --help). run: build one executable and run it with
+or target/fast-compile with --fast-compile. run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
 each tests/*.plenty program that defines main (.p files work too); a FILTER keeps the tests whose
 FILE::NAME contains it. Output is shown only for failing tests unless
@@ -258,12 +257,6 @@ fn test_options(args: &[String]) -> Result<TestOptions, String> {
         match arg.as_str() {
             "--release" => {}
             "--fast-compile" => options.build.profile = Profile::FastCompile,
-            "--unchecked" => {
-                let mode = args
-                    .next()
-                    .ok_or("--unchecked requires `trap` or `assume`")?;
-                options.build.compile.unchecked = plenty::UncheckedMode::parse(mode)?;
-            }
             "--locked" => options.build.locked = true,
             "--offline" => options.build.offline = true,
             "--no-capture" => options.no_capture = true,
@@ -316,12 +309,6 @@ fn build_options(
         match arg.as_str() {
             "--release" if profiles => {}
             "--fast-compile" if profiles => options.profile = Profile::FastCompile,
-            "--unchecked" if profiles => {
-                let mode = args
-                    .next()
-                    .ok_or("--unchecked requires `trap` or `assume`")?;
-                options.compile.unchecked = plenty::UncheckedMode::parse(mode)?;
-            }
             "--no-strip" if profiles => options.compile.strip = false,
             "--test-hooks" if profiles => options.compile.test_hooks = true,
             "--locked" => options.locked = true,

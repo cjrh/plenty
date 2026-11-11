@@ -14,10 +14,10 @@ Each benchmark directory contains:
 
 | Path | Contents |
 |---|---|
-| `benchmark.json` | Provenance, site build and command lines, local build command, thread count, sizes, Plenty variants with any compiler `flags`, and `status` (`ready` or `blocked` with `blocked_reason`) |
+| `benchmark.json` | Provenance, site build and command lines, local build command, thread count, sizes, Plenty variants, and `status` (`ready` or `blocked` with `blocked_reason`) |
 | `reference/` | The reference program, copied verbatim from its site page |
 | `expected/` | Output at the small check size, from the site's downloadable output files |
-| `plenty/` | The Plenty programs: the idiomatic one, and any parallel, data-layout or unchecked variant |
+| `plenty/` | The Plenty programs: the idiomatic one, and any parallel or data-layout variant |
 
 The reference programs are distributed under the Benchmarks Game's revised
 BSD license, reproduced in `benchmarks/game/LICENSE-benchmarks-game.txt`.
@@ -26,7 +26,7 @@ Each manifest names the program's page and contributors.
 | Benchmark | Reference | Threads | Plenty variants | Status |
 |---|---|---|---|---|
 | fannkuch-redux | C #1 | 1 | idiomatic; parallel (`examples/fannkuch_redux.plenty`, 8 workers) | ready |
-| n-body | Rust #3 | 1 | idiomatic; clist (bodies in a `clist`); unchecked (`--unchecked assume`) | ready |
+| n-body | Rust #3 | 1 | idiomatic; clist (bodies in a `clist`) | ready |
 | spectral-norm | C #8 | 1 | idiomatic | ready |
 | mandelbrot | C #8 | 1 | idiomatic | ready |
 | fasta | Rust #3 | 1 | idiomatic | ready |
@@ -66,7 +66,7 @@ Builds, generated inputs and outputs go under `target/bench-game/`. `run`:
 1. builds the references with the commands in their manifests, which match the
    site's flags except `-march=native` (`-C target-cpu=native`) instead of the
    site's `ivybridge`;
-2. builds each Plenty variant with `plenty --compile` and the variant's `flags`;
+2. builds each Plenty variant with `plenty --compile`;
 3. checks every program's output at the check size against `expected/`;
 4. generates the fasta inputs for k-nucleotide, reverse-complement and
    regex-redux with the fasta reference;
@@ -112,7 +112,6 @@ the median of three runs pinned to cores `0,2,4,6,8,10,12,14`.
 | mandelbrot | 16,000 | 11.80 s | 11.92 s | 1.01 |
 | n-body | 50,000,000 | 1.30 s | 2.60 s | 2.01 |
 | n-body (clist) | 50,000,000 | 1.30 s | 4.07 s | 3.14 |
-| n-body (unchecked) | 50,000,000 | 1.30 s | 2.93 s | 2.26 |
 | pidigits | 10,000 | blocked | blocked | |
 | regex-redux | 5,000,000 | 0.74 s (9 threads) | 3.40 s | 4.60 |
 | reverse-complement | 25,000,000 | 0.39 s | 0.41 s | 1.06 |
@@ -151,15 +150,6 @@ field, instead of a `list[Body]`, and tracks the cost of indexed clist field
 access in loops (issue #759). It runs 78.9 billion instructions against
 32.1 billion for the `list[Body]` program and 11.5 billion for the reference.
 These variants do not currently receive equivalent compiler optimizations.
-
-n-body's unchecked variant is the idiomatic program with the index arithmetic
-of `energy` and `advance` in
-[`unchecked:` suites](../design/language/03-types/numbers.md#unchecked-blocks),
-built with `--unchecked assume`. List bounds checks remain, since no build
-setting removes them. It runs 50.6 billion instructions against 32.1 billion
-for the idiomatic program and is now slower. This comparison no longer isolates
-overflow-check cost: the guarded numerical-state optimization benefits the
-original program, while the unchecked variant retains a different loop shape.
 
 ## Blocked benchmarks
 
