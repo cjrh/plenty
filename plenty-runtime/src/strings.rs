@@ -176,6 +176,30 @@ pub(crate) unsafe fn equal(a: *const Text, b: *const Text) -> bool {
     a == b || unsafe { bytes(&a) == bytes(&b) }
 }
 
+/// Whether two texts that are not inline hold the same bytes. Eight or more
+/// bytes compare as whole words and one overlapping last word; no length
+/// calls `memcmp` (issue #931).
+#[inline(always)]
+pub(crate) unsafe fn heap_bytes_equal(a: *const Text, b: *const Text) -> bool {
+    // SAFETY: the caller keeps both heap or literal texts alive.
+    let (a, b) = unsafe { (heap_bytes(a), heap_bytes(b)) };
+    if a.len() != b.len() {
+        return false;
+    }
+    match (a.last_chunk::<8>(), b.last_chunk::<8>()) {
+        (Some(a_last), Some(b_last)) => {
+            let (a_words, b_words) = (a.as_chunks::<8>().0, b.as_chunks::<8>().0);
+            a_words
+                .iter()
+                .zip(b_words)
+                .all(|(a, b)| u64::from_ne_bytes(*a) == u64::from_ne_bytes(*b))
+                && a_last == b_last
+        }
+        // A loop of at most seven bytes costs less than the call.
+        _ => a.iter().zip(b).all(|(a, b)| a == b),
+    }
+}
+
 /// The data of a text that is never inline, such as a compiler literal, for
 /// as long as the text lives.
 pub(crate) unsafe fn heap_bytes<'a>(text: *const Text) -> &'a [u8] {

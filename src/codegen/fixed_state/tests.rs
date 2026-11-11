@@ -243,21 +243,30 @@ fn vector_fixture(template: &str, vector: &str, values: &str) -> String {
 
 #[test]
 fn vector_view_accesses_read_and_write_promoted_cells() {
+    // The fixed-state pass only recognizes vector calls when the backend can
+    // lower them. Other hosts retain the scalar std.simd calls and the loop.
+    let promoted = |cells| {
+        if cfg!(target_arch = "x86_64") {
+            cells
+        } else {
+            0
+        }
+    };
     let template = include_str!("../../../tests/fixtures/fixed-state-simd.plenty");
     // Five rows each of the parameter and both scratch lists.
     let text = vector_fixture(template, "f64x2", "1.0, 2.0, 3.0, 4.0, 5.0");
     let (before, after) = transformed(&text, "update", true);
-    assert_eq!(after - before, 15);
+    assert_eq!(after - before, promoted(15));
     // The vector functions are ordinary calls without optimization.
     let (before, after) = transformed(&text, "update", false);
     assert_eq!(before, after);
     let text = vector_fixture(template, "f32x4", "1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32");
     let (before, after) = transformed(&text, "update", true);
-    assert_eq!(after - before, 15);
+    assert_eq!(after - before, promoted(15));
     let template = include_str!("../../../tests/fixtures/fixed-state-simd-bounds.plenty");
     for (vector, cells) in [("f64x2", 2 + 2 + 2), ("f32x4", 4 + 4 + 4)] {
         let (before, after) = transformed(&vector_fixture(template, vector, ""), "update", true);
-        assert_eq!(after - before, cells, "{vector}");
+        assert_eq!(after - before, promoted(cells), "{vector}");
     }
     // Nothing reads the length of `roots`, so a vector past its appended
     // rows adds a cell and a length guard that fails for those rows.
@@ -265,7 +274,7 @@ fn vector_view_accesses_read_and_write_promoted_cells() {
     let text = vector_fixture(template, "f64x2", "1.0, 2.0, 3.0, 4.0, 5.0")
         .replace(".set(out, i)", ".set(out, 2)");
     let (before, after) = transformed(&text, "update", true);
-    assert_eq!(after - before, 16);
+    assert_eq!(after - before, promoted(16));
 }
 
 #[test]

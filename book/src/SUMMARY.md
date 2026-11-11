@@ -707,6 +707,7 @@
         - [Borrowed text: representation and migration](proposals/unified-borrowed-text/representation.md)
         - [Borrowed text: evidence and naming](proposals/unified-borrowed-text/evidence.md)
     - [Value generic parameters](proposals/value-generics.md)
+    - [Value-dependent types for check elimination](proposals/value-dependent-types.md)
     - [std.plot: a ggplot2-style plotting module](proposals/std-plot.md)
         - [Examples beside ggplot2 and plotnine](proposals/std-plot/examples.md)
     - [Exact decimal arithmetic (std.decimal)](proposals/decimal.md)

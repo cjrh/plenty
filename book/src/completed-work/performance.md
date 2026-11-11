@@ -46,6 +46,19 @@ regex-redux falls 1.4% and no other Benchmarks Game program changes. An
 insert-heavy run of 400,000 new 6-byte keys falls 1.9%. Hash values, the table
 and iteration order are unchanged.
 
+A heap or literal `str` key's hit is one runtime function as well: it hashes,
+probes and compares the stored key's bytes with no call, and reads the key
+word and the value slot from one row check. The literal-key update falls from
+334 to 226 instructions and from 14.5 to 11.3 ns (3 bytes) and from 371 to 262
+and 16.6 to 12.7 ns (18 bytes); Rust takes 243 and 286 instructions, 12.1 and
+13.6 ns. With the key built from a byte range, an 18-byte update falls from
+722 to 615 instructions and from 31.5 to 29.6 ns. k-nucleotide at the quick
+size falls from 4.161B to 3.778B instructions (9.2%) and from 281-289 ms to
+272-278 ms on one core (3.2% to 4.7%), with identical output; no other
+Benchmarks Game program's instruction count changes. An insert-heavy run of
+400,000 new 12-byte keys takes 0.3% more instructions and the same time
+within run-to-run variation.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed
