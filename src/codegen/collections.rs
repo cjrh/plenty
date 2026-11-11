@@ -544,6 +544,26 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// `__bytes_to_text` (issue #931): the helper takes the view's address
+    /// and count and returns the two words of the dispatcher's
+    /// `Result[Option[str], AllocError]`. A view owns nothing to release.
+    fn lower_bytes_to_text(&mut self, operation: &CollectionOp) -> Result<()> {
+        let (inputs, output) = operation.signature();
+        let (view, _) = self.pop_typed(inputs[0].clone())?;
+        let (address, count) = self.bcx.ins().isplit(view);
+        let function = self
+            .module
+            .declare_func_in_func(self.runtime.bytes_to_text, self.bcx.func);
+        let call = self.bcx.ins().call(function, &[address, count]);
+        let &[low, high] = self.bcx.inst_results(call) else {
+            unreachable!("the helper returns two words")
+        };
+        let result = self.bcx.ins().iconcat(low, high);
+        let result = self.unpack(result, &output);
+        self.stack.push((result, output));
+        Ok(())
+    }
+
     /// `Bytes.push` (issue #389): the helper appends through the exclusive
     /// field reference and returns the high word of the dispatcher's
     /// `Result[(), AllocError]`; the low word is always zero.
@@ -694,7 +714,7 @@ impl Lowerer<'_, '_> {
     /// The function's scratch slot for runtime call operands, at least
     /// `bytes` long: created on first use, and grown for a larger use, so a
     /// function that only reports index failures keeps a small frame.
-    fn scratch_slot(&mut self, bytes: u32) -> cranelift_codegen::ir::StackSlot {
+    pub(super) fn scratch_slot(&mut self, bytes: u32) -> cranelift_codegen::ir::StackSlot {
         if let Some(slot) = self.collection_scratch {
             let data = &mut self.bcx.func.sized_stack_slots[slot];
             data.size = data.size.max(bytes);
@@ -1253,6 +1273,9 @@ impl Lowerer<'_, '_> {
         }
         if let CollectionOp::Bytes(crate::bytes::BytesOp::Push) = operation {
             return self.lower_bytes_push(operation);
+        }
+        if let CollectionOp::Bytes(crate::bytes::BytesOp::ToText) = operation {
+            return self.lower_bytes_to_text(operation);
         }
         if let CollectionOp::TextOrd | CollectionOp::QueryRef(Query::TextOrd) = operation {
             return self.lower_text_ord(operation);
@@ -2003,7 +2026,11 @@ impl Lowerer<'_, '_> {
         // `induction::Version`.
         let versioned = (range.is_none() || (range_nonnegative.is_some() && stop.is_some()))
             && !self.gathering()
-            && super::induction::versionable(condition, body);
+            && super::induction::versionable(condition, body, &|name| {
+                self.user_fns.get(name).is_some_and(|decl| {
+                    super::portable_simd::operation(name, decl, self.module.optimizes()).is_some()
+                })
+            });
         let invariant = self.counters.bounds.invariant_locals.len();
         let parameters = self.counters.bounds.parameter_locals.len();
         self.enter_invariant_locals(condition, body, stop, versioned);
@@ -2075,6 +2102,10 @@ impl Lowerer<'_, '_> {
                     let length = match length {
                         LengthOf::Length(length) => length,
                         LengthOf::View(view) => self.bcx.ins().isplit(view).1,
+                        LengthOf::Vectors(view, shift) => {
+                            let count = self.bcx.ins().isplit(view).1;
+                            self.bcx.ins().ushr_imm_u(count, i64::from(shift))
+                        }
                     };
                     let fits = match assumed {
                         Assumed::Index(index, _) => {

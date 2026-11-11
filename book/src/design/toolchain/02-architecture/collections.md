@@ -268,6 +268,18 @@ rows meanwhile, which is what makes the cached length and address valid. Element
 values keep reference semantics: writes through `&mut` land in the list, and an
 element can be passed on or returned under the list's loan.
 
+A slice view of a `Bytes` buffer or `bytes` value reads its first-byte address
+and length with one `plenty_byte_view` call, which returns both in the two
+return registers. A slice of any source with a written bound first tests
+`start <= stop <= len` with two unsigned comparisons and, when they hold, takes
+the bounds as written; a negative or out-of-range bound fails a comparison and
+runs the clamps in a cold block, with the same result as before (issue #931).
+`Bytes.to_text` and its range forms convert through
+`plenty_bytes_to_text(address, count)`, which also returns its two result
+words in registers. It answers an ASCII range of at most seven bytes as inline
+text itself; longer or non-ASCII ranges are validated and copied once, and
+allocation failure is reported as before.
+
 `std.bytes` element reads and writes and `Bytes.len` use `plenty_bytes_item`,
 `plenty_bytes_set_item`, and `plenty_bytes_len`. `Bytes.push` calls
 `plenty_bytes_push` with its storage owner read through the exclusive field

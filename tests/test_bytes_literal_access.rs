@@ -139,9 +139,9 @@ fn literal_access_is_inline() {
     let at = clif(&source, "at");
     assert!(at.contains("iconst.i64 7"), "{at}");
     let fill = clif(&source, "fill");
-    // One call each for the hoisted length and rows, and the trapping
-    // `set` with its length query.
-    assert_eq!(fill.matches("plenty_bytes_len").count(), 2, "{fill}");
+    // One call each for the hoisted length and rows; the trapping `set`
+    // is a call of the method, which makes its own length query.
+    assert_eq!(fill.matches("plenty_bytes_len").count(), 1, "{fill}");
     assert_eq!(fill.matches("plenty_byte_view_rows").count(), 1, "{fill}");
     assert!(!fill.contains("sadd_overflow"), "{fill}");
 }

@@ -1,0 +1,16 @@
+# Key construction alone: one owned 12-byte string per pass, no dictionary.
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | std.bytes.BytesError]:
+    sequence = std.bytes.from_text("GGTATTTTAATTTATAGTACGTACGTAACCGGTT")?
+    span = sequence.len() - 12 + 1
+    mut total = 0
+    mut start = 0
+    for i in range(1000000):
+        key = sequence.to_text_range(start, start + 12)?
+        total += key.byte_len()
+        start += 1
+        if start == span:
+            start = 0
+    print(total)?
+    Ok(())

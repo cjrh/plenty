@@ -98,6 +98,16 @@ class RepositoryTests(unittest.TestCase):
     def test_acknowledged_versions_match_pins(self):
         self.assertEqual(inventory.drift(self.entries), [])
 
+    def test_acknowledged_version_can_match_one_of_multiple_locked_versions(self):
+        entries = [
+            {"kind": "crate", "group": "crypto-tls", "name": "example", "pinned": "0.10.9, 0.11.1"},
+            {"kind": "wrapped", "group": "acknowledgements", "name": "example",
+             "pinned": "0.11.1", "where": "reference"},
+        ]
+        self.assertEqual(inventory.drift(entries), [])
+        entries[1]["pinned"] = "0.12.0"
+        self.assertEqual(inventory.drift(entries)[0]["pinned"], ["0.10.9", "0.11.1"])
+
     def test_every_group_has_a_researchable_entry(self):
         groups = {e["group"] for e in self.entries}
         self.assertLessEqual(set(inventory.GROUPS), groups)

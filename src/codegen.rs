@@ -1136,11 +1136,15 @@ struct Runtime {
     /// `plenty_view_sort_stable_by(...)`, as `view_sort_by`, returning the
     /// high word of `Result[(), AllocError]`.
     view_sort_stable_by: FuncId,
-    /// `plenty_byte_view_rows(owner) -> first byte address` and
-    /// `plenty_byte_view_len(owner) -> byte count`, for slice views of a
-    /// buffer or `bytes` literal.
+    /// `plenty_byte_view_rows(owner) -> first byte address`, for an index
+    /// into a buffer or `bytes` literal.
     byte_view_rows: FuncId,
-    byte_view_len: FuncId,
+    /// `plenty_byte_view(owner) -> (first byte address, byte count)`, for
+    /// slice views of a buffer or `bytes` literal.
+    byte_view: FuncId,
+    /// `plenty_bytes_to_text(address, count) -> the two words of
+    /// Result[Option[str], AllocError]`.
+    bytes_to_text: FuncId,
     /// Narrow byte and text queries on a borrowed owner (issue #364); see
     /// `CollectionCodegen::narrow_query`.
     bytes_len: FuncId,
@@ -1262,6 +1266,19 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         sig.params
             .extend(params.iter().map(|ty| AbiParam::new(*ty)));
         sig.returns.extend(ret.map(AbiParam::new));
+        Ok(module.declare_function(name, Linkage::Import, &sig)?)
+    }
+    /// A helper that returns two words in the C ABI's two return registers.
+    fn pair_helper(
+        module: &mut ObjectModule,
+        name: &str,
+        params: &[types::Type],
+    ) -> Result<FuncId> {
+        let mut sig = module.make_signature();
+        sig.call_conv = crate::target::native_call_conv();
+        sig.params
+            .extend(params.iter().map(|ty| AbiParam::new(*ty)));
+        sig.returns.extend([AbiParam::new(types::I64); 2]);
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
@@ -1455,7 +1472,8 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(types::I64),
         )?,
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
-        byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
+        byte_view: pair_helper(module, "plenty_byte_view", &[PTR_TY])?,
+        bytes_to_text: pair_helper(module, "plenty_bytes_to_text", &[PTR_TY, types::I64])?,
         // Owner or text word, then index and trap site where the query has them.
         bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
         bytes_get: helper(
@@ -2124,7 +2142,9 @@ fn build_user_function(
                 lower.write_local(i as u8, value);
             }
         }
-        let simd = portable_simd::operation(name, decl, lower.module.optimizes());
+        // A view access keeps its scalar body, which reports an invalid index.
+        let simd = portable_simd::operation(name, decl, lower.module.optimizes())
+            .filter(|simd| !simd.indexed());
         if let Some(simd) = &simd {
             let args = (0..decl.sig.inputs.len())
                 .map(|index| lower.read_local(index as u8))
@@ -4095,6 +4115,54 @@ impl Lowerer<'_, '_> {
         name: &str,
         captures: &[cranelift_codegen::ir::Value],
     ) -> Result<()> {
+        self.lower_call_placed(name, captures, true)
+    }
+
+    /// A call that is never lowered at its site: for a cold path inside a
+    /// loop that ends in a trap. One block holding one call can leave the
+    /// loop's registers alone; an inlined body spreads the cold path over
+    /// blocks with successors, which constrain the loop (issue #939). The
+    /// arguments cross the caller-context call in the scratch slot
+    /// ([`Self::enter_call_parking`]).
+    fn lower_call_out_of_line(&mut self, name: &str) -> Result<()> {
+        self.lower_call_placed(name, &[], false)
+    }
+
+    /// [`Self::enter_call`] with `args` kept in the scratch slot across it.
+    /// Left in registers, loop values passed by a cold call would be live
+    /// across the context call, and the allocator then moves them between
+    /// registers on every pass of the loop (issue #939).
+    fn enter_call_parking(
+        &mut self,
+        args: &mut [cranelift_codegen::ir::Value],
+    ) -> Result<Option<cranelift_codegen::ir::Value>> {
+        let mut offsets = Vec::with_capacity(args.len());
+        let mut bytes = 0;
+        for value in args.iter() {
+            let size = self.bcx.func.dfg.value_type(*value).bytes().max(8);
+            offsets.push(bytes as i32);
+            bytes += size;
+        }
+        let slot = self.scratch_slot(bytes);
+        for (value, offset) in args.iter().zip(&offsets) {
+            self.bcx.ins().stack_store(PTR_TY, *value, slot, *offset);
+        }
+        let saved = self.enter_call()?;
+        if saved.is_some() {
+            for (value, offset) in args.iter_mut().zip(&offsets) {
+                let ty = self.bcx.func.dfg.value_type(*value);
+                *value = self.bcx.ins().stack_load(PTR_TY, ty, slot, *offset);
+            }
+        }
+        Ok(saved)
+    }
+
+    fn lower_call_placed(
+        &mut self,
+        name: &str,
+        captures: &[cranelift_codegen::ir::Value],
+        may_inline: bool,
+    ) -> Result<()> {
         let caller_standard = self.in_standard_library();
         let optimize = self.module.optimizes();
         let in_generator = self.generator.is_some();
@@ -4118,10 +4186,6 @@ impl Lowerer<'_, '_> {
                 None => self.moves.pending.push(moved),
             }
         }
-        if let Some(simd) = portable_simd::operation(name, decl, optimize) {
-            self.lower_portable_simd(&simd, &args);
-            return Ok(());
-        }
         // User code names itself as the caller of std. Std restores the
         // enclosing user site after a callee that may change it, such as one
         // that tail-calls through user code before it returns.
@@ -4130,7 +4194,24 @@ impl Lowerer<'_, '_> {
         } else {
             (decl.standard_library || decl.source.is_none()) && !decl.reads_no_caller
         };
-        if let Some(inline) = decl.inline.clone() {
+        if let Some(simd) = portable_simd::operation(name, decl, optimize) {
+            if simd.indexed() {
+                let mut reported = args.clone();
+                if let Some(hit) = self.guard_simd_view(&simd, &mut reported) {
+                    // The scalar body repeats the test and traps with the
+                    // operation's message at this call's position, so this
+                    // block never rejoins the access.
+                    let depth = self.stack.len();
+                    self.lower_native_call(decl, reported, track_caller, false)?;
+                    self.stack.truncate(depth);
+                    self.bcx.ins().trap(TrapCode::unwrap_user(3));
+                    self.bcx.switch_to_block(hit);
+                }
+            }
+            self.lower_portable_simd(&simd, &args);
+            return Ok(());
+        }
+        if let Some(inline) = decl.inline.clone().filter(|_| may_inline) {
             let caller = self.inline_caller(track_caller && decl.names_caller_in_sites);
             let saved = if track_caller && caller.is_none() {
                 self.enter_call()?
@@ -4143,9 +4224,21 @@ impl Lowerer<'_, '_> {
         }
         if let Some(body) = decl.inline_body.clone()
             && !in_generator
+            && may_inline
         {
             return self.lower_inlined_call(name, &body, args, track_caller, captures);
         }
+        self.lower_native_call(decl, args, track_caller, may_inline)
+    }
+
+    /// Calls `decl`'s compiled body, pushing its results.
+    fn lower_native_call(
+        &mut self,
+        decl: &UserFn,
+        mut args: Vec<cranelift_codegen::ir::Value>,
+        track_caller: bool,
+        may_inline: bool,
+    ) -> Result<()> {
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
         let bytes = outputs.iter().map(Ty::inline_bytes).sum();
@@ -4153,10 +4246,12 @@ impl Lowerer<'_, '_> {
             args.push(self.inline_storage(bytes));
         }
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
-        let saved = if track_caller {
+        let saved = if !track_caller {
+            None
+        } else if may_inline {
             self.enter_call()?
         } else {
-            None
+            self.enter_call_parking(&mut args)?
         };
         let inst = self.bcx.ins().call(funcref, &args);
         let results: Vec<cranelift_codegen::ir::Value> = self.bcx.inst_results(inst).to_vec();

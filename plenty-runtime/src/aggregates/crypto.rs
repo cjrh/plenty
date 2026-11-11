@@ -11,7 +11,7 @@
 //! overwrite the hasher, which holds the HMAC key's padded forms.
 use super::byte_storage::{Storage, result, size};
 use crate::memory::{self, AllocError, Header};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use std::ptr;

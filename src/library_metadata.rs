@@ -12,7 +12,7 @@ const MAX_CONTRACTS: usize = 256;
 const MAX_TOTAL: usize = 16 * 1024 * 1024;
 
 pub(crate) fn fingerprint(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::hash_hex::encode(&Sha256::digest(bytes))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
