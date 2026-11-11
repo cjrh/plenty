@@ -576,7 +576,7 @@ def main() -> Result[(), IoError]:
     second = unchecked:
         Cell[Guard].new(value=Guard("unchecked"))
     third = checked:
-        ignored = 1 + 2
+        ignored = len("") * 2
         Cell(value=Guard("checked"))
     for result in [first, second, third.unwrap()].unwrap():
         match result:

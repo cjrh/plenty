@@ -704,7 +704,7 @@ def main() -> Result[(), IoError]:
     f = unchecked:
         wrapped(above.old_len(), -1) and wrapped(below.new_len(), i64.MAX)
     through_checked = checked:
-        zero = 0 + 0
+        zero = len("") * 2
         above.old_len()
     g = wrapped(through_checked.unwrap(), -1)
     mut changed = Op(Kind.Delete, 0, 0, 0, 0)

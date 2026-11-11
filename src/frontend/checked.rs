@@ -210,6 +210,30 @@ impl Lower<'_> {
     /// Push `op`, an ordinary integer operation on `ty` that traps when its
     /// preconditions fail. Inside an assuming `unchecked:` suite it becomes
     /// [`Op::Assumed`], which omits the checks; a violation is undefined.
+    /// Emit `+`, `-` or `*` on `ty` without a check when `outcome` proves it
+    /// cannot overflow. The same verdict keeps `OverflowError` out of the
+    /// function's errors and selects the unchecked instruction, so the
+    /// checker and native lowering cannot disagree. False emits nothing.
+    pub(super) fn proved_arithmetic(
+        &self,
+        op: &str,
+        ty: &Ty,
+        outcome: Option<crate::interval::Outcome>,
+        ops: &mut Vec<Op>,
+    ) -> bool {
+        let operation = match op {
+            "+" => Op::Add,
+            "-" => Op::Sub,
+            "*" => Op::Mul,
+            _ => return false,
+        };
+        let Some(outcome) = outcome.filter(|outcome| ty.is_int() && outcome.proved()) else {
+            return false;
+        };
+        ops.push(Op::Proved(Box::new(operation), outcome.value));
+        true
+    }
+
     pub(super) fn push_trapping(&self, op: Op, ty: &Ty, ops: &mut Vec<Op>) {
         let fallible = ty.is_int()
             && matches!(

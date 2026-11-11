@@ -164,7 +164,7 @@ class Offset:
 def main() -> Result[(), IoError]:
     direct: Result[Offset, OverflowError[i64]] = Offset(i64.MAX, 1)
     checked_call = checked:
-        ignored = 1 + 2
+        ignored = len("") * 2
         Offset.new(i64.MIN, -1)
     unchecked_call = unchecked:
         Offset(i64.MAX, 1)

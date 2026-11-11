@@ -398,6 +398,7 @@ impl Scan {
                 | Op::CheckedArith { .. }
                 // `walk` inspects the wrapped arithmetic or indexing operation too.
                 | Op::Assumed(_)
+                | Op::Proved(..)
                 | Op::Cast(_)
                 | Op::CheckedCast(_)
                 | Op::PushInt(_)
@@ -6147,6 +6148,8 @@ impl Lower<'_> {
     }
 
     fn validate_length_method(&mut self, ty: &Ty, at: &Token) -> Result<()> {
+        // A `len` method returns any i64, so its result has no interval.
+        self.length_method = true;
         self.sync_data()?;
         let owner = classes::method_owner(ty).expect("class or enum length method");
         let symbol = crate::record::method(owner, "len");
@@ -6423,6 +6426,7 @@ impl Lower<'_> {
             if args.len() != 1 {
                 return Err(at.error("numeric casts take one argument"));
             }
+            self.interval = None;
             let source = self.value(&args[0], ops)?;
             if !source.is_numeric() {
                 return Err(casts::operand_error(

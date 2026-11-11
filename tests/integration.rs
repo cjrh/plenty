@@ -509,6 +509,8 @@ mod test_bounded_from;
 mod test_bytes_literal_access;
 #[path = "test_indexed_loop_conditions.rs"]
 mod test_indexed_loop_conditions;
+#[path = "test_intervals.rs"]
+mod test_intervals;
 #[path = "test_loop_cache_hoisting.rs"]
 mod test_loop_cache_hoisting;
 #[path = "test_remainder_locals.rs"]

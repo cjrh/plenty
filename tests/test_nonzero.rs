@@ -227,7 +227,7 @@ fn checked_nonzero_divisor_has_only_overflow_error() {
 
 def remainder(n: i64, d: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
     checked:
-        (n % d) + 0
+        (n % d) + (n - n)
 
 print(quotient(-7, 3).unwrap(), remainder(-7, 3).unwrap(), remainder(i64.MIN, -1).unwrap()).unwrap()
 match quotient(i64.MIN, -1):
@@ -273,7 +273,7 @@ def r(n: {ty}, d: Positive[{ty}]) -> {ty}:
 
 def recover(n: {ty}, d: Positive[{ty}]) -> Result[{ty}, OverflowError[{ty}]]:
     checked:
-        (n // d) + 0{ty}
+        (n // d) + (n - n)
 
 p = Positive.try_from(3{ty}).unwrap()
 print(q(-7{ty}, p), r(-7{ty}, p), recover(-7{ty}, p).unwrap()).unwrap()

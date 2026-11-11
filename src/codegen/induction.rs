@@ -1176,6 +1176,7 @@ pub(super) fn versionable(
         count += usize::from(!matches!(
             op,
             Op::Assumed(_)
+                | Op::Proved(..)
                 | Op::Site(_)
                 | Op::Loan(_)
                 | Op::UseLoan(_)
@@ -1239,6 +1240,7 @@ fn allowed_op(op: &Op) -> bool {
             | Op::FloorDiv(_)
             | Op::Modulo(_)
             | Op::Assumed(_)
+            | Op::Proved(..)
             | Op::Eq
             | Op::Ne
             | Op::Lt

@@ -1613,7 +1613,7 @@ def main() -> ():
     mut remaining = start
     while remaining > 0:
         value = checked:
-            remaining // {i} + 1
+            remaining * ({i} + 2) + 1
         yield value
         # remaining > 0 proves decrement stays in [0, MAX-1].
         unchecked:

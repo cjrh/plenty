@@ -565,6 +565,27 @@ fn step(
             }
             stack.extend(sig.outputs.iter().cloned());
         }
+        Op::Proved(inner, interval) => {
+            let (before, ty) = match &**inner {
+                Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight) => {
+                    (stack.last().cloned(), stack.last().cloned())
+                }
+                Op::CheckedCast(target) => (stack.last().cloned(), Some(target.clone())),
+                _ => return Err(format!("`Proved` cannot hold {inner:?}").into()),
+            };
+            let fits = |ty: &Option<Ty>| {
+                ty.as_ref()
+                    .and_then(crate::interval::Interval::of)
+                    .is_some_and(|full| interval.within(full))
+            };
+            if before.as_ref().is_none_or(|ty| !ty.is_int()) || !fits(&ty) {
+                return Err(format!("`Proved` {inner:?} does not fit {interval}").into());
+            }
+            return step(inner, stack, locals, sigs, returns, loop_stack, yield_ty);
+        }
         Op::Assumed(inner) => {
             let operand = matches!(
                 **inner,

@@ -123,9 +123,10 @@ fn bounds_remove_the_overflow_checks() {
 fn only_the_bounded_value_carries_the_bounds() {
     // The `Err` arm multiplies and adds the untested integer.
     assert_eq!(checks(&clif(SOURCE, "tested")), 2);
-    // No bound that rules out overflow, and no fact for a negative bound.
+    // No bound that rules out overflow.
     assert_eq!(checks(&clif(SOURCE, "wide")), 2);
-    assert_eq!(checks(&clif(SOURCE, "signed")), 2);
+    // The checker's interval -1..139967 proves both operations (issue #952).
+    assert_eq!(checks(&clif(SOURCE, "signed")), 0);
 }
 
 #[test]
@@ -161,19 +162,19 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn unproved_values_are_rejected() {
-    let unproved = "`Bounded.from` takes a value the compiler proves is in 0..9";
+    let full = "this value is in -9223372036854775808..9223372036854775807, which is not inside `Bounded[i64, 0, 9]`'s inclusive bounds 0..9";
     let program = |body: &str| {
         format!(
             "type Digit = Bounded[i64, 0, 9]\ndef f(x: i64, n: i64, wide: Bounded[i64, 0, 10], small: Bounded[i32, 0, 5]) -> Result[Digit, OverflowError[i64] | ZeroDivisionError]:\n    Ok({body})\ndef main() -> ():\n    f(1, 2, 3, 4).is_ok()\n"
         )
     };
-    check_error(&program("Digit.from(x)"), unproved);
+    check_error(&program("Digit.from(x)"), full);
     check_error(&program("Digit.from(x)"), "Bounded.try_from(value)?");
-    check_error(&program("Digit.from(x + 1)"), unproved);
-    check_error(&program("Digit.from(x % 10 + 0)"), unproved);
-    check_error(&program("Digit.from(x % n)"), unproved);
-    check_error(&program("Digit.from(x % -10)"), unproved);
-    check_error(&program("Digit.from(x & -1)"), unproved);
+    check_error(&program("Digit.from(x + 1)"), full);
+    check_error(&program("Digit.from(x % n)"), full);
+    check_error(&program("Digit.from(x & -1)"), full);
+    check_error(&program("Digit.from(x % 10 + 1)"), "this value is in 1..10");
+    check_error(&program("Digit.from(x % -10)"), "this value is in -9..0");
     check_error(
         &program("Digit.from(x % 11)"),
         "this value is in 0..10, which is not inside `Bounded[i64, 0, 9]`'s inclusive bounds 0..9",
@@ -204,7 +205,7 @@ def main() -> ():
     w = Wild(50)
     a = Digit.from(w % 10)
 "#,
-        "`Bounded.from` takes a value the compiler proves",
+        "this value is in -9223372036854775808..9223372036854775807",
     );
 }
 

@@ -51,6 +51,7 @@ mod functions;
 mod generators;
 mod generics;
 pub(crate) mod ide;
+mod intervals;
 #[cfg(test)]
 mod lexer_tests;
 mod lints;
@@ -1221,6 +1222,18 @@ struct Lower<'a> {
     /// Free hidden operand locals of collection displays; see
     /// `Lower::operand_slot`.
     spare_operands: Vec<u8>,
+    /// The interval of the integer expression lowered last, with its token's
+    /// address and type; see [`intervals`].
+    interval: Option<(usize, Ty, crate::interval::Interval)>,
+    /// The interval of each immutable integer local, by slot.
+    slot_intervals: HashMap<u8, crate::interval::Interval>,
+    /// The interval of the `.get()` an integer domain's method call just
+    /// lowered, with the address of the receiver's token and the integer
+    /// type.
+    accessor: Option<(usize, Ty, crate::interval::Interval)>,
+    /// Set when `len(x)` called a class's `len` method, whose result has no
+    /// interval.
+    length_method: bool,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
     /// Source name of each slot, kept after the binding leaves scope so an
@@ -1374,7 +1387,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        self.interval = None;
         let (a, mut loans) = self.observe_expected(left, Some(ty.clone()), ops)?;
+        let left_interval = self.operand_interval(left, &a);
         if a.is_numeric() && a != ty && self.fixes_numeric_type(right, &ty) {
             return Err(mixed_numeric(left, &a, right, &ty));
         }
@@ -1385,7 +1400,13 @@ impl Lower<'_> {
             return Err(left.at.error(STR_REPETITION));
         }
         self.same(Some(a), Some(ty.clone()), &left.at)?;
+        self.interval = None;
         let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
+        let operands = intervals::Operands {
+            node: intervals::node(at),
+            left: left_interval,
+            right: self.operand_interval(right, &b),
+        };
         if b.is_numeric() && b != ty && self.fixes_numeric_type(left, &ty) {
             return Err(mixed_numeric(left, &ty, right, &b));
         }
@@ -1398,7 +1419,7 @@ impl Lower<'_> {
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
-        let output = self.numeric_operation(op, ty, right, at, ops)?;
+        let output = self.numeric_operation(op, ty, right, operands, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
     }
@@ -1415,21 +1436,28 @@ impl Lower<'_> {
         op: &str,
         ty: Ty,
         right: &Expr,
+        operands: intervals::Operands,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        let outcome = self.outcome(op, &ty, operands);
         if let Some(kind) = IntegerOp::binary(op) {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
             }
             if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
-                self.shift_operation(kind, &ty, right, at, ops)?;
+                self.shift_operation(kind, &ty, right, outcome, at, ops)?;
             } else {
                 self.push_trapping(Op::Integer(kind), &ty, ops);
             }
+            self.note_outcome(operands.node, &ty, outcome);
             return Ok(ty);
         }
-        let proof = self.known_divisor(op, right);
+        if self.proved_arithmetic(op, &ty, outcome, ops) {
+            self.note_outcome(operands.node, &ty, outcome);
+            return Ok(ty);
+        }
+        let proof = self.divisor_proof(op, &ty, operands);
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }
@@ -1442,6 +1470,7 @@ impl Lower<'_> {
         {
             return Ok(ty);
         }
+        self.note_outcome(operands.node, &ty, outcome);
         let operation = match op {
             "+" => Op::Add,
             "-" => Op::Sub,
@@ -2105,9 +2134,16 @@ impl Lower<'_> {
         }
         ide::enter_method(*pos, name);
         self.method_depth += 1;
+        self.accessor = None;
         let ty = self.method(base, name, args, ops);
         self.method_depth -= 1;
         ide::leave_method();
+        if let Some((receiver, element, interval)) = self.accessor.take()
+            && receiver == intervals::node(&base.at)
+            && matches!(&ty, Ok(Some(ty)) if *ty == element)
+        {
+            self.note_interval(intervals::node(&e.at), &element, interval);
+        }
         ty
     }
     /// A method call `e` whose context expects `expected`; a generic method
@@ -2168,11 +2204,19 @@ impl Lower<'_> {
                 .numeric_binary(op, left, right, hint, &e.at, ops)
                 .map(Some);
         }
+        self.interval = None;
         let (a, mut loans) = self.observe(left, ops)?;
+        let left_interval = self.operand_interval(left, &a);
         let mut rhs = Vec::new();
+        self.interval = None;
         let (b, other_loans) = self.observe_right(op, &a, right, &mut rhs)?;
+        let operands = intervals::Operands {
+            node: intervals::node(&e.at),
+            left: left_interval,
+            right: self.operand_interval(right, &b),
+        };
         loans.extend(other_loans);
-        self.binary_values(e, (a, b), rhs, loans, ops)
+        self.binary_values(e, (a, b), operands, rhs, loans, ops)
     }
     /// A field read or a qualified module name. Outlined so that its locals do
     /// not enlarge the frame of every recursive `expr` call (issue #841).
@@ -2395,7 +2439,9 @@ impl Lower<'_> {
                 return self.number(n, true, &e.at, ops).map(Some);
             }
             let mut body = Vec::new();
+            self.interval = None;
             let ty = self.value(value, &mut body)?;
+            let operand = self.operand_interval(value, &ty);
             if op == "~" {
                 if !ty.is_int() {
                     return Err(e.at.error("bitwise complement requires an integer"));
@@ -2424,9 +2470,23 @@ impl Lower<'_> {
                 ops.extend(body);
                 if op == "-" {
                     self.mark(&e.at, ops);
-                    if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
+                    // `-x` is `0 - x`.
+                    let outcome = self.outcome(
+                        "-",
+                        &ty,
+                        intervals::Operands {
+                            node: 0,
+                            left: Some(crate::interval::Interval::point(0)),
+                            right: operand,
+                        },
+                    );
+                    if self.proved_arithmetic("-", &ty, outcome, ops) {
+                        self.note_outcome(intervals::node(&e.at), &ty, outcome);
+                    } else if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
                         self.push_trapping(Op::Sub, &ty, ops);
                     }
+                } else if let Some(operand) = operand {
+                    self.note_interval(intervals::node(&e.at), &ty, operand);
                 }
             }
             Some(ty.clone())
@@ -2986,9 +3046,17 @@ impl Lower<'_> {
                 return self.system_call(operation, args, &e.at, ops).map(Some);
             }
             if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
-                return self
-                    .builtin_collection(name, args, &e.at, ops)
-                    .map(|ty| Some(Some(ty)));
+                self.length_method = false;
+                let ty = self.builtin_collection(name, args, &e.at, ops)?;
+                if name == "len" && ty == Ty::I64 && !self.length_method {
+                    // A built-in collection's length is never negative.
+                    let length = crate::interval::Interval {
+                        lo: 0,
+                        hi: i128::from(i64::MAX),
+                    };
+                    self.note_interval(intervals::node(&e.at), &ty, length);
+                }
+                return Ok(Some(Some(ty)));
             }
             if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
                 if Ty::Class(t.clone()).layout_depth() >= 64 {
@@ -3021,6 +3089,7 @@ impl Lower<'_> {
                     if args.len() != 1 {
                         return Err(e.at.error("numeric casts take one argument"));
                     }
+                    self.interval = None;
                     let source = self.value(&args[0], ops)?;
                     if !source.is_numeric() {
                         return Err(casts::operand_error(
@@ -4123,6 +4192,7 @@ impl Lower<'_> {
                             local.mutable && local.ty.carried_reference().is_some()
                         });
                     self.clear_mismatch();
+                    self.interval = None;
                     let lowered = if emptied {
                         self.expr_expected(value, context, ops).and_then(|ty| {
                             let ty =
@@ -4174,6 +4244,16 @@ impl Lower<'_> {
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
                         self.locals.push(ty.clone());
+                        // An immutable integer keeps the interval of its
+                        // value: nothing assigns to it again.
+                        match self.operand_interval(value, &ty) {
+                            Some(interval) if !*mutable => {
+                                self.slot_intervals.insert(slot, interval);
+                            }
+                            _ => {
+                                self.slot_intervals.remove(&slot);
+                            }
+                        }
                         self.note_declared(slot, &ty, &value.at);
                         ide::local_type(&stmt.at, &ty);
                         if annotation.is_none() {
@@ -5274,6 +5354,10 @@ fn lower_body(
                 range_stop: None,
                 expression_temps: Vec::new(),
                 spare_operands: Vec::new(),
+                interval: None,
+                slot_intervals: HashMap::default(),
+                accessor: None,
+                length_method: false,
                 contexts: Vec::new(),
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs

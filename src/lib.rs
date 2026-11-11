@@ -58,6 +58,7 @@ mod frontend;
 mod generator;
 mod hash;
 mod hash_hex;
+mod interval;
 mod library;
 mod library_metadata;
 #[path = "../plenty-runtime/src/list_layout.rs"]

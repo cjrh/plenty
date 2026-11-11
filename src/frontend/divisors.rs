@@ -49,31 +49,6 @@ impl Lower<'_> {
         }
     }
 
-    /// The proof a known divisor of `//` or `%` supplies: `x // 2` cannot
-    /// divide by zero, and only `-1` can overflow. Other divisors prove
-    /// nothing (issue #796).
-    pub(super) fn known_divisor(&self, op: &str, divisor: &Expr) -> Divisor {
-        if !matches!(op, "//" | "%") {
-            return Divisor::Any;
-        }
-        self.known_integer(divisor)
-            .map_or(Divisor::Any, Divisor::literal)
-    }
-
-    /// Whether a shift count has the form `n & mask` (either operand order)
-    /// with a known mask in `0..width`. The result then lies in `0..=mask`, so
-    /// the count is valid without a check; this is the usual masking idiom.
-    fn masked_count(&self, count: &Expr, width: i128) -> bool {
-        let Expression::Binary(op, left, right) = &ungroup(count).kind else {
-            return false;
-        };
-        op == "&"
-            && [left, right].into_iter().any(|side| {
-                self.known_integer(side)
-                    .is_some_and(|mask| (0..width).contains(&mask))
-            })
-    }
-
     fn divisor_type(&self, op: &str, value: &Expr) -> Option<(Ty, Divisor)> {
         if !matches!(op, "//" | "%") {
             return None;
@@ -131,7 +106,7 @@ impl Lower<'_> {
         let actual = match proof {
             Divisor::NonZero => ty.nonzero_element(),
             Divisor::Positive => ty.positive_element(),
-            Divisor::Any | Divisor::BelowMinusOne => {
+            Divisor::Any | Divisor::BelowMinusOne | Divisor::Fits | Divisor::NonZeroFits => {
                 unreachable!("domain divisors carry a type proof")
             }
         };
@@ -180,6 +155,7 @@ impl Lower<'_> {
         kind: IntegerOp,
         ty: &Ty,
         count: &Expr,
+        outcome: Option<crate::interval::Outcome>,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
@@ -191,7 +167,11 @@ impl Lower<'_> {
                     "shift count {value} is outside 0..{width} for {ty}"
                 )));
             }
-        } else if !self.masked_count(count, width) {
+        } else if let Some(outcome) = outcome.filter(|outcome| !outcome.bad_count) {
+            // The count's interval is inside `0..width - 1`.
+            ops.push(Op::Proved(Box::new(Op::Integer(kind)), outcome.value));
+            return Ok(());
+        } else {
             let operation = if kind == IntegerOp::ShiftLeft {
                 Checked::ShiftLeft
             } else {
@@ -220,10 +200,16 @@ impl Lower<'_> {
             self.mark_arithmetic(op, ty, at, ops);
             self.division_operation(op, ty, proof, at, ops)
         } else {
+            self.interval = None;
             let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
             self.same(actual, Some(ty.clone()), &value.at)?;
             self.mark_arithmetic(op, ty, at, ops);
-            self.numeric_operation(op, ty.clone(), value, at, ops)?;
+            let operands = intervals::Operands {
+                node: 0,
+                left: None,
+                right: self.operand_interval(value, ty),
+            };
+            self.numeric_operation(op, ty.clone(), value, operands, at, ops)?;
             Ok(())
         }
     }

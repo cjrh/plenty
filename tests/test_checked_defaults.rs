@@ -179,7 +179,7 @@ def main() -> Result[(), IoError]:
     result = checked:
         local = (def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1))
         print(local(i64.MAX).is_err())?
-        1 + 2
+        len("a") * 3
     print(result.unwrap())?
     Ok(())
 "#
@@ -634,7 +634,7 @@ fn closure_errors_cross_workers_without_lexical_effects() {
             r#"
 def main() -> Result[(), IoError]:
     created = checked:
-        value = 1 + 1
+        value = len("a") * 2
         def [value]() -> Result[i64, OverflowError[i64]]:
             Ok(i64.MAX + value)
     job = created.unwrap()

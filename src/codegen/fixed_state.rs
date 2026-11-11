@@ -389,6 +389,12 @@ impl<'a> Eval<'a> {
         (rows == length).then_some(Some(rows))
     }
     fn step(&mut self, op: &Op) -> Option<()> {
+        // A proved operation computes what its plain form does. Only an
+        // integer operation is proved, and one on values this pass does not
+        // fold ends the pass below, so no rebuilt code loses the proof.
+        if let Op::Proved(inner, _) = op {
+            return self.step(inner);
+        }
         if let Op::CallerSite(_) = op {
             self.site = Some(op.clone());
         }

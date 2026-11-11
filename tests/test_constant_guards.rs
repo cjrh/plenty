@@ -58,10 +58,11 @@ fn program() -> String {
             );
         }
     }
-    // `d` reaches the loop body as a block parameter of the unsealed loop
+    // `d` is `mut`, so the checker gives it no interval (issue #952). It
+    // reaches the loop body as a block parameter of the unsealed loop
     // header, so its guards are decided only once the function is built.
     source += "def loop_div(x: u64) -> u64:\n    \
-               d = 10u64\n    \
+               mut d = 10u64\n    \
                mut s = 0u64\n    \
                mut i = 0u64\n    \
                while i < x:\n        \

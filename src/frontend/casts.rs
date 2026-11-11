@@ -25,6 +25,20 @@ impl Lower<'_> {
             }
             _ => false,
         };
+        if !literal
+            && let Some(interval) = self.operand_interval(operand, source)
+            && let (interval, true) = interval.cast_or_full(target)
+        {
+            // Every value of the operand's interval is a value of `target`:
+            // the conversion cannot fail and has no run-time check.
+            self.mark(cast, ops);
+            ops.push(Op::Proved(
+                Box::new(Op::CheckedCast(target.clone())),
+                interval,
+            ));
+            self.note_interval(intervals::node(cast), target, interval);
+            return Ok(());
+        }
         if !literal {
             // A literal cast is checked when compiling, so only this one can
             // trap inside a `checked:` block.
@@ -56,6 +70,10 @@ impl Lower<'_> {
                             "{number} is out of range for {target}; {target}.wrapping_from keeps the low bits"
                         )));
                     }
+                    self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
+                    let point = crate::interval::Interval::point(number);
+                    self.note_interval(intervals::node(cast), target, point);
+                    return Ok(());
                 }
                 Some(Op::PushFloat { bits, ty }) if source.is_float() => {
                     let (number, text) = if *ty == Ty::F32 {

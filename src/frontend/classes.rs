@@ -1396,6 +1396,15 @@ impl Lower<'_> {
                 }
             })?
             .clone();
+        if name == "get"
+            && args.is_empty()
+            && let Some((_, receiver)) = sig.inputs.first()
+        {
+            // The receiver type of the method this call resolved to.
+            self.accessor = self
+                .domain_interval(receiver)
+                .map(|(element, interval)| (super::intervals::node(&base.at), element, interval));
+        }
         if !matches!(sig.inputs.first(), Some((_, Ty::Ref(..)))) {
             // Owned receivers are ordinary first arguments: evaluate and move
             // them before later arguments, with the same unwind/drop behavior.
