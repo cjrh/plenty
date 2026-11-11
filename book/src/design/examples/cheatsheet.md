@@ -208,7 +208,9 @@ Indexing a missing element or key traps; `get` returns an `Option` copy, and
 `get_ref`/`get_mut` return an `Option` reference.
 Dictionaries have no indexed assignment: `insert` adds or replaces,
 `get_mut` returns `Option[&mut V]` to change a value in place, and
-`get_or_insert(k, default)?` returns `&mut V` after inserting a missing key.
+`get_or_insert(k, default)?` returns `&mut V` after inserting a missing key;
+for a `str` key still held as bytes, `get_or_insert_bytes(&buffer[a:b], default)?`
+builds the key only when it is absent.
 `for v in (&mut d).values():` and `for k, v in (&mut d).items():` change
 every value in place. See
 [collections](../facilities/01-builtins/collections.md),

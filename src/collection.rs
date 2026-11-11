@@ -319,6 +319,9 @@ pub enum CollectionOp {
     /// Exclusive dictionary reference, owned key and default ->
     /// Result[&mut value, AllocError] (issue #748).
     DictGetOrInsert(Ty),
+    /// Exclusive `dict[str, V]` reference, `&[u8]` view of the key's bytes
+    /// and owned default -> Result[&mut value, DataError] (issue #949).
+    DictGetOrInsertBytes(Ty),
     ListPop(Ty),      // exclusive list/index -> Option[owned element]
     SetDiscard(Ty),   // exclusive set/value -> bool
     ListReverse(Ty),  // exclusive list -> ()
@@ -975,6 +978,17 @@ impl CollectionOp {
                     crate::sum::result(Ty::Ref(v.clone(), true), crate::sum::alloc_error()),
                 )
             }
+            DictGetOrInsertBytes(t) => {
+                let Ty::Dict(_, v) = t else { unreachable!() };
+                (
+                    vec![
+                        Ty::Ref(Arc::new(t.clone()), true),
+                        crate::bytes::byte_view(),
+                        (**v).clone(),
+                    ],
+                    crate::sum::result(Ty::Ref(v.clone(), true), crate::sum::data_error()),
+                )
+            }
             ListGet(t) | ListPop(t) => {
                 let Ty::List(element) = t else { unreachable!() };
                 (
@@ -1363,6 +1377,7 @@ impl CollectionOp {
             Self::DictGetRef(..) => 113,
             Self::ListGetRef(..) => opcode::LIST_GET_REF,
             Self::DictGetOrInsert(_) => opcode::DICT_GET_OR_INSERT,
+            Self::DictGetOrInsertBytes(_) => opcode::DICT_GET_OR_INSERT_BYTES,
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,
             Self::ListReverse(_) => 57,

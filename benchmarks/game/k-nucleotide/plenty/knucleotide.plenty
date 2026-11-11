@@ -2,16 +2,17 @@
 # in a hash table, then report frame-1 and frame-2 frequencies and five
 # specific counts.
 # Same algorithm as the reference (knucleotide.rs, Rust #1): one dictionary per
-# frame length, keyed by an owned copy of each k-length substring. The
-# reference counts the seven frames on seven threads; this version counts them
-# in turn on one thread.
+# frame length, keyed by an owned copy of each distinct k-length substring. A
+# frame is looked up by its bytes in the sequence; the copy is made on a miss.
+# The reference counts the seven frames on seven threads; this version counts
+# them in turn on one thread.
 import std.bytes
 
 const NEWLINE: u8 = 10u8
 const READ_CHUNK: i64 = 1048576
 
 type Counts = dict[str, i64]
-type AppError = AllocError | IoError | OverflowError[i64] | std.bytes.BytesError
+type AppError = AllocError | IoError | OverflowError[i64] | DataError
 
 
 def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
@@ -53,11 +54,10 @@ def third_sequence(input: &std.bytes.Bytes) -> Result[std.bytes.Bytes, AllocErro
     Ok(sequence)
 
 
-def count_frames(sequence: &std.bytes.Bytes, length: i64) -> Result[Counts, AllocError | OverflowError[i64] | std.bytes.BytesError]:
+def count_frames(sequence: &std.bytes.Bytes, length: i64) -> Result[Counts, AllocError | OverflowError[i64] | DataError]:
     mut counts: Counts = {}?
     for i in range(sequence.len() - length + 1):
-        key = sequence.to_text_range(i, i + length)?
-        *counts.get_or_insert(key, 0)? += 1
+        *counts.get_or_insert_bytes(&sequence[i:i + length], 0)? += 1
     Ok(counts)
 
 

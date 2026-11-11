@@ -4776,6 +4776,9 @@ impl Lower<'_> {
         if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
             return self.dict_get_or_insert(base, args, ops).map(Some);
         }
+        if name == "get_or_insert_bytes" && matches!(collection, Some(Ty::Dict(..))) {
+            return self.dict_get_or_insert_bytes(base, args, ops).map(Some);
+        }
         if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
             return self
                 .collection_unit_mutation(base, name, args, ops)
@@ -5603,6 +5606,54 @@ impl Lower<'_> {
             *fact = self.loans[id].clone();
         }
         ops.push(Op::UseLoan(loan));
+        Ok(Some(result))
+    }
+
+    /// `dictionary.get_or_insert_bytes(source, default)` for `dict[str, V]`
+    /// (issue #949): `get_or_insert` keyed by a `&[u8]` view of the key's
+    /// UTF-8 bytes. The view is read during the call only; the dictionary
+    /// builds its own `str` key on a miss.
+    fn dict_get_or_insert_bytes(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let [source_arg, default_arg] = args else {
+            return Err(base
+                .at
+                .error("get_or_insert_bytes requires a byte view and a default value"));
+        };
+        let ty = classes::unbox(self.place_type(base).expect("dictionary place"));
+        if !matches!(&ty, Ty::Dict(key, _) if **key == Ty::Str) {
+            return Err(base.at.error(format!(
+                "get_or_insert_bytes requires a dictionary with str keys, got {ty}; use get_or_insert with an owned key"
+            )));
+        }
+        let operation = CollectionOp::DictGetOrInsertBytes(ty);
+        let (inputs, result) = operation.signature();
+        // The view and the default are evaluated before the receiver is
+        // borrowed, in that order.
+        let (actual, source_loan) = self.view_argument(source_arg, false, false, ops)?;
+        self.same(Some(actual), Some(inputs[1].clone()), &source_arg.at)?;
+        let view = self.slot(inputs[1].clone(), &source_arg.at)?;
+        ops.push(Op::StoreLocal(view));
+        let actual = self.expr_expected(default_arg, Some(inputs[2].clone()), ops)?;
+        self.same(actual, Some(inputs[2].clone()), &default_arg.at)?;
+        let default = self.slot(inputs[2].clone(), &default_arg.at)?;
+        ops.push(Op::StoreLocal(default));
+        let (reference, loan) = self.borrow(base, true, ops)?;
+        self.unbox_reference(reference, ops);
+        ops.push(Op::LoadLocal(view));
+        ops.push(Op::MoveLocal(default));
+        ops.push(Op::Collection(operation));
+        let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
+        self.loans[id].precise = false;
+        if let Some(Op::Loan(fact)) = ops.last_mut() {
+            *fact = self.loans[id].clone();
+        }
+        // The view's owner stays lent until the runtime has read the bytes.
+        ops.extend([Op::UseLoan(loan), Op::UseLoan(source_loan)]);
         Ok(Some(result))
     }
 
@@ -6870,7 +6921,7 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
-        "get_or_insert" if matches!(ty, Ty::Dict(..)) => {
+        "get_or_insert" | "get_or_insert_bytes" if matches!(ty, Ty::Dict(..)) => {
             "a mutable dictionary binding or class field"
         }
         "get_mut" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {

@@ -1406,6 +1406,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::TryInsert(_)
                 | CollectionOp::ListTryInsert(_)
                 | CollectionOp::DictGetOrInsert(_)
+                | CollectionOp::DictGetOrInsertBytes(_)
         );
         let mut values = Vec::new();
         let mut held = Vec::new();
@@ -1547,7 +1548,12 @@ impl Lowerer<'_, '_> {
             // helper whose inline-key hit is a leaf.
             let text = matches!(inputs[1], Ty::Str) && !inputs[2].affine();
             let result = self.get_or_insert_call(&arguments, text);
-            self.get_or_insert_hit(result, &values[1..], &inputs[1..])
+            self.get_or_insert_hit(result, &values[1..], &inputs[1..], false)
+        } else if let CollectionOp::DictGetOrInsertBytes(_) = operation {
+            // The key is a view, which owns nothing. A hit leaves the
+            // default with the caller whether or not it is affine.
+            let result = self.get_or_insert_bytes_call(&arguments);
+            self.get_or_insert_hit(result, &values[2..], &inputs[2..], true)
         } else {
             self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?
         };
@@ -1610,14 +1616,42 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().iconcat(low, high)
     }
 
+    /// `dict[str, V].get_or_insert_bytes` through
+    /// `plenty_dict_get_or_insert_bytes` (issue #949): the view's address and
+    /// count and the default travel in registers.
+    fn get_or_insert_bytes_call(
+        &mut self,
+        arguments: &[cranelift_codegen::ir::Value],
+    ) -> cranelift_codegen::ir::Value {
+        let &[dictionary, view, value] = arguments else {
+            unreachable!("get_or_insert_bytes takes the dictionary, a view and a default")
+        };
+        let (dictionary, _) = self.bcx.ins().isplit(dictionary);
+        let (address, count) = self.bcx.ins().isplit(view);
+        let (value_low, value_high) = self.bcx.ins().isplit(value);
+        let function = self
+            .module
+            .declare_func_in_func(self.runtime.dict_get_or_insert_bytes, self.bcx.func);
+        let call = self.bcx.ins().call(
+            function,
+            &[dictionary, address, count, value_low, value_high],
+        );
+        let &[low, high] = self.bcx.inst_results(call) else {
+            unreachable!("the helper returns two words")
+        };
+        self.bcx.ins().iconcat(low, high)
+    }
+
     /// The `dict.get_or_insert` result word without its hit flag. A hit
     /// leaves the copyable `operands` with the caller, so they are released
-    /// here on that path only; a miss stored them (issue #762).
+    /// here on that path only; a miss stored them (issue #762). `affine`
+    /// says a hit leaves the affine operands with the caller too.
     fn get_or_insert_hit(
         &mut self,
         result: cranelift_codegen::ir::Value,
         operands: &[cranelift_codegen::ir::Value],
         operand_types: &[Ty],
+        affine: bool,
     ) -> cranelift_codegen::ir::Value {
         let (low, high) = self.bcx.ins().isplit(result);
         let hit = self.bcx.ins().icmp_imm_u(
@@ -1625,14 +1659,17 @@ impl Lowerer<'_, '_> {
             high,
             crate::collection_opcodes::GET_OR_INSERT_HIT,
         );
-        if operand_types.iter().any(|ty| !ty.affine() && ty.managed()) {
+        if operand_types
+            .iter()
+            .any(|ty| (affine || !ty.affine()) && ty.managed())
+        {
             let release = self.bcx.create_block();
             let done = self.bcx.create_block();
             self.bcx.ins().brif(hit, release, &[], done, &[]);
             self.bcx.switch_to_block(release);
             self.bcx.seal_block(release);
             for (value, ty) in operands.iter().zip(operand_types) {
-                if !ty.affine() {
+                if affine || !ty.affine() {
                     self.release(*value, ty);
                 }
             }

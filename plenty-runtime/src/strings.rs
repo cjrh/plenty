@@ -182,7 +182,13 @@ pub(crate) unsafe fn equal(a: *const Text, b: *const Text) -> bool {
 #[inline(always)]
 pub(crate) unsafe fn heap_bytes_equal(a: *const Text, b: *const Text) -> bool {
     // SAFETY: the caller keeps both heap or literal texts alive.
-    let (a, b) = unsafe { (heap_bytes(a), heap_bytes(b)) };
+    unsafe { bytes_equal(heap_bytes(a), heap_bytes(b)) }
+}
+
+/// Slice equality as `heap_bytes_equal` compares it, for a key's bytes that
+/// are not yet a text (issue #949).
+#[inline(always)]
+pub(crate) fn bytes_equal(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }

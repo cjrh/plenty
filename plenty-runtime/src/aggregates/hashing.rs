@@ -72,6 +72,20 @@ pub(super) unsafe fn heap_text(text: *const Text) -> Option<u64> {
         .map(|key| sip13_bytes(key, unsafe { strings::heap_bytes(text) }))
 }
 
+/// The hash of the str or bytes key holding `bytes`, before that key
+/// exists (issue #949); `None` before the first hash of the process has read
+/// the key. Equal to the built key's hash in either form.
+#[inline(always)]
+pub(super) fn text_bytes(bytes: &[u8]) -> Option<u64> {
+    KEY.get().map(|key| sip13_bytes(key, bytes))
+}
+
+/// `text_bytes`, reading the process key first when no hash has yet.
+#[inline(never)]
+pub(super) fn hash_text_bytes(bytes: &[u8]) -> u64 {
+    sip13_bytes(key(), bytes)
+}
+
 #[inline(never)]
 pub(super) unsafe fn hash_text(text: *const Text) -> u64 {
     // SAFETY: forwarded from `hash`.

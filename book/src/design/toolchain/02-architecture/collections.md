@@ -245,7 +245,18 @@ call. A heap or literal key is hashed and probed in another, which returns a
 hit whose stored key is the same object or another heap text with the same
 bytes, also without a call. A miss, an empty table, and a first candidate
 that does not match that way leave through a tail call. The hit reads no `Slot`
-record; only a miss builds one (issue #931). A mutation
+record; only a miss builds one (issue #931).
+
+`get_or_insert_bytes` calls
+`plenty_dict_get_or_insert_bytes(dictionary, address, count, value)` with the
+source view's two words (issue #949). It hashes the bytes with the text hash
+and returns a hit whose first candidate is the same inline word, or a heap
+text with the same bytes, without a call. Every other outcome leaves through
+a tail call to a function that finishes the probe by byte comparison and, on
+a miss, validates the bytes, builds the key and inserts it at the probed
+bucket with the hash already computed. No path stores bytes that were not
+validated. Generated code releases the default on a hit, whatever its type;
+the runtime releases it on an error. A mutation
 of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 `pop`, `discard`, `clear`, set updates, `reverse`, `sort`, and so on) reads the
 collection's owner in place under the exclusive loan, so the receiver is

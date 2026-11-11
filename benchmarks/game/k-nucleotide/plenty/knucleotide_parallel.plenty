@@ -3,7 +3,8 @@
 # specific counts.
 # Counts the seven frame lengths concurrently, as the reference
 # (knucleotide.rs, Rust #1) does: one pool job per frame length, each building
-# its own dictionary keyed by owned copies of the substrings.
+# its own dictionary keyed by owned copies of the distinct substrings; a frame
+# is looked up by its bytes in the sequence.
 #
 # What crosses threads:
 # - The sequence goes to every job as its own `Shared[Bytes]` owner, as the
@@ -22,9 +23,9 @@ const READ_CHUNK: i64 = 1048576
 const WORKERS: Positive[i64] = 7
 
 type Counts = dict[str, i64]
-type CountError = AllocError | OverflowError[i64] | std.bytes.BytesError
+type CountError = AllocError | OverflowError[i64] | DataError
 type CountFuture = Future[Result[Counts, CountError]]
-type AppError = AllocError | IoError | OverflowError[i64] | std.bytes.BytesError | PoolError | SubmitError[()] | FutureError
+type AppError = AllocError | IoError | OverflowError[i64] | DataError | PoolError | SubmitError[()] | FutureError
 
 
 def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
@@ -70,8 +71,7 @@ def third_sequence(input: &std.bytes.Bytes) -> Result[std.bytes.Bytes, AllocErro
 def count_frames(sequence: Shared[std.bytes.Bytes], length: i64) -> Result[Counts, CountError]:
     mut counts: Counts = {}?
     for i in range(sequence.len() - length + 1):
-        key = sequence.to_text_range(i, i + length)?
-        *counts.get_or_insert(key, 0)? += 1
+        *counts.get_or_insert_bytes(&sequence[i:i + length], 0)? += 1
     Ok(counts)
 
 

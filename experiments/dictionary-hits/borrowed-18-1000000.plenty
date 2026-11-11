@@ -1,0 +1,13 @@
+# Hit-only dictionary updates keyed by a byte range read in place
+# (issue #949): no key is built on a hit; an 18-byte key is stored as heap text.
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | DataError]:
+    sequence = std.bytes.from_text("GGTATTTTAATTTATAGTACGTACGTAACCGGTT")?
+    mut counts: dict[str, i64] = {}?
+    for start in range(4):
+        *counts.get_or_insert_bytes(&sequence[start:start + 18], 0)? += 0
+    for i in range(1000000):
+        *counts.get_or_insert_bytes(&sequence[1:1 + 18], 0)? += 1
+    print(*counts.get_or_insert_bytes(&sequence[1:1 + 18], 0)?)?
+    Ok(())

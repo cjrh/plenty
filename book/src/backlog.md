@@ -206,9 +206,15 @@ Key-only dictionary probes are [delivered](completed-work/performance.md#b19-gen
 key construction from a byte range skips validated clamps and the dispatcher
 (`experiments/key-construction/`), and `get_or_insert` hits skip the
 dispatcher, the general key comparison and the streaming hasher
-(`experiments/dictionary-hits/`); a heap key's hit is one runtime function. The remaining
-k-nucleotide cost outside the hash is caller-site bookkeeping around
-`Bytes.to_text_range` (issue #948); issue #931 records the measurements.
+(`experiments/dictionary-hits/`); a heap key's hit is one runtime function.
+`dict[str, V].get_or_insert_bytes` looks a key up by borrowed bytes and builds
+it only on a miss (issue #949), which k-nucleotide now uses; its remaining hit
+cost outside the hash is the cache miss on the bucket load, and a byte view
+taken in a loop still calls `plenty_byte_view` on every pass. Not delivered:
+borrowed-key `get`, `get_ref`, `get_mut` and `in` for `str` keys, a `&strview`
+form, and a borrowed form for `dict[bytes, V]`. Caller-site bookkeeping around
+`Bytes.to_text_range` (issue #948) remains for programs that build keys;
+issue #931 records the measurements.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
