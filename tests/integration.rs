@@ -509,6 +509,8 @@ mod test_bytes_literal_access;
 mod test_indexed_loop_conditions;
 #[path = "test_loop_cache_hoisting.rs"]
 mod test_loop_cache_hoisting;
+#[path = "test_remainder_locals.rs"]
+mod test_remainder_locals;
 #[path = "test_slice_syntax.rs"]
 mod test_slice_syntax;
 #[path = "test_slice_views.rs"]

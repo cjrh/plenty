@@ -3330,6 +3330,19 @@ impl Lowerer<'_, '_> {
         }
     }
 
+    /// Records the facts of local `i` for `value`, just read from it.
+    pub(super) fn note_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
+        if self.counters.nonnegative_locals.contains(&i) {
+            self.counters.nonnegative.insert(value);
+        }
+        let carried = self.counters.remainder_locals.iter();
+        if let Some(&(_, limit)) = carried.rev().find(|(l, _)| *l == i) {
+            self.counters.nonnegative.insert(value);
+            self.counters.at_most.insert(value, limit);
+        }
+        self.note_bounds(i, value);
+    }
+
     /// Records what [`induction::Bounds`] knows about `value`, just read
     /// from local `i`.
     fn note_bounds(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
@@ -4069,10 +4082,7 @@ impl Lowerer<'_, '_> {
         } else {
             v
         };
-        if self.counters.nonnegative_locals.contains(&i) {
-            self.counters.nonnegative.insert(v);
-        }
-        self.note_bounds(i, v);
+        self.note_local(i, v);
         let block = self.bcx.current_block().ok_or("load outside a block")?;
         let before = self.bcx.func.layout.last_inst(block);
         let retain = self.retain(v, &ty);

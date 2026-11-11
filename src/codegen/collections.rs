@@ -2011,6 +2011,24 @@ impl Lowerer<'_, '_> {
         if let Some(counter) = &nonnegative {
             self.counters.nonnegative_locals.push(counter.local);
         }
+        let carried = self.counters.remainder_locals.len();
+        for (local, stored) in super::induction::remainder_locals(condition, body) {
+            let held = |(l, _): &(u8, u64)| *l == local;
+            if !super::is_signed(types[local as usize].clone())
+                || self.local_address(local).is_some()
+                || self.counters.remainder_locals.iter().any(held)
+            {
+                continue;
+            }
+            let entry = self.read_local(local);
+            self.note_local(local, entry);
+            if self.nonnegative_operand(entry)
+                && let Some(limit) = self.upper_bound(entry)
+            {
+                let limit = limit.max(stored);
+                self.counters.remainder_locals.push((local, limit));
+            }
+        }
         let mut stop = None;
         let range = super::induction::analyze_range(condition, body).filter(|range| {
             let slots = [range.target, range.remaining, range.advance];
@@ -2213,6 +2231,7 @@ impl Lowerer<'_, '_> {
         if nonnegative.is_some() {
             self.counters.nonnegative_locals.pop();
         }
+        self.counters.remainder_locals.truncate(carried);
         self.bcx.switch_to_block(exit);
         self.bcx.seal_block(exit);
         self.stack = initial;

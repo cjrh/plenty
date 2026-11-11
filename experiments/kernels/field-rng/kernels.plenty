@@ -30,10 +30,46 @@ def fill_local(seed: i64, out: &mut [i64]) -> Result[i64, OverflowError[i64] | Z
     Ok(s)
 
 
+# Two arms store remainders by different constants.
+def fill_arms(seed: i64, out: &mut [i64]) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    mut s = seed % IM
+    for i in range(len(out)):
+        if i % 2 == 0:
+            s = (s * IA + IC) % IM
+        else:
+            s = (s * 3 + 1) % 1000
+        out[i] = s
+    Ok(s)
+
+
+# The carried local is written only in an inner loop.
+def fill_inner(seed: i64, out: &mut [i64], rounds: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    mut s = seed % IM
+    for _ in range(rounds):
+        for i in range(len(out)):
+            s = (s * IA + IC) % IM
+            out[i] = s
+    Ok(s)
+
+
+# One write is not a remainder, so the local has no bound and keeps its checks.
+def fill_unbounded(seed: i64, out: &mut [i64]) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    mut s = seed % IM
+    for i in range(len(out)):
+        s = (s * IA + IC) % IM
+        if s == 7:
+            s = s + i
+        out[i] = s
+    Ok(s)
+
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut rng = Rng(42)
     mut out = [0, 0, 0, 0]?
     fill(&mut rng, &mut out)?
     last = fill_local(42, &mut out)?
-    print(out, last, rng.seed)?
+    arms = fill_arms(42, &mut out)?
+    inner = fill_inner(42, &mut out, 3)?
+    unbounded = fill_unbounded(42, &mut out)?
+    print(out, last, rng.seed, arms, inner, unbounded)?
     Ok(())

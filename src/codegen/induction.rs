@@ -50,6 +50,9 @@ pub(super) struct Facts {
     /// The length, first element, step and stop of each 64-bit `range`
     /// whose length this function computed; see [`RangeLoop`].
     pub ranges: Vec<(Value, Value, Value, Value)>,
+    /// Signed locals the loops being lowered keep in `0..=limit`; see
+    /// [`remainder_locals`].
+    pub remainder_locals: Vec<(u8, u64)>,
     /// SSA values known to be nonnegative. A fact about an SSA value holds
     /// wherever the value is used.
     pub nonnegative: HashSet<Value>,
@@ -827,6 +830,113 @@ fn arith_kind(op: &Op) -> Option<Arith> {
         }
         _ => None,
     }
+}
+
+/// Locals a loop carries in a constant range (issue #940), with the largest
+/// value its stores can give each: every write to the local in `condition`
+/// and `body`, nested bodies included, is a store of `x % c` for a constant
+/// `c > 0`, and the local's first use in the loop is a read.
+///
+/// Soundness, for a signed integer local held in a CLIF variable whose value
+/// on entry is in `0..=k`: a floored remainder by `c > 0` is in `0..=c - 1`,
+/// so each store leaves the local in `0..=max(c) - 1`. Nothing else changes
+/// it: a borrow, move, drop, emptying or iteration of the local rejects it
+/// here, and a variable has no address a reference could write through. By
+/// induction over the stores executed, every read in the loop, on any pass
+/// and in the condition, sees a value in `0..=max(k, max(c) - 1)`. The
+/// bound does not depend on which stores run, so branches, `break`,
+/// `continue` and nested loops need no separate case.
+///
+/// The first use must be a read so that the local is bound before the loop:
+/// a binding made in the body starts with a store, and its value already
+/// carries the remainder's facts to the reads that follow.
+pub(super) fn remainder_locals(condition: &[Op], body: &[Op]) -> Vec<(u8, u64)> {
+    let mut uses = [Carried::Unused; 256];
+    remainder_uses(condition, &mut uses);
+    remainder_uses(body, &mut uses);
+    (0..=u8::MAX)
+        .filter_map(|local| match uses[local as usize] {
+            Carried::Stored(limit) => Some((local, limit)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum Carried {
+    Unused,
+    /// Read first, not yet stored.
+    Read,
+    /// Read first, and every store so far is a remainder at most this.
+    Stored(u64),
+    Rejected,
+}
+
+fn remainder_uses(ops: &[Op], uses: &mut [Carried; 256]) {
+    for (index, op) in ops.iter().enumerate() {
+        match op {
+            Op::LoadLocal(i) => {
+                if let Carried::Unused = uses[*i as usize] {
+                    uses[*i as usize] = Carried::Read;
+                }
+            }
+            Op::StoreLocal(i) => {
+                let limit = match uses[*i as usize] {
+                    Carried::Read => Some(0),
+                    Carried::Stored(limit) => Some(limit),
+                    Carried::Unused | Carried::Rejected => None,
+                };
+                uses[*i as usize] = match (limit, remainder_limit(ops, index)) {
+                    (Some(limit), Some(stored)) => Carried::Stored(limit.max(stored)),
+                    _ => Carried::Rejected,
+                };
+            }
+            Op::BorrowLocal(i, _)
+            | Op::MoveLocal(i)
+            | Op::DropLocal(i)
+            | Op::EmptyLocal(i)
+            | Op::Next(i) => uses[*i as usize] = Carried::Rejected,
+            Op::Loop { condition, body } => {
+                remainder_uses(condition, uses);
+                remainder_uses(body, uses);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                remainder_uses(then, uses);
+                for arm in elifs.iter() {
+                    remainder_uses(&arm.condition, uses);
+                    remainder_uses(&arm.body, uses);
+                }
+                remainder_uses(otherwise, uses);
+            }
+            Op::Match(arms) => {
+                for arm in arms.iter() {
+                    remainder_uses(&arm.body, uses);
+                }
+            }
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                remainder_uses(cleanup, uses);
+            }
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                remainder_uses(body, uses);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `c - 1` when the value stored at `store` is `x % c` for a constant
+/// `c > 0`: the remainder is the last value pushed, and its divisor the last
+/// pushed before it.
+fn remainder_limit(ops: &[Op], store: usize) -> Option<u64> {
+    let mut before = ops[..store].iter().rev().filter(|op| !transparent(op));
+    let (Op::Modulo(_), Op::PushInt(divisor)) = (before.next()?, before.next()?) else {
+        return None;
+    };
+    u64::try_from(literal(*divisor) - 1).ok()
 }
 
 /// Whether `value` is computed from constants and nonnegative at its width.
