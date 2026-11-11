@@ -177,24 +177,101 @@ impl Lowerer<'_, '_> {
             }
             _ => {
                 let bytes = self.reference_word(owner);
-                let functions = [self.runtime.byte_view_rows, self.runtime.byte_view_len];
-                let [rows, length] = functions.map(|function| {
-                    let helper = self.module.declare_func_in_func(function, self.bcx.func);
-                    let call = self.bcx.ins().call(helper, &[bytes]);
-                    self.bcx.inst_results(call)[0]
-                });
-                (rows, length)
+                let helper = self
+                    .module
+                    .declare_func_in_func(self.runtime.byte_view, self.bcx.func);
+                let call = self.bcx.ins().call(helper, &[bytes]);
+                let words = self.bcx.inst_results(call);
+                (words[0], words[1])
             }
         };
-        let zero = self.bcx.ins().iconst(types::I64, 0);
-        let first = self.view_bound(start, flags, SLICE_START, length, zero);
-        let end = self.view_bound(stop, flags, SLICE_STOP, length, length);
-        let count = self.bcx.ins().isub(end, first);
-        let count = self.bcx.ins().smax(count, zero);
+        let (first, count) = match self.view_in_range(start, stop, flags, length) {
+            Some(selection) => selection,
+            None => self.view_clamped(start, stop, flags, length),
+        };
         let address = self.view_row(rows, first, &element);
         let view = self.bcx.ins().iconcat(address, count);
         self.stack.push((view, output));
         Ok(())
+    }
+
+    /// The first row and row count of the clamped selection.
+    fn view_clamped(
+        &mut self,
+        start: NativeValue,
+        stop: NativeValue,
+        flags: NativeValue,
+        length: NativeValue,
+    ) -> (NativeValue, NativeValue) {
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let first = self.view_bound(start, flags, SLICE_START, length, zero);
+        let end = self.view_bound(stop, flags, SLICE_STOP, length, length);
+        let count = self.bcx.ins().isub(end, first);
+        (first, self.bcx.ins().smax(count, zero))
+    }
+
+    /// The selection when its written bounds already satisfy
+    /// `0 <= start <= stop <= length`, tested with one unsigned compare and
+    /// branch each; any other bounds take [`Self::view_clamped`] in a cold
+    /// block (issue #931). An in-range selection is the usual case, and
+    /// clamping costs it about four times as many instructions. None when
+    /// the flags are unknown, no bound is written, or a written bound is a
+    /// negative constant, which always needs the clamp.
+    fn view_in_range(
+        &mut self,
+        start: NativeValue,
+        stop: NativeValue,
+        flags: NativeValue,
+        length: NativeValue,
+    ) -> Option<(NativeValue, NativeValue)> {
+        let dfg = &self.bcx.func.dfg;
+        let written = known::known_signed(dfg, flags)?;
+        let negative = |bound| known::known_signed(dfg, bound).is_some_and(|bound| bound < 0);
+        let tested = [(SLICE_START, start), (SLICE_STOP, stop)]
+            .map(|(flag, bound)| (written & flag != 0).then_some(bound));
+        if tested == [None, None] || tested.iter().flatten().any(|bound| negative(*bound)) {
+            return None;
+        }
+        let before = self.bcx.current_block();
+        let [clamp, join] = [(); 2].map(|()| self.bcx.create_block());
+        for _ in 0..2 {
+            self.bcx.append_block_param(join, types::I64);
+        }
+        // `length` is nonnegative, so an unsigned `stop <= length` excludes a
+        // negative stop, and an unsigned `start <= stop` a negative start.
+        let first = tested[0].unwrap_or_else(|| self.bcx.ins().iconst(types::I64, 0));
+        let end = tested[1].unwrap_or(length);
+        let pairs = [
+            tested[1].map(|_| (end, length)),
+            tested[0].map(|_| (first, end)),
+        ];
+        for (low, high) in pairs.into_iter().flatten() {
+            let ordered = self
+                .bcx
+                .ins()
+                .icmp(IntCC::UnsignedLessThanOrEqual, low, high);
+            let next = self.bcx.create_block();
+            self.bcx.ins().brif(ordered, next, &[], clamp, &[]);
+            self.bcx.switch_to_block(next);
+            self.bcx.seal_block(next);
+        }
+        let count = self.bcx.ins().isub(end, first);
+        let selection = [BlockArg::Value(first), BlockArg::Value(count)];
+        self.bcx.ins().jump(join, &selection);
+        self.bcx.set_cold_block(clamp);
+        self.bcx.switch_to_block(clamp);
+        self.bcx.seal_block(clamp);
+        let (first, count) = self.view_clamped(start, stop, flags, length);
+        let selection = [BlockArg::Value(first), BlockArg::Value(count)];
+        self.bcx.ins().jump(join, &selection);
+        self.bcx.switch_to_block(join);
+        self.bcx.seal_block(join);
+        // `before` dominates `join`, so its row checks still hold there.
+        self.counters.checked.continue_to(before, join);
+        let &[first, count] = self.bcx.block_params(join) else {
+            unreachable!("the join takes the first row and the count")
+        };
+        Some((first, count))
     }
 
     /// A bound clamped into `0..=length`, counting a negative bound from the

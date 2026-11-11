@@ -25,12 +25,25 @@ pub(crate) fn is_inline(text: *const Text) -> bool {
 
 pub(crate) fn pack(data: &[u8]) -> *mut Text {
     debug_assert!(data.len() <= INLINE_MAX);
-    // Shifting each byte into place avoids a variable-length memcpy call.
-    let mut word = (data.len() as u64) << 1 | 1;
-    for (index, byte) in data.iter().enumerate() {
-        word |= (*byte as u64) << (8 * (index + 1));
-    }
-    word as usize as *mut Text
+    let len = data.len();
+    // Two fixed-width reads that overlap in the middle cover each length
+    // without a per-byte loop or a variable-length memcpy call (issue #931).
+    let payload = match len {
+        0 => 0,
+        1 => u64::from(data[0]),
+        2 | 3 => {
+            let (first, last) = ([data[0], data[1]], [data[len - 2], data[len - 1]]);
+            u64::from(u16::from_le_bytes(first))
+                | u64::from(u16::from_le_bytes(last)) << (8 * (len - 2))
+        }
+        _ => {
+            let first = [data[0], data[1], data[2], data[3]];
+            let last = [data[len - 4], data[len - 3], data[len - 2], data[len - 1]];
+            u64::from(u32::from_le_bytes(first))
+                | u64::from(u32::from_le_bytes(last)) << (8 * (len - 4))
+        }
+    };
+    (payload << 8 | (len as u64) << 1 | 1) as usize as *mut Text
 }
 
 /// Whether every data byte of an inline word is ASCII; the tag byte always is.
@@ -199,6 +212,18 @@ pub(crate) fn try_new(text: &str) -> Result<*mut Text, AllocError> {
         text.chars().count()
     };
     try_copy(bytes, scalars)
+}
+
+/// The inline string of at most `INLINE_MAX` ASCII bytes. Inlined into a
+/// caller, it answers short keys without `try_from_utf8`'s frame
+/// (issue #931).
+#[inline]
+pub(crate) fn inline_ascii_text(bytes: &[u8]) -> Option<*mut Text> {
+    if bytes.len() > INLINE_MAX {
+        return None;
+    }
+    let word = pack(bytes);
+    inline_ascii(word).then_some(word)
 }
 
 /// A new string holding `bytes`, or None when they are not strictly valid
@@ -991,6 +1016,37 @@ pub(crate) unsafe fn text_bytes(value: *const Text) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Issue #931: `pack` reads a short key in at most two overlapping loads.
+    #[test]
+    fn pack_matches_the_inline_layout_at_every_length() {
+        let data = [b'a', 0, 0xc3, 0xa9, b'z', 0x7f, 0xff];
+        for len in 0..=INLINE_MAX {
+            let mut expected = (len as u64) << 1 | 1;
+            for (i, byte) in data[..len].iter().enumerate() {
+                expected |= u64::from(*byte) << (8 * (i + 1));
+            }
+            let word = pack(&data[..len]);
+            assert_eq!(word as usize as u64, expected, "length {len}");
+            let text = word.cast_const();
+            assert_eq!(unsafe { bytes(&text) }, &data[..len]);
+        }
+    }
+
+    #[test]
+    fn inline_ascii_text_leaves_other_bytes_to_validation() {
+        assert_eq!(inline_ascii_text(b"GGT"), Some(pack(b"GGT")));
+        assert_eq!(inline_ascii_text(b""), Some(pack(b"")));
+        assert_eq!(inline_ascii_text(b"a\0b"), Some(pack(b"a\0b")));
+        assert_eq!(inline_ascii_text("aé".as_bytes()), None);
+        assert_eq!(inline_ascii_text(&[0xff]), None);
+        assert_eq!(inline_ascii_text(b"12345678"), None);
+        assert_eq!(
+            try_from_utf8("aé".as_bytes()),
+            Some(Ok(pack("aé".as_bytes())))
+        );
+        assert!(try_from_utf8(&[b'a', 0xff]).is_none());
+    }
 
     #[test]
     fn combined_lengths_and_header_layout_are_checked_before_allocation() {

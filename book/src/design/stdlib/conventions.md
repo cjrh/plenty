@@ -367,3 +367,4 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |
 | Names | Predicates without `is_`; `count()` as size; `watch` shapes; `new` | Not yet tracked |
+| Sizes | `std.simd` counts a view's whole vectors with `len_<vector>(values)` functions; a view type with `len()` needs references in fields | B11 |

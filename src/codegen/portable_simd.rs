@@ -54,6 +54,21 @@ enum Action {
     Compare(IntCC, FloatCC),
     Select,
     WrappingSum,
+    /// `load_*(values, offset)`: a guarded packed read of whole list rows.
+    Load,
+    /// `vector.store(values, offset)`: the matching guarded packed write.
+    Store,
+    /// `get_*(values, index)`: a packed read of vector `index` of a view,
+    /// which traps in the scalar body when the index is out of range.
+    Get,
+    /// `vector.set(values, index)`: the matching packed write.
+    Set,
+    /// `len_*(values)`: the view's whole vectors.
+    Len,
+    /// `tail_*(values)`: the index of the first element after them.
+    Tail,
+    /// `splat_*(value)`: one scalar in every lane.
+    Splat,
 }
 
 pub(super) struct Operation {
@@ -62,15 +77,36 @@ pub(super) struct Operation {
     output: Ty,
 }
 
+impl Operation {
+    /// A view access keeps its scalar body: the body reports an invalid
+    /// index, so a call site lowers the access inline and calls the body
+    /// only from the cold block of a failed check.
+    pub(super) fn indexed(&self) -> bool {
+        matches!(self.action, Action::Get | Action::Set)
+    }
+}
+
 /// Exact numeric vector locals without mutable borrows and split numeric tuple
 /// locals without any borrows are promoted. A
 /// materialized shared borrow is a snapshot: the ownership checker prevents
 /// mutation of the source for its entire lifetime. Mutable borrows and moved
 /// slots retain the ordinary canonical storage path throughout the function.
+///
+/// An unborrowed `Option[Vector]` local is promoted to its tag word and
+/// payload vector, so a list load's result reaches `match` and `unwrap`
+/// without passing through tagged storage.
 #[derive(Default)]
 pub(super) struct State {
     locals: HashMap<u8, (Variable, Shape)>,
+    /// Promoted `Option[Vector]` locals: the tag word and the payload, which
+    /// is zero while the tag is `Nothing`.
+    options: HashMap<u8, (Variable, Variable, Shape)>,
     values: HashMap<NativeValue, NativeValue>,
+    /// A native `Option[Vector]` value's canonical payload, itself in `values`.
+    payloads: HashMap<NativeValue, NativeValue>,
+    /// Option values built by reading a promoted local: no other value
+    /// addresses their storage.
+    fresh: crate::hash::HashSet<NativeValue>,
     snapshots: Vec<Vec<Inst>>,
 }
 
@@ -85,6 +121,19 @@ fn shape_of(ty: &Ty) -> Option<Shape> {
         _ => return None,
     };
     logical_type(ty, name, &shape.lane(), shape.lanes()).then_some(shape)
+}
+
+/// The vector type and shape inside `Option[Vector]`.
+fn option_shape(ty: &Ty) -> Option<(Ty, Shape)> {
+    let Ty::Enum(t) = ty else { return None };
+    if !t.is_option() {
+        return None;
+    }
+    let definition = t.get();
+    let [payload] = definition.variants.get(1)?.fields.as_slice() else {
+        return None;
+    };
+    Some((payload.clone(), shape_of(payload)?))
 }
 
 impl State {
@@ -113,11 +162,11 @@ impl State {
                 }
             }
         });
-        if !locals
-            .iter()
-            .skip(inputs)
-            .any(|(_, ty)| shape_of(ty).is_some() || tuples.iter().any(|(tuple, _)| tuple == ty))
-        {
+        if !locals.iter().skip(inputs).any(|(_, ty)| {
+            shape_of(ty).is_some()
+                || option_shape(ty).is_some()
+                || tuples.iter().any(|(tuple, _)| tuple == ty)
+        }) {
             return Self::default();
         }
         let mut excluded = vec![false; locals.len()];
@@ -165,6 +214,17 @@ impl State {
             }
         }
         visit(body, &mut excluded, locals);
+        let options = locals
+            .iter()
+            .enumerate()
+            .skip(inputs)
+            .filter_map(|(index, (_, ty))| {
+                let (_, shape) = option_shape(ty).filter(|_| !excluded[index])?;
+                let tag = builder.declare_var(types::I64);
+                let payload = builder.declare_var(shape.vector());
+                Some((index as u8, (tag, payload, shape)))
+            })
+            .collect();
         let locals = locals
             .iter()
             .enumerate()
@@ -183,16 +243,21 @@ impl State {
             .collect();
         Self {
             locals,
-            values: HashMap::default(),
-            snapshots: Vec::new(),
+            options,
+            ..Self::default()
         }
     }
 
     pub(super) fn promoted(&self, index: u8) -> bool {
-        self.locals.contains_key(&index)
+        self.locals.contains_key(&index) || self.options.contains_key(&index)
     }
     pub(super) fn fresh(&self, value: NativeValue) -> bool {
-        self.values.contains_key(&value)
+        self.values.contains_key(&value) || self.fresh.contains(&value)
+    }
+    /// The payload of a native `Option[Vector]` value: what `unwrap` and a
+    /// `Some` projection yield once the tag is known.
+    pub(super) fn option_payload(&self, value: NativeValue) -> Option<NativeValue> {
+        self.payloads.get(&value).copied()
     }
 }
 
@@ -216,9 +281,20 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
     if !cfg!(target_arch = "x86_64") || !optimize || !decl.standard_library {
         return None;
     }
-    let (name, method) = name
-        .strip_prefix("__plenty_class_std.simd.")?
-        .split_once('.')?;
+    let (name, method) = if let Some(vector) = name.strip_prefix("std.simd.load_") {
+        (vector, "load")
+    } else if let Some(vector) = name.strip_prefix("std.simd.get_") {
+        (vector, "get")
+    } else if let Some(vector) = name.strip_prefix("std.simd.len_") {
+        (vector, "len")
+    } else if let Some(vector) = name.strip_prefix("std.simd.tail_") {
+        (vector, "tail")
+    } else if let Some(vector) = name.strip_prefix("std.simd.splat_") {
+        (vector, "splat")
+    } else {
+        name.strip_prefix("__plenty_class_std.simd.")?
+            .split_once('.')?
+    };
     let shape = match name {
         "i32x4" => Shape::I32,
         "u32x4" => Shape::U32,
@@ -226,6 +302,36 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         "f64x2" => Shape::F64,
         _ => return None,
     };
+    if matches!(method, "load" | "store") {
+        return transfer(name, shape, method == "store", decl);
+    }
+    if matches!(method, "get" | "set") {
+        return view_access(name, shape, method == "set", decl);
+    }
+    if matches!(method, "len" | "tail" | "splat") {
+        let lane = shape.lane();
+        let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+        let action = match (method, inputs.as_slice(), decl.sig.outputs.as_slice()) {
+            ("splat", [input], [output])
+                if **input == lane && logical_type(output, name, &lane, shape.lanes()) =>
+            {
+                Action::Splat
+            }
+            (_, [Ty::View(element, false)], [Ty::I64]) if **element == lane => {
+                if method == "len" {
+                    Action::Len
+                } else {
+                    Action::Tail
+                }
+            }
+            _ => return None,
+        };
+        return Some(Operation {
+            shape,
+            action,
+            output: decl.sig.outputs[0].clone(),
+        });
+    }
     let float = shape.lane().is_float();
     let unsigned = matches!(shape, Shape::U32);
     let action = match method {
@@ -335,7 +441,175 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
     })
 }
 
+/// A list transfer's declared shape: packed rows of the lane type, an `i64`
+/// offset, and `Option[Vector]` from a load or `bool` from a store.
+fn transfer(name: &str, shape: Shape, store: bool, decl: &UserFn) -> Option<Operation> {
+    let lane = shape.lane();
+    let vector = |ty: &Ty| logical_type(ty, name, &lane, shape.lanes());
+    let rows = |ty: &Ty| {
+        matches!(ty, Ty::Ref(list, mutable) if *mutable == store
+            && matches!(**list, Ty::List(_))
+            && list.element().as_ref() == Some(&lane)
+            && metadata::list_row_bytes(&lane) == clif_type(lane.clone()).bytes() as usize)
+    };
+    let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+    let [output] = decl.sig.outputs.as_slice() else {
+        return None;
+    };
+    let declared = match (store, inputs.as_slice()) {
+        (true, [receiver, list, Ty::I64]) => {
+            borrowed(receiver, name, &lane, shape.lanes()) && rows(list) && *output == Ty::Bool
+        }
+        (false, [list, Ty::I64]) => {
+            rows(list) && option_shape(output).is_some_and(|(payload, _)| vector(&payload))
+        }
+        _ => false,
+    };
+    declared.then(|| Operation {
+        shape,
+        action: if store { Action::Store } else { Action::Load },
+        output: output.clone(),
+    })
+}
+
+/// A view access's declared shape: a view of the lane type whose rows are
+/// packed at the lane width, an `i64` vector index, and the vector from a
+/// read or nothing from a write.
+fn view_access(name: &str, shape: Shape, set: bool, decl: &UserFn) -> Option<Operation> {
+    let lane = shape.lane();
+    let rows = |ty: &Ty| {
+        matches!(ty, Ty::View(element, mutable) if *mutable == set
+            && **element == lane
+            && metadata::list_row_bytes(&lane) == clif_type(lane.clone()).bytes() as usize)
+    };
+    let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+    let declared = match (set, inputs.as_slice(), decl.sig.outputs.as_slice()) {
+        (true, [receiver, view, Ty::I64], []) => {
+            borrowed(receiver, name, &lane, shape.lanes()) && rows(view)
+        }
+        (false, [view, Ty::I64], [output]) => {
+            rows(view) && logical_type(output, name, &lane, shape.lanes())
+        }
+        _ => false,
+    };
+    declared.then(|| Operation {
+        shape,
+        action: if set { Action::Set } else { Action::Get },
+        output: decl.sig.outputs.first().cloned().unwrap_or(Ty::Unit),
+    })
+}
+
 impl Lowerer<'_, '_> {
+    /// Tests a view access's vector index against the view's whole vectors,
+    /// `count >> log2(lanes)`: one unsigned comparison, which also rejects a
+    /// negative index. Returns the block that continues with the access,
+    /// leaving the builder in the cold block for an index out of range with
+    /// `args` ready for the scalar body, which reports it. Returns `None`,
+    /// leaving the builder in place, when the enclosing versioned loop's
+    /// test covers the index.
+    pub(super) fn guard_simd_view(
+        &mut self,
+        op: &Operation,
+        args: &mut [NativeValue],
+    ) -> Option<cranelift_codegen::ir::Block> {
+        let set = matches!(op.action, Action::Set);
+        let [view, index] = args[usize::from(set)..] else {
+            unreachable!("view access signature checked by `operation`")
+        };
+        let shift = op.shape.lanes().ilog2();
+        if self.versioned_vector(index, view, shift) {
+            return None;
+        }
+        let source = set.then(|| self.simd_lanes(args[0], op.shape, false));
+        let (_, count) = self.split_view(view);
+        let vectors = self.bcx.ins().ushr_imm_u(count, i64::from(shift));
+        let inside = self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, vectors);
+        let [hit, miss] = std::array::from_fn(|_| self.bcx.create_block());
+        self.bcx.set_cold_block(miss);
+        self.bcx.ins().brif(inside, hit, &[], miss, &[]);
+        self.bcx.seal_block(hit);
+        self.bcx.switch_to_block(miss);
+        self.bcx.seal_block(miss);
+        if let Some(vector) = source {
+            // The scalar body takes the vector by reference to its lanes'
+            // storage. Building that here, not from the caller's lazy
+            // snapshot, keeps the vector in a register on the hot path.
+            let storage = self.inline_storage(op.shape.lanes() * 16);
+            for lane in 0..op.shape.lanes() {
+                let value = self.bcx.ins().extractlane(vector, lane as u8);
+                let slot = self.bcx.ins().iadd_imm_s(storage, (lane * 16) as i64);
+                self.store_slot(slot, value, &op.shape.lane());
+            }
+            let value = self.bcx.ins().uextend(types::I128, storage);
+            let slot = self.inline_storage(16);
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), value, slot, 0);
+            args[0] = self.bcx.ins().uextend(types::I128, slot);
+        }
+        Some(hit)
+    }
+
+    /// Whether the versioned loop copy being lowered may skip the check of
+    /// the vector index `index` against the whole vectors of `view`,
+    /// recording the test that copy then needs. Only the range counter plus
+    /// a small constant qualifies; see [`super::induction::Version`].
+    fn versioned_vector(&mut self, index: NativeValue, view: NativeValue, shift: u32) -> bool {
+        use super::induction::{Assumed, LengthOf, VERSION_OFFSET, offset};
+        let dfg = &self.bcx.func.dfg;
+        let bounds = &self.counters.bounds;
+        let Some(version) = &bounds.version else {
+            return false;
+        };
+        let view = bounds.canonical(dfg, view);
+        if version.entries.get(&view) != Some(&true) {
+            return false;
+        }
+        let (base, k) = offset(dfg, index);
+        let below_stop = bounds
+            .below
+            .get(&base)
+            .is_some_and(|&bound| Some(bounds.canonical(dfg, bound)) == version.stop);
+        if !(0..=VERSION_OFFSET).contains(&k) || !below_stop || !self.nonnegative_operand(base) {
+            return false;
+        }
+        let assumed = Assumed::Counter(LengthOf::Vectors(view, shift));
+        let version = self.counters.bounds.version.as_mut().unwrap();
+        match version.assumed.iter_mut().find(|(a, _)| *a == assumed) {
+            Some((_, most)) => *most = (*most).max(k),
+            None => version.assumed.push((assumed, k)),
+        }
+        true
+    }
+
+    /// The packed read or write of vector `index`, whose index is in range.
+    pub(super) fn lower_simd_view(&mut self, op: &Operation, args: &[NativeValue]) {
+        let set = matches!(op.action, Action::Set);
+        let source = set.then(|| self.simd_lanes(args[0], op.shape, false));
+        let [view, index] = args[usize::from(set)..] else {
+            unreachable!("view access signature checked by `operation`")
+        };
+        let (rows, _) = self.split_view(view);
+        // x86-64 scales an index by at most 8, so a 16-byte vector's address
+        // is `rows + (index + index) * 8`: one `lea` and the access's own
+        // addressing mode, not a copy and a shift.
+        debug_assert_eq!(op.shape.vector().bytes(), 16);
+        let pairs = self.bcx.ins().iadd(index, index);
+        let address = self.row_address(rows, pairs, 8);
+        let flags = MemFlagsData::trusted();
+        match source {
+            // A write returns `()`, which has no value.
+            Some(vector) => {
+                self.bcx.ins().store(flags, vector, address, 0);
+            }
+            None => {
+                let vector = self.bcx.ins().load(op.shape.vector(), flags, address, 0);
+                let value = self.materialize_simd(vector, op.shape, &op.output);
+                self.stack.push((value, op.output.clone()));
+            }
+        }
+    }
+
     fn record_simd_snapshot(&mut self, before: Option<Inst>) {
         let block = self.bcx.current_block().expect("SIMD snapshot block");
         let layout = &self.bcx.func.layout;
@@ -473,20 +747,91 @@ impl Lowerer<'_, '_> {
     /// Empty ownership slots have no observable value. Do not interpret their
     /// null canonical pointer as lane storage when clearing a promoted tuple.
     pub(super) fn clear_simd_local(&mut self, index: u8) -> bool {
+        if let Some(&(tag, payload, shape)) = self.portable_simd.options.get(&index) {
+            let nothing = self.bcx.ins().iconst(types::I64, 0);
+            let zero = self.zero_simd(shape);
+            self.bcx.def_var(tag, nothing);
+            self.bcx.def_var(payload, zero);
+            return true;
+        }
         let Some(&(variable, shape)) = self.portable_simd.locals.get(&index) else {
             return false;
         };
+        let zero = self.zero_simd(shape);
+        self.bcx.def_var(variable, zero);
+        true
+    }
+
+    fn zero_simd(&mut self, shape: Shape) -> NativeValue {
         let zero = match shape {
             Shape::F32 => self.bcx.ins().f32const(0.0),
             Shape::F64 => self.bcx.ins().f64const(0.0),
             Shape::I32 | Shape::U32 => self.bcx.ins().iconst(types::I32, 0),
         };
-        let zero = self.bcx.ins().splat(shape.vector(), zero);
-        self.bcx.def_var(variable, zero);
-        true
+        self.bcx.ins().splat(shape.vector(), zero)
+    }
+
+    /// The canonical `Option[Vector]` for tag word `tag` (1 is `Some`) and
+    /// payload `vector`, as a lazy snapshot. `Nothing` has a zero payload
+    /// word, as its constructor gives it.
+    fn option_simd(
+        &mut self,
+        tag: NativeValue,
+        vector: NativeValue,
+        shape: Shape,
+        option: &Ty,
+    ) -> NativeValue {
+        let (payload_ty, _) = option_shape(option).expect("Option[Vector]");
+        let payload = self.materialize_simd(vector, shape, &payload_ty);
+        let before = self
+            .bcx
+            .func
+            .layout
+            .last_inst(self.bcx.current_block().unwrap());
+        let storage = self.raw_word(payload);
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let word = self.bcx.ins().select(tag, storage, zero);
+        let value = self.bcx.ins().iconcat(word, tag);
+        self.record_simd_snapshot(before);
+        self.portable_simd.payloads.insert(value, payload);
+        value
+    }
+
+    /// The tag word and payload vector of a canonical `Option[Vector]`.
+    fn option_simd_parts(
+        &mut self,
+        value: NativeValue,
+        shape: Shape,
+    ) -> (NativeValue, NativeValue) {
+        let tag = self.sum_tag(value);
+        let storage = self.raw_word(value);
+        let some = self.bcx.create_block();
+        let nothing = self.bcx.create_block();
+        let done = self.bcx.create_block();
+        self.bcx.append_block_param(done, shape.vector());
+        self.bcx.ins().brif(tag, some, &[], nothing, &[]);
+        self.bcx.switch_to_block(some);
+        self.bcx.seal_block(some);
+        let vector = self.gather_simd_lanes(storage, shape, false);
+        self.bcx.ins().jump(done, &[vector.into()]);
+        self.bcx.switch_to_block(nothing);
+        self.bcx.seal_block(nothing);
+        let zero = self.zero_simd(shape);
+        self.bcx.ins().jump(done, &[zero.into()]);
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        (tag, self.bcx.block_params(done)[0])
     }
 
     pub(super) fn read_simd_local(&mut self, index: u8) -> Option<NativeValue> {
+        if let Some(&(tag, payload, shape)) = self.portable_simd.options.get(&index) {
+            let tag = self.bcx.use_var(tag);
+            let vector = self.bcx.use_var(payload);
+            let ty = self.locals[index as usize].1.clone();
+            let value = self.option_simd(tag, vector, shape, &ty);
+            self.portable_simd.fresh.insert(value);
+            return Some(value);
+        }
         let (variable, shape) = *self.portable_simd.locals.get(&index)?;
         let vector = self.bcx.use_var(variable);
         let ty = self.locals[index as usize].1.clone();
@@ -494,6 +839,21 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn write_simd_local(&mut self, index: u8, value: NativeValue) -> bool {
+        if let Some(&(tag, payload, shape)) = self.portable_simd.options.get(&index) {
+            let native = self
+                .portable_simd
+                .payloads
+                .get(&value)
+                .map(|payload| self.portable_simd.values[payload]);
+            let (word, vector) = match native {
+                // Built by `option_simd` as `iconcat(word, tag)`.
+                Some(vector) => (self.high_word(value), vector),
+                None => self.option_simd_parts(value, shape),
+            };
+            self.bcx.def_var(tag, word);
+            self.bcx.def_var(payload, vector);
+            return true;
+        }
         let Some(&(variable, shape)) = self.portable_simd.locals.get(&index) else {
             return false;
         };
@@ -568,7 +928,100 @@ impl Lowerer<'_, '_> {
         vector.unwrap()
     }
 
+    /// Reads or writes all lanes as one packed vector: a scalar list stores
+    /// its rows at the lane width, in lane order. The span must satisfy
+    /// `0 <= offset <= length - lanes`, the scalar bodies' guard; comparing
+    /// against the limit, which is negative for a short list, never adds to
+    /// `offset`. A span that does not fit leaves the list untouched and yields
+    /// `Nothing` or `False`; neither path traps.
+    fn lower_simd_transfer(&mut self, op: &Operation, args: &[NativeValue]) {
+        let store = matches!(op.action, Action::Store);
+        let source = store.then(|| self.simd_lanes(args[0], op.shape, false));
+        let [list, offset] = args[usize::from(store)..] else {
+            unreachable!("transfer signature checked by `operation`")
+        };
+        let owner = self.reference_word(list);
+        let flags = MemFlagsData::trusted();
+        let rows = self
+            .bcx
+            .ins()
+            .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
+        let row_bytes = i64::from(op.shape.vector().lane_type().bytes());
+        let length = self.dense_list_len(owner, row_bytes);
+        let limit = self
+            .bcx
+            .ins()
+            .iadd_imm_s(length, -(op.shape.lanes() as i64));
+        let [bounded, hit, miss, done] = std::array::from_fn(|_| self.bcx.create_block());
+        self.bcx.set_cold_block(miss);
+        // The result's tag word or truth value; a load also merges its vector.
+        let outcome = if store { types::I8 } else { types::I64 };
+        self.bcx.append_block_param(done, outcome);
+        if !store {
+            self.bcx.append_block_param(done, op.shape.vector());
+        }
+        let negative = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, offset, 0);
+        self.bcx.ins().brif(negative, miss, &[], bounded, &[]);
+        self.bcx.switch_to_block(bounded);
+        self.bcx.seal_block(bounded);
+        let late = self.bcx.ins().icmp(IntCC::SignedGreaterThan, offset, limit);
+        self.bcx.ins().brif(late, miss, &[], hit, &[]);
+        for (block, fits) in [(hit, true), (miss, false)] {
+            self.bcx.switch_to_block(block);
+            self.bcx.seal_block(block);
+            let flag = self.bcx.ins().iconst(outcome, i64::from(fits));
+            let vector = match source {
+                Some(vector) if fits => {
+                    let address = self.row_address(rows, offset, row_bytes);
+                    self.bcx.ins().store(flags, vector, address, 0);
+                    None
+                }
+                Some(_) => None,
+                None if fits => {
+                    let address = self.row_address(rows, offset, row_bytes);
+                    Some(self.bcx.ins().load(op.shape.vector(), flags, address, 0))
+                }
+                None => Some(self.zero_simd(op.shape)),
+            };
+            let mut results = vec![BlockArg::Value(flag)];
+            results.extend(vector.map(BlockArg::Value));
+            self.bcx.ins().jump(done, &results);
+        }
+        self.bcx.switch_to_block(done);
+        self.bcx.seal_block(done);
+        let params = self.bcx.block_params(done).to_vec();
+        let value = match params[..] {
+            [tag, vector] => self.option_simd(tag, vector, op.shape, &op.output),
+            _ => params[0],
+        };
+        self.stack.push((value, op.output.clone()));
+    }
+
     pub(super) fn lower_portable_simd(&mut self, op: &Operation, args: &[NativeValue]) {
+        if matches!(op.action, Action::Load | Action::Store) {
+            return self.lower_simd_transfer(op, args);
+        }
+        if op.indexed() {
+            return self.lower_simd_view(op, args);
+        }
+        if matches!(op.action, Action::Len | Action::Tail) {
+            let (_, count) = self.split_view(args[0]);
+            let shift = i64::from(op.shape.lanes().ilog2());
+            let mut result = self.bcx.ins().ushr_imm_u(count, shift);
+            if matches!(op.action, Action::Tail) {
+                result = self.bcx.ins().ishl_imm_u(result, shift);
+            }
+            // At most the view's count, which is not negative.
+            self.counters.nonnegative.insert(result);
+            self.stack.push((result, Ty::I64));
+            return;
+        }
+        if matches!(op.action, Action::Splat) {
+            let vector = self.bcx.ins().splat(op.shape.vector(), args[0]);
+            let value = self.materialize_simd(vector, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
         let left = self.simd_lanes(args[0], op.shape, false);
         if matches!(op.action, Action::WrappingSum) {
             // Keep the existing modular lane-order fold, without materializing
@@ -621,8 +1074,17 @@ impl Lowerer<'_, '_> {
                     .bitcast(op.shape.vector(), MemFlagsData::new(), mask);
                 self.bcx.ins().bitselect(mask, left, right)
             }
-            Action::WrappingSum | Action::Sqrt | Action::ToTuple => {
-                unreachable!("unary operation lowered above")
+            Action::WrappingSum
+            | Action::Sqrt
+            | Action::ToTuple
+            | Action::Load
+            | Action::Store
+            | Action::Get
+            | Action::Set
+            | Action::Len
+            | Action::Tail
+            | Action::Splat => {
+                unreachable!("lowered above")
             }
         };
         let comparison = matches!(op.action, Action::Compare(..));

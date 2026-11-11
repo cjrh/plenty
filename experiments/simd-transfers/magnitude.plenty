@@ -1,0 +1,76 @@
+# n-body magnitude phase through the public std.simd list transfers and
+# indexed view accesses.
+# Usage: magnitude MODE N REPEATS, MODE one of scalar, simd, views.
+import std.simd as simd
+
+def magnitude_scalar(x: &list[f64], y: &list[f64], z: &list[f64], out: &mut list[f64], n: i64, dt: f64) -> ():
+    for i in range(n):
+        d2 = x[i] * x[i] + y[i] * y[i] + z[i] * z[i]
+        out[i] = dt / (d2 * d2.sqrt())
+
+# Returns False when a list is shorter than n; elements before the failing
+# group are already written.
+def magnitude_simd(x: &list[f64], y: &list[f64], z: &list[f64], out: &mut list[f64], n: i64, dt: f64) -> Result[bool, OverflowError[i64]]:
+    step = simd.splat_f64x2(dt)
+    for pair in range(n // 2):
+        p = pair * 2
+        match simd.load_f64x2(x, p):
+            case Some(a):
+                match simd.load_f64x2(y, p):
+                    case Some(b):
+                        match simd.load_f64x2(z, p):
+                            case Some(c):
+                                d2 = a.mul(a).add(b.mul(b)).add(c.mul(c))
+                                if not step.div(d2.mul(d2.sqrt())).store(out, p):
+                                    return Ok(False)
+                            case Nothing:
+                                return Ok(False)
+                    case Nothing:
+                        return Ok(False)
+            case Nothing:
+                return Ok(False)
+    if n % 2 == 1:
+        p = n - 1
+        d2 = x[p] * x[p] + y[p] * y[p] + z[p] * z[p]
+        out[p] = dt / (d2 * d2.sqrt())
+    Ok(True)
+
+# The views are bound by the caller, so the loop tests each count once.
+def magnitude_views(x: &[f64], y: &[f64], z: &[f64], out: &mut [f64], dt: f64) -> ():
+    step = simd.splat_f64x2(dt)
+    for i in range(simd.len_f64x2(x)):
+        a = simd.get_f64x2(x, i)
+        b = simd.get_f64x2(y, i)
+        c = simd.get_f64x2(z, i)
+        d2 = a.mul(a).add(b.mul(b)).add(c.mul(c))
+        step.div(d2.mul(d2.sqrt())).set(out, i)
+    for i in range(simd.tail_f64x2(x), len(x)):
+        d2 = x[i] * x[i] + y[i] * y[i] + z[i] * z[i]
+        out[i] = dt / (d2 * d2.sqrt())
+
+def main() -> Result[i32, AllocError | IoError | ParseError | OverflowError[i64]]:
+    argv = args()?
+    if len(argv) != 4:
+        print("usage: magnitude scalar|simd|views N REPEATS")?
+        return Ok(2i32)
+    n = i64.parse(&argv[2])?
+    repeats = i64.parse(&argv[3])?
+    x = [f64(i + 1) for i in range(n)]?
+    y = [f64(i + 2) for i in range(n)]?
+    z = [f64(i + 3) for i in range(n)]?
+    mut out = [-1.0 for i in range(n + 1)]?
+    vector = argv[1] == "simd"
+    views = argv[1] == "views"
+    for _ in range(repeats):
+        if views:
+            magnitude_views(&x, &y, &z, &mut out, 0.01)
+        elif vector:
+            if not magnitude_simd(&x, &y, &z, &mut out, n, 0.01)?:
+                return Ok(1i32)
+        else:
+            magnitude_scalar(&x, &y, &z, &mut out, n, 0.01)
+    mut total = 0.0
+    for value in &out:
+        total += *value
+    print(f"{total:.17e}"?)?
+    Ok(0i32)

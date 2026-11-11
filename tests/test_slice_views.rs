@@ -1207,3 +1207,56 @@ fn bare_text_at_byte_views_suggests_as_bytes() {
         "{error}"
     );
 }
+
+// Issue #931: a slice whose written bounds satisfy `0 <= start <= stop <= len`
+// skips the clamps; every other combination still clamps as before.
+#[test]
+fn runtime_bounds_clamp_outside_the_in_range_path() {
+    support::assert_stdout(
+        r#"
+import std.bytes as by
+
+def size(xs: &list[i64], start: i64, stop: i64) -> i64:
+    part = &xs[start:stop]
+    len(part)
+
+def first(xs: &list[i64], start: i64, stop: i64) -> i64:
+    part = &xs[start:stop]
+    if len(part) == 0:
+        return 0
+    part[0]
+
+def tail(xs: &list[i64], start: i64) -> i64:
+    part = &xs[start:]
+    len(part)
+
+def head(xs: &list[i64], stop: i64) -> i64:
+    part = &xs[:stop]
+    len(part)
+
+def nested(xs: &list[i64], start: i64, stop: i64) -> i64:
+    rest = &xs[1:]
+    part = &rest[start:stop]
+    len(part)
+
+def count(data: &by.Bytes, start: i64, stop: i64) -> i64:
+    part = &data[start:stop]
+    len(part)
+
+def main() -> Result[(), AllocError | IoError | by.BytesError]:
+    xs = [1, 2, 3, 4, 5]?
+    print(size(&xs, 0, 5), size(&xs, 1, 3), size(&xs, 2, 2), size(&xs, 5, 5))?
+    print(first(&xs, 0, 5), first(&xs, 1, 3), first(&xs, 4, 5), first(&xs, 5, 5))?
+    print(size(&xs, 3, 1), size(&xs, 0, 6), size(&xs, 6, 9), size(&xs, -2, 5), size(&xs, 1, -1))?
+    print(first(&xs, 3, 1), first(&xs, 0, 6), first(&xs, 6, 9), first(&xs, -2, 5), first(&xs, 1, -1))?
+    print(size(&xs, -9, 2), size(&xs, -9, -7), size(&xs, i64.MIN, i64.MAX), size(&xs, i64.MAX, i64.MIN))?
+    print(tail(&xs, 0), tail(&xs, 5), tail(&xs, 6), tail(&xs, -1), tail(&xs, -9))?
+    print(head(&xs, 0), head(&xs, 5), head(&xs, 6), head(&xs, -1), head(&xs, -9))?
+    print(nested(&xs, 0, 4), nested(&xs, 1, 5), nested(&xs, -1, 4), nested(&xs, 3, 2))?
+    data = by.from_text("abcde")?
+    print(count(&data, 0, 5), count(&data, 2, 9), count(&data, -1, 5), count(&data, 4, 1), count(&data, 5, 5))?
+    Ok(())
+"#,
+        "5 2 0 0\n1 2 5 0\n0 5 0 2 3\n0 1 0 4 2\n2 0 5 0\n5 0 0 1 5\n0 5 5 4 0\n4 3 1 0\n5 3 1 0 0\n",
+    );
+}
