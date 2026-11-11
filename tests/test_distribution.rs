@@ -81,7 +81,7 @@ fn engine(root: &Path, name: &str, prefix: &str, value: i32) -> PathBuf {
         "target": plenty::native_target(), "abi_generation": 1,
         "library": format!("lib/libplenty_{name}_v1.so"),
         "minimum_glibc": "2.28", "source_commit": "fixture-only",
-        "library_sha256": format!("{:x}", Sha256::digest(std::fs::read(&library).unwrap()))
+        "library_sha256": Sha256::digest(std::fs::read(&library).unwrap()).iter().map(|b| format!("{b:02x}")).collect::<String>()
     });
     std::fs::write(package.join("engine.json"), manifest.to_string()).unwrap();
     for name in ["LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-NOTICES.md"] {
@@ -435,10 +435,12 @@ fn invalid_soname_and_symlinked_notices_are_rejected() {
         let manifest_path = package.join("engine.json");
         let mut manifest: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
-        manifest["library_sha256"] = serde_json::json!(format!(
-            "{:x}",
+        manifest["library_sha256"] = serde_json::json!(
             Sha256::digest(std::fs::read(&library).unwrap())
-        ));
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
         std::fs::write(manifest_path, manifest.to_string()).unwrap();
         failure(
             bundle(&src, &dest, Path::new("/missing"), &library),

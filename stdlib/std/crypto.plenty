@@ -1,5 +1,6 @@
 # Curated cryptography over std.bytes buffers. Primitives use RustCrypto
-# (sha2, sha1, hmac, subtle), ring, and the BLAKE3 team’s blake3 crate
+# (sha2, sha1, hmac, ctutils, cmov, hybrid-array, subtle; MIT OR Apache-2.0
+# except subtle, BSD-3-Clause), ring, and the BLAKE3 team’s blake3 crate
 # (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception). This module
 # validates arguments and reports errors. See
 # book/src/design/stdlib/crypto.md.

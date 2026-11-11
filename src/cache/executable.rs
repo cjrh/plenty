@@ -174,7 +174,7 @@ impl Executable {
         }));
         watched.sort();
         watched.dedup();
-        let key = format!("{:x}", hash.finalize());
+        let key = crate::hash_hex::encode(&hash.finalize());
         Some(Self {
             path: cache.dir.join(EXECUTABLES).join(&key[..2]).join(key),
             cache,

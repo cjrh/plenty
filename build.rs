@@ -42,67 +42,75 @@ const VENDORED: &[Vendored] = &[
     ),
     ("siphasher-1.0.4", "siphasher", "2018", &[], &[], &[]),
     ("cfg-if-1.0.4", "cfg_if", "2018", &[], &[], &[]),
-    ("typenum-1.20.1", "typenum", "2018", &[], &[], &[]),
     (
-        "generic-array-0.14.7",
-        "generic_array",
-        "2015",
-        &["more_lengths"],
-        // Its build script enables this on every supported rustc.
-        &["relaxed_coherence"],
+        "typenum-1.20.1",
+        "typenum",
+        "2018",
+        &["const-generics"],
+        &[],
+        &[],
+    ),
+    ("cmov-0.5.4", "cmov", "2024", &[], &[], &[]),
+    ("ctutils-0.4.7", "ctutils", "2024", &[], &[], &["cmov"]),
+    (
+        "hybrid-array-0.4.15",
+        "hybrid_array",
+        "2024",
+        &[],
+        &[],
         &["typenum"],
     ),
     (
-        "crypto-common-0.1.7",
+        "crypto-common-0.2.2",
         "crypto_common",
-        "2018",
+        "2024",
         &[],
         &[],
-        &["generic_array", "typenum"],
+        &["hybrid_array"],
     ),
     (
-        "block-buffer-0.10.4",
+        "block-buffer-0.12.1",
         "block_buffer",
-        "2018",
+        "2024",
         &[],
         &[],
-        &["generic_array"],
+        &["hybrid_array"],
     ),
     ("subtle-2.6.1", "subtle", "2018", &[], &[], &[]),
     (
-        "digest-0.10.7",
+        "digest-0.11.3",
         "digest",
-        "2018",
-        &["core-api", "block-buffer", "mac", "subtle"],
+        "2024",
+        &["block-api", "mac"],
         &[],
-        &["crypto_common", "block_buffer", "subtle"],
+        &["common=crypto_common", "block_buffer", "ctutils"],
     ),
     ("libc-0.2.186", "libc", "2021", &["std"], &[], &[]),
     (
-        "cpufeatures-0.2.17",
+        "cpufeatures-0.3.1",
         "cpufeatures",
-        "2018",
+        "2024",
         &[],
         &[],
         &["libc"],
     ),
     (
-        "sha2-0.10.9",
+        "sha2-0.11.1",
         "sha2",
-        "2018",
+        "2024",
         &[],
         &[],
         &["cfg_if", "digest", "cpufeatures"],
     ),
     (
-        "sha1-0.10.6",
+        "sha1-0.11.0",
         "sha1",
-        "2018",
+        "2024",
         &[],
         &[],
         &["cfg_if", "digest", "cpufeatures"],
     ),
-    ("hmac-0.12.1", "hmac", "2018", &[], &[], &["digest"]),
+    ("hmac-0.13.0", "hmac", "2024", &[], &[], &["digest"]),
     ("arrayvec-0.7.8", "arrayvec", "2018", &[], &[], &[]),
     (
         "constant_time_eq-0.4.2",
@@ -112,16 +120,6 @@ const VENDORED: &[Vendored] = &[
         &[],
         &[],
     ),
-    // SHA uses cpufeatures 0.2; BLAKE3 uses 0.3. Give the second crate a
-    // distinct artifact name and bind the upstream dependency through an alias.
-    (
-        "cpufeatures-0.3.1",
-        "cpufeatures_blake3",
-        "2024",
-        &[],
-        &[],
-        &["libc"],
-    ),
     (
         "blake3-1.8.7",
         "blake3",
@@ -130,12 +128,7 @@ const VENDORED: &[Vendored] = &[
         // Match upstream's pure build: portable fallback and runtime-selected
         // Rust SSE2/SSE4.1/AVX2 intrinsics, without assembly, AVX-512 or Rayon.
         &["blake3_sse2_rust", "blake3_sse41_rust", "blake3_avx2_rust"],
-        &[
-            "arrayvec",
-            "cfg_if",
-            "constant_time_eq",
-            "cpufeatures=cpufeatures_blake3",
-        ],
+        &["arrayvec", "cfg_if", "constant_time_eq", "cpufeatures"],
     ),
     (
         "zlib-rs-0.6.8",
@@ -240,6 +233,7 @@ fn main() {
     );
     println!("cargo:rerun-if-changed=Cargo.lock");
     println!("cargo:rerun-if-changed=src/backend_sources.rs");
+    println!("cargo:rerun-if-changed=src/hash_hex.rs");
     println!(
         "cargo:rustc-env=PLENTY_BACKEND_SOURCES={}",
         backend_sources::backend_sources(

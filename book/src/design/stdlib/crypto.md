@@ -129,9 +129,9 @@ pub enum CryptoError:
 
 ## Constant-time comparison
 
-`equal` and `Mac.verify` use `subtle::ConstantTimeEq` (through
-`Mac::verify_slice` for HMAC). Their running time depends on the lengths of
-the operands, not on their contents or where they first differ. Lengths are
+`equal` uses `subtle::ConstantTimeEq`; HMAC `Mac.verify` uses
+RustCrypto `ctutils` through `Mac::verify_slice`. Their running time depends
+on the lengths of the operands, not on their contents or where they first differ. Lengths are
 not secret: comparing buffers of different lengths returns `False` at once.
 `Digest` has no `verify`; compare a finished digest with `equal`.
 
@@ -139,9 +139,8 @@ not secret: comparing buffers of different lengths returns `False` at once.
 `get` calls, to check a tag, token, or password hash: its timing tells an
 attacker how many leading bytes of a guess are right.
 
-The guarantee is that of `subtle` 2.6: comparisons combine bytes without
-branches and pass the result through an optimisation barrier. It is a
-best-effort property of compiled code, not a hardware guarantee, and it covers
+These comparisons use the constant-time implementations provided by `subtle`
+2.6 and RustCrypto `ctutils` 0.4. This is a best-effort property of compiled code, not a hardware guarantee, and it covers
 only the comparison, not how the program reacts to the answer.
 
 ## Key material
@@ -195,13 +194,14 @@ installed compiler needs neither the sources nor a Rust toolchain:
 
 | Crate | Version | Licence |
 |---|---|---|
-| `sha2` | 0.10.9 | MIT or Apache-2.0 |
-| `sha1` | 0.10.6 | MIT or Apache-2.0 |
-| `hmac` | 0.12.1 | MIT or Apache-2.0 |
+| `sha2` | 0.11.1 | MIT or Apache-2.0 |
+| `sha1` | 0.11.0 | MIT or Apache-2.0 |
+| `hmac` | 0.13.0 | MIT or Apache-2.0 |
 | `subtle` | 2.6.1 | BSD-3-Clause |
-| `digest`, `block-buffer`, `crypto-common` | 0.10.7, 0.10.4, 0.1.7 | MIT or Apache-2.0 |
-| `generic-array`, `typenum` | 0.14.7, 1.20.1 | MIT; MIT or Apache-2.0 |
-| `cpufeatures`, `cfg-if` | 0.2.17, 1.0.4 | MIT or Apache-2.0 |
+| `digest`, `block-buffer`, `crypto-common` | 0.11.3, 0.12.1, 0.2.2 | MIT or Apache-2.0 |
+| `hybrid-array`, `typenum` | 0.4.15, 1.20.1 | MIT or Apache-2.0 |
+| `ctutils`, `cmov` | 0.4.7, 0.5.4 | MIT or Apache-2.0 |
+| `cpufeatures`, `cfg-if` | 0.3.1, 1.0.4 | MIT or Apache-2.0 |
 
 <!-- contributors-only -->
 Each crate's licence file is kept with its sources. The same versions are
@@ -236,6 +236,18 @@ finished-state errors keep their existing contracts.
 
 - Wraps the BLAKE3 team's [`blake3`](https://github.com/BLAKE3-team/BLAKE3) 1.8.7 (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception), with [dependency credits](crypto-blake3.md#acknowledgements).
 
-- Wraps the RustCrypto [`sha2`](https://github.com/RustCrypto/hashes) 0.10.9, [`sha1`](https://github.com/RustCrypto/hashes) 0.10.6 and [`hmac`](https://github.com/RustCrypto/MACs) 0.12.1 crates (MIT OR Apache-2.0) and [`subtle`](https://github.com/dalek-cryptography/subtle) 2.6.1 (BSD-3-Clause), vendored in the runtime.
+- Wraps RustCrypto [`sha2`](https://github.com/RustCrypto/hashes) 0.11.1 for SHA-2 hashes (MIT OR Apache-2.0), vendored in the runtime.
+
+- Wraps RustCrypto [`sha1`](https://github.com/RustCrypto/hashes) 0.11.0 for SHA-1 hashes (MIT OR Apache-2.0), vendored in the runtime.
+
+- Wraps RustCrypto [`hmac`](https://github.com/RustCrypto/MACs) 0.13.0 for HMAC (MIT OR Apache-2.0), vendored in the runtime.
+
+- Wraps [`subtle`](https://github.com/dalek-cryptography/subtle) 2.6.1 for constant-time comparisons (BSD-3-Clause), vendored in the runtime.
+
+- Includes RustCrypto [`hybrid-array`](https://github.com/RustCrypto/hybrid-array) 0.4.15 for fixed-size arrays (MIT OR Apache-2.0).
+
+- Includes RustCrypto [`ctutils`](https://github.com/RustCrypto/utils) 0.4.7 for constant-time HMAC verification (MIT OR Apache-2.0).
+
+- Includes RustCrypto [`cmov`](https://github.com/RustCrypto/utils) 0.5.4 for constant-time operations used by `ctutils` (MIT OR Apache-2.0).
 
 - Wraps [`ring`](https://github.com/briansmith/ring) 0.17.14 (Apache-2.0 AND ISC) for [AEAD, Ed25519, X25519, and HKDF](crypto-advanced.md) and [RSA and ECDSA](crypto-keys.md#acknowledgements), using the runtime’s existing vendored copy.
