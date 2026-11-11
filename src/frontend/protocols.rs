@@ -211,6 +211,7 @@ fn placeholder(name: &str) -> Ty {
         forwards_operators: false,
         redacted: false,
         quantity: None,
+        bounds: None,
         bytes: std::sync::OnceLock::new(),
         managed: std::sync::OnceLock::new(),
     }))

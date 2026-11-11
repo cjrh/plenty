@@ -292,12 +292,64 @@ against `5f43644d`, with identical output:
 
 The other Benchmarks Game programs change by less than 0.01%. The fasta
 generator still runs two overflow checks and a floor fixup per number,
-because the range of the `seed` field is unknown: issue #937 stays open for
-field value bounds. The lowerings are described under
+because the range of the `seed` field is unknown; a `Bounded` field later
+removed them
+([remainder locals and bounded fields](#remainder-locals-and-bounded-fields-issues-940-and-937)).
+The lowerings are described under
 [known returns](../design/toolchain/02-architecture/emission.md#known-returns),
 [reference parameters](../design/toolchain/02-architecture/emission.md#reference-parameters)
 and [value bounds](../design/toolchain/02-architecture/emission.md#value-bounds).
 Kernels and attribution are in `experiments/kernels/field-rng/`.
+
+## Remainder locals and bounded fields (issues #940 and #937)
+
+A local whose every write inside a loop is a remainder by a positive
+constant, and whose value on entry is nonnegative and bounded, is nonnegative
+and at most the largest of those bounds on every read in the loop. Reading a
+`Bounded[T, lo, hi]` with `lo >= 0` records `0..hi` for the value, and
+[`Bounded.from`](../design/language/03-types/bounded.md#proved-ranges) stores a
+value whose range the checker proves, without a test. Construction of a
+`Bounded` is a retyping of its integer, not a call. A plain integer field
+still has no bound: the range is stated in the field's type, not inferred
+from the program's writes.
+
+fasta's generator keeps its seed in a `Bounded[i64, 0, IM - 1]` field. Its
+per-number code went from 17 instructions to 9: both overflow checks, the
+signed division's correction and the remainder's floor fixup are gone.
+Against `9daa4a78`, identical output, 25,000,000, one pinned core of a
+Ryzen 7 7840HS, `perf stat -r 5`, three interleaved rounds (load average 2.5):
+
+| fasta | Instructions | Cycles | Time |
+| --- | ---: | ---: | ---: |
+| Before | 12,434.6M | 8,420M | 1,814 ms |
+| After, source unchanged | 12,434.6M | 8,421M | 1,812 ms |
+| After, `Bounded` seed | 10,634.6M | 7,213M | 1,550 ms |
+| Change | −14.5% | −14.3% | −14.6% |
+
+Kernels, per pass (instructions, and cycles from 409.6 million passes):
+
+| Kernel | C | Before | After | C cycles | Before cycles | After cycles |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Field, plain `i64` | 15 | 24 | 24 | 20.0 | 18.0 | 18.0 |
+| Field, `Bounded` (C: `uint64_t`) | 12 | n/a | 13 | 19.0 | n/a | 13.0 |
+| Local | 16 | 20 | 13 | 14.0 | 18.3 | 13.0 |
+| Local, two divisors on the arms of an `if` | 18 and 17 | 39 | 30 | 13.0 | 18.7 | 14.5 |
+| Local written in an inner loop | 15 | 20 | 13 | 14.0 | 18.3 | 13.0 |
+| Local with one write that is not a remainder | 18 | 23 | 23 | 16.0 | 19.0 | 19.0 |
+
+The other Benchmarks Game programs emit the same code: binary-trees,
+fannkuch-redux, mandelbrot, n-body (three variants), regex-redux,
+reverse-complement and spectral-norm change by less than 0.002% in
+instructions, and k-nucleotide's count varies by 0.1% between runs of one
+binary. Compile time is unchanged: `compile_bench 1000 10 --workload aot`
+medians of 561 to 564 ms before and 553 to 558 ms after, three interleaved
+runs.
+
+Remaining against C: one load not folded into the multiply (`Bounded`
+field), two register moves (local), and the 6-instruction unsigned division
+by 1000 where a dividend below 2^63 needs 2. The lowering is described under
+[value bounds](../design/toolchain/02-architecture/emission.md#value-bounds).
+Kernels, commands and attribution are in `experiments/kernels/field-rng/`.
 
 ## Overflow flags fused into branches (issue #934)
 

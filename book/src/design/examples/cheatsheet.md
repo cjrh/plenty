@@ -97,7 +97,9 @@ def main() -> Result[(), IoError]:
 - [`Bounded[T, lo, hi]`](../language/03-types/bounded.md) accepts the eight integer
   types and inclusive compile-time bounds. Literals convert where expected;
   an alias such as `type Percent = Bounded[u8, 0, 100]` provides
-  `Percent.try_from(n)?` for runtime inputs. Read `.get()` for arithmetic.
+  `Percent.try_from(n)?` for runtime inputs. `Bounded[i64, 0, 15].from(n % 16)`
+  has no check: `from` accepts only `x % c`, `x & c` with a constant `c`, or a
+  `Bounded` inside the target. Read `.get()` for arithmetic.
   [Value parameters](../language/07-generics/values.md) use `const N: i64` or
   `[T: IntType, const N: T]`.
 

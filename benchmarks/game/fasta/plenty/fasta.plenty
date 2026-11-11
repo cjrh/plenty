@@ -9,6 +9,7 @@ import std.io
 const LINE_LENGTH: i64 = 60
 const BLOCK_SIZE: i64 = 61440
 const IM: i64 = 139968
+const SEED_MAX: i64 = IM - 1
 const IA: i64 = 3877
 const IC: i64 = 29573
 const MAX_N: i64 = 1_000_000_000
@@ -22,12 +23,17 @@ type FastaError = AllocError | OverflowError[i64] | ZeroDivisionError | std.io.P
 type AppError = FastaError | IoError | ParseError | std.io.StreamError
 
 
+# A remainder by IM. The type gives every reader the range, so the
+# generator's multiply and add are compiled without overflow checks.
+type Seed = Bounded[i64, 0, SEED_MAX]
+
+
 class Rng:
-    seed: i64
+    seed: Seed
 
     def next(self: &mut Rng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
-        self.seed = (self.seed * IA + IC) % IM
-        Ok(self.seed)
+        self.seed = Seed.from((self.seed.get() * IA + IC) % IM)
+        Ok(self.seed.get())
 
 
 # Cumulative limits in 0..=IM, accumulated in f32 as the reference does.

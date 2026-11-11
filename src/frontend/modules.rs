@@ -3566,7 +3566,9 @@ pub(super) fn check_member_at(
             ));
         }
         if crate::op::IntegerDomain::named(class).is_some() || class == "Bounded" {
-            return Err(diagnostic.error(if member == "__new__" {
+            return Err(diagnostic.error(if member == "__new__" && class == "Bounded" {
+                "a `Bounded` comes from an in-range integer literal where one is expected, from `Bounded.from(value)` when the compiler proves the value's range, or from `Bounded.try_from(value)?`".to_string()
+            } else if member == "__new__" {
                 format!("a `{class}` comes from {} integer literal where one is expected, or from `{class}.try_from(value)?`", if class == "NonZero" { "a nonzero" } else { "an in-domain" })
             } else {
                 format!("a `{class}`'s field is private; read its integer with `.get()`")

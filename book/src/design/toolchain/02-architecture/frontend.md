@@ -27,8 +27,11 @@ values never become storage types. The constant evaluator also serves value
 arguments during type resolution, before ordinary module-constant folding.
 Quantity constant output types resolve lazily with cycle detection. The
 [`Bounded` checker](../../language/03-types/bounded.md) validates each concrete
-interval and lowers admitted literals and checked conversions to private
-single-field class construction.
+interval and lowers admitted literals, checked conversions and `from` on a
+[proved range](../../language/03-types/bounded.md#proved-ranges) to a retyping
+of the integer (`ClassOp::WrapBounded`), not a constructor call. `from` reads
+the range off the argument's syntax and requires the last lowered operation to
+be the integer `%` or `&`; the checker tracks no other ranges.
 
 The compiler's own hash tables (`src/hash.rs`) use FxHash rather than std's
 SipHash. Their keys are names and types from the program being compiled, so

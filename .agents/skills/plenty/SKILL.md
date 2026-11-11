@@ -140,7 +140,10 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   with `NonZero.from(p)` or `NonNegative.from(p)`.
 - `Bounded[T, lo, hi]` is an inclusive interval over any integer type. Literals
   convert where expected; computed values use a complete instance or alias,
-  such as `Percent.try_from(n)?`. Read `.get()` for arithmetic. Value generic
+  such as `Percent.try_from(n)?`. `Slot.from(n % 16)` converts with no check
+  and no `Result`; `from` accepts only `x % c` (constant `c > 0`), `x & c`
+  (constant `c >= 0`) or a `Bounded` inside the target, and is a compile error
+  otherwise. Read `.get()` for arithmetic. Value generic
   parameters use `const N: i64` or a preceding integer parameter
   `[T: IntType, const N: T]`; bracket arguments are literals, module constants
   or forwarded parameters, never arithmetic expressions.

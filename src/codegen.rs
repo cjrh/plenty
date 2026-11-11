@@ -3020,7 +3020,10 @@ impl Lowerer<'_, '_> {
                     self.write_local(*i, value);
                 }
             }
-            Op::Call(name) => self.lower_call(name)?,
+            Op::Call(name) => {
+                self.lower_call(name)?;
+                self.note_bounded_get(name);
+            }
             Op::FunctionAddress(name, signature) => {
                 let id = self
                     .user_fns
@@ -3328,6 +3331,44 @@ impl Lowerer<'_, '_> {
                 self.counters.bounds.stable_lists.insert(value);
             }
         }
+    }
+
+    /// After a call of the builtin `Bounded[T, lo, hi].get`, records the
+    /// type's bounds for the result: the accessor returns the field.
+    fn note_bounded_get(&mut self, name: &str) {
+        let Some(decl) = self.user_fns.get(name) else {
+            return;
+        };
+        let [(_, Ty::Ref(owner, _))] = decl.sig.inputs.as_slice() else {
+            return;
+        };
+        let Ty::Class(class) = &**owner else {
+            return;
+        };
+        if class.get().bounds.is_none()
+            || !decl.standard_library
+            || name != crate::record::method(&class.name, "get")
+        {
+            return;
+        }
+        let class = class.clone();
+        if let Some((value, ty)) = self.stack.pop() {
+            let value = self.bounded_value(&class, value);
+            self.stack.push((value, ty));
+        }
+    }
+
+    /// Records the facts of local `i` for `value`, just read from it.
+    pub(super) fn note_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
+        if self.counters.nonnegative_locals.contains(&i) {
+            self.counters.nonnegative.insert(value);
+        }
+        let carried = self.counters.remainder_locals.iter();
+        if let Some(&(_, limit)) = carried.rev().find(|(l, _)| *l == i) {
+            self.counters.nonnegative.insert(value);
+            self.counters.at_most.insert(value, limit);
+        }
+        self.note_bounds(i, value);
     }
 
     /// Records what [`induction::Bounds`] knows about `value`, just read
@@ -4069,10 +4110,7 @@ impl Lowerer<'_, '_> {
         } else {
             v
         };
-        if self.counters.nonnegative_locals.contains(&i) {
-            self.counters.nonnegative.insert(v);
-        }
-        self.note_bounds(i, v);
+        self.note_local(i, v);
         let block = self.bcx.current_block().ok_or("load outside a block")?;
         let before = self.bcx.func.layout.last_inst(block);
         let retain = self.retain(v, &ty);
