@@ -165,3 +165,59 @@ fn moved_owned_scratch_keeps_the_destination_root() {
     let (before, after) = transformed(&text, "update", true);
     assert_eq!(after - before, 9);
 }
+
+/// The original loop of the guard `prepare` leaves in `name`, with the ops
+/// before it on the fallback path.
+fn fallback(source: &str, name: &str) -> Vec<Op> {
+    let mut heap = Heap::default();
+    let mut ops = crate::frontend::compile(source, &mut heap).unwrap().ops;
+    prepare(&mut ops, true);
+    let mut body = &function(&ops, name).body[..];
+    if let [Op::CheckedFunction { body: inner, .. }] = body {
+        body = inner;
+    }
+    body.iter()
+        .find_map(|op| match op {
+            Op::If { otherwise, .. }
+                if otherwise.iter().any(|op| matches!(op, Op::Loop { .. })) =>
+            {
+                Some(otherwise.to_vec())
+            }
+            _ => None,
+        })
+        .unwrap()
+}
+fn header_reads(ops: &[Op]) -> usize {
+    ops.iter()
+        .filter(|op| matches!(op, Op::Collection(C::ListLenRef(_) | C::ListRowsRef(_))))
+        .count()
+}
+
+#[test]
+fn fallback_reads_cached_headers_at_the_loops_that_use_them() {
+    let source = include_str!("../../../benchmarks/game/n-body/plenty/nbody.plenty");
+    let fallback = fallback(source, "advance");
+    let [Op::Loop { body, .. }] = &fallback[..] else {
+        panic!("header reads stayed before the fallback loop: {fallback:?}");
+    };
+    assert!(header_reads(body) > 0);
+}
+
+#[test]
+fn fallback_keeps_header_reads_before_a_loop_it_did_not_fully_evaluate() {
+    // With three points the second loop runs no iteration during evaluation,
+    // so nothing shows that its body leaves the list's header alone.
+    let body = "values[i].x = values[i].x + values[i].y";
+    let text = source(3, body).replace(
+        "        for i in range(count):",
+        "        for j in range(3, count):\n            values[j].y = 0.0\n        for i in range(count):",
+    );
+    let (before, after) = transformed(&text, "kernel", true);
+    assert_eq!(after - before, 6);
+    let kept = fallback(&text, "kernel");
+    assert!(matches!(kept.last(), Some(Op::Loop { .. })));
+    assert!(header_reads(&kept) > 0, "{kept:?}");
+
+    let sunk = fallback(&source(3, body), "kernel");
+    assert!(matches!(&sunk[..], [Op::Loop { .. }]), "{sunk:?}");
+}

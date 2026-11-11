@@ -391,11 +391,11 @@ fn record_rows_use_the_loop_cache_unless_the_loop_resizes() {
     let total = ops(dir.path(), "total");
     assert_eq!(total.matches("ElementRefView(").count(), 2, "{total}");
     assert!(!total.contains("ElementRef("), "{total}");
-    // The inner loop's accesses are cached; the outer loop's are not, since
-    // only innermost loops cache.
+    // The outer loop's three accesses and the inner loop's five share one
+    // cache (issue #943).
     let step = ops(dir.path(), "step");
-    assert_eq!(step.matches("ElementRefView(").count(), 5, "{step}");
-    assert_eq!(step.matches("ElementRef(").count(), 3, "{step}");
+    assert_eq!(step.matches("ElementRefView(").count(), 8, "{step}");
+    assert!(!step.contains("ElementRef("), "{step}");
     let grow = ops(dir.path(), "grow");
     assert!(grow.contains("ElementRef("), "{grow}");
     assert!(!grow.contains("ElementRefView("), "{grow}");
