@@ -688,6 +688,22 @@ of arithmetic that the bounds keep in range, in trapping and
   constant cannot overflow.
 - A signed `%` by a positive divisor is nonnegative; by a positive constant
   `M` it is at most `M - 1`, so `x % 1000 * 3877 + 29573` has no check.
+- A local the loop writes keeps a bound when every write in the loop's
+  condition and body, nested blocks included, stores a `%` by a positive
+  constant and the entry value is nonnegative and bounded: a read is at most
+  the larger of the entry bound and the largest divisor minus one
+  (`remainder_locals`; issue #940). Each read sees either the entry value or
+  the latest store, and every store is such a remainder whichever path ran.
+  A local that is borrowed, moved, dropped or iterated in the loop, or has
+  its address taken, keeps its checks, as does one with any other write.
+- The integer `get` returns from a
+  [`Bounded[T, lo, hi]`](../../language/03-types/bounded.md) with `lo >= 0`
+  and `hi` within the signed range of `T`'s width is nonnegative and at most `hi` (issue #937). The frontend
+  constructs a `Bounded` only from an in-range literal, after `try_from`'s
+  test, or from a range `from` proved, and its field cannot be assigned. The
+  bound is recorded on a copy of the value, since after `try_from(x)` the
+  field is `x` itself, which the failed test's path also uses. An interval
+  with `lo < 0` records nothing: the facts describe nonnegative values.
 
 In `spectral-norm`, `(i + j) * (i + j + 1) // 2 + i + 1` with `i` and `j`
 below the length of a `&[f64]` keeps one check, for the product: the sums and
