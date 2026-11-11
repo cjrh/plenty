@@ -10,6 +10,7 @@ fn definition(name: &str, fields: Vec<(String, Ty)>) -> ClassType {
         forwards_operators: false,
         redacted: false,
         quantity: None,
+        bounds: None,
         bytes: OnceLock::new(),
         managed: OnceLock::new(),
     }

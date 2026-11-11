@@ -503,6 +503,8 @@ mod test_slicing;
 #[path = "test_stable_sorting.rs"]
 mod test_stable_sorting;
 
+#[path = "test_bounded_from.rs"]
+mod test_bounded_from;
 #[path = "test_bytes_literal_access.rs"]
 mod test_bytes_literal_access;
 #[path = "test_indexed_loop_conditions.rs"]

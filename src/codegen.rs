@@ -3020,7 +3020,10 @@ impl Lowerer<'_, '_> {
                     self.write_local(*i, value);
                 }
             }
-            Op::Call(name) => self.lower_call(name)?,
+            Op::Call(name) => {
+                self.lower_call(name)?;
+                self.note_bounded_get(name);
+            }
             Op::FunctionAddress(name, signature) => {
                 let id = self
                     .user_fns
@@ -3327,6 +3330,31 @@ impl Lowerer<'_, '_> {
                 let value = self.bcx.func.dfg.resolve_aliases(value);
                 self.counters.bounds.stable_lists.insert(value);
             }
+        }
+    }
+
+    /// After a call of the builtin `Bounded[T, lo, hi].get`, records the
+    /// type's bounds for the result: the accessor returns the field.
+    fn note_bounded_get(&mut self, name: &str) {
+        let Some(decl) = self.user_fns.get(name) else {
+            return;
+        };
+        let [(_, Ty::Ref(owner, _))] = decl.sig.inputs.as_slice() else {
+            return;
+        };
+        let Ty::Class(class) = &**owner else {
+            return;
+        };
+        if class.get().bounds.is_none()
+            || !decl.standard_library
+            || name != crate::record::method(&class.name, "get")
+        {
+            return;
+        }
+        let class = class.clone();
+        if let Some((value, ty)) = self.stack.pop() {
+            let value = self.bounded_value(&class, value);
+            self.stack.push((value, ty));
         }
     }
 

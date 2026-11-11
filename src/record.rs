@@ -25,6 +25,10 @@ pub struct ClassType {
     /// Builtin Quantity's compile-time dimension. Its presence selects the
     /// storage type's native ABI; the dimension itself is used only for formatting.
     pub quantity: Option<Arc<crate::dimension::Dimension>>,
+    /// Builtin Bounded's inclusive bounds. Only literal admission,
+    /// `try_from` and `from` construct one, so its field always lies within
+    /// them and codegen may assume so.
+    pub bounds: Option<(i128, i128)>,
     /// Inline field storage size; excluded from nominal equality.
     pub bytes: std::sync::OnceLock<usize>,
     /// Whether an instance needs cleanup; excluded from nominal equality.
@@ -84,6 +88,9 @@ pub enum ClassOp {
     /// Give a checked coherent storage value its Quantity type. No call,
     /// allocation, constructor state, or numeric conversion is involved.
     WrapQuantity(crate::nominal::Nominal<ClassType>),
+    /// Give a value the frontend checked or proved in range its Bounded
+    /// type: the class is its field, so this is not a constructor call.
+    WrapBounded(crate::nominal::Nominal<ClassType>),
     /// Zeroed inline storage, before `__init__` initializes the fields.
     New(crate::nominal::Nominal<ClassType>),
     ArmDrop(crate::nominal::Nominal<ClassType>),
@@ -96,6 +103,11 @@ impl ClassOp {
             Self::WrapQuantity(t) => {
                 let storage = Ty::Class(t.clone()).quantity_storage()?;
                 (vec![storage], Ty::Class(t.clone()))
+            }
+            Self::WrapBounded(t) => {
+                let definition = t.get();
+                definition.bounds?;
+                (vec![definition.fields[0].1.clone()], Ty::Class(t.clone()))
             }
             Self::ArmDrop(t) => (
                 vec![Ty::Ref(Arc::new(Ty::Class(t.clone())), true)],

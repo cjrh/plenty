@@ -242,6 +242,7 @@ impl Lowerer<'_, '_> {
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
         let newtype = match op {
             ClassOp::WrapQuantity(t)
+            | ClassOp::WrapBounded(t)
             | ClassOp::New(t)
             | ClassOp::ArmDrop(t)
             | ClassOp::Field(t, _)
@@ -251,7 +252,9 @@ impl Lowerer<'_, '_> {
         // release. The `unpack` below converts between the class's 128-bit
         // slot and the field's native type.
         let result = match op {
-            ClassOp::WrapQuantity(_) => self.pop_typed(inputs[0].clone())?.0,
+            ClassOp::WrapQuantity(_) | ClassOp::WrapBounded(_) => {
+                self.pop_typed(inputs[0].clone())?.0
+            }
             // A newtype around a class record is filled through a reference
             // like that record, so it needs the record's storage: a class
             // slot's word always addresses the record after it.
@@ -315,6 +318,41 @@ impl Lowerer<'_, '_> {
         let result = self.unpack(result, &output);
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// `value`, just returned by `get` on a `Bounded[T, lo, hi]` with
+    /// `lo >= 0`, with the type's bounds recorded as facts. The frontend constructs a
+    /// `Bounded` only from a literal in range, after `try_from`'s test, or
+    /// from a value `from` proved in range, and its field cannot be
+    /// assigned, so the field is in `lo..=hi`.
+    ///
+    /// The facts go on a copy, not on `value`: after `try_from(x)` the field
+    /// is the SSA value of `x`, which is also used where the range test
+    /// failed, and a fact holds wherever its value is used. The optimizer
+    /// folds the copy away. An interval with `lo < 0` records nothing: the
+    /// facts describe nonnegative values only.
+    pub(super) fn bounded_value(
+        &mut self,
+        t: &crate::nominal::Nominal<crate::record::ClassType>,
+        value: cranelift_codegen::ir::Value,
+    ) -> cranelift_codegen::ir::Value {
+        let Some((lo, hi)) = t.get().bounds else {
+            return value;
+        };
+        let dfg = &self.bcx.func.dfg;
+        let ty = dfg.value_type(value);
+        if lo < 0
+            || !ty.is_int()
+            || ty.bits() > 64
+            || hi > i128::from(super::signed_max(ty))
+            || super::known::known_signed(dfg, value).is_some()
+        {
+            return value;
+        }
+        let copy = self.bcx.ins().iadd_imm_s(value, 0);
+        self.counters.nonnegative.insert(copy);
+        self.counters.at_most.insert(copy, hi as u64);
+        copy
     }
 
     /// Move every field out of a multi-field variant or tuple.

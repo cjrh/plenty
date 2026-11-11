@@ -213,6 +213,7 @@ mod tests {
                 forwards_operators: false,
                 redacted: false,
                 quantity: None,
+                bounds: None,
                 bytes: Default::default(),
                 managed: Default::default(),
             }),
