@@ -1,0 +1,171 @@
+; `fill_local` in ../kernels.plenty: the remainder by a constant in a loop
+; that stores it (issues #953 and #954). v0 is the seed, v1 the `&mut [i64]`
+; (address, length). Each variant changes one IR shape.
+
+; a: the loop as Plenty's optimized CLIF has it at 39506d02: the quotient is
+; the high product shifted, the remainder is `x - q * d`.
+function %a_as_dumped(i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v0, v3)
+
+block1(v30: i64, v39: i64):
+    v1001 = iconst.i64 3877
+    v107 = imul v30, v1001
+    v1002 = iconst.i64 0x7385
+    v109 = iadd v107, v1002
+    v110 = iconst.i64 0x3bee_ad01_fd6c_be91
+    v111 = umulhi v109, v110
+    v1003 = iconst.i64 15
+    v113 = ushr v111, v1003
+    v1004 = iconst.i64 0x0002_22c0
+    v115 = imul v113, v1004
+    v99 = isub v109, v115
+    v1005 = iconst.i64 3
+    v117 = ishl v39, v1005
+    v46 = iadd v1, v117
+    store notrap aligned v99, v46
+    v1006 = iconst.i64 1
+    v119 = iadd v39, v1006
+    v53 = icmp slt v119, v2
+    brif v53, block1(v99, v119), block2(v99)
+
+block2(v58: i64):
+    return v58
+}
+
+; b: the multiplier for a dividend below 2^30: no shift.
+function %b_no_shift(i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v0, v3)
+
+block1(v30: i64, v39: i64):
+    v1007 = iconst.i64 3877
+    v107 = imul v30, v1007
+    v1008 = iconst.i64 0x7385
+    v109 = iadd v107, v1008
+    v110 = iconst.i64 0x0000_77dd_5a03_fad9
+    v111 = umulhi v109, v110
+    v1009 = iconst.i64 0x0002_22c0
+    v115 = imul v111, v1009
+    v99 = isub v109, v115
+    v1010 = iconst.i64 3
+    v117 = ishl v39, v1010
+    v46 = iadd v1, v117
+    store notrap aligned v99, v46
+    v1011 = iconst.i64 1
+    v119 = iadd v39, v1011
+    v53 = icmp slt v119, v2
+    brif v53, block1(v99, v119), block2(v99)
+
+block2(v58: i64):
+    return v58
+}
+
+; c: as a, the loop does not return the remainder.
+function %c_not_returned(i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v0, v3)
+
+block1(v30: i64, v39: i64):
+    v1012 = iconst.i64 3877
+    v107 = imul v30, v1012
+    v1013 = iconst.i64 0x7385
+    v109 = iadd v107, v1013
+    v110 = iconst.i64 0x3bee_ad01_fd6c_be91
+    v111 = umulhi v109, v110
+    v1014 = iconst.i64 15
+    v113 = ushr v111, v1014
+    v1015 = iconst.i64 0x0002_22c0
+    v115 = imul v113, v1015
+    v99 = isub v109, v115
+    v1016 = iconst.i64 3
+    v117 = ishl v39, v1016
+    v46 = iadd v1, v117
+    store notrap aligned v99, v46
+    v1017 = iconst.i64 1
+    v119 = iadd v39, v1017
+    v53 = icmp slt v119, v2
+    brif v53, block1(v99, v119), block2
+
+block2:
+    return v3
+}
+
+; d: as a, the remainder is not stored.
+function %d_not_stored(i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v0, v3)
+
+block1(v30: i64, v39: i64):
+    v1018 = iconst.i64 3877
+    v107 = imul v30, v1018
+    v1019 = iconst.i64 0x7385
+    v109 = iadd v107, v1019
+    v110 = iconst.i64 0x3bee_ad01_fd6c_be91
+    v111 = umulhi v109, v110
+    v1020 = iconst.i64 15
+    v113 = ushr v111, v1020
+    v1021 = iconst.i64 0x0002_22c0
+    v115 = imul v113, v1021
+    v99 = isub v109, v115
+    v1022 = iconst.i64 1
+    v119 = iadd v39, v1022
+    v53 = icmp slt v119, v2
+    brif v53, block1(v99, v119), block2(v99)
+
+block2(v58: i64):
+    return v58
+}
+
+; e: as a, the remainder is `q * (-d) + x`, an add with the dividend second.
+function %e_negated_product(i64, i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v0, v3)
+
+block1(v30: i64, v39: i64):
+    v1023 = iconst.i64 3877
+    v107 = imul v30, v1023
+    v1024 = iconst.i64 0x7385
+    v109 = iadd v107, v1024
+    v110 = iconst.i64 0x3bee_ad01_fd6c_be91
+    v111 = umulhi v109, v110
+    v1025 = iconst.i64 15
+    v113 = ushr v111, v1025
+    v1026 = iconst.i64 -139968
+    v115 = imul v113, v1026
+    v99 = iadd v115, v109
+    v1027 = iconst.i64 3
+    v117 = ishl v39, v1027
+    v46 = iadd v1, v117
+    store notrap aligned v99, v46
+    v1028 = iconst.i64 1
+    v119 = iadd v39, v1028
+    v53 = icmp slt v119, v2
+    brif v53, block1(v99, v119), block2(v99)
+
+block2(v58: i64):
+    return v58
+}
+
+; f: straight line, no loop: one remainder stored and returned.
+function %f_straight(i64, i64) -> i64 tail {
+block0(v0: i64, v1: i64):
+    v1029 = iconst.i64 3877
+    v107 = imul v0, v1029
+    v1030 = iconst.i64 0x7385
+    v109 = iadd v107, v1030
+    v110 = iconst.i64 0x3bee_ad01_fd6c_be91
+    v111 = umulhi v109, v110
+    v1031 = iconst.i64 15
+    v113 = ushr v111, v1031
+    v1032 = iconst.i64 0x0002_22c0
+    v115 = imul v113, v1032
+    v99 = isub v109, v115
+    store notrap aligned v99, v1
+    return v99
+}
