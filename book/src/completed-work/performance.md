@@ -22,6 +22,16 @@ update, and k-nucleotide at fasta 50,000 saves about 3% of instructions with
 identical output. Other helper costs remain; wall-time improvement was not
 established on the shared machine.
 
+Building a string from a byte range (`Bytes.to_text_range`) reads the buffer's
+address and length with one helper, skips slice clamps when two unsigned
+comparisons show the bounds in range, converts through a register-only helper
+instead of the dispatcher, and packs an ASCII key of at most seven bytes
+without a loop (issue #931, `experiments/key-construction/`). One key costs 105
+instructions instead of 173; k-nucleotide at fasta 50,000 falls from 1.403B to
+1.282B instructions (8.6%) with identical output, fasta by 1.3% and regex-redux
+by 0.4%. The in-range slice path applies to every list, view and byte slice
+with a written bound.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed
@@ -450,6 +460,32 @@ baseline x86-64 packed lowering (issue #929). IEEE edge cases and chained
 vector-register operations are tested. Public list-transfer overhead still
 prevents the n-body magnitude path from approaching the packed-pointer probe;
 this adds a numerical primitive, not a benchmark speedup.
+
+List loads and stores are packed on optimized x86-64 builds (issue #929): one
+unaligned vector move after the scalar bodies' bounds test, with `Nothing` or
+`False` for a span that does not fit. An unborrowed `Option[Vector]` local,
+`match` and `unwrap()` keep the loaded vector native. The retained
+`experiments/simd-transfers/` kernel falls from 4,194 executed instructions per
+two pairs at main `d6ed6f91` to 79 with nested `match`; scalar source runs
+36 and C 16. Header reloads, length arithmetic and bounds tests for each
+transfer account for 44 of the 79. An n-body variant using the transfers falls
+from 11,304M to 985M instructions at 500,000 steps and remains above the
+scalar source's 323M, which alone qualifies for guarded numerical state; the
+benchmark source stays scalar and every benchmark binary is unchanged.
+
+Indexed access through slice views (issue #929) adds `len_*`, `tail_*`,
+`get_*` and `set` for the four vector types: a vector index into a `&[Lane]` or
+`&mut [Lane]` view, trapping outside the view's whole vectors. Optimized x86-64
+builds test the index with one comparison and move one packed vector; a `range`
+loop over views bound before it tests each count once and keeps the original
+loop as the trapping fallback. The same kernel runs 17 instructions per two
+pairs against C's 16 and 75 through transfers; the extra instruction doubles
+the vector index, where C steps a byte offset. The n-body variant falls to
+828M instructions at 500,000 steps. It remains above the scalar source's 323M
+because its `advance` holds calls and so does not qualify for guarded numerical
+state: the same step with a scalar magnitude loop in a view function runs
+859M. The benchmark source stays scalar and every benchmark binary is
+unchanged.
 
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
 uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for

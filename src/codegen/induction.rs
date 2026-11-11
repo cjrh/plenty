@@ -1020,6 +1020,9 @@ pub(super) enum Assumed {
 pub(super) enum LengthOf {
     Length(Value),
     View(Value),
+    /// A view's whole `std.simd` vectors: its count shifted right by the
+    /// log2 of the lane count.
+    Vectors(Value, u32),
 }
 
 /// Largest constant offset a versioned access may add to the counter.
@@ -1043,9 +1046,20 @@ const VERSION_OPS: usize = 256;
 /// nothing measurable. A call is not duplicated either: an inlined callee
 /// lowers with its own state, and a single-site callee's body is lowered
 /// only at its call (issue #766).
-pub(super) fn versionable(condition: &[Op], body: &[Op]) -> bool {
+pub(super) fn versionable(
+    condition: &[Op],
+    body: &[Op],
+    inline_call: &dyn Fn(&str) -> bool,
+) -> bool {
     let mut count = 0;
     let mut allowed = true;
+    let allowed_op = |op: &Op| match op {
+        // A portable SIMD operation lowers to instructions at its call; the
+        // markers before a call emit nothing for one.
+        Op::Call(name) => inline_call(name),
+        Op::CallerSite(_) | Op::ForwardsReferences => true,
+        _ => allowed_op(op),
+    };
     crate::threading::walk(condition, &mut |op| allowed &= allowed_op(op));
     crate::threading::walk(body, &mut |op| {
         // Markers for the checker and positions emit no code.

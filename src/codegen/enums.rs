@@ -455,7 +455,10 @@ impl Lowerer<'_, '_> {
                         option: t.is_option(),
                     },
                 )?;
-                self.sum_payload(value)
+                match self.portable_simd.option_payload(value) {
+                    Some(payload) => payload,
+                    None => self.sum_payload(value),
+                }
             }
             EnumOp::New(_, tag) => {
                 let payload = match inputs.as_slice() {
@@ -522,7 +525,10 @@ impl Lowerer<'_, '_> {
                     }
                     // Single-payload projection transfers this operand's
                     // ownership. Any remaining source binding owns its own retain.
-                    self.tagged_payload(value, t.tag_bits())
+                    match self.portable_simd.option_payload(value) {
+                        Some(payload) if *tag == 1 => payload,
+                        _ => self.tagged_payload(value, t.tag_bits()),
+                    }
                 } else {
                     let payload = self.tagged_payload(value, t.tag_bits());
                     let offset = Self::record_offset(fields[..*field].iter());
