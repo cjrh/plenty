@@ -1129,13 +1129,14 @@ impl Lower<'_> {
                         .error(nonzero::unsupported(&format!("{op}="), unreferenced(&ty))));
                 }
                 // `*=` by a literal: the literal is checked as a `NonZero`,
-                // then multiplies the field as a plain integer.
+                // then its checked constant multiplies the field as a plain
+                // integer.
                 if nonzero::literal(value)
                     && let Some((class, declared)) = self.forwarding(&ty)
                 {
-                    self.nonzero_literal(value, unreferenced(&ty), &mut Vec::new())?;
+                    let value = self.domain_constant(value, unreferenced(&ty))?;
                     let target = Self::forwarded_field(&class, &declared, target);
-                    self.augment(&target, op, value, ops)?;
+                    self.augment(&target, op, &value, ops)?;
                     return Ok(true);
                 }
             }
