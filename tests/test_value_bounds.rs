@@ -432,3 +432,199 @@ fn a_field_stored_through_a_reference_parameter_is_not_read_again() {
     let body = support::asm_body(&clif, "bump_all");
     assert_eq!(body.matches("load.i64").count(), 1, "{body}");
 }
+
+const CONSTANT_DIVISORS: &str = r#"
+def q10(x: u64) -> u64:
+    x // 10u64
+
+
+def r10(x: u64) -> u64:
+    x % 10u64
+
+
+def q1000(x: u64) -> u64:
+    x // 1000u64
+
+
+def r1000(x: u64) -> u64:
+    x % 1000u64
+
+
+def nq1000(x: i64) -> i64:
+    (x % 9223372036854775807) // 1000
+
+
+def nr1000(x: i64) -> i64:
+    (x % 9223372036854775807) % 1000
+
+
+def seed(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok((x % 139968 * 3877 + 29573) % 139968)
+
+
+def product(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok((x % 139968 * 3877) % 139968)
+
+
+def q7(x: u32) -> u32:
+    x // 7u32
+
+
+def r3(x: u32) -> u32:
+    x % 3u32
+
+
+def bq7(x: i32) -> i32:
+    (x % 100000i32) // 7i32
+
+
+def br7(x: i32) -> i32:
+    (x % 100000i32) % 7i32
+
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    wide = [UNSIGNED]?
+    for i in range(len(wide)):
+        x = wide[i]
+        print(q10(x), r10(x), q1000(x), r1000(x))?
+    signed = [SIGNED]?
+    for i in range(len(signed)):
+        x = signed[i]
+        print(nq1000(x), nr1000(x), seed(x)?, product(x)?)?
+    narrow = [NARROW]?
+    for i in range(len(narrow)):
+        x = narrow[i]
+        print(q7(x), r3(x))?
+    small = [SMALL]?
+    for i in range(len(small)):
+        x = small[i]
+        print(bq7(x), br7(x))?
+    Ok(())
+"#;
+
+/// An unsigned division or remainder by a constant multiplies by a one-word
+/// reciprocal chosen from the dividend's bound (issues #953 and #954): `10`
+/// has one for every `u64`, `1000` only for a dividend below `2**63`, and
+/// `7` only for a 32-bit dividend below `2**31`. Results match the definition at the
+/// edges of each bound, in both build modes.
+#[test]
+fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
+    let unsigned = [
+        0,
+        1,
+        9,
+        10,
+        999,
+        1000,
+        1001,
+        u64::from(u32::MAX),
+        1 << 32,
+        i64::MAX as u64 - 1,
+        i64::MAX as u64,
+        1 << 63,
+        u64::MAX - 999,
+        u64::MAX - 1,
+        u64::MAX,
+    ];
+    let signed = [
+        i64::MIN,
+        i64::MIN + 1,
+        -139_969,
+        -139_968,
+        -1,
+        0,
+        1,
+        999,
+        1000,
+        139_967,
+        139_968,
+        i64::MAX - 1000,
+        i64::MAX - 1,
+        i64::MAX,
+    ];
+    let narrow = [0, 6, 7, 99_999, 100_000, 100_006, u32::MAX - 1, u32::MAX];
+    let small = [i32::MIN, -100_001, -1, 0, 6, 7, 99_999, 100_000, i32::MAX];
+    let list = |values: &[String]| values.join(", ");
+    let source = CONSTANT_DIVISORS
+        .replace("UNSIGNED", &list(&unsigned.map(|x| format!("{x}u64"))))
+        .replace(
+            "SIGNED",
+            &list(&signed.map(|x| match x {
+                i64::MIN => "i64.MIN".to_string(),
+                _ => x.to_string(),
+            })),
+        )
+        .replace("NARROW", &list(&narrow.map(|x| format!("{x}u32"))))
+        .replace(
+            "SMALL",
+            &list(&small.map(|x| match x {
+                i32::MIN => "i32.MIN".to_string(),
+                _ => format!("{x}i32"),
+            })),
+        );
+    let mut expected = String::new();
+    for x in unsigned {
+        writeln!(expected, "{} {} {} {}", x / 10, x % 10, x / 1000, x % 1000).unwrap();
+    }
+    for x in signed {
+        let x = i128::from(x);
+        let bounded = floor_mod(x, i128::from(i64::MAX));
+        let s = floor_mod(x, 139_968);
+        writeln!(
+            expected,
+            "{} {} {} {}",
+            bounded / 1000,
+            bounded % 1000,
+            (s * 3877 + 29_573) % 139_968,
+            s * 3877 % 139_968
+        )
+        .unwrap();
+    }
+    for x in narrow {
+        writeln!(expected, "{} {}", x / 7, x % 3).unwrap();
+    }
+    for x in small {
+        let bounded = floor_mod(i128::from(x), 100_000);
+        writeln!(expected, "{} {}", bounded / 7, bounded % 7).unwrap();
+    }
+    for flags in [&["--fast-compile"][..], &["--release"]] {
+        assert_eq!(run(&source, flags), expected, "{flags:?}");
+    }
+
+    // Before Cranelift's own expansion: a multiply-high where a one-word
+    // multiplier is proved, the division instruction where it is not.
+    let clif = dump(&source, "clif");
+    let count = |name: &str, needle: &str| support::asm_body(&clif, name).matches(needle).count();
+    for name in [
+        "q10", "r10", "nq1000", "nr1000", "seed", "product", "r3", "bq7", "br7",
+    ] {
+        assert_eq!(count(name, "umulhi"), 1, "{name}");
+        assert_eq!(count(name, "udiv") + count(name, "urem"), 0, "{name}");
+    }
+    for name in ["q1000", "q7"] {
+        assert_eq!(
+            (count(name, "umulhi"), count(name, "udiv")),
+            (0, 1),
+            "{name}"
+        );
+    }
+    assert_eq!((count("r1000", "umulhi"), count("r1000", "urem")), (0, 1));
+    // `2**64 / 139968` rounded up divides every dividend below `2**30`
+    // without a shift; a dividend up to `2**63 - 2` needs one for 1000.
+    let seed = support::asm_body(&clif, "seed");
+    assert!(seed.contains("0x77dd_5a03_fada"), "{seed}");
+    assert_eq!(count("seed", "ushr"), 0, "{seed}");
+    assert_eq!(count("nq1000", "ushr"), 1);
+    // A dividend that adds a constant is subtracted from; a product is added
+    // to the quotient times the negated divisor.
+    assert_eq!((count("seed", "isub"), count("product", "isub")), (1, 0));
+
+    // The six-instruction 65-bit sequence is gone from the bounded division.
+    let asm = dump(&source, "asm");
+    let body = support::asm_body(&asm, "nq1000");
+    let (_, division) = body.rsplit_once("  mulq ").unwrap();
+    assert!(
+        division.contains("shr") && !division.contains("sub") && !division.contains("add"),
+        "{body}"
+    );
+}
