@@ -182,6 +182,19 @@ pub(super) fn result(value: Result<u128, AllocError>) -> u128 {
     }
 }
 
+/// `__bytes_to_text` in the dispatcher's `Result[Option[str], AllocError]`
+/// layout: `Nothing` for bytes that are not valid UTF-8.
+#[inline]
+fn to_text(bytes: &[u8]) -> u128 {
+    if let Some(text) = strings::inline_ascii_text(bytes) {
+        return result(Ok(wrap(text as u128, 1)));
+    }
+    result(match strings::try_from_utf8(bytes) {
+        Some(text) => text.map(|text| wrap(text as u128, 1)),
+        None => Ok(wrap(0, 0)),
+    })
+}
+
 /// Whether `bytes` holds `other` at `offset`. Too few remaining bytes is a
 /// mismatch; an offset past the end is a skipped check in `std.bytes`.
 fn prefixed(bytes: &[u8], offset: usize, other: &[u8]) -> bool {
@@ -289,10 +302,7 @@ pub(super) unsafe fn call(
                 }))
             }
             182 => result(from_slice(strings::bytes(&(a as *const strings::Text)))),
-            183 => result(match strings::try_from_utf8(view_bytes(a)) {
-                Some(text) => text.map(|text| wrap(text as u128, 1)),
-                None => Ok(wrap(0, 0)),
-            }),
+            183 => to_text(view_bytes(a)),
             188 => {
                 let bytes = storage(a);
                 let within = range(b, c, bytes.len());
@@ -446,11 +456,28 @@ pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *cons
     unsafe { source(owner as usize as u128).as_ptr() }
 }
 
-/// The byte count of a live buffer or `bytes` literal, for a slice view.
+/// Two result words in the two return registers of the C ABI.
+#[repr(C)]
+pub(crate) struct Words(u64, u64);
+
+/// The first byte address and byte count of a live buffer or `bytes`
+/// literal, for a slice view: one call for both words (issue #931).
 #[unsafe(no_mangle)]
-pub(crate) unsafe extern "C" fn plenty_byte_view_len(owner: *const u8) -> u64 {
+pub(crate) unsafe extern "C" fn plenty_byte_view(owner: *const u8) -> Words {
     // SAFETY: the compiler keeps the owner alive through the call.
-    unsafe { source(owner as usize as u128).len() as u64 }
+    let bytes = unsafe { source(owner as usize as u128) };
+    Words(bytes.as_ptr() as u64, bytes.len() as u64)
+}
+
+/// `__bytes_to_text` without the dispatcher's argument block (issue #931):
+/// a view's address and count in, the two words of the dispatcher's
+/// `Result[Option[str], AllocError]` out.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_to_text(address: *const u8, count: u64) -> Words {
+    // SAFETY: the caller's loan keeps the viewed bytes in place.
+    let bytes = unsafe { view_bytes(address as usize as u128 | (count as u128) << 64) };
+    let value = to_text(bytes);
+    Words(value as u64, (value >> 64) as u64)
 }
 
 /// `std.text.find_in`/`find_not_in`: the scalar position of the first scalar
