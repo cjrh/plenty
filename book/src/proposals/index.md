@@ -52,6 +52,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Heterogeneous protocol objects | [Boxed protocols](completed/boxed-protocols.md) | [Explicit ownership and method contract](completed/boxed-protocols/contract.md), [implementation design](completed/boxed-protocols/implementation.md), [research evidence](completed/boxed-protocols/evidence.md) |
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Borrowed text and substrings | [One borrowed text type](unified-borrowed-text.md) | [Representation and migration](unified-borrowed-text/representation.md), [evidence and naming](unified-borrowed-text/evidence.md), [current text contract](../design/facilities/01-builtins/text.md) |
+| Bounds checks removed by types | [Value-dependent types for check elimination](value-dependent-types.md) | [`Bounded`](../design/language/03-types/bounded.md), [value generics](value-generics.md), [unchecked arithmetic modes](unchecked-arithmetic-modes.md) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
 | Native platforms and libraries | [Cross-platform assessment](cross-platform.md) | [FFI](ffi-and-dynamic-libraries.md), [export contracts](ffi-export-contracts.md), [GCC backend](codegen-gcc.md) |
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
@@ -119,6 +120,7 @@ records and local merge metadata; it did not rerun their feature suites.
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
 | [Exact decimal arithmetic](decimal.md) — allocation-free 38-digit `Decimal` in Plenty, scale kept with numeric equality as in Python, exact operators under the integer trap and `checked:` rules, `NonZero[Decimal]` divisors, explicit rounding | None yet; related B76, B37, B74 |
 | [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |
+| [Value-dependent types for check elimination](value-dependent-types.md) — `Index[v]` tied to an immutable view binding, after constant `Bounded` facts and a measurement gate; solver refinements and full dependent types rejected | B83 |
 
 ## Design assessments with remaining implementation
 
