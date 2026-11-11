@@ -775,6 +775,29 @@ fn generic_helper_sites_survive_cold_warm_and_disabled_function_caches(#[case] o
     }
 }
 
+/// Issue #931: `Bytes.to_text_range` reaches its conversion through a
+/// narrow helper that takes no site. Its range trap still names the std
+/// site and the user call that passed the range: each of two calls in one
+/// loop, and a call in an imported module.
+#[rstest]
+#[case::first([5, 1, 1], "keys.plenty:5:17")]
+#[case::second([1, 6, 1], "keys.plenty:6:18")]
+#[case::main([1, 1, -1], "main.plenty:6:11")]
+fn text_range_traps_name_their_call_site(#[case] starts: [i64; 3], #[case] caller: &str) {
+    let [a, b, last] = starts;
+    let keys = "from std.bytes import Bytes, BytesError\npub def count(data: &Bytes, a: i64, b: i64) -> Result[i64, AllocError | BytesError | OverflowError[i64]]:\n    mut seen: dict[str, i64] = {}?\n    for i in range(2):\n        first = data.to_text_range(a, a + 3)?\n        second = data.to_text_range(b, b + 1)?\n        *seen.get_or_insert(first, 0)? += 1\n        *seen.get_or_insert(second, 0)? += 1\n    Ok(len(seen))\n";
+    let main = format!(
+        "from keys import count\nfrom std.bytes import BytesError, from_bytes\ndef main() -> Result[(), AllocError | BytesError | IoError | OverflowError[i64]]:\n    data = from_bytes(b\"GGTATT\")?\n    print(count(data, {a}, {b})?)?\n    print(data.to_text_range({last}, 2)?)?\n    Ok(())\n"
+    );
+    let error = trap(&[("keys.plenty", keys), ("main.plenty", &main)]);
+    assert_eq!(
+        error,
+        format!(
+            "error: std/bytes.plenty:210:13: Bytes.to_text_range: start..stop is outside 0..=len()\nnote: called from {caller}\n"
+        )
+    );
+}
+
 /// Issue #842: user code that inlines `Bytes.get`/`set` names its call site
 /// in the std trap records instead of setting the caller context around each
 /// call. Each site keeps its own note, including two calls of one method in
