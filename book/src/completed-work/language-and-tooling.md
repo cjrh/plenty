@@ -302,6 +302,11 @@ explicit extraction. It reuses private copy-class storage and ownership.
 Regression tests cover widths, boundaries, aliases, imports, privacy, generic
 functions/methods/enums, inference, body forwarding, expected literal contexts,
 copying and moves. The runnable tutorial teaches validation at input boundaries.
+`Bounded[T, lo, hi].from(value)` (issue #937) converts without a run-time
+check when the checker proves the range from the argument's form: `x % c`
+with a positive constant, `x & c` with a nonnegative constant, or a `Bounded`
+value whose interval lies inside the target. Every other argument is a compile
+error naming `try_from`; there is no unchecked conversion.
 
 This slice uses `Bounded` as the first consumer rather than requiring arrays.
 [Remaining B83/B96 scope](../backlog.md) stays in the backlog.

@@ -784,6 +784,11 @@ impl TypeAliases {
                         {
                             definition.quantity = Some(dimension.clone());
                         }
+                        if name == "Bounded"
+                            && let [_, Argument::Value(lo), Argument::Value(hi)] = actual.as_slice()
+                        {
+                            definition.bounds = Some((lo.value, hi.value));
+                        }
                         t.define(definition);
                     }
                     (Ty::Enum(t), Ty::Enum(value)) => t.define((*value.get()).clone()),

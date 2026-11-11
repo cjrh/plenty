@@ -4530,6 +4530,9 @@ impl Lower<'_> {
             if name == "try_from" && self.aliases.bounded(&ty).is_some() {
                 return self.bounded_try_from(&ty, args, &base.at, ops).map(Some);
             }
+            if name == "from" && self.aliases.bounded(&ty).is_some() {
+                return self.bounded_from(&ty, args, &base.at, ops).map(Some);
+            }
             if let Some(result) = self.quantity_static(&ty, name, args, &base.at, ops)? {
                 return Ok(Some(result));
             }
@@ -6395,6 +6398,19 @@ impl Lower<'_> {
                 let actual = self.expr_expected(value, Some(storage.clone()), ops)?;
                 self.same(actual, Some(storage), &value.at)?;
                 ops.push(Op::Class(crate::record::ClassOp::WrapQuantity(
+                    class.clone(),
+                )));
+                return Ok(ty);
+            }
+            if let Some((element, ..)) = self.aliases.bounded(&ty) {
+                // Reached only by the compiler's own construction: the
+                // private constructor rejected everything else above.
+                let [value] = args else {
+                    return Err(at.error("Bounded construction takes one value"));
+                };
+                let actual = self.expr_expected(value, Some(element.clone()), ops)?;
+                self.same(actual, Some(element), &value.at)?;
+                ops.push(Op::Class(crate::record::ClassOp::WrapBounded(
                     class.clone(),
                 )));
                 return Ok(ty);

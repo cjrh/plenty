@@ -189,11 +189,19 @@ countdown-free unit-step range loops (issues #932 and #933;
 (`experiments/kernels/bytes-literals/`), and x86-64 branches on the flags of
 every checked add and subtract (issue #934, in the Cranelift fork); the
 remaining per-pass costs are issue #935 (loads not folded into branch
-compares), in Cranelift, and for fasta issues #937
-(field value bounds), #940 (bounds of loop-carried locals), #938
+compares), in Cranelift, and for fasta issues #938
 (loop-invariant loads) and #947 (a value live across a call before the loop and kept in a stack slot is reloaded and stored back on each pass when all registers are in use; issue #939 fixed fasta's `random_fasta`, its cold call blocks and its register-to-register moves). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)) and moves a split value's pieces into its spill bundle's register when that register is free (`docs/spill-bundle-registers.md` in the fork), and extends a stack-held value's register over a loop that uses it on every pass when a register is free there (`docs/loop-extension.md`); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
 #936), and a reference parameter's stored field is forwarded to the next read
 (`experiments/kernels/field-rng/`).
+A local whose loop writes are all remainders by positive constants keeps a
+bound across passes (issue #940), and a nonnegative `Bounded` field supplies
+its bounds to arithmetic on `get` (issue #937), with `Bounded.from` storing a
+proved range without a check:
+[remainder locals and bounded fields](completed-work/performance.md#remainder-locals-and-bounded-fields-issues-940-and-937).
+Not done: a plain integer field gets no bound (whole-program inference from
+its writes was rejected), `Bounded` intervals with a negative lower bound give
+codegen no bound, and the checker still requires `OverflowError` in the
+signature of arithmetic that codegen proves in range.
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 key construction from a byte range skips validated clamps and the dispatcher
 (`experiments/key-construction/`), and `get_or_insert` hits skip the
@@ -282,7 +290,7 @@ are recorded there.
 | B89 | Formatting path | Phases 1 and 2 done (issue #615): `print`/`f"{x}"` use `display`; `str.repr`/`!r`/aggregate elements use `debug`; private types format in their module; wrong-signature `display`/`debug` is a compile error. Remaining: `main`'s report uses `display`; the shared formatter needed for it is delivered (issue #634). [Proposal](proposals/consistency-rules.md#rule-2-one-formatting-path); issue #615. |
 | B91 | Iteration sources | Adapters only on iterators; `iter()` for every source; membership on std containers stays B49. Delivered: [`len` method dispatch](completed-work/language-and-tooling.md#b49-length-method-dispatch) (issue #623); [uniform local dictionary views](completed-work/language-and-tooling.md#local-dictionary-views) (issue #624); `find`/`reduce` copy borrowed copyable items, and iterator methods on non-iterators suggest `iter(...)` (issues #621, #622). [Proposal](proposals/consistency-rules.md#rule-4-adapters-belong-to-iterators). |
 | B93 | Callable forms | Delivered: reusable callable forms in serial pipelines and `sort_by_key`, and `&mut` named functions (issues #617, #619, #620); [constructor values](completed-work/language-and-tooling.md#constructor-function-values), including generic classes and `Some`/`Ok`/`Err` (issue #618); [lexical checked callbacks](completed-work/language-and-tooling.md#b14-errors) with scoped failure propagation (issue #614). Remaining: `par` callbacks for stored capture-free closures and `Callable` values, including class and variant constructors. Callable names stay (issue #24). [Proposal](proposals/consistency-rules.md#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted). |
-| B96 | Bounded integer adoption | The `Bounded[T, lo, hi]` type, literal checks and checked runtime construction are [delivered](completed-work/language-and-tooling.md#b83-value-parameters-and-b96-bounded-integers). Remaining: adopt it for `std.http.Limits.max_line`/`max_head` (`>= 2`) and fixed std ceilings. Existing ceiling metadata (issue #686) still checks static std inputs; dynamic values still trap under those APIs. |
+| B96 | Bounded integer adoption | The `Bounded[T, lo, hi]` type, literal checks, checked runtime construction and `from` for [proved ranges](design/language/03-types/bounded.md#proved-ranges) (`x % c`, `x & c`, a contained `Bounded`; issue #937) are [delivered](completed-work/language-and-tooling.md#b83-value-parameters-and-b96-bounded-integers). Remaining: further proved forms only when each is one exception-free rule (shifts, `min`/`max` and comparisons that dominate the conversion are candidates); adopt it for `std.http.Limits.max_line`/`max_head` (`>= 2`) and fixed std ceilings. Existing ceiling metadata (issue #686) still checks static std inputs; dynamic values still trap under those APIs. |
 
 ### Units of measure
 
