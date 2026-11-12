@@ -22,7 +22,7 @@ Usage: {0} FILE
        {0} --extract-interface LIBRARY --library-name NAME -o OUT
        {0} --verify-interface LIBRARY INTERFACE
        {0} --emit-runtime DIR
-       {0} --print-target
+       {0} --print-target [--cpu LEVEL]
        {0} -V | --version
        {0} -h | --help
 
@@ -72,6 +72,9 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --target TRIPLE: require this target to match the supported packaged runtime.
 --fast-compile: skip optimization for faster compilation (optimized by default).
 --release: compatibility alias for the optimized default.
+--cpu LEVEL: compile for CPU level x86-64 (default, SSE2), x86-64-v2 or
+  x86-64-v3 (AVX2, FMA, BMI). Above x86-64 the executable checks the CPU at
+  startup and exits with an error on one without the level. Executables only.
 --unchecked MODE: what plain `unchecked:` blocks outside std do with their
   arithmetic and indexing preconditions: `trap` (default) checks them and traps; `assume`
   omits the checks, so a violation is undefined behavior. `unchecked trap:`
@@ -283,6 +286,23 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         options.unchecked = plenty::UncheckedMode::parse(&args.remove(index))?;
         profile_flag.get_or_insert_with(|| "--unchecked".into());
     }
+    if let Some(index) = args.iter().position(|a| a == "--cpu") {
+        args.remove(index);
+        if index == args.len() {
+            return Err(format!(
+                "--cpu requires a level: {}",
+                plenty::CpuLevel::NAMES.join(", ")
+            )
+            .into());
+        }
+        options.cpu = plenty::CpuLevel::parse(&args.remove(index))?;
+        options
+            .cpu
+            .validate_for(options.target.as_deref().unwrap_or(plenty::native_target()))?;
+        if args.as_slice() != ["--print-target"] {
+            profile_flag.get_or_insert_with(|| "--cpu".into());
+        }
+    }
     if let Some(index) = args.iter().position(|a| a == "--fast-compile") {
         args.remove(index);
         options.optimize = false;
@@ -474,11 +494,19 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             );
         }
         [flag] if flag == "--print-target" && root.is_none() && !link_options => {
-            println!(
-                "{} (CPU baseline: {})",
-                plenty::native_target(),
-                plenty::native_cpu_baseline()
-            );
+            if options.cpu == plenty::CpuLevel::Baseline {
+                println!(
+                    "{} (CPU baseline: {})",
+                    plenty::native_target(),
+                    plenty::native_cpu_baseline()
+                );
+            } else {
+                println!(
+                    "{} (CPU level: {})",
+                    plenty::native_target(),
+                    options.cpu.name()
+                );
+            }
         }
         [flag, directory] if flag == "--emit-runtime" && root.is_none() => {
             plenty::emit_runtime(Path::new(directory))?;

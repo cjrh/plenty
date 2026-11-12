@@ -17,6 +17,8 @@ mod clist_layout;
 mod closures;
 mod collection_opcodes;
 mod control;
+#[cfg(target_arch = "x86_64")]
+mod cpu_level;
 mod deadline;
 mod entries;
 mod entropy;

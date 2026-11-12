@@ -22,6 +22,9 @@ pub struct Manifest {
     pub binaries: Vec<(String, PathBuf)>,
     /// Direct dependencies by import alias.
     pub dependencies: BTreeMap<String, Dependency>,
+    /// `[build] cpu`: the CPU level of this package's executables and tests.
+    /// `--cpu` overrides it; a dependency's setting is never used.
+    pub cpu: Option<crate::CpuLevel>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -247,7 +250,7 @@ pub(crate) fn parse_script(text: &str, name: &str, path: &Path) -> Result<Manife
     reader.known(
         &document,
         "a script manifest",
-        &["manifest-version", "package", "dependencies"],
+        &["manifest-version", "package", "dependencies", "build"],
     )?;
     let entry = |value| Entry {
         value,
@@ -339,6 +342,7 @@ fn read_document(
             "bin",
             "dependencies",
             "workspace",
+            "build",
         ],
     )?;
     match document.get("manifest-version") {
@@ -392,7 +396,7 @@ fn read_document(
         if members.is_none() {
             return Err(format!("{name}: missing [package] table"));
         }
-        if let Some(key) = ["lib", "bin", "dependencies"]
+        if let Some(key) = ["lib", "bin", "dependencies", "build"]
             .into_iter()
             .find(|k| document.contains_key(*k))
         {
@@ -682,6 +686,20 @@ fn read_document(
             );
         }
     }
+    let cpu = match document.get("build") {
+        None => None,
+        Some(entry) => {
+            let table = reader.table("build", entry)?;
+            reader.known(table, "[build]", &["cpu"])?;
+            match table.get("cpu") {
+                None => None,
+                Some(level) => {
+                    let text = reader.string("cpu", level)?;
+                    Some(crate::CpuLevel::parse(&text).or_else(|error| reader.error(level, error))?)
+                }
+            }
+        }
+    };
     Ok(Document {
         package: Some(Manifest {
             name: package_name,
@@ -693,6 +711,7 @@ fn read_document(
             library,
             binaries,
             dependencies,
+            cpu,
         }),
         members,
     })

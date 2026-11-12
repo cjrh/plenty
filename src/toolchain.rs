@@ -126,6 +126,9 @@ pub struct CompileOptions {
     /// preconditions. Changes the program's meaning, so it is part of every
     /// cache identity.
     pub unchecked: UncheckedMode,
+    /// The CPU level of the generated code (`--cpu`). Above the baseline the
+    /// executable checks the running CPU first. Part of every cache identity.
+    pub cpu: crate::CpuLevel,
     /// Where compiled functions are cached between compilations.
     pub cache: crate::cache::CacheMode,
     /// Reuse a whole program's object from the cache when none of its
@@ -171,6 +174,7 @@ impl Default for CompileOptions {
             linalg_engine: None,
             optimize: true,
             unchecked: UncheckedMode::Trap,
+            cpu: crate::CpuLevel::Baseline,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
             executable_cache: false,

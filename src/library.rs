@@ -106,6 +106,20 @@ pub struct LibraryArtifacts {
     pub link_args: PathBuf,
 }
 
+/// A library's exported functions are entered from foreign code, with no
+/// startup point to check the CPU before them, so libraries stay at the
+/// baseline (issue #962).
+pub(crate) fn reject_cpu_level(cpu: crate::CpuLevel) -> Result<()> {
+    if cpu != crate::CpuLevel::Baseline {
+        return Err(format!(
+            "CPU level `{}` applies to executables; libraries are compiled for the baseline `x86-64` level",
+            cpu.name()
+        )
+        .into());
+    }
+    Ok(())
+}
+
 pub fn compile_file_to_library(
     path: &Path,
     output: &Path,
@@ -113,6 +127,7 @@ pub fn compile_file_to_library(
     options: &LibraryOptions,
 ) -> Result<LibraryArtifacts> {
     crate::validate_target(options.compile.target.as_deref())?;
+    reject_cpu_level(options.compile.cpu)?;
     crate::exports::check_library_name(&options.name)?;
     if options.unloadable {
         if options.kind != LibraryKind::Shared {
