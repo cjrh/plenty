@@ -398,6 +398,18 @@ pub enum f32x4:
             case f32x4.Lanes(a0, a1, a2, a3):
                 f32x4.Lanes((*a0).sqrt(), (*a1).sqrt(), (*a2).sqrt(), (*a3).sqrt())
 
+    # Lanes 0 and 1, widened exactly. Lanes 2 and 3 are not read.
+    pub def to_f64x2(self) -> f64x2:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                f64x2.Lanes(f64(*a0), f64(*a1))
+
+    # Every lane, widened exactly.
+    pub def to_f64x4(self) -> f64x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                f64x4.Lanes(f64(*a0), f64(*a1), f64(*a2), f64(*a3))
+
     pub def div(self, other: &f32x4) -> f32x4:
         match self:
             case f32x4.Lanes(a0, a1, a2, a3):
@@ -559,6 +571,12 @@ pub enum f64x2:
         match self:
             case f64x2.Lanes(a0, a1):
                 f64x2.Lanes((*a0).sqrt(), (*a1).sqrt())
+
+    # Both lanes rounded to `f32` in lanes 0 and 1; lanes 2 and 3 are 0.0.
+    pub def to_f32x4(self) -> f32x4:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                f32x4.Lanes(f32(*a0), f32(*a1), 0.0f32, 0.0f32)
 
     pub def div(self, other: &f64x2) -> f64x2:
         match self:
@@ -728,6 +746,12 @@ pub enum f64x4:
         match self:
             case f64x4.Lanes(a0, a1, a2, a3):
                 f64x4.Lanes((*a0).sqrt(), (*a1).sqrt(), (*a2).sqrt(), (*a3).sqrt())
+
+    # Every lane rounded to `f32`, as the scalar cast rounds.
+    pub def to_f32x4(self) -> f32x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                f32x4.Lanes(f32(*a0), f32(*a1), f32(*a2), f32(*a3))
 
     pub def div(self, other: &f64x4) -> f64x4:
         match self:

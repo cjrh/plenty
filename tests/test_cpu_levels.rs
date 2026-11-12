@@ -34,6 +34,7 @@ def main() -> Result[(), IoError]:
     print(v.to_tuple())?
     print(w.to_tuple())?
     print(u.to_tuple(), u.sum_ordered(0.0))?
+    print(w.to_f64x4().to_tuple(), u.to_f32x4().to_f64x2().to_tuple(), v.to_f32x4().to_f64x2().to_tuple())?
     Ok(())
 ";
 
