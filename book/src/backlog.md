@@ -246,7 +246,10 @@ are recorded there.
   only with application/CPU evidence. Opt-in
   [CPU levels](design/toolchain/01-building/linking.md#cpu-levels) x86-64-v2 and
   x86-64-v3 with a startup check and 128-bit VEX code are delivered (issue #962,
-  stage 1; [measurements](completed-work/performance.md#cpu-levels-issue-962-stage-1)); remaining: 256-bit vectors (`f64x4`), and a CPU check for shared and
+  stage 1; [measurements](completed-work/performance.md#cpu-levels-issue-962-stage-1)),
+  as is `std.simd.f64x4` lowered as two 128-bit halves at every level (stage 3;
+  [measurements](completed-work/performance.md#f64x4-as-two-f64x2-halves-issue-962-stage-3));
+  remaining: 256-bit registers for `f64x4` at x86-64-v3, and a CPU check for shared and
   static libraries, which reject levels above x86-64 until one is designed.
   Strict byte-method dispatcher removal (issue #741), loop-cached byte
   access (issue #843), caller sites in inlined byte access (issue #842) and

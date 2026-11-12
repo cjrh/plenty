@@ -7,7 +7,7 @@ handles vector widths and tails without changing the source algorithm.
 
 ## Values and construction
 
-`i32x4`, `u32x4`, `f32x4`, and `f64x2` are nominal, copyable values. Their names
+`i32x4`, `u32x4`, `f32x4`, `f64x2` and `f64x4` are nominal, copyable values. Their names
 describe scalar types and logical lane counts, not an instruction set. Construct
 them with `i32x4.Lanes(a, b, c, d)` or the matching module factory, for example
 `splat_i32x4(value)`. Construction, arithmetic, comparison and selection allocate
@@ -18,6 +18,10 @@ collections under the ordinary enum rules.
 `Nothing`, including negative indices. `to_tuple()` copies the logical lanes in
 order, without allocation. Ordinary `==` compares complete values; use the
 `simd_*` methods below when each lane needs its own comparison result.
+
+`f64x4.low()` and `f64x4.high()` return lanes 0-1 and 2-3 as `f64x2` values;
+`low.concat(high)` joins two `f64x2` values into an `f64x4`. All three copy
+lanes and allocate nothing.
 
 Construct distinct lanes, then add the same value to each with explicit wrapping:
 
@@ -55,7 +59,8 @@ The integer reduction API is explicitly `wrapping_sum()`: it associates as
 ordinary fallible integer reduction method. Float `sum_ordered(initial)` also
 folds left in lane order, without reassociation.
 
-Comparisons on 32-bit lanes produce `mask32x4`; `f64x2` produces `mask64x2`.
+Comparisons on 32-bit lanes produce `mask32x4`; `f64x2` produces `mask64x2`
+and `f64x4` produces `mask64x4`.
 Masks contain logical booleans, constructed directly with `Lanes(...)` or by
 comparison. There are no integer-mask conversions or public native bit encoding.
 
@@ -138,8 +143,9 @@ nothing. `&values`, a `&list[Lane]` reference and a slice such as
 | `get_f64x2(values: &[f64], index: i64) -> f64x2` | Vector `index`: elements `index * 2` and `index * 2 + 1` |
 | `vector.set(values: &mut [f64], index: i64) -> ()` | Replaces the elements of vector `index` |
 
-`f32x4`, `i32x4` and `u32x4` have the same four operations over `f32`, `i32`
-and `u32` views, four elements to a vector. One naming rule covers the module:
+`f64x4` has the same four operations over `f64` views, four elements to a
+vector; `f32x4`, `i32x4` and `u32x4` have them over `f32`, `i32` and `u32`
+views, also four elements to a vector. One naming rule covers the module:
 an operation with a vector operand is a method on it (`set`, like `store`); one
 without is a module function ending in the vector type (`get_f64x2`, like
 `load_f64x2`).
@@ -155,7 +161,7 @@ An index outside `0..len_f64x2(values)`, negative included, is a
 trap report names the operation and the calling line:
 
 ```text
-error: std/simd.plenty:666:13: std.simd.get_f64x2: index is outside 0..len_f64x2(values)
+error: std/simd.plenty:673:13: std.simd.get_f64x2: index is outside 0..len_f64x2(values)
 note: called from main.plenty:5:11
 ```
 
@@ -204,7 +210,7 @@ wrapping integer operators, `add/sub/mul` preserve Plenty's checked arithmetic;
 modular operations have explicit `wrapping_*` names.
 
 The implementation uses existing inline enums, whose payload stores each lane
-in a tagged scalar slot. A four-lane payload currently occupies 64 bytes, plus
+in a tagged scalar slot. A four-lane payload, `f64x4` included, currently occupies 64 bytes, plus
 the ordinary value handle; this is **not** a packed 16-byte vector or a native
 register ABI. Mask variants expose logical booleans, not hardware masks. Neither
 vector nor mask layout is a C, serialization, Arrow or Parquet contract.
@@ -244,9 +250,18 @@ selection or newer CPU feature is required. At
 128-bit operations use VEX encodings; vectors stay 128 bits wide, nothing is
 fused into FMA, and results are bit-identical to the default level.
 
+`f64x4` lowers to two 128-bit `f64x2` halves at every CPU level: each
+operation is two native operations, a load or store is two unaligned 16-byte
+accesses after one bounds test, and `low()`, `high()` and `concat` select or
+pair halves without moving lanes. A `mask64x4` is
+likewise two native 128-bit masks. In a kernel, `f64x4` therefore costs what the same work written as two
+`f64x2` values costs; it does not use 256-bit AVX registers. Lane counts that
+are not a multiple of the vector width still need a scalar or narrower tail,
+and that tail can cost more than the vector work it follows.
+
 Storage boundaries, copying and lane assembly can dominate short operations.
 Explicit SIMD is not a blanket speedup over scalar code, and this module does
-not replace the packed-column lowering used by `clist`. Wider vectors, a view type that owns its vector count, generic
+not replace the packed-column lowering used by `clist`. 256-bit registers, `f32x8`, integer vectors wider than 128 bits, fused multiply-add, a view type that owns its vector count, generic
 lane counts, gathers/scatters, casts, shifts and integer division are not in this
 initial surface. See the [tutorial](../../tutorial/07-modules/19-portable-simd.md)
 and the [implementation evidence](../../proposals/std-simd/implementation.md).

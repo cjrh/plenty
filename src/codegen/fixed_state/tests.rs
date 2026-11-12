@@ -226,6 +226,7 @@ fn fallback_keeps_header_reads_before_a_loop_it_did_not_fully_evaluate() {
 fn vector_fixture(template: &str, vector: &str, values: &str) -> String {
     let (ty, lanes, suffix) = match vector {
         "f64x2" => ("f64", 2, ""),
+        "f64x4" => ("f64", 4, ""),
         _ => ("f32", 4, "f32"),
     };
     let literals = |n: usize| vec![format!("1.5{suffix}"); n].join(", ");
@@ -263,8 +264,15 @@ fn vector_view_accesses_read_and_write_promoted_cells() {
     let text = vector_fixture(template, "f32x4", "1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32");
     let (before, after) = transformed(&text, "update", true);
     assert_eq!(after - before, promoted(15));
+    let text = vector_fixture(template, "f64x4", "1.0, 2.0, 3.0, 4.0, 5.0");
+    let (before, after) = transformed(&text, "update", true);
+    assert_eq!(after - before, promoted(15));
     let template = include_str!("../../../tests/fixtures/fixed-state-simd-bounds.plenty");
-    for (vector, cells) in [("f64x2", 2 + 2 + 2), ("f32x4", 4 + 4 + 4)] {
+    for (vector, cells) in [
+        ("f64x2", 2 + 2 + 2),
+        ("f64x4", 4 + 4 + 4),
+        ("f32x4", 4 + 4 + 4),
+    ] {
         let (before, after) = transformed(&vector_fixture(template, vector, ""), "update", true);
         assert_eq!(after - before, promoted(cells), "{vector}");
     }

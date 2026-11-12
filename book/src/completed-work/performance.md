@@ -1053,3 +1053,30 @@ time, and copies are cheap on Zen 4, which eliminates many at rename. Mandelbrot
 at x86-64 and 216.0 to 217.3 at v3, so the gain is not a placement effect.
 x86-64-v2 emits the same instructions as x86-64 in every user function of
 these programs.
+
+## `f64x4` as two `f64x2` halves (issue #962, stage 3)
+
+[`std.simd.f64x4`](../design/stdlib/simd.md#values-and-construction) lowers
+to two 128-bit `f64x2` halves at every CPU level. In n-body's magnitude loop
+it costs the same as the work written with `f64x2`; the remaining difference
+is the scalar tail.
+
+AMD Zen 4, one pinned core, five million steps, three interleaved rounds over
+eight padded layouts that shift `advance` in 16-byte steps; minimum per
+layout, median across layouts. The ten pair distances are computed as five
+`f64x2`, two `f64x4` and two scalar pairs, or eight `f64x4` lanes plus one
+`f64x2`:
+
+| Program | Cycles per step, x86-64 | v3 | Instructions, x86-64 | v3 |
+|---|---:|---:|---:|---:|
+| Scalar | 220.4 | 216.6 | 652 | 552 |
+| `f64x2` magnitudes | 214.8 | 199.8 | 621 | 540 |
+| `f64x4` magnitudes, scalar tail | 225.7 | 215.9 | 667 | 539 |
+| `f64x4` magnitudes, `f64x2` tail | 213.3-214.0 | 200.2-200.8 | 617 | 540 |
+
+With an `f64x2` tail the loop runs the same vector arithmetic as the `f64x2`
+version (5 `sqrtpd`, 5 `divpd`, 20 `mulpd`, 10 `addpd`) and the same time.
+With a scalar tail, the two remaining distances are
+[paired](#paired-divisions-and-square-roots) by assembling lanes
+(`xorpd`, `movsd`, `movlhps`) and the loop has 42 more register copies and 14
+more spills. Layout spread is at most 3 cycles.
