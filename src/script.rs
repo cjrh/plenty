@@ -16,6 +16,7 @@ Options precede FILE; everything after FILE is passed unchanged to the program.\
   --check              Type-check without running\n\
   --compile -o OUT     Write a native executable without running\n\
   --fast-compile       Skip optimization for faster compilation\n\
+  --cpu LEVEL          x86-64 (default), x86-64-v2 or x86-64-v3; overrides [build] cpu\n\
   --offline            Use only cached dependency sources\n\
   --locked             Refuse to create or change the dependency lock\n\
   --lockfile PATH      Use a durable lock (relative to the caller)\n\
@@ -152,6 +153,7 @@ struct Options {
 /// Run the script CLI with native, lossless OS arguments.
 pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
     let mut options = Options::default();
+    let mut cpu = None;
     let mut args = args.into_iter();
     let file = loop {
         let Some(arg) = args.next() else {
@@ -172,6 +174,16 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
             "--compile" => options.compile = true,
             "--release" => {}
             "--fast-compile" => options.build.optimize = false,
+            "--cpu" => {
+                let level = args.next().and_then(|level| level.into_string().ok());
+                let level = level.ok_or_else(|| {
+                    format!(
+                        "--cpu requires a level: {}",
+                        crate::CpuLevel::NAMES.join(", ")
+                    )
+                })?;
+                cpu = Some(crate::CpuLevel::parse(&level)?);
+            }
             "--offline" => options.resolve.offline = true,
             "--locked" => options.resolve.locked = true,
             "--verbose" => options.build.verbose = true,
@@ -218,6 +230,7 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
         &path.display().to_string(),
         &path,
     )?;
+    options.build.cpu = cpu.or(manifest.cpu).unwrap_or_default();
     let directory = path.parent().unwrap();
     // Even with artifact reuse disabled, dependency pins/sources need storage.
     let cache = storage_root()?;

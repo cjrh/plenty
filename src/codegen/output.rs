@@ -42,6 +42,9 @@ pub(super) struct Targets {
     /// Single-pass allocator, for functions over
     /// [`SINGLE_PASS_BRANCH_ARGUMENTS`].
     pub single_pass: OwnedTargetIsa,
+    /// The baseline ISA for the CPU-checking entry trampoline, when the
+    /// build's CPU level is above the baseline ([`Output::define_entry`]).
+    pub entry: Option<OwnedTargetIsa>,
 }
 
 impl Targets {
@@ -183,7 +186,20 @@ impl Output {
 
     /// Compile `func` on this thread as the body of the declared function
     /// `id`. Its IR must name only symbols declared in the module.
-    pub(super) fn define(&mut self, id: FuncId, mut func: Function) -> Result<()> {
+    pub(super) fn define(&mut self, id: FuncId, func: Function) -> Result<()> {
+        self.define_with(id, func, false)
+    }
+
+    /// Define the CPU-checking entry trampoline with the baseline ISA: it runs
+    /// before the check, so it must not use the level's instructions.
+    pub(super) fn define_entry(&mut self, id: FuncId, func: Function) -> Result<()> {
+        if self.targets.entry.is_none() {
+            return Err("an entry trampoline needs a baseline ISA".into());
+        }
+        self.define_with(id, func, true)
+    }
+
+    fn define_with(&mut self, id: FuncId, mut func: Function, entry: bool) -> Result<()> {
         super::empty_slots::remove_empty_releases(&mut func, None);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
@@ -194,9 +210,13 @@ impl Output {
             .as_ref()
             .filter(|plan| plan.wants(id, Some(&self.module)))
             .map(|_| Box::new(Capture::new(&func)));
+        let isa = match (&self.targets.entry, entry) {
+            (Some(baseline), true) => &**baseline,
+            _ => self.targets.for_function(&func),
+        };
         let code = compile(
             &mut self.context,
-            self.targets.for_function(&func),
+            isa,
             id,
             func,
             self.cache.as_deref(),
@@ -749,6 +769,7 @@ mod tests {
                 Targets {
                     ordinary: isa.clone(),
                     single_pass: isa,
+                    entry: None,
                 },
                 None,
             )
@@ -832,6 +853,7 @@ mod tests {
                 Targets {
                     ordinary: isa.clone(),
                     single_pass: isa,
+                    entry: None,
                 },
                 None,
             )
@@ -888,6 +910,7 @@ mod tests {
         Targets {
             ordinary: super::super::host_isa().unwrap(),
             single_pass: super::super::target_isa("single_pass").unwrap(),
+            entry: None,
         }
     }
 
@@ -1188,6 +1211,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
                 &heap,
                 program.returns_status,
                 false,
+                crate::CpuLevel::Baseline,
                 workers,
                 &options,
             )

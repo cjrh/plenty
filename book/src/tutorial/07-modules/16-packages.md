@@ -74,6 +74,10 @@ Builds optimize by default. For shorter edit-run cycles in large projects, use
 `plenty run --fast-compile` or `plenty build --fast-compile`; these write to
 `target/fast-compile/` and keep the same overflow, bounds and ownership checks.
 Use the default profile when measuring runtime performance.
+Executables use only SSE2 on x86-64 by default, so they run on any x86-64 CPU.
+For newer CPUs, `[build] cpu = "x86-64-v3"` in `plenty.toml` (or `--cpu x86-64-v3`)
+allows AVX2-era instructions; such a program checks the CPU when it starts and
+exits with an error on an older one. See [CPU levels](../../design/toolchain/01-building/linking.md#cpu-levels).
 A later build with no changed source reports `Fresh` and reuses the executable.
 
 The first build also writes `plenty.lock`, which records the resolved packages.

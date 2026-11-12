@@ -370,8 +370,12 @@ fn program_object(
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} test hooks {} coverage {} executable pruning {}",
-                build.optimize, build.test_hooks, build.coverage, build.prune_user
+                "optimize {} cpu {} test hooks {} coverage {} executable pruning {}",
+                build.optimize,
+                build.cpu.name(),
+                build.test_hooks,
+                build.coverage,
+                build.prune_user
             );
             Some((cache, ProgramKey::new(&sources.identity()?, &settings)))
         });
@@ -484,6 +488,8 @@ struct Build {
     target: Option<&'static str>,
     /// Ask Cranelift to optimize for speed.
     optimize: bool,
+    /// The CPU level of every function except the entry trampoline.
+    cpu: crate::CpuLevel,
     /// Lower std's `__test_fault` to the explicitly enabled hook object.
     test_hooks: bool,
     /// Count each block's runs for libFuzzer ([`coverage`]).
@@ -505,6 +511,7 @@ impl Build {
     fn new(options: &crate::CompileOptions, test_hooks: bool) -> Self {
         Self {
             optimize: options.optimize,
+            cpu: options.cpu,
             prune_user: false,
             #[cfg(test)]
             target: None,
@@ -518,16 +525,32 @@ impl Build {
     }
 
     fn targets(&self, opt_level: &str) -> Result<output::Targets> {
+        let check = self.check_cache_hits;
+        // The entry trampoline runs before the CPU check, so it is baseline
+        // code. Baseline builds have no trampoline.
+        let above_baseline = self.cpu != crate::CpuLevel::Baseline;
         #[cfg(test)]
         if let Some(target) = self.target {
+            let isa = |cpu, regalloc| level_isa(target, cpu, regalloc, opt_level, check);
             return Ok(output::Targets {
-                ordinary: baseline_isa(target, "backtracking", opt_level, self.check_cache_hits)?,
-                single_pass: baseline_isa(target, "single_pass", opt_level, self.check_cache_hits)?,
+                ordinary: isa(self.cpu, "backtracking")?,
+                single_pass: isa(self.cpu, "single_pass")?,
+                entry: if above_baseline {
+                    Some(isa(crate::CpuLevel::Baseline, "backtracking")?)
+                } else {
+                    None
+                },
             });
         }
+        let isa = |cpu, regalloc| optimized_isa(cpu, regalloc, opt_level, check);
         Ok(output::Targets {
-            ordinary: optimized_isa("backtracking", opt_level, self.check_cache_hits)?,
-            single_pass: optimized_isa("single_pass", opt_level, self.check_cache_hits)?,
+            ordinary: isa(self.cpu, "backtracking")?,
+            single_pass: isa(self.cpu, "single_pass")?,
+            entry: if above_baseline {
+                Some(isa(crate::CpuLevel::Baseline, "backtracking")?)
+            } else {
+                None
+            },
         })
     }
 
@@ -654,6 +677,7 @@ pub fn dump_file(
         &heap,
         program.returns_status,
         options.optimize,
+        options.cpu,
         crate::parallel::workers(),
         dump,
     )
@@ -664,11 +688,13 @@ fn dump_program(
     heap: &Heap,
     returns_status: bool,
     optimize: bool,
+    cpu: crate::CpuLevel,
     workers: usize,
     dump: &DumpOptions,
 ) -> Result<Dump> {
     let build = Build {
         optimize,
+        cpu,
         functions_only: true,
         dump: Some(dump.clone()),
         ..Build::default()
@@ -704,6 +730,7 @@ pub(crate) fn emit_library_object(
     interface: &crate::exports::Interface,
     options: &crate::CompileOptions,
 ) -> Result<()> {
+    crate::library::reject_cpu_level(options.cpu)?;
     let build = Build::new(options, false);
     let cache = build.cache.clone();
     emit_object(ops, heap, output, None, exports, Some(interface), build)?;
@@ -861,10 +888,22 @@ fn object_module(
     }
     exports::declare(exports, &mut out.module)?;
     export_objects::define(&objects, &mut out.module)?;
+    // Above the baseline, the exported `plenty_main` is a baseline trampoline
+    // that checks the running CPU and then calls the program's entry, so no
+    // instruction of the level runs on a CPU without it (issue #962).
+    let checked_entry = entry.is_some() && build.cpu != crate::CpuLevel::Baseline;
     let main_id = match entry {
         Some(_) => Some(out.module.declare_function(
-            "plenty_main",
-            Linkage::Export,
+            if checked_entry {
+                "__plenty_main"
+            } else {
+                "plenty_main"
+            },
+            if checked_entry {
+                Linkage::Local
+            } else {
+                Linkage::Export
+            },
             &main_signature(),
         )?),
         None => None,
@@ -959,7 +998,38 @@ fn object_module(
     deferred.finish(&mut out, workers, &runtime, fns, &build_job)?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
     box_release::define_destroy_entries(&runtime, &mut out)?;
+    if let (true, Some(body)) = (checked_entry, main_id) {
+        define_cpu_entry(&mut out, body, build.cpu)?;
+    }
     Ok(out)
+}
+
+/// `plenty_main` for a program above the baseline CPU level: call the
+/// runtime's `plenty_rt_require_cpu(level)`, which exits unless the running
+/// CPU has the level, then return the program entry `body`'s status. Compiled
+/// with the baseline ISA ([`Output::define_entry`]).
+fn define_cpu_entry(out: &mut Output, body: FuncId, cpu: crate::CpuLevel) -> Result<()> {
+    let module = &mut out.module;
+    let mut require = module.make_signature();
+    require.call_conv = crate::target::native_call_conv();
+    require.params.push(AbiParam::new(types::I64));
+    let require = module.declare_function("plenty_rt_require_cpu", Linkage::Import, &require)?;
+    let id = module.declare_function("plenty_main", Linkage::Export, &main_signature())?;
+    let mut func =
+        Function::with_name_signature(UserFuncName::user(0, id.as_u32()), main_signature());
+    let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
+    let block = b.create_block();
+    b.switch_to_block(block);
+    b.seal_block(block);
+    let require = module.declare_func_in_func(require, b.func);
+    let level = b.ins().iconst(types::I64, cpu.code());
+    b.ins().call(require, &[level]);
+    let body = module.declare_func_in_func(body, b.func);
+    let call = b.ins().call(body, &[]);
+    let status = b.inst_results(call)[0];
+    b.ins().return_(&[status]);
+    b.finalize(FRONTEND);
+    out.define_entry(id, func)
 }
 
 /// Functions built together on one thread, in the order they are placed in
@@ -987,7 +1057,7 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
 fn target_isa(
     regalloc_algorithm: &str,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
-    optimized_isa(regalloc_algorithm, "none", false)
+    optimized_isa(crate::CpuLevel::Baseline, regalloc_algorithm, "none", false)
 }
 
 /// Build the target's baseline ISA without inspecting the running CPU.
@@ -996,14 +1066,16 @@ fn target_isa(
 /// `speed` for release builds. Language checks are part of the IR, so both
 /// levels keep identical semantics.
 fn optimized_isa(
+    cpu: crate::CpuLevel,
     regalloc_algorithm: &str,
     opt_level: &str,
     check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
     let compiler_target = crate::target::compiler_host();
-    let isa = baseline_isa(
+    let isa = level_isa(
         compiler_target,
+        cpu,
         regalloc_algorithm,
         opt_level,
         check_cache_hits,
@@ -1016,13 +1088,33 @@ fn optimized_isa(
     Ok(isa)
 }
 
+/// The baseline ISA for `triple`, for tests that build objects directly.
+#[cfg(test)]
 pub(crate) fn baseline_isa(
     triple: &str,
     regalloc_algorithm: &str,
     opt_level: &str,
     check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
+    level_isa(
+        triple,
+        crate::CpuLevel::Baseline,
+        regalloc_algorithm,
+        opt_level,
+        check_cache_hits,
+    )
+}
+
+/// The ISA for `triple` at CPU level `cpu`, never inspecting the running CPU.
+pub(crate) fn level_isa(
+    triple: &str,
+    cpu: crate::CpuLevel,
+    regalloc_algorithm: &str,
+    opt_level: &str,
+    check_cache_hits: bool,
+) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::target::target_description(triple).ok_or("unsupported native target")?;
+    cpu.validate_for(triple)?;
     let mut flags = settings::builder();
     flags.set("regalloc_algorithm", regalloc_algorithm)?;
     flags.set("opt_level", opt_level)?;
@@ -1057,12 +1149,18 @@ pub(crate) fn baseline_isa(
             "false"
         },
     )?;
-    // An explicit lookup leaves optional CPU features disabled on both ISAs.
-    let isa_builder = cranelift_codegen::isa::lookup(
+    // An explicit lookup leaves optional CPU features disabled unless the
+    // level names them. Cranelift never fuses a multiply and an add: it emits
+    // FMA only for an explicit `fma` instruction, which Plenty never builds,
+    // so `has_fma` changes no result (tests/test_cpu_levels.rs).
+    let mut isa_builder = cranelift_codegen::isa::lookup(
         triple
             .parse()
             .map_err(|error: target_lexicon::ParseError| error.to_string())?,
     )?;
+    for flag in cpu.isa_flags() {
+        isa_builder.enable(flag)?;
+    }
     Ok(isa_builder.finish(settings::Flags::new(flags))?)
 }
 

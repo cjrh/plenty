@@ -52,6 +52,61 @@ drivers and nonempty `link_args` also disable discovery. `verbose` reports the
 command. The caller must explicitly disable `auto_linker` when selecting `cc`
 itself, since assigning that default value cannot record an explicit override.
 
+## CPU levels
+
+`--cpu LEVEL` selects the x86-64 instruction set an executable's generated code
+may use. `[build] cpu` in [plenty.toml](packages.md#manifest) sets it for a
+package or script; `--cpu` overrides it. The levels are the x86-64 psABI's:
+
+| Level | Code generation may use | Startup check also requires |
+|---|---|---|
+| `x86-64` (default) | SSE2 | nothing: no check is emitted |
+| `x86-64-v2` | SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, CMPXCHG16B | LAHF/SAHF |
+| `x86-64-v3` | v2, AVX, AVX2, FMA, BMI1, BMI2, LZCNT | MOVBE, F16C, OSXSAVE, and XCR0 enabling SSE and AVX state |
+
+The list is closed: there is no `native` level, so an executable's instructions
+never depend on the machine that compiled it. An unknown level is an error that
+lists the valid ones, and a level other than `x86-64` on an AArch64 target is an
+error. The default output is unchanged by this feature.
+
+At `x86-64-v3`, Cranelift encodes SSE operations with VEX, uses three-operand
+forms, and selects BMI and LZCNT instructions; `std.simd` stays 128 bits wide.
+Code generation never contracts `x * y + z` into a fused multiply-add, at any
+level, so scalar and `std.simd` float results are bit-identical across levels.
+Only 128-bit VEX code is emitted, so no `vzeroupper` is needed at calls into
+the runtime or C code compiled for SSE.
+
+**Startup check.** Above `x86-64`, the exported `plenty_main` is a trampoline
+compiled at the baseline. It calls the runtime's `plenty_rt_require_cpu`, which
+reads CPUID (and XCR0 through `xgetbv` only when OSXSAVE is set), before it calls
+the program. The runtime's `main` runs only argument capture and stack-overflow
+handler setup, both baseline code, before `plenty_main`; fuzz executables reach
+the program through the same entry. A CPU without every required feature makes
+the program print one line to stderr and exit with status 1 before any Plenty
+code runs; nothing traps or aborts:
+
+```text
+error: this program requires an x86-64-v3 CPU (missing: fma, avx, avx2, ...)
+```
+
+There is no option to skip the check. `x86-64` executables contain no check and
+no trampoline.
+
+**Runtime.** The runtime library is compiled once at the baseline and linked into
+programs of every level; it does not use instructions above SSE2.
+
+**Libraries.** `--shared-library` and `--static-library` reject levels above
+`x86-64`: a library has no entry point to run the check from, and its exports
+can be called directly by a host on any CPU. A per-export check, or a load-time
+check, is an open question in issue #962.
+
+**Caches and reproducibility.** The level is part of the
+[compile cache](../02-architecture/cache.md) keys of functions, program objects
+and executables, and of the [build fingerprint](packages.md#build-reuse), so one
+cache serves every level without mixing their code. The same sources, compiler
+and level produce the same bytes. `--print-target --cpu LEVEL` prints the
+target with the level; `--fast-compile` keeps the level.
+
 ## Symbols and debug information
 
 Executables and shared libraries are linked with `-Wl,--strip-all`, which
