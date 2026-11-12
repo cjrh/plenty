@@ -516,6 +516,7 @@ fn both_profiles(source: &str) -> (tempfile::TempDir, [std::path::PathBuf; 2]) {
 /// optimized x86-64-v3 build, which holds `f64x4` in one `ymm` register.
 fn vector_profiles(source: &str) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
     let (dir, programs) = both_profiles(source);
+    #[cfg_attr(not(target_arch = "x86_64"), expect(unused_mut))]
     let mut programs = programs.to_vec();
     #[cfg(target_arch = "x86_64")]
     if std::is_x86_feature_detected!("avx2") {

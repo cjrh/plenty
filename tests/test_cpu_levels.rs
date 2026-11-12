@@ -43,6 +43,7 @@ def main() -> Result[(), IoError]:
 /// signaling, negative), signed zeros, infinities and a subnormal through
 /// every operation, list and view transfers, and a loop whose vectors cross
 /// calls. At x86-64-v3 each `f64x4` is one `ymm` register.
+#[cfg(target_arch = "x86_64")]
 const F64X4_BITS: &str = r#"import std.bytes
 import std.encoding
 import std.simd as s

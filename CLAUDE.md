@@ -94,6 +94,7 @@ issue ownership, discussion, and PR review state live in the database.
 | `PLENTY_CACHE=off cargo test ...` | Run without the compiled-function cache; `.cargo/config.toml` points it at `target/plenty-cache` for tests and `cargo run` |
 | `cargo test --locked --test integration test_std_url::` | Run one test file's tests: integration tests are modules of `tests/integration.rs`, which must list each `tests/test_*.rs` file |
 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | Lint compiler and runtime; CI's `lint` job also runs this, `cargo fmt --all -- --check`, and the link check below |
+| `just arm-lint` | Check and lint the AArch64 Linux build from an x86-64 host; run it after adding `cfg(target_arch)` code, x86-only tests or Cranelift `isa::x64` imports |
 | `cargo run --locked --release --example compile_bench -- 1000 10 --workload aot` | Benchmark one workload; see `book/src/development/profiling.md` for workloads and phase profiles |
 | `cargo run --bin plenty -- FILE` | Compile and run a Plenty program (needs `cc`); `--bin` is required because `src/bin/plentyc.rs` is a second binary |
 | `cargo run --bin plenty -- --check FILE` | Type-check without linking or running |
