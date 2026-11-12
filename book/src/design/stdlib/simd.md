@@ -46,6 +46,8 @@ def main() -> Result[(), IoError]:
 | `f32x4.reciprocal_sqrt_estimate()` | An approximation of `1.0 / sqrt(lane)`; see [the estimate's contract](#reciprocal-square-root-estimate) |
 | `f64x2.to_f32x4()` | Lanes 0 and 1 are the two lanes cast with `f32(lane)`; lanes 2 and 3 are `0.0` |
 | `f32x4.to_f64x2()` | Lanes 0 and 1 cast with `f64(lane)`, which is exact; lanes 2 and 3 are not read |
+| `f64x4.to_f32x4()` | Every lane cast with `f32(lane)` |
+| `f32x4.to_f64x4()` | Every lane cast with `f64(lane)`, which is exact |
 | Integer `wrapping_add`, `wrapping_sub`, `wrapping_mul` | Modular lane arithmetic |
 | Integer `wrapping_sum()` | Modular sum of all lanes |
 | Float `sum_ordered(initial)` | Left fold from `initial`, in increasing lane order |
@@ -325,7 +327,9 @@ approximation).
 operation is two native operations, a load or store is two unaligned 16-byte
 accesses after one bounds test, and `low()`, `high()` and `concat` select or
 pair halves without moving lanes. A `mask64x4` is
-likewise two native 128-bit masks. In a kernel, `f64x4` therefore costs what the same work written as two
+likewise two native 128-bit masks. `f64x4.to_f32x4()` narrows each half and
+joins them with one lane move; `f32x4.to_f64x4()` widens lanes 0-1, then
+moves lanes 2-3 down and widens them. In a kernel, `f64x4` therefore costs what the same work written as two
 `f64x2` values costs; it does not use 256-bit AVX registers. Lane counts that
 are not a multiple of the vector width still need a scalar or narrower tail,
 and that tail can cost more than the vector work it follows.

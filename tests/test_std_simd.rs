@@ -682,6 +682,10 @@ def narrow(value: &s.f64x2) -> s.f32x4:
     value.to_f32x4()
 def widen(value: &s.f32x4) -> s.f64x2:
     value.to_f64x2()
+def narrow4(value: &s.f64x4) -> s.f32x4:
+    value.to_f32x4()
+def widen4(value: &s.f32x4) -> s.f64x4:
+    value.to_f64x4()
 def same32(a: f32, b: f32) -> bool:
     a == b and (1.0f32).copysign(a) == (1.0f32).copysign(b) or (a != a and b != b)
 def same64(a: f64, b: f64) -> bool:
@@ -702,6 +706,16 @@ def main() -> ():
             for result in [v.to_f64x2(), widen(&v)].unwrap():
                 (r0, r1) = result.to_tuple()
                 check(same64(r0, f64(*a)) and same64(r1, f64(*b)), "widened lanes").unwrap()
+            u = s.f32x4.Lanes(*b, 7.0f32, *a, -0.0f32)
+            for result in [u.to_f64x4(), widen4(&u)].unwrap():
+                (r0, r1, r2, r3) = result.to_tuple()
+                check(same64(r0, f64(*b)) and same64(r1, 7.0) and same64(r2, f64(*a)) and same64(r3, -0.0), "widened four lanes").unwrap()
+    for a in &wide:
+        for b in &wide:
+            v = s.f64x4.Lanes(*a, 0.1, *b, -0.0)
+            for result in [v.to_f32x4(), narrow4(&v)].unwrap():
+                (r0, r1, r2, r3) = result.to_tuple()
+                check(same32(r0, f32(*a)) and same32(r1, 0.1f32) and same32(r2, f32(*b)) and same32(r3, -0.0f32), "narrowed four lanes").unwrap()
     print("ok").unwrap()
 "#,
         release,
@@ -713,7 +727,7 @@ def main() -> ():
 fn reciprocal_square_root_estimate_lowers_to_the_estimate_instruction() {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("estimate.plenty");
-    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x2) -> s.f64x2:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x2()\n    y.mul(d2)\ndef main() -> ():\n    a = s.splat_f64x2(4.0)\n    print(kernel(&a).to_tuple()).unwrap()\n").unwrap();
+    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x2) -> s.f64x2:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x2()\n    y.mul(d2)\ndef kernel4(a: &s.f64x4) -> s.f64x4:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x4()\n    y.mul(&d2)\ndef main() -> ():\n    a = s.splat_f64x2(4.0)\n    print(kernel(&a).to_tuple()).unwrap()\n    print(kernel4(&s.splat_f64x4(4.0)).to_tuple()).unwrap()\n").unwrap();
     let out = Command::new(support::plenty_bin())
         .env("PLENTY_CACHE", "off")
         .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
@@ -738,6 +752,7 @@ fn reciprocal_square_root_estimate_lowers_to_the_estimate_instruction() {
         assert!(dump.contains(opcode), "{opcode}: {dump}");
     }
     assert!(!dump.contains("sqrtpd") && !dump.contains("div"), "{dump}");
+    assert!(dump.contains("==== kernel4 "), "{dump}");
     assert!(!dump.contains("call "), "{dump}");
     assert!(
         !dump.contains("stack_load") && !dump.contains("stack_store"),

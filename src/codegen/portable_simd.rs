@@ -479,8 +479,9 @@ pub(super) fn classify(
         "div" if float => Action::Div,
         "sqrt" if float => Action::Sqrt,
         "reciprocal_sqrt_estimate" if matches!(shape, Shape::F32) => Action::ReciprocalSqrtEstimate,
-        "to_f32x4" if matches!(shape, Shape::F64x2) => Action::Convert(Shape::F32),
+        "to_f32x4" if matches!(shape, Shape::F64x2 | Shape::F64x4) => Action::Convert(Shape::F32),
         "to_f64x2" if matches!(shape, Shape::F32) => Action::Convert(Shape::F64x2),
+        "to_f64x4" if matches!(shape, Shape::F32) => Action::Convert(Shape::F64x4),
         "to_tuple" => Action::ToTuple,
         "simd_eq" => Action::Compare(IntCC::Equal, FloatCC::Equal),
         "simd_ne" => Action::Compare(IntCC::NotEqual, FloatCC::NotEqual),
@@ -1290,12 +1291,42 @@ impl Lowerer<'_, '_> {
         }
         if let Action::Convert(to) = op.action {
             // `cvtpd2ps` rounds as the scalar cast does and zeroes lanes 2
-            // and 3; `cvtps2pd` widens lanes 0 and 1 exactly.
-            let low = match to {
-                Shape::F32 => self.bcx.ins().fvdemote(left.low),
-                _ => self.bcx.ins().fvpromote_low(left.low),
+            // and 3; `cvtps2pd` widens lanes 0 and 1 exactly. `f64x4` moves
+            // 64-bit halves between its parts and the `f32x4`, viewed as
+            // `f64x2`.
+            let little =
+                MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
+            let result = if matches!(op.shape, Shape::F32) {
+                Parts::new(to, |part| {
+                    let mut source = left.low;
+                    if part == 1 {
+                        // Bytes 8-15 in both halves: one `pshufd`.
+                        let mask = (8..16).chain(8..16).collect::<Vec<u8>>();
+                        let mask = self
+                            .bcx
+                            .func
+                            .dfg
+                            .immediates
+                            .push(cranelift_codegen::ir::ConstantData::from(&mask[..]));
+                        let bytes = self.bcx.ins().bitcast(types::I8X16, little, source);
+                        let high = self.bcx.ins().shuffle(bytes, bytes, mask);
+                        source = self.bcx.ins().bitcast(types::F32X4, little, high);
+                    }
+                    self.bcx.ins().fvpromote_low(source)
+                })
+            } else {
+                let mut low = self.bcx.ins().fvdemote(left.low);
+                if let Some(high) = left.high {
+                    let high = self.bcx.ins().fvdemote(high);
+                    let high = self.bcx.ins().bitcast(types::F64X2, little, high);
+                    let high = self.bcx.ins().extractlane(high, 0);
+                    let pairs = self.bcx.ins().bitcast(types::F64X2, little, low);
+                    let pairs = self.bcx.ins().insertlane(pairs, high, 1);
+                    low = self.bcx.ins().bitcast(types::F32X4, little, pairs);
+                }
+                Parts { low, high: None }
             };
-            let value = self.materialize_simd(Parts { low, high: None }, to, &op.output);
+            let value = self.materialize_simd(result, to, &op.output);
             self.stack.push((value, op.output.clone()));
             return;
         }
