@@ -24,6 +24,10 @@ docs:
     python3 -B scripts/build_docs_site.py
 
 # Steps and logs: see scripts/local_ci.sh --help. `just ci test clippy` runs two.
+# Check and lint the AArch64 Linux build from this host (needs zig or aarch64-linux-gnu-gcc).
+arm-lint:
+    scripts/arm_lint.sh
+
 # Every CI check this Linux host can run, continuing past failures.
 ci *steps:
     scripts/local_ci.sh "$@"
