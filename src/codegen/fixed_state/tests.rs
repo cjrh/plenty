@@ -377,7 +377,9 @@ fn promoted_clist_loop_reads_and_writes_each_cell_once() {
 fn float_columns_of_a_mixed_clist_row_are_cells_when_another_list_is_hinted() {
     // No hint remains: the scratch capacity is not a literal and the mixed
     // row's literal capacity is ignored.
-    let text = include_str!("../../../tests/fixtures/fixed-state-clist.plenty");
+    // Source edits below use LF anchors even in a CRLF checkout.
+    let text =
+        include_str!("../../../tests/fixtures/fixed-state-clist.plenty").replace("\r\n", "\n");
     let tagged = text
         .replace("    y: f64\n", "    y: f64\n    tag: i64\n")
         .replace("Point(1.25, -0.0)", "Point(1.25, -0.0, 7)")
@@ -397,11 +399,12 @@ fn float_columns_of_a_mixed_clist_row_are_cells_when_another_list_is_hinted() {
     assert_eq!(after - before, 9);
 
     // Rows of `bool, f32, u8, f64` with a hinted `list[f64]` scratch.
-    let mixed = include_str!("../../../tests/fixtures/fixed-state-clist-mixed.plenty");
-    let (before, after) = transformed(mixed, "update", true);
+    let mixed = include_str!("../../../tests/fixtures/fixed-state-clist-mixed.plenty")
+        .replace("\r\n", "\n");
+    let (before, after) = transformed(&mixed, "update", true);
     assert_eq!(after - before, 9);
     let mut heap = Heap::default();
-    let mut ops = crate::frontend::compile(mixed, &mut heap).unwrap().ops;
+    let mut ops = crate::frontend::compile(&mixed, &mut heap).unwrap().ops;
     prepare(&mut ops, true);
     fn columns(ops: &[Op], found: &mut Vec<usize>) {
         for op in ops {
@@ -453,8 +456,10 @@ fn float_columns_of_a_mixed_clist_row_are_cells_when_another_list_is_hinted() {
 
 #[test]
 fn clist_resizes_and_runtime_indices_decline_promotion() {
-    let text = include_str!("../../../tests/fixtures/fixed-state-clist-resize.plenty");
-    let (before, after) = transformed(text, "update", true);
+    // Source edits below use LF anchors even in a CRLF checkout.
+    let text = include_str!("../../../tests/fixtures/fixed-state-clist-resize.plenty")
+        .replace("\r\n", "\n");
+    let (before, after) = transformed(&text, "update", true);
     assert_eq!(after - before, 6);
     let anchor = "            values[i].y -= values[i].x\n";
     assert!(text.contains(anchor));
