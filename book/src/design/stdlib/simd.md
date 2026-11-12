@@ -43,6 +43,10 @@ def main() -> Result[(), IoError]:
 | `add`, `sub`, `mul` | Integer vectors return `Result[Vector, OverflowError[Lane]]`; float vectors stay infallible |
 | Float `sqrt()` | Per-lane scalar square root: negative inputs yield NaN, signed zero and positive infinity are preserved |
 | Float `div` | Scalar IEEE division, including infinities and NaNs |
+| `f64x2.to_f32x4()` | Lanes 0 and 1 are the two lanes cast with `f32(lane)`; lanes 2 and 3 are `0.0` |
+| `f32x4.to_f64x2()` | Lanes 0 and 1 cast with `f64(lane)`, which is exact; lanes 2 and 3 are not read |
+| `f64x4.to_f32x4()` | Every lane cast with `f32(lane)` |
+| `f32x4.to_f64x4()` | Every lane cast with `f64(lane)`, which is exact |
 | Integer `wrapping_add`, `wrapping_sub`, `wrapping_mul` | Modular lane arithmetic |
 | Integer `wrapping_sum()` | Modular sum of all lanes |
 | Float `sum_ordered(initial)` | Left fold from `initial`, in increasing lane order |
@@ -216,7 +220,8 @@ register ABI. Mask variants expose logical booleans, not hardware masks. Neither
 vector nor mask layout is a C, serialization, Arrow or Parquet contract.
 
 On x86-64, the default optimized profile lowers wrapping arithmetic, float arithmetic (including `sqrt`), comparisons
-and selection to baseline 128-bit SIMD. Numeric `Lanes` constructors and
+and selection to baseline 128-bit SIMD. The two-lane conversions lower to `cvtpd2ps` and
+`cvtps2pd`. Numeric `Lanes` constructors and
 `to_tuple()` followed by unpacking preserve native lanes without a scalar call
 or a round trip through tuple storage. Unborrowed matching numeric tuple locals
 used by unpacking can also stay native; escaping tuples retain their ordinary ABI.
@@ -254,14 +259,15 @@ including NaN payloads, signed zeros and infinities.
 Below x86-64-v3, `f64x4` lowers to two 128-bit `f64x2` halves: each operation
 is two native operations, a load or store is two unaligned 16-byte accesses
 after one bounds test, and `low()`, `high()` and `concat` select or pair halves
-without moving lanes. A `mask64x4` is likewise two native 128-bit masks, and
-`f64x4` costs what the same work written as two `f64x2` values costs.
+without moving lanes. A `mask64x4` is likewise two native 128-bit masks. `f64x4.to_f32x4()` narrows
+each half and joins them with one lane move; `f32x4.to_f64x4()` widens lanes
+0-1, then moves lanes 2-3 down and widens them. `f64x4` costs what the same work written as two `f64x2` values costs.
 
 At x86-64-v3 on Linux and macOS, an `f64x4` or `mask64x4` is one 256-bit `ymm`
 register: arithmetic, `sqrt`, comparisons, `select` and bitwise mask operations
 are one AVX instruction, a load or store is one unaligned 32-byte access after
 one bounds test, `low()` and `high()` extract a 128-bit half and `concat`
-inserts one. Only a function that performs an `f64x4` operation holds such a
+inserts one; the float lane conversions convert the two halves. Only a function that performs an `f64x4` operation holds such a
 value; it spills the value across calls and clears the upper halves before each
 call and return, and if the backend cannot lower it, the function is compiled
 with two halves instead (see
@@ -277,7 +283,7 @@ more than the vector work it follows.
 Storage boundaries, copying and lane assembly can dominate short operations.
 Explicit SIMD is not a blanket speedup over scalar code, and this module does
 not replace the packed-column lowering used by `clist`. `f32x8`, integer vectors wider than 128 bits, fused multiply-add, a view type that owns its vector count, generic
-lane counts, gathers/scatters, casts, shifts and integer division are not in this
+lane counts, gathers/scatters, casts other than the float lane conversions, shifts and integer division are not in this
 initial surface. See the [tutorial](../../tutorial/07-modules/19-portable-simd.md)
 and the [implementation evidence](../../proposals/std-simd/implementation.md).
 
