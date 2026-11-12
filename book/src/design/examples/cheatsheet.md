@@ -74,9 +74,11 @@ def main() -> Result[(), IoError | ParseError | OverflowError[i64]]:
 - Arithmetic the compiler proves cannot fail adds no error. It follows fixed
   [interval rules](../language/03-types/intervals.md): literals, module
   constants, `Bounded`/`NonNegative`/`Positive` `.get()`, `len(x)`, `x % c`,
-  `x & c`, casts and immutable locals have known ranges, so
-  `i64(a_u8) * 3 + 1` and `(seed.get() * 3877 + 29573) % 139968` need no
-  `OverflowError`. Parameters, `mut` locals and call results have none.
+  `x & c`, casts, immutable locals and `range` loop variables have known
+  ranges, so `i64(a_u8) * 3 + 1` and `(seed.get() * 3877 + 29573) % 139968`
+  need no `OverflowError`. A comparison such as `if 0 <= n and n < 100:`
+  narrows an immutable local or parameter where it holds. `mut` locals and
+  call results have no range.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
 Use `checked:` for local recovery instead of returning arithmetic errors from

@@ -2,6 +2,7 @@ use super::*;
 use crate::clist::ClistOp;
 use crate::collection::Query;
 use crate::collection_opcodes as opcode;
+use crate::interval::Interval;
 
 const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowed KeyView values; use view.to_set() for duplicable keys, dictionary.keys_snapshot(), or consume the dictionary with into_keys()";
 
@@ -5925,33 +5926,62 @@ impl Lower<'_> {
     }
 
     /// Push `start stop step` for `range(args)`, filling the defaults, and
-    /// mark the call for parameter failures.
+    /// mark the call for parameter failures. Returns the intervals of the
+    /// start and the stop.
     fn range_operands(
         &mut self,
         args: &[Expr],
         element: &Ty,
         at: &Token,
         ops: &mut Vec<Op>,
-    ) -> Result<()> {
+    ) -> Result<[Option<Interval>; 2]> {
         if args.is_empty() || args.len() > 3 {
             return Err(at.error("range takes one to three arguments"));
         }
+        let mut bounds = [Some(Interval::point(0)), None];
         if args.len() == 1 {
             ops.push(Op::PushInt(integer(&format!("0{element}"), false, at)?));
         }
+        let first = 2 - args.len().min(2);
         for (i, arg) in args.iter().enumerate() {
             if i == 2 {
                 self.nonzero_step("range", arg, ops)?;
                 continue;
             }
+            self.interval = None;
             let actual = self.expr_expected(arg, Some(element.clone()), ops)?;
             self.same(actual, Some(element.clone()), &arg.at)?;
+            bounds[first + i] = self.operand_interval(arg, element);
         }
         if args.len() < 3 {
             ops.push(Op::PushInt(Value::I64(1)));
         }
         self.mark(at, ops);
-        Ok(())
+        Ok(bounds)
+    }
+
+    /// The interval of the element of a `range` with these start and stop
+    /// intervals and `step` argument: `start.lo..stop.hi - 1` for a positive
+    /// step, `stop.lo + 1..start.hi` for a negative literal or constant one.
+    /// Any other step, or a range that is empty, gives nothing.
+    fn range_element_interval(
+        &self,
+        [start, stop]: [Option<Interval>; 2],
+        step: Option<&Expr>,
+        element: &Ty,
+    ) -> Option<Interval> {
+        let full = Interval::of(element)?;
+        let (start, stop) = (start.unwrap_or(full), stop.unwrap_or(full));
+        let step = match step {
+            None => 1,
+            Some(step) => self.known_integer(step)?,
+        };
+        let interval = if step > 0 {
+            Interval::new(start.lo, stop.hi - 1)
+        } else {
+            Interval::new(stop.lo + 1, start.hi)
+        };
+        interval?.meet(full)
     }
 
     /// The list place `xs` of a builtin `len(xs)` call, keyed as
@@ -6045,7 +6075,12 @@ impl Lower<'_> {
             }
             _ => None,
         };
-        self.range_operands(args, &element, at, ops)?;
+        let bounds = self.range_operands(args, &element, at, ops)?;
+        // The loop variable is immutable, and each element the loop gives it
+        // lies between the start and the stop (rule in `intervals.md`).
+        if let Some(interval) = self.range_element_interval(bounds, args.get(2), &element) {
+            self.slot_intervals.insert(target, interval);
+        }
         ops.push(Op::StoreLocal(step));
         self.range_stop = match length_of {
             Some(place) => {

@@ -185,6 +185,7 @@ impl Lower<'_> {
     /// #841). Each node still runs the checks and emits the ops that lowering
     /// it on its own would: an inner chain is a `bool` value with no loans.
     pub(super) fn logical(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        self.forget_condition(e);
         let mut spine = Vec::new();
         let mut node = e;
         let (mut a, mut loans) = loop {
@@ -206,11 +207,18 @@ impl Lower<'_> {
         };
         let mut result = None;
         for node in spine.into_iter().rev() {
-            let Expression::Binary(op, _, right) = &node.kind else {
+            let Expression::Binary(op, left, right) = &node.kind else {
                 unreachable!("logical chains are binary nodes")
             };
             let mut rhs = Vec::new();
-            let (b, right_loans) = self.observe_right(op, &a, right, &mut rhs)?;
+            // The right operand runs only when `and`'s left one is true and
+            // `or`'s is false, so it sees what that outcome proves.
+            let saved = self.narrowed.clone();
+            let facts = self.condition_facts(left, op == "and");
+            self.narrow(&facts);
+            let observed = self.observe_right(op, &a, right, &mut rhs);
+            self.narrowed = saved;
+            let (b, right_loans) = observed?;
             Self::end_reads(right_loans, &mut rhs);
             result = self.binary_values(
                 node,
@@ -220,6 +228,7 @@ impl Lower<'_> {
                 std::mem::take(&mut loans),
                 ops,
             )?;
+            self.connectives.insert(intervals::node(&node.at));
             a = result
                 .clone()
                 .ok_or_else(|| node.at.error("expected a value, got ()"))?;

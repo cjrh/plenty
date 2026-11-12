@@ -45,10 +45,8 @@ def third_sequence(input: &std.bytes.Bytes) -> Result[std.bytes.Bytes, AllocErro
     for i in range(start, input.len()):
         c = input.get(i)
         if c >= 97u8 and c <= 122u8:
-            # c is in 97..=122, so the subtraction cannot wrap.
-            upper = unchecked:
-                c - 32u8
-            sequence.push(upper)?
+            # c is in 97..=122 here, so the subtraction cannot wrap.
+            sequence.push(c - 32u8)?
         elif c != NEWLINE and c != 13u8:
             sequence.push(c)?
     Ok(sequence)
