@@ -1,5 +1,6 @@
 //! Statements lowered as two `f64x2` lanes store what the scalar code stores.
 mod support;
+#[cfg(target_arch = "x86_64")]
 use std::path::Path;
 use std::process::Command;
 
