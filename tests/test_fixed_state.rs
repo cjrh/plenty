@@ -422,16 +422,18 @@ fn expanded_float_updates_share_one_ssa_arithmetic_block() {
             .unwrap(),
     );
     let dump = String::from_utf8(out.stdout).unwrap();
+    // On x86-64 the first two points are the lanes of three vector rows.
+    let each = if cfg!(target_arch = "x86_64") { 2 } else { 3 };
     let block = dump
         .split("\nblock")
         .find(|block| {
-            block.lines().filter(|l| l.contains(" = fadd")).count() == 3
-                && block.lines().filter(|l| l.contains(" = fmul")).count() == 3
-                && block.lines().filter(|l| l.contains(" = fsub")).count() == 3
+            block.lines().filter(|l| l.contains(" = fadd")).count() == each
+                && block.lines().filter(|l| l.contains(" = fmul")).count() == each
+                && block.lines().filter(|l| l.contains(" = fsub")).count() == each
         })
-        .unwrap_or_else(|| {
-            panic!("three rows did not become one scalar arithmetic block:\n{dump}")
-        });
+        .unwrap_or_else(|| panic!("three rows did not become one arithmetic block:\n{dump}"));
+    #[cfg(target_arch = "x86_64")]
+    assert_eq!(block.matches(".f64x2 ").count(), 2, "{block}");
     assert!(
         !block.contains("load") && !block.contains("store") && !block.contains("call "),
         "{block}"

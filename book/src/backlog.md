@@ -174,10 +174,12 @@ remaining general-case n-body checks, spills and address work are tracked in iss
 The [structural n-body study](completed-work/performance.md#n-body-structural-feasibility-issues-929-and-930)
 led to [guarded numerical state and bounded loop expansion](completed-work/performance.md#guarded-numerical-state-issue-930)
 for the original n-body source, to [paired divisions and square roots](completed-work/performance.md#paired-divisions-and-square-roots),
-and to [clist columns as numerical state](completed-work/performance.md#clist-columns-as-numerical-state).
+to [clist columns as numerical state](completed-work/performance.md#clist-columns-as-numerical-state)
+and to [rows of pair data kept in vectors](completed-work/performance.md#rows-of-pair-data-in-vectors).
 Remaining issue #930 scope: folding spill reloads into memory operands after
 register allocation (Cranelift fork; a regalloc2 constraint measured slower),
-and packing of source-level statements and of pair data kept in vector form; broader
+packing of source-level statements, and a vector home for a third field such
+as n-body's `z`; broader
 SIMD continuity through calls and header caching for list transfers remain
 issue #929 (B83/B23). Native constructors, tuple unpacking, packed list
 transfers, indexed view accesses and guarded state for loops containing those

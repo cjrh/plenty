@@ -353,8 +353,118 @@ With `--cpu x86-64-v3` the clist step takes 549 instructions and 214.0
 cycles, and the list step 552 and 215.5.
 
 gcc and clang reach 192 to 197 cycles on the array of structs by packing
-`x`/`y` and `vx`/`vy` pairs into vectors, which is the pair-data work still
-open in issue #930.
+`x`/`y` and `vx`/`vy` pairs into vectors; [rows](#rows-of-pair-data-in-vectors)
+now do the same.
+
+### Rows of pair data in vectors
+
+Pairs of expanded `f64` locals that adjacent statements read together are now
+[rows](../design/toolchain/02-architecture/numerical-loops.md#rows): the two
+lanes of one `f64x2` value for the whole function. In n-body's expanded step
+the `x` and `y` of each position, velocity and pair difference are twenty
+rows. The ten differences, twenty velocity updates and five position updates
+of `x` and `y` are one vector instruction each, and each pair of magnitudes
+takes its `x` and `y` lanes from two difference rows with `punpcklqdq` and
+`punpckhqdq` where it assembled them from four scalars. `z` and the masses
+stay scalar. Output is identical, including the complete state for two to five
+bodies and for infinite, NaN and subnormal intermediate values, at every CPU
+level and against the unoptimized build.
+
+AMD Zen 4, one pinned core, user mode, per step from the difference between
+200,000 and 2,200,000 steps, minimum of five runs, load average 3.7 to 5.0
+from unrelated work. Cycles / instructions:
+
+| Program | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
+|---|---:|---:|---:|---:|
+| `list[Body]` (`nbody.plenty`) | 219.2 / 652 | 185.5 / 494 | 215.2 / 552 | 183.7 / 424 |
+| `clist[Body]` (`nbody_clist.plenty`) | 224.2 / 648 | 194.2 / 514 | 213.7 / 549 | 186.3 / 423 |
+| `std.simd` `f64x2` magnitudes | 212.8 / 621 | 203.6 / 528 | 198.1 / 540 | 186.1 / 432 |
+| `f64x4` magnitudes, `f64x2` tail | 213.0 / 617 | 203.3 / 530 | 206.6 / 550 | 188.9 / 433 |
+| `f64x4` magnitudes, scalar tail | 225.5 / 667 | 200.0 / 534 | 218.3 / 523 | 192.2 / 429 |
+
+x86-64-v2 matches x86-64 within 2 cycles for every program. Across eight
+binaries whose `advance` starts at different addresses, the list step takes
+220.2 to 222.1 cycles before and 186.3 to 187.1 now (197.2 at one address) at
+x86-64, and 216.1 to 218.3 before and 184.6 to 185.6 now (191.4 at one) at
+x86-64-v3; the clist step takes 225.1 to 227.8 before and 197.5 to 199.3 now
+(202.6 at one). The source with scalar magnitudes is now as fast as or faster
+than the `std.simd` variants, whose list transfers keep the magnitude inputs
+in memory.
+
+References in the same session (gcc 16.2.1, clang 22.1.8, rustc 1.99.1, `-O3`,
+`-ffp-contract=off`), cycles / instructions:
+
+| Reference | x86-64 | x86-64-v3 |
+|---|---:|---:|
+| gcc, five bodies in a fixed array | 181.9 / 605 | 187.4 / 502 |
+| gcc, same, vectorization off | 247.6 / 694 | 235.2 / 581 |
+| clang, five bodies in a fixed array | 186.9 / 425 | 203.3 / 335 |
+| clang, same, vectorization off | 206.6 / 545 | 196.6 / 438 |
+| gcc, heap array of structs, run-time length | 195.9 / 684 | 194.4 / 586 |
+| clang, heap array of structs, run-time length | 190.9 / 809 | 186.4 / 686 |
+| Rust, `[Body; 5]` | 157.3 / 451 | 197.3 / 395 |
+| Rust, `Vec<Body>`, run-time length | 219.0 / 988 | 249.7 / 903 |
+
+Plenty's step, whose body count is a run-time value behind a guard, is now
+within 4 cycles of gcc and clang with the count in the source, and ahead of
+both on the run-time-length sources at x86-64. Rust's fixed array at x86-64
+remains 28 cycles ahead: LLVM also keeps `z` and the masses in vectors there.
+
+Rows are 128 bits wide at every CPU level. A 256-bit row of `x`, `y`, `z` and
+a spare lane was not built: at x86-64-v3 clang's and Rust's 256-bit code for
+this step is 16 and 40 cycles slower than their 128-bit code on this machine,
+a magnitude needs the sum of three lanes of one register, the step holds more
+rows than there are registers, and a function with a 256-bit value spills
+every float 256 bits wide (the
+[`f64x4` measurements](#f64x4-in-ymm-registers-issue-962-stage-4) lost 7
+cycles to that).
+
+The fixed-state fixture (`tests/fixtures/fixed-state.plenty`, three points)
+pairs its first two points: 15 instructions per step from 20 at x86-64 and 10
+from 13 at x86-64-v3. Its step is one dependency chain, 9.0 cycles before and
+after with normal values and with zeros. Of 32 programs (`examples`, `examples/cpu_codegen_audit`,
+`benchmarks/game`, `experiments/kernels/kernels.plenty` and the fixture), the
+objects of all but the two n-body sources and the fixture are byte-identical
+to the previous compiler's at x86-64, x86-64-v2 and x86-64-v3, and every
+`--fast-compile` object is identical. `advance` shrinks from 13,225 to 12,879
+bytes; compiling `nbody.plenty` and `examples/plot.plenty` takes 0.3% fewer
+and 0.07% more instructions.
+
+Subnormal operands change that fixture's step in both directions. The packed
+instructions compute the lanes the scalar instructions computed, on the same
+operands: a row holds two real locals, both loaded at entry, and no lane is
+padding. No microcode assist is involved (`ex_ret_ucode_ops` stays zero); a
+Zen 4 floating-point operation with a subnormal operand or result is slower,
+and a packed one is slow when either lane is, delaying the other lane's
+dependency chain as well. With a kernel that keeps its values (`* 1.0` in
+place of `* 0.5`) and each point zero (z), subnormal (d) or normal (n), cycles
+per step:
+
+| Points 0, 1, 2 | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
+|---|---:|---:|---:|---:|
+| z z z | 9.02 | 9.02 | 9.01 | 9.02 |
+| n n n | 9.01 | 9.01 | 9.01 | 9.02 |
+| d d d | 12.66 | 17.79 | 11.60 | 13.68 |
+| d z z | 12.83 | 18.27 | 11.45 | 13.67 |
+| d n n | 12.83 | 15.84 | 11.47 | 13.59 |
+| z d d | 22.37 | 18.02 | 12.24 | 13.56 |
+| z d n | 17.45 | 18.13 | 16.62 | 13.68 |
+| n d n | 16.94 | 15.57 | 16.20 | 13.49 |
+| n n d | 18.64 | 15.58 | 11.91 | 12.51 |
+| z n d | 18.21 | 15.35 | 10.22 | 12.68 |
+
+Scalar code spans 12.7 to 22.4 cycles at x86-64 and 10.2 to 16.6 at
+x86-64-v3 by pattern; packed code spans 15.4 to 18.3 and 12.5 to 13.7. The
+change is between 4.4 cycles saved and 5.4 lost at x86-64, and between 2.9
+saved and 2.5 lost at x86-64-v3. The fixture's own values decay to the
+`z d d` pattern: 18.1 cycles from 21.9 at x86-64 and 13.6 from 12.05 at
+x86-64-v3. The row choice does not consider this: it cannot know a value's
+range, and declining rows would give up the gain for normal values.
+
+What remains in the step is data movement: 20 rows and the scalar `z` state
+exceed the 16 vector registers, so rows are reloaded and stored around most
+instructions, and the `z` differences are still assembled into lanes for the
+magnitudes. Folding reloads after register allocation remains issue #930.
 
 ## Value bounds and loop conditions
 

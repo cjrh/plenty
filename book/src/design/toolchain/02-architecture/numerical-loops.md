@@ -119,7 +119,10 @@ following pair. The lowerer packs `2n` statements, `n` at most 8, when:
   and `sqrt`, stored to an `f64` local;
 - statement `i` and statement `n + i` differ only in the locals they name;
 - the first `n` contain a division or square root, the operations that cost
-  enough to repay building and splitting a vector;
+  enough to repay building and splitting a vector. Without one, they must
+  contain an arithmetic operation and read at least one pair of distinct
+  locals in corresponding positions, and every such pair must be a
+  [row](#rows);
 - the second `n` read nothing the first `n` write, so computing them side by
   side reads the same values.
 
@@ -132,9 +135,38 @@ which the expansion uses for its loop counters, run after the lanes in their
 original order: they read nothing and write no `f64` local.
 
 Only expanded code packs today. Statements written in source carry error-site
-and access markers between them, which the matcher does not cross. Addition,
-subtraction and multiplication alone are left scalar, because lane inserts and
-extracts cost more than they save. Vectors wider than two lanes are not formed.
+and access markers between them, which the matcher does not cross. Vectors
+wider than two lanes are not formed.
+
+### Rows
+
+Addition, subtraction and multiplication alone do not repay assembling a
+vector from two scalars and taking it apart again. They pack when their
+operands already are vectors. A row is two `f64` locals of a function kept as
+the lanes of one `f64x2` value for the whole function: the expanded `x` and
+`y` of one body, or the same field of two neighbouring elements. Before
+lowering a function the compiler looks at the statements in its loops that
+would pack without a division or square root, and proposes as a row each pair
+of distinct locals such statements read in corresponding positions.
+
+- A local is in at most one row; the first statements that read it decide its
+  partner. Parameters, borrowed locals and locals of other types are in none.
+- A row is kept when the instructions its packed statements save exceed what
+  its scalar uses cost: two per scalar write of either local and one per
+  scalar read of the second, each weighted by eight per enclosing loop. The
+  estimate is repeated until no row is dropped, because statements pack only
+  while every row they read is kept.
+- A local both lanes read, such as a time step, is copied to both lanes.
+
+Packed statements read and write a kept row whole. Statements that take one
+lane from each of two rows, as n-body's paired magnitudes take the `x`
+differences of two pairs of bodies, combine them with one shuffle. Any other
+read extracts the lane and any other write inserts it, so a row is a different
+home for the same two values and no result changes. With five bodies, n-body's
+positions, velocities and pair differences are twenty rows of `x` and `y`;
+`z` and the masses stay scalar. Rows are formed on x86-64 in optimized builds,
+at every [CPU level](../01-building/linking.md#cpu-levels) with 128-bit
+vectors.
 
 This is a deliberately narrow optimization. It does not imply general aggregate
 scalar replacement, general automatic vectorization, or expansion of arbitrary loops.

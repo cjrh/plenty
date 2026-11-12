@@ -343,6 +343,8 @@ impl Lowerer<'_, '_> {
         let width = self.module.simd_width();
         let portable_simd =
             portable_simd::State::new(body, &locals, inputs, self.bcx, optimizes, width);
+        let packs = self.module.packs_statements();
+        let pairs = packed::Pairs::new(body, &locals, inputs, self.bcx, packs);
         let mut addressed = addressed_locals(body, &locals);
         for (index, addressed) in addressed.iter_mut().enumerate() {
             if portable_simd.promoted(index as u8) {
@@ -389,6 +391,7 @@ impl Lowerer<'_, '_> {
             tags: Default::default(),
             scalar_captures,
             portable_simd,
+            pairs,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
             exits: Some(exits::Exits::returning_to(returned, body)),

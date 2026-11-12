@@ -165,6 +165,13 @@ impl Symbols {
         self.declared.isa.flags().opt_level() != cranelift_codegen::settings::OptLevel::None
     }
 
+    /// Whether adjacent `f64` statements are lowered as `f64x2` lanes: in
+    /// optimized x86-64 code, where every CPU level has the instructions.
+    pub(super) fn packs_statements(&self) -> bool {
+        self.optimizes()
+            && self.declared.isa.triple().architecture == target_lexicon::Architecture::X86_64
+    }
+
     /// Whether the backend branches on the flags of every `*_overflow`
     /// instruction. The fork's x86-64 backend does (Wasmtime #14717); its
     /// AArch64 backend does so only for `uadd_overflow` and the multiplies.
