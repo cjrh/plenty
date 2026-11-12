@@ -225,8 +225,11 @@ fn moved_owned_scratch_is_read_from_its_destination_slot() {
 
 /// The `std.simd` shapes of the vector fixtures: vector, element, lanes and
 /// a literal suffix.
-const VECTORS: [(&str, &str, usize, &str); 2] =
-    [("f64x2", "f64", 2, ""), ("f32x4", "f32", 4, "f32")];
+const VECTORS: [(&str, &str, usize, &str); 3] = [
+    ("f64x2", "f64", 2, ""),
+    ("f64x4", "f64", 4, ""),
+    ("f32x4", "f32", 4, "f32"),
+];
 
 fn vector_source(template: &str, shape: (&str, &str, usize, &str), count: usize) -> String {
     let (vector, ty, lanes, suffix) = shape;

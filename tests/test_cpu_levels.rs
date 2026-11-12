@@ -21,13 +21,18 @@ def main() -> Result[(), IoError]:
     scale = simd.splat_f64x2(1.0000001)
     offset = simd.splat_f64x2(0.3)
     mut w = simd.f32x4.Lanes(0.1f32, 0.2f32, 0.3f32, 0.4f32)
+    mut u = simd.f64x4.Lanes(0.1, 0.7, -0.0, 2.5)
+    limit = simd.splat_f64x4(1.0)
     for _ in range(1000):
         x = step(x, 1.0000001, 0.3) / 1.3
         v = v.mul(scale).add(offset).div(simd.splat_f64x2(1.3))
         w = w.mul(simd.splat_f32x4(1.0001f32)).add(simd.splat_f32x4(0.01f32)).sqrt()
+        grown = u.mul(simd.splat_f64x4(1.0000001)).add(simd.splat_f64x4(0.3)).sqrt()
+        u = grown.simd_gt(&limit).select(&grown.high().concat(&grown.low()), &grown)
     print(x)?
     print(v.to_tuple())?
     print(w.to_tuple())?
+    print(u.to_tuple(), u.sum_ordered(0.0))?
     Ok(())
 ";
 

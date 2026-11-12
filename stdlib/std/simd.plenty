@@ -623,6 +623,13 @@ pub enum f64x2:
             case f64x2.Lanes(a0, a1):
                 ((initial + *a0) + *a1)
 
+    pub def concat(self, high: &f64x2) -> f64x4:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                match high:
+                    case f64x2.Lanes(b0, b1):
+                        f64x4.Lanes(*a0, *a1, *b0, *b1)
+
     pub def set(self, values: &mut [f64], index: i64) -> ():
         # Vector `index` covers elements `index * 2` to `index * 2 + 1`;
         # the guard proves that span fits before any element access.
@@ -674,6 +681,182 @@ pub def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]:
         if offset < 0 or offset > len(values) or len(values) - offset < 2:
             return Nothing
         Some(f64x2.Lanes(values[offset], values[offset + 1]))
+
+pub enum f64x4:
+    Lanes(f64, f64, f64, f64)
+
+    pub def lane(self, index: i64) -> Option[f64]:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                if index == 0:
+                    return Some(*a0)
+                if index == 1:
+                    return Some(*a1)
+                if index == 2:
+                    return Some(*a2)
+                if index == 3:
+                    return Some(*a3)
+                Nothing
+
+    pub def to_tuple(self) -> (f64, f64, f64, f64):
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                (*a0, *a1, *a2, *a3)
+
+    pub def add(self, other: &f64x4) -> f64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        f64x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3)
+
+    pub def sub(self, other: &f64x4) -> f64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        f64x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3)
+
+    pub def mul(self, other: &f64x4) -> f64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        f64x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
+
+    pub def sqrt(self) -> f64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                f64x4.Lanes((*a0).sqrt(), (*a1).sqrt(), (*a2).sqrt(), (*a3).sqrt())
+
+    pub def div(self, other: &f64x4) -> f64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        f64x4.Lanes(*a0 / *b0, *a1 / *b1, *a2 / *b2, *a3 / *b3)
+
+    pub def simd_eq(self, other: &f64x4) -> mask64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 == *b0, *a1 == *b1, *a2 == *b2, *a3 == *b3)
+
+    pub def simd_ne(self, other: &f64x4) -> mask64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
+
+    pub def simd_lt(self, other: &f64x4) -> mask64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 < *b0, *a1 < *b1, *a2 < *b2, *a3 < *b3)
+
+    pub def simd_le(self, other: &f64x4) -> mask64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 <= *b0, *a1 <= *b1, *a2 <= *b2, *a3 <= *b3)
+
+    pub def simd_gt(self, other: &f64x4) -> mask64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 > *b0, *a1 > *b1, *a2 > *b2, *a3 > *b3)
+
+    pub def simd_ge(self, other: &f64x4) -> mask64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 >= *b0, *a1 >= *b1, *a2 >= *b2, *a3 >= *b3)
+
+    def selected(self, mask: &mask64x4, other: &f64x4) -> f64x4:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case f64x4.Lanes(b0, b1, b2, b3):
+                        match mask:
+                            case mask64x4.Lanes(m0, m1, m2, m3):
+                                f64x4.Lanes(*a0 if *m0 else *b0, *a1 if *m1 else *b1, *a2 if *m2 else *b2, *a3 if *m3 else *b3)
+
+    pub def sum_ordered(self, initial: f64) -> f64:
+        match self:
+            case f64x4.Lanes(a0, a1, a2, a3):
+                ((((initial + *a0) + *a1) + *a2) + *a3)
+
+    pub def low(self) -> f64x2:
+        match self:
+            case f64x4.Lanes(a0, a1, _, _):
+                f64x2.Lanes(*a0, *a1)
+
+    pub def high(self) -> f64x2:
+        match self:
+            case f64x4.Lanes(_, _, a2, a3):
+                f64x2.Lanes(*a2, *a3)
+
+    pub def set(self, values: &mut [f64], index: i64) -> ():
+        # Vector `index` covers elements `index * 4` to `index * 4 + 3`;
+        # the guard proves that span fits before any element access.
+        unchecked:
+            if index < 0 or index >= len(values) // 4:
+                __trap("f64x4.set: index is outside 0..len_f64x4(values)")
+            at = index * 4
+            match self:
+                case f64x4.Lanes(a0, a1, a2, a3):
+                    values[at] = *a0
+                    values[at + 1] = *a1
+                    values[at + 2] = *a2
+                    values[at + 3] = *a3
+
+    pub def store(self, values: &mut list[f64], offset: i64) -> bool:
+        # Short-circuit guards prove 0 <= offset <= len before subtraction;
+        # the full lane span fits before any offset addition or store.
+        unchecked:
+            if offset < 0 or offset > len(values) or len(values) - offset < 4:
+                return False
+            match self:
+                case f64x4.Lanes(a0, a1, a2, a3):
+                    values[offset] = *a0
+                    values[offset + 1] = *a1
+                    values[offset + 2] = *a2
+                    values[offset + 3] = *a3
+            True
+
+pub def splat_f64x4(value: f64) -> f64x4:
+    f64x4.Lanes(value, value, value, value)
+
+pub def len_f64x4(values: &[f64]) -> i64:
+    len(values) // 4
+
+pub def tail_f64x4(values: &[f64]) -> i64:
+    # At most `len(values)`, so the product cannot overflow.
+    unchecked:
+        len(values) // 4 * 4
+
+pub def get_f64x4(values: &[f64], index: i64) -> f64x4:
+    # Vector `index` covers elements `index * 4` to `index * 4 + 3`;
+    # the guard proves that span fits before any element access.
+    unchecked:
+        if index < 0 or index >= len(values) // 4:
+            __trap("std.simd.get_f64x4: index is outside 0..len_f64x4(values)")
+        at = index * 4
+        f64x4.Lanes(values[at], values[at + 1], values[at + 2], values[at + 3])
+
+pub def load_f64x4(values: &list[f64], offset: i64 = 0) -> Option[f64x4]:
+    # Short-circuit guards prove 0 <= offset <= len before subtraction;
+    # the full lane span fits before any offset addition or store.
+    unchecked:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return Nothing
+        Some(f64x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
 pub enum mask32x4:
     Lanes(bool, bool, bool, bool)
@@ -738,7 +921,7 @@ pub enum mask64x2:
                 *a0 and *a1
 
     pub def count(self) -> i64:
-        # Each mask contributes 0 or 1; the total is at most four.
+        # Each mask contributes 0 or 1; the total is at most two.
         unchecked:
             match self:
                 case mask64x2.Lanes(a0, a1):
@@ -772,3 +955,52 @@ pub enum mask64x2:
                 match other:
                     case mask64x2.Lanes(b0, b1):
                         mask64x2.Lanes(*a0 != *b0, *a1 != *b1)
+
+pub enum mask64x4:
+    Lanes(bool, bool, bool, bool)
+
+    pub def any(self) -> bool:
+        match self:
+            case mask64x4.Lanes(a0, a1, a2, a3):
+                *a0 or *a1 or *a2 or *a3
+
+    pub def all(self) -> bool:
+        match self:
+            case mask64x4.Lanes(a0, a1, a2, a3):
+                *a0 and *a1 and *a2 and *a3
+
+    pub def count(self) -> i64:
+        # Each mask contributes 0 or 1; the total is at most four.
+        unchecked:
+            match self:
+                case mask64x4.Lanes(a0, a1, a2, a3):
+                    (1 if *a0 else 0) + (1 if *a1 else 0) + (1 if *a2 else 0) + (1 if *a3 else 0)
+
+    pub def select[T](self, yes: &T, no: &T) -> T:
+        yes.selected(self, no)
+
+    pub def invert(self) -> mask64x4:
+        match self:
+            case mask64x4.Lanes(a0, a1, a2, a3):
+                mask64x4.Lanes(not *a0, not *a1, not *a2, not *a3)
+
+    pub def and_mask(self, other: &mask64x4) -> mask64x4:
+        match self:
+            case mask64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case mask64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 and *b0, *a1 and *b1, *a2 and *b2, *a3 and *b3)
+
+    pub def or_mask(self, other: &mask64x4) -> mask64x4:
+        match self:
+            case mask64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case mask64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 or *b0, *a1 or *b1, *a2 or *b2, *a3 or *b3)
+
+    pub def xor_mask(self, other: &mask64x4) -> mask64x4:
+        match self:
+            case mask64x4.Lanes(a0, a1, a2, a3):
+                match other:
+                    case mask64x4.Lanes(b0, b1, b2, b3):
+                        mask64x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
