@@ -50,6 +50,11 @@ enum Action {
     Mul,
     Div,
     Sqrt,
+    /// `f32x4.reciprocal_sqrt_estimate()`: the target's estimate instruction.
+    ReciprocalSqrtEstimate,
+    /// `f64x2.to_f32x4()` and `f32x4.to_f64x2()`: the two low lanes
+    /// converted, into a vector of this shape.
+    Convert(Shape),
     ToTuple,
     Compare(IntCC, FloatCC),
     Select,
@@ -108,6 +113,8 @@ impl Operation {
             | Action::Mul
             | Action::Div
             | Action::Sqrt
+            | Action::ReciprocalSqrtEstimate
+            | Action::Convert(_)
             | Action::Splat => Numerical::Pure,
             Action::Get => Numerical::Get,
             Action::Set => Numerical::Set,
@@ -388,6 +395,9 @@ pub(super) fn classify(
         "mul" if float => Action::Mul,
         "div" if float => Action::Div,
         "sqrt" if float => Action::Sqrt,
+        "reciprocal_sqrt_estimate" if matches!(shape, Shape::F32) => Action::ReciprocalSqrtEstimate,
+        "to_f32x4" if matches!(shape, Shape::F64) => Action::Convert(Shape::F32),
+        "to_f64x2" if matches!(shape, Shape::F32) => Action::Convert(Shape::F64),
         "to_tuple" => Action::ToTuple,
         "simd_eq" => Action::Compare(IntCC::Equal, FloatCC::Equal),
         "simd_ne" => Action::Compare(IntCC::NotEqual, FloatCC::NotEqual),
@@ -450,7 +460,17 @@ pub(super) fn classify(
             output: output.clone(),
         });
     }
-    if matches!(action, Action::Sqrt) {
+    if let Action::Convert(to) = action {
+        return (input.len() == 1
+            && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
+            && shape_of(output).is_some_and(|result| result.vector() == to.vector()))
+        .then(|| Operation {
+            shape,
+            action,
+            output: output.clone(),
+        });
+    }
+    if matches!(action, Action::Sqrt | Action::ReciprocalSqrtEstimate) {
         return (input.len() == 1
             && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
             && logical_type(output, name, &shape.lane(), shape.lanes()))
@@ -1084,9 +1104,24 @@ impl Lowerer<'_, '_> {
             self.stack.push((value, op.output.clone()));
             return;
         }
-        if matches!(op.action, Action::Sqrt) {
-            let result = self.bcx.ins().sqrt(left);
+        if matches!(op.action, Action::Sqrt | Action::ReciprocalSqrtEstimate) {
+            let result = match op.action {
+                Action::Sqrt => self.bcx.ins().sqrt(left),
+                // `classify` admits this on x86-64 only.
+                _ => self.bcx.ins().x86_rsqrtps(left),
+            };
             let value = self.materialize_simd(result, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
+        if let Action::Convert(to) = op.action {
+            // `cvtpd2ps` rounds as the scalar cast does and zeroes lanes 2
+            // and 3; `cvtps2pd` widens lanes 0 and 1 exactly.
+            let result = match to {
+                Shape::F32 => self.bcx.ins().fvdemote(left),
+                _ => self.bcx.ins().fvpromote_low(left),
+            };
+            let value = self.materialize_simd(result, to, &op.output);
             self.stack.push((value, op.output.clone()));
             return;
         }
@@ -1120,6 +1155,8 @@ impl Lowerer<'_, '_> {
             }
             Action::WrappingSum
             | Action::Sqrt
+            | Action::ReciprocalSqrtEstimate
+            | Action::Convert(_)
             | Action::ToTuple
             | Action::Load
             | Action::Store

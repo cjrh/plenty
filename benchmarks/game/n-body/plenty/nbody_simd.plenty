@@ -1,0 +1,162 @@
+# n-body: the Benchmarks Game Jovian planets simulation.
+# Same algorithm as the reference (nbody.rs, Rust #3): pairwise
+# differences, then magnitudes, then velocity updates, then positions.
+# The magnitudes use std.simd: two pairs at a time, with a reciprocal square
+# root estimate refined in f64 in place of a square root.
+import std.math
+import std.simd as simd
+
+const SOLAR_MASS: f64 = 4.0 * std.math.pi * std.math.pi
+const DAYS_PER_YEAR: f64 = 365.24
+
+@copy
+class Body:
+    x: f64
+    y: f64
+    z: f64
+    vx: f64
+    vy: f64
+    vz: f64
+    mass: f64
+
+
+def planet(x: f64, y: f64, z: f64, vx: f64, vy: f64, vz: f64, mass: f64) -> Body:
+    Body(x, y, z, vx * DAYS_PER_YEAR, vy * DAYS_PER_YEAR, vz * DAYS_PER_YEAR, mass * SOLAR_MASS)
+
+
+def starting_state() -> Result[list[Body], AllocError]:
+    [
+        Body(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, SOLAR_MASS),
+        # Jupiter
+        planet(
+            4.84143144246472090e+00, -1.16032004402742839e+00, -1.03622044471123109e-01,
+            1.66007664274403694e-03, 7.69901118419740425e-03, -6.90460016972063023e-05,
+            9.54791938424326609e-04,
+        ),
+        # Saturn
+        planet(
+            8.34336671824457987e+00, 4.12479856412430479e+00, -4.03523417114321381e-01,
+            -2.76742510726862411e-03, 4.99852801234917238e-03, 2.30417297573763929e-05,
+            2.85885980666130812e-04,
+        ),
+        # Uranus
+        planet(
+            1.28943695621391310e+01, -1.51111514016986312e+01, -2.23307578892655734e-01,
+            2.96460137564761618e-03, 2.37847173959480950e-03, -2.96589568540237556e-05,
+            4.36624404335156298e-05,
+        ),
+        # Neptune
+        planet(
+            1.53796971148509165e+01, -2.59193146099879641e+01, 1.79258772950371181e-01,
+            2.68067772490389322e-03, 1.62824170038242295e-03, -9.51592254519715870e-05,
+            5.15138902046611451e-05,
+        ),
+    ]
+
+
+def offset_momentum(bodies: &mut list[Body]) -> ():
+    mut px = 0.0
+    mut py = 0.0
+    mut pz = 0.0
+    for body in &*bodies:
+        px += body.vx * body.mass
+        py += body.vy * body.mass
+        pz += body.vz * body.mass
+    bodies[0].vx = -px / SOLAR_MASS
+    bodies[0].vy = -py / SOLAR_MASS
+    bodies[0].vz = -pz / SOLAR_MASS
+
+
+def energy(bodies: &list[Body]) -> Result[f64, OverflowError[i64]]:
+    mut e = 0.0
+    n = len(bodies)
+    for i in range(n):
+        b = bodies[i]
+        e += 0.5 * b.mass * (b.vx * b.vx + b.vy * b.vy + b.vz * b.vz)
+        for j in range(i + 1, n):
+            o = bodies[j]
+            dx = b.x - o.x
+            dy = b.y - o.y
+            dz = b.z - o.z
+            e -= b.mass * o.mass / (dx * dx + dy * dy + dz * dz).sqrt()
+    Ok(e)
+
+
+def advance(bodies: &mut list[Body], dt: f64, steps: i64) -> Result[(), AllocError | OverflowError[i64]]:
+    n = len(bodies)
+    # n is a small body count, so the pair count cannot overflow.
+    pairs = unchecked:
+        n * (n - 1) // 2
+    mut dx = list[f64].with_capacity(pairs)?
+    mut dy = list[f64].with_capacity(pairs)?
+    mut dz = list[f64].with_capacity(pairs)?
+    mut mag = list[f64].with_capacity(pairs)?
+    for _ in range(pairs):
+        dx.append(0.0)?
+        dy.append(0.0)?
+        dz.append(0.0)?
+        mag.append(0.0)?
+    for _ in range(steps):
+        mut k = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx[k] = bodies[i].x - bodies[j].x
+                dy[k] = bodies[i].y - bodies[j].y
+                dz[k] = bodies[i].z - bodies[j].z
+                k += 1
+        xs: &[f64] = &dx
+        ys: &[f64] = &dy
+        zs: &[f64] = &dz
+        out: &mut [f64] = &mut mag
+        step = simd.splat_f64x2(dt)
+        half = simd.splat_f64x2(0.5)
+        three_halves = simd.splat_f64x2(1.5)
+        for pair in range(simd.len_f64x2(xs)):
+            a = simd.get_f64x2(xs, pair)
+            b = simd.get_f64x2(ys, pair)
+            c = simd.get_f64x2(zs, pair)
+            d2 = a.mul(a).add(b.mul(b)).add(c.mul(c))
+            # About 12 bits of 1 / sqrt(d2); each Newton-Raphson step doubles
+            # them, so two steps leave about 48.
+            mut inverse = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x2()
+            half_d2 = d2.mul(half)
+            inverse = inverse.mul(three_halves).sub(half_d2.mul(inverse).mul(inverse.mul(inverse)))
+            inverse = inverse.mul(three_halves).sub(half_d2.mul(inverse).mul(inverse.mul(inverse)))
+            step.div(d2).mul(inverse).set(out, pair)
+        for p in range(simd.tail_f64x2(xs), len(xs)):
+            d2 = xs[p] * xs[p] + ys[p] * ys[p] + zs[p] * zs[p]
+            out[p] = dt / (d2 * d2.sqrt())
+        k = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                mi = bodies[i].mass * mag[k]
+                mj = bodies[j].mass * mag[k]
+                bodies[i].vx -= dx[k] * mj
+                bodies[i].vy -= dy[k] * mj
+                bodies[i].vz -= dz[k] * mj
+                bodies[j].vx += dx[k] * mi
+                bodies[j].vy += dy[k] * mi
+                bodies[j].vz += dz[k] * mi
+                k += 1
+        for i in range(n):
+            bodies[i].x += dt * bodies[i].vx
+            bodies[i].y += dt * bodies[i].vy
+            bodies[i].z += dt * bodies[i].vz
+    Ok(())
+
+
+type AppError = AllocError | IoError | ParseError | OverflowError[i64]
+
+
+def main() -> Result[(), AppError]:
+    argv = args()?
+    steps = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        1000
+    mut bodies = starting_state()?
+    offset_momentum(&mut bodies)
+    print(f"{energy(&bodies)?:.9f}"?)?
+    advance(&mut bodies, 0.01, steps)?
+    print(f"{energy(&bodies)?:.9f}"?)?
+    Ok(())

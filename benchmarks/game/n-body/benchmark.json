@@ -55,6 +55,12 @@
       "note": "Bodies in a clist[Body]: each field is its own column. Tracks indexed clist field access in loops (issue #759)."
     },
     {
+      "variant": "simd",
+      "file": "plenty/nbody_simd.plenty",
+      "threads": 1,
+      "note": "The magnitude step with std.simd: f64x2 view accesses, a reciprocal square root estimate and two Newton-Raphson steps, as the fast C and Rust entries do (issue #946)."
+    },
+    {
       "variant": "unchecked",
       "file": "plenty/nbody_unchecked.plenty",
       "threads": 1,

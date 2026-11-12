@@ -627,6 +627,143 @@ def main() -> ():
     }
 }
 
+// The bound holds for the processor's estimate and for the scalar body
+// alike; only special lanes have results exact enough to compare.
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn reciprocal_square_root_estimate_is_within_its_bound(#[case] release: bool) {
+    passes(
+        r#"import std.simd as s
+from std.test import check
+def borrowed(value: &s.f32x4) -> s.f32x4:
+    value.reciprocal_sqrt_estimate()
+def main() -> ():
+    bound = 1.5 / 4096.0
+    mut x = 1e-30f32
+    while x < 1e30f32:
+        v = s.f32x4.Lanes(x, x * 1.1f32, x * 1.3f32, x * 1.7f32)
+        direct = v.reciprocal_sqrt_estimate()
+        indirect = borrowed(&v)
+        for lane in range(4):
+            input = f64(v.lane(lane).unwrap())
+            for estimate in [direct.lane(lane).unwrap(), indirect.lane(lane).unwrap()].unwrap():
+                product = f64(estimate) * input.sqrt()
+                check(product >= 1.0 - bound and product <= 1.0 + bound, "relative error").unwrap()
+        x = x * 1.37f32
+    special = s.f32x4.Lanes(0.0f32, -0.0f32, f32.INF, -1.0f32).reciprocal_sqrt_estimate()
+    check(special.lane(0).unwrap() == f32.INF, "zero").unwrap()
+    check(special.lane(1).unwrap() == -f32.INF, "negative zero").unwrap()
+    check(special.lane(2).unwrap() == 0.0f32, "infinity").unwrap()
+    negative = special.lane(3).unwrap()
+    check(negative != negative, "negative").unwrap()
+    nan = s.splat_f32x4(f32.NAN).reciprocal_sqrt_estimate().lane(0).unwrap()
+    check(nan != nan, "nan").unwrap()
+    print("ok").unwrap()
+"#,
+        release,
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn lane_conversions_match_scalar_casts(#[case] release: bool) {
+    passes(
+        r#"import std.simd as s
+from std.test import check
+def narrow(value: &s.f64x2) -> s.f32x4:
+    value.to_f32x4()
+def widen(value: &s.f32x4) -> s.f64x2:
+    value.to_f64x2()
+def same32(a: f32, b: f32) -> bool:
+    a == b and (1.0f32).copysign(a) == (1.0f32).copysign(b) or (a != a and b != b)
+def same64(a: f64, b: f64) -> bool:
+    a == b and (1.0).copysign(a) == (1.0).copysign(b) or (a != a and b != b)
+def main() -> ():
+    wide = [f64.NAN, f64.INF, -f64.INF, 0.0, -0.0, 0.1, -2.5, 1e-310, 1e-50, 1e300, -1e300, 16777217.0].unwrap()
+    for a in &wide:
+        for b in &wide:
+            v = s.f64x2.Lanes(*a, *b)
+            for result in [v.to_f32x4(), narrow(&v)].unwrap():
+                (r0, r1, r2, r3) = result.to_tuple()
+                check(same32(r0, f32(*a)) and same32(r1, f32(*b)), "narrowed lanes").unwrap()
+                check(same32(r2, 0.0f32) and same32(r3, 0.0f32), "upper lanes are zero").unwrap()
+    narrow_values = [f32.NAN, f32.INF, -f32.INF, 0.0f32, -0.0f32, 0.1f32, -2.5f32, 1e-40f32, 3e38f32].unwrap()
+    for a in &narrow_values:
+        for b in &narrow_values:
+            v = s.f32x4.Lanes(*a, *b, f32.NAN, 7.0f32)
+            for result in [v.to_f64x2(), widen(&v)].unwrap():
+                (r0, r1) = result.to_tuple()
+                check(same64(r0, f64(*a)) and same64(r1, f64(*b)), "widened lanes").unwrap()
+    print("ok").unwrap()
+"#,
+        release,
+    );
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn reciprocal_square_root_estimate_lowers_to_the_estimate_instruction() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("estimate.plenty");
+    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x2) -> s.f64x2:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x2()\n    y.mul(d2)\ndef main() -> ():\n    a = s.splat_f64x2(4.0)\n    print(kernel(&a).to_tuple()).unwrap()\n").unwrap();
+    let out = Command::new(support::plenty_bin())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+        .arg(input)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let dump = String::from_utf8_lossy(&out.stdout);
+    for opcode in [
+        "fvdemote",
+        "x86_rsqrtps",
+        "fvpromote_low",
+        "cvtpd2ps",
+        "rsqrtps",
+        "cvtps2pd",
+    ] {
+        assert!(dump.contains(opcode), "{opcode}: {dump}");
+    }
+    assert!(!dump.contains("sqrtpd") && !dump.contains("div"), "{dump}");
+    assert!(!dump.contains("call "), "{dump}");
+    assert!(
+        !dump.contains("stack_load") && !dump.contains("stack_store"),
+        "{dump}"
+    );
+}
+
+// The compiler never substitutes the estimate: the exact expression keeps
+// its square root and division.
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn exact_reciprocal_square_root_is_not_rewritten_to_the_estimate() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("exact.plenty");
+    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f32x4) -> s.f32x4:\n    s.splat_f32x4(1.0f32).div(a.sqrt())\ndef main() -> ():\n    a = s.splat_f32x4(4.0f32)\n    print(kernel(&a).to_tuple()).unwrap()\n").unwrap();
+    let out = Command::new(support::plenty_bin())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+        .arg(input)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let dump = String::from_utf8_lossy(&out.stdout);
+    assert!(dump.contains("sqrtps") && dump.contains("divps"), "{dump}");
+    assert!(!dump.contains("rsqrt"), "{dump}");
+}
+
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn square_root_chains_stay_in_vector_registers() {

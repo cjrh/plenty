@@ -103,3 +103,9 @@ def main() -> Result[(), IoError]:
 ```output
 (2.0, 3.0)
 ```
+
+Where a square root feeds a division and full precision is not needed,
+`f32x4` also has `reciprocal_sqrt_estimate()`. It is approximate and its exact
+digits vary between processors and build profiles, so prefer `sqrt()` unless a
+measurement shows the estimate helps. The reference gives its
+[error bound and refinement steps](../../design/stdlib/simd.md#reciprocal-square-root-estimate).

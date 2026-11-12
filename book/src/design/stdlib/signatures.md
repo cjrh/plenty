@@ -88,25 +88,25 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.sketch.xor`](#stdsketchxor): 3260-3271
 - [`std.sketch.cuckoo`](#stdsketchcuckoo): 3273-3288
 - [`std.signal`](#stdsignal): 3290-3307
-- [`std.simd`](#stdsimd): 3309-3428
-- [`std.stat`](#stdstat): 3430-3463
-- [`std.plot`](#stdplot): 3465-3554
-- [`std.linalg`](#stdlinalg): 3556-3597
-- [`std.sync`](#stdsync): 3599-3631
-- [`std.system`](#stdsystem): 3633-3692
-- [`std.tempfile`](#stdtempfile): 3694-3726
-- [`std.test`](#stdtest): 3728-3770
-- [`std.text`](#stdtext): 3772-3815
-- [`std.thread`](#stdthread): 3817-3821
-- [`std.time`](#stdtime): 3823-3867
-- [`std.tls`](#stdtls): 3869-3951
-- [`std.toml`](#stdtoml): 3953-4052
-- [`std.unicode`](#stdunicode): 4054-4066
-- [`std.units`](#stdunits): 4068-4305
-- [`std.units.catalogue`](#stdunitscatalogue): 4307-5085
-- [`std.url`](#stdurl): 5087-5115
-- [`std.uuid`](#stduuid): 5117-5140
-- [`std.xml`](#stdxml): 5142-5175
+- [`std.simd`](#stdsimd): 3309-3431
+- [`std.stat`](#stdstat): 3433-3466
+- [`std.plot`](#stdplot): 3468-3557
+- [`std.linalg`](#stdlinalg): 3559-3600
+- [`std.sync`](#stdsync): 3602-3634
+- [`std.system`](#stdsystem): 3636-3695
+- [`std.tempfile`](#stdtempfile): 3697-3729
+- [`std.test`](#stdtest): 3731-3773
+- [`std.text`](#stdtext): 3775-3818
+- [`std.thread`](#stdthread): 3820-3824
+- [`std.time`](#stdtime): 3826-3870
+- [`std.tls`](#stdtls): 3872-3954
+- [`std.toml`](#stdtoml): 3956-4055
+- [`std.unicode`](#stdunicode): 4057-4069
+- [`std.units`](#stdunits): 4071-4308
+- [`std.units.catalogue`](#stdunitscatalogue): 4310-5088
+- [`std.url`](#stdurl): 5090-5118
+- [`std.uuid`](#stduuid): 5120-5143
+- [`std.xml`](#stdxml): 5145-5178
 
 ## `std.actor`
 
@@ -3367,6 +3367,8 @@ enum f32x4
     def sub(self, other: &f32x4) -> f32x4
     def mul(self, other: &f32x4) -> f32x4
     def sqrt(self) -> f32x4
+    def reciprocal_sqrt_estimate(self) -> f32x4
+    def to_f64x2(self) -> f64x2
     def div(self, other: &f32x4) -> f32x4
     def simd_eq(self, other: &f32x4) -> mask32x4
     def simd_ne(self, other: &f32x4) -> mask32x4
@@ -3390,6 +3392,7 @@ enum f64x2
     def sub(self, other: &f64x2) -> f64x2
     def mul(self, other: &f64x2) -> f64x2
     def sqrt(self) -> f64x2
+    def to_f32x4(self) -> f32x4
     def div(self, other: &f64x2) -> f64x2
     def simd_eq(self, other: &f64x2) -> mask64x2
     def simd_ne(self, other: &f64x2) -> mask64x2

@@ -638,6 +638,20 @@ state: the same step with a scalar magnitude loop in a view function runs
 859M. The benchmark source stays scalar and every benchmark binary is
 unchanged.
 
+`f32x4.reciprocal_sqrt_estimate()`, `f64x2.to_f32x4()` and
+`f32x4.to_f64x2()` (issue #946) express the estimate-and-refine
+magnitude step of the fast C and Rust n-body programs. Optimized x86-64
+builds emit `cvtpd2ps`, `rsqrtps` and `cvtps2pd` through a new Cranelift
+instruction, `x86_rsqrtps`; other builds compute `1.0 / sqrt(lane)`. The
+estimate's bits are unspecified within a relative error of `1.5 * 2**-12`.
+The n-body `simd` variant with two Newton-Raphson steps prints the same nine
+decimals as the scalar program at 1,000 and 50,000,000 steps. At 5,000,000
+steps on Zen 4 it takes 1,060M cycles (229 ms) against 1,083M (233 ms) with
+exact vector `sqrt` and 1,188M (256 ms) scalar. The same change to a C program
+saves 10% (GCC) to 23% (Clang): the Plenty step is limited by spilled
+promoted cells and lane assembly, not by the divider.
+`experiments/nbody-rsqrt/` records the sources and measurements.
+
 [Guarded numerical state](../design/toolchain/02-architecture/numerical-loops.md)
 now accepts `get_*`, `set`, `len_*`, `tail_*` and float lane arithmetic on a
 view of all rows of a promoted list (issue #929). A vector is built from and
