@@ -1,0 +1,235 @@
+{
+ "core": 2,
+ "repeat": 5,
+ "args": [
+  "5000000"
+ ],
+ "loads": [
+  2.80712890625,
+  2.486328125,
+  2.64404296875
+ ],
+ "observations": {
+  "main": [
+   {
+    "instructions": 3235376944.0,
+    "cycles": 1181932624.0,
+    "task-clock": 252.53
+   },
+   {
+    "instructions": 3235376884.0,
+    "cycles": 1181113934.0,
+    "task-clock": 256.22
+   },
+   {
+    "instructions": 3235376909.0,
+    "cycles": 1192314642.0,
+    "task-clock": 259.47
+   }
+  ],
+  "branch": [
+   {
+    "instructions": 3260376944.0,
+    "cycles": 1096465583.0,
+    "task-clock": 234.32
+   },
+   {
+    "instructions": 3260376906.0,
+    "cycles": 1099945679.0,
+    "task-clock": 236.19
+   },
+   {
+    "instructions": 3260376904.0,
+    "cycles": 1120120309.0,
+    "task-clock": 244.05
+   }
+  ],
+  "simd-main": [
+   {
+    "instructions": 3105376970.0,
+    "cycles": 1068340045.0,
+    "task-clock": 228.03
+   },
+   {
+    "instructions": 3105376917.0,
+    "cycles": 1070381070.0,
+    "task-clock": 230.24
+   },
+   {
+    "instructions": 3105376921.0,
+    "cycles": 1070400276.0,
+    "task-clock": 230.76
+   }
+  ],
+  "simd-branch": [
+   {
+    "instructions": 3105376927.0,
+    "cycles": 1069623322.0,
+    "task-clock": 228.62
+   },
+   {
+    "instructions": 3105376891.0,
+    "cycles": 1071600638.0,
+    "task-clock": 231.02
+   },
+   {
+    "instructions": 3105376940.0,
+    "cycles": 1077935480.0,
+    "task-clock": 230.94
+   }
+  ],
+  "clist-main": [
+   {
+    "instructions": 7865359059.0,
+    "cycles": 1888477249.0,
+    "task-clock": 407.97
+   },
+   {
+    "instructions": 7865358976.0,
+    "cycles": 1882569654.0,
+    "task-clock": 410.94
+   },
+   {
+    "instructions": 7865359075.0,
+    "cycles": 1884449127.0,
+    "task-clock": 408.1
+   }
+  ],
+  "clist-branch": [
+   {
+    "instructions": 7865359120.0,
+    "cycles": 1889762187.0,
+    "task-clock": 409.06
+   },
+   {
+    "instructions": 7865358983.0,
+    "cycles": 1908163391.0,
+    "task-clock": 416.86
+   },
+   {
+    "instructions": 7865359004.0,
+    "cycles": 1885077495.0,
+    "task-clock": 408.04
+   }
+  ],
+  "gcc": [
+   {
+    "instructions": 2745164421.0,
+    "cycles": 1111898611.0,
+    "task-clock": 238.2
+   },
+   {
+    "instructions": 2745164460.0,
+    "cycles": 1107256961.0,
+    "task-clock": 239.1
+   },
+   {
+    "instructions": 2745164450.0,
+    "cycles": 1107466615.0,
+    "task-clock": 238.54
+   }
+  ],
+  "clang": [
+   {
+    "instructions": 2475164432.0,
+    "cycles": 1074826384.0,
+    "task-clock": 229.5
+   },
+   {
+    "instructions": 2475164445.0,
+    "cycles": 1076899931.0,
+    "task-clock": 233.42
+   },
+   {
+    "instructions": 2475164415.0,
+    "cycles": 1074688810.0,
+    "task-clock": 233.42
+   }
+  ],
+  "rust": [
+   {
+    "instructions": 2255303547.0,
+    "cycles": 790096606.0,
+    "task-clock": 170.74
+   },
+   {
+    "instructions": 2255303625.0,
+    "cycles": 789853667.0,
+    "task-clock": 170.73
+   },
+   {
+    "instructions": 2255303757.0,
+    "cycles": 790479270.0,
+    "task-clock": 171.31
+   }
+  ],
+  "clif-scalar": [
+   {
+    "instructions": 3225164472.0,
+    "cycles": 1150241858.0,
+    "task-clock": 246.38
+   },
+   {
+    "instructions": 3225164431.0,
+    "cycles": 1158018512.0,
+    "task-clock": 249.3
+   },
+   {
+    "instructions": 3225164452.0,
+    "cycles": 1150382374.0,
+    "task-clock": 251.19
+   }
+  ],
+  "clif-pack-stmt": [
+   {
+    "instructions": 3170164452.0,
+    "cycles": 1107624546.0,
+    "task-clock": 238.35
+   },
+   {
+    "instructions": 3170164458.0,
+    "cycles": 1106428766.0,
+    "task-clock": 238.59
+   },
+   {
+    "instructions": 3170164462.0,
+    "cycles": 1107507197.0,
+    "task-clock": 241.05
+   }
+  ],
+  "clif-pack-tree": [
+   {
+    "instructions": 3245164451.0,
+    "cycles": 1097780774.0,
+    "task-clock": 235.41
+   },
+   {
+    "instructions": 3245164527.0,
+    "cycles": 1124860302.0,
+    "task-clock": 243.48
+   },
+   {
+    "instructions": 3245164436.0,
+    "cycles": 1128400678.0,
+    "task-clock": 245.37
+   }
+  ],
+  "clif-xy-pairs": [
+   {
+    "instructions": 2440164382.0,
+    "cycles": 934268850.0,
+    "task-clock": 200.59
+   },
+   {
+    "instructions": 2440164331.0,
+    "cycles": 936141895.0,
+    "task-clock": 202.74
+   },
+   {
+    "instructions": 2440164483.0,
+    "cycles": 948029613.0,
+    "task-clock": 206.17
+   }
+  ]
+ }
+}

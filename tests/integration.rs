@@ -866,3 +866,6 @@ mod test_fixed_state;
 
 #[path = "test_cpu_levels.rs"]
 mod test_cpu_levels;
+
+#[path = "test_packed_statements.rs"]
+mod test_packed_statements;

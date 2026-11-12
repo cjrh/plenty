@@ -111,6 +111,7 @@ pub(crate) use relax::relax_local_addresses;
 mod fixed_state;
 mod inline_calls;
 mod leaf_calls;
+mod packed;
 mod reachability;
 mod scalar_captures;
 mod serial_stack;
