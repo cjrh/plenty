@@ -563,6 +563,9 @@ pub(super) struct Worker {
     coverage: bool,
     dump: Option<Arc<Plan>>,
     built: Vec<Built>,
+    /// The function whose 256-bit form `define` just rejected; its rebuild
+    /// is marked in `--dump`.
+    rejected_wide: Option<FuncId>,
 }
 
 impl Worker {
@@ -581,6 +584,7 @@ impl Worker {
             coverage,
             dump: None,
             built: Vec::new(),
+            rejected_wide: None,
         }
     }
 
@@ -605,6 +609,7 @@ impl Worker {
     /// then builds it again `Narrow`. Other failures are kept as the code.
     pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) -> bool {
         let wide = symbols.simd_width() == super::portable_simd::Width::Wide;
+        let rebuilt_narrow = self.rejected_wide.take() == Some(id);
         if wide && reject_wide_for_tests() {
             insert_unsupported_wide(&mut func);
         }
@@ -620,7 +625,11 @@ impl Worker {
             .dump
             .as_ref()
             .filter(|plan| plan.wants(id, None))
-            .map(|_| Box::new(Capture::new(&func)));
+            .map(|_| {
+                let mut capture = Capture::new(&func);
+                capture.rebuilt_narrow = rebuilt_narrow;
+                Box::new(capture)
+            });
         let isa = self.targets.for_function(&func);
         let code = compile(
             &mut self.context,
@@ -634,6 +643,7 @@ impl Worker {
             && let Err(message) = &code
             && message.starts_with(UNSUPPORTED_256_BIT)
         {
+            self.rejected_wide = Some(id);
             return false;
         }
         let (requests, checks) = symbols.finish();
@@ -1611,7 +1621,7 @@ def main() -> ():
         let dir = tempfile::tempdir().unwrap();
         let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
         let mut context = Context::new();
-        for cache in [None, Some(&cache)] {
+        for cache in [None, Some(&*cache)] {
             let id = FuncId::from_u32(1);
             let Err(message) = compile_uncaptured(&mut context, &*isa, id, func.clone(), cache)
             else {

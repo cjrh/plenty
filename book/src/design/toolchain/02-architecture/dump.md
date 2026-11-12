@@ -63,7 +63,9 @@ The header names the function as source shows it (`Point.length`,
 `function`, `drop` and `resume` (a class's destructor and a generator's
 resume function, keyed `NAME@drop` and `NAME@resume`), `entry`
 (`plenty_main`), and `adapter` (thread, executor and sort trampolines). Keys are unique; a repeated name gets
-a `#N` suffix.
+a `#N` suffix. A header ending in `simd=rebuilt-narrow` marks a
+function whose 256-bit `f64x4` form the backend rejected at
+[`x86-64-v3`](../01-building/linking.md#cpu-levels), compiled with two halves.
 
 - `clif` and `clif-opt` mark each change of source line with `; line N`, and
   name each external function and data symbol on its declaration line.

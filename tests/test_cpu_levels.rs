@@ -75,6 +75,10 @@ def spilled(n: i64, x: s.f64x4, y: s.f64x4) -> Result[s.f64x4, IoError]:
         c = c.sub(a)
     Ok(a.add(b).add(c))
 
+# Narrowing rounds each lane to `f32`; widening it back is exact.
+def converted(x: &s.f64x4) -> s.f64x4:
+    x.to_f32x4().to_f64x4()
+
 def streamed(values: &mut list[f64]) -> f64:
     mut total = s.splat_f64x4(0.0)
     for i in range(s.len_f64x4(values)):
@@ -93,6 +97,7 @@ def main() -> Result[(), AllocError | IoError]:
     vectors = [specials, others, plain, plain.high().concat(specials.low())]?
     for x in &vectors:
         show("sqrt", &x.sqrt())?
+        show("f32", &converted(x))?
         for y in &vectors:
             show("add", &x.add(y))?
             show("sub", &x.sub(y))?
@@ -566,6 +571,13 @@ fn only_v3_uses_ymm_registers() {
             .find(|function| function.starts_with("spilled "))
             .unwrap_or_else(|| panic!("no spilled function in {asm}"));
         if wide {
+            let converted = asm
+                .split("==== ")
+                .find(|function| function.starts_with("converted "))
+                .unwrap_or_else(|| panic!("no converted function in {asm}"));
+            for op in ["vcvtpd2ps", "vcvtps2pd", "vinsertf128"] {
+                assert!(converted.contains(op), "{op}: {converted}");
+            }
             for op in ["vdivpd  %ymm", "vsqrtpd %ymm"] {
                 assert!(spilled.contains(op), "{op}: {spilled}");
             }
@@ -664,12 +676,28 @@ fn rejected_wide_functions_are_rebuilt_narrow() {
         succeed(command.arg(&out).output().unwrap(), "dump");
         std::fs::read_to_string(out.join("asm.txt")).unwrap()
     };
-    assert!(asm(false).contains("%ymm"));
+    let wide = asm(false);
+    assert!(wide.contains("%ymm") && !wide.contains("simd=rebuilt-narrow"));
     let narrow = asm(true);
     assert!(
         !narrow.contains("%ymm") && !narrow.contains("vzeroupper"),
         "{narrow}"
     );
+    // `--dump` marks each rebuilt function, and only those.
+    for function in wide.split("==== ").skip(1) {
+        let name = function.split_whitespace().next().unwrap();
+        let header = narrow
+            .split("==== ")
+            .find(|rebuilt| rebuilt.split_whitespace().next() == Some(name))
+            .and_then(|rebuilt| rebuilt.lines().next())
+            .unwrap_or_else(|| panic!("{name} missing from the rebuilt dump"));
+        let was_wide = function.contains("%ymm") || function.contains("vzeroupper");
+        assert_eq!(
+            header.ends_with("simd=rebuilt-narrow"),
+            was_wide,
+            "{header}"
+        );
+    }
     if std::is_x86_feature_detected!("avx2") {
         let mut outputs = Vec::new();
         for rejected in [false, true] {

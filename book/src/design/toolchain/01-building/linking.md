@@ -82,7 +82,9 @@ Only a function that performs an `f64x4` operation, or inlines one, holds a
 or an `f64x4` it passes on, compiles as at `x86-64-v2` apart from VEX
 encodings. If the backend cannot lower such a function's 256-bit form, the
 compiler builds that function again with two 128-bit halves, which gives the
-same results; a level never makes a program fail to compile.
+same results; a level never makes a program fail to compile. The
+[`--dump`](../02-architecture/dump.md) header of such a function ends
+with `simd=rebuilt-narrow`.
 
 A function that holds a 256-bit value executes `vzeroupper` before every call
 and return, so the runtime, C code compiled for SSE and other Plenty functions

@@ -1401,30 +1401,44 @@ impl Lowerer<'_, '_> {
             // `cvtpd2ps` rounds as the scalar cast does and zeroes lanes 2
             // and 3; `cvtps2pd` widens lanes 0 and 1 exactly. `f64x4` moves
             // 64-bit halves between its parts and the `f32x4`, viewed as
-            // `f64x2`.
+            // `f64x2`. A 256-bit `f64x4` part is converted as its two halves,
+            // which the fork's 256-bit lowering does not convert.
             let little =
                 MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
             let result = if matches!(op.shape, Shape::F32) {
-                Parts::new(to, |part| {
-                    let mut source = left.low;
-                    if part == 1 {
-                        // Bytes 8-15 in both halves: one `pshufd`.
-                        let mask = (8..16).chain(8..16).collect::<Vec<u8>>();
-                        let mask = self
-                            .bcx
-                            .func
-                            .dfg
-                            .immediates
-                            .push(cranelift_codegen::ir::ConstantData::from(&mask[..]));
-                        let bytes = self.bcx.ins().bitcast(types::I8X16, little, source);
-                        let high = self.bcx.ins().shuffle(bytes, bytes, mask);
-                        source = self.bcx.ins().bitcast(types::F32X4, little, high);
-                    }
-                    self.bcx.ins().fvpromote_low(source)
-                })
+                let low = self.bcx.ins().fvpromote_low(left.low);
+                let high = (to == Shape::F64x4).then(|| {
+                    // Bytes 8-15 in both halves: one `pshufd`.
+                    let mask = (8..16).chain(8..16).collect::<Vec<u8>>();
+                    let mask = self
+                        .bcx
+                        .func
+                        .dfg
+                        .immediates
+                        .push(cranelift_codegen::ir::ConstantData::from(&mask[..]));
+                    let bytes = self.bcx.ins().bitcast(types::I8X16, little, left.low);
+                    let high = self.bcx.ins().shuffle(bytes, bytes, mask);
+                    let high = self.bcx.ins().bitcast(types::F32X4, little, high);
+                    self.bcx.ins().fvpromote_low(high)
+                });
+                match high {
+                    Some(high) if self.simd_parts(to) == 1 => Parts {
+                        low: self.bcx.ins().x86_vinsertf128(types::F64X4, low, high),
+                        high: None,
+                    },
+                    high => Parts { low, high },
+                }
             } else {
-                let mut low = self.bcx.ins().fvdemote(left.low);
-                if let Some(high) = left.high {
+                let (low, high) = match left.high {
+                    Some(high) => (left.low, Some(high)),
+                    None if wide_half(self.bcx.func.dfg.value_type(left.low)).is_some() => (
+                        self.bcx.ins().x86_vextractf128(types::F64X2, left.low, 0),
+                        Some(self.bcx.ins().x86_vextractf128(types::F64X2, left.low, 1)),
+                    ),
+                    None => (left.low, None),
+                };
+                let mut low = self.bcx.ins().fvdemote(low);
+                if let Some(high) = high {
                     let high = self.bcx.ins().fvdemote(high);
                     let high = self.bcx.ins().bitcast(types::F64X2, little, high);
                     let high = self.bcx.ins().extractlane(high, 0);

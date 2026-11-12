@@ -334,6 +334,7 @@ impl Plan {
             bytes: bytes.len(),
             instructions: capture.instructions,
             optimized_instructions: capture.after.as_ref().map(instructions).unwrap_or(0),
+            rebuilt_narrow: capture.rebuilt_narrow,
         }
     }
 
@@ -434,8 +435,16 @@ impl Plan {
                 if let Some(body) = body {
                     let _ = writeln!(
                         text,
-                        "==== {}  symbol={}  kind={}  source={}",
-                        entry.key, entry.symbol, entry.kind, entry.source
+                        "==== {}  symbol={}  kind={}  source={}{}",
+                        entry.key,
+                        entry.symbol,
+                        entry.kind,
+                        entry.source,
+                        if entry.rebuilt_narrow {
+                            "  simd=rebuilt-narrow"
+                        } else {
+                            ""
+                        }
                     );
                     text.push_str(body);
                     text.push('\n');
@@ -454,6 +463,9 @@ pub(super) struct Capture {
     /// Machine-code byte ranges and the source line each came from.
     pub srclocs: Vec<(u32, u32, u32)>,
     pub instructions: usize,
+    /// The backend rejected this function's 256-bit `f64x4` form, so this is
+    /// its two-part rebuild (`portable_simd::Width`).
+    pub rebuilt_narrow: bool,
 }
 
 impl Capture {
@@ -463,6 +475,7 @@ impl Capture {
             after: None,
             srclocs: Vec::new(),
             instructions: instructions(func),
+            rebuilt_narrow: false,
         }
     }
 }
@@ -482,6 +495,7 @@ pub(super) struct Entry {
     bytes: usize,
     instructions: usize,
     optimized_instructions: usize,
+    rebuilt_narrow: bool,
 }
 
 fn instructions(func: &Function) -> usize {
