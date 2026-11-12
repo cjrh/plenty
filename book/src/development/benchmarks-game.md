@@ -25,16 +25,16 @@ Each manifest names the program's page and contributors.
 
 | Benchmark | Reference | Threads | Plenty variants | Status |
 |---|---|---|---|---|
-| fannkuch-redux | C #1 | 1 | idiomatic; parallel (`examples/fannkuch_redux.plenty`, 8 workers) | ready |
-| n-body | Rust #3 | 1 | idiomatic; clist (bodies in a `clist`) | ready |
-| spectral-norm | C #8 | 1 | idiomatic | ready |
-| mandelbrot | C #8 | 1 | idiomatic | ready |
-| fasta | Rust #3 | 1 | idiomatic | ready |
-| k-nucleotide | Rust #1 | 7 | idiomatic (1 thread); parallel (7 pool workers) | ready |
-| reverse-complement | C #5 | 1 | idiomatic | ready |
-| binary-trees | C #1 | 1 | idiomatic | ready |
-| pidigits | C #1 (GMP) | 1 | none | blocked: no arbitrary-precision integers (backlog B38, issue #481) |
-| regex-redux | Rust #1 | 9 | idiomatic, with `std.regex` (1 thread) | ready |
+| [fannkuch-redux](benchmarks-game/fannkuch-redux.md) | C #1 | 1 | idiomatic; parallel (`examples/fannkuch_redux.plenty`, 8 workers) | ready |
+| [n-body](benchmarks-game/n-body.md) | Rust #3 | 1 | idiomatic; clist (bodies in a `clist`) | ready |
+| [spectral-norm](benchmarks-game/spectral-norm.md) | C #8 | 1 | idiomatic | ready |
+| [mandelbrot](benchmarks-game/mandelbrot.md) | C #8 | 1 | idiomatic | ready |
+| [fasta](benchmarks-game/fasta.md) | Rust #3 | 1 | idiomatic | ready |
+| [k-nucleotide](benchmarks-game/k-nucleotide.md) | Rust #1 | 7 | idiomatic (1 thread); parallel (7 pool workers) | ready |
+| [reverse-complement](benchmarks-game/reverse-complement.md) | C #5 | 1 | idiomatic | ready |
+| [binary-trees](benchmarks-game/binary-trees.md) | C #1 | 1 | idiomatic | ready |
+| [pidigits](benchmarks-game/pidigits.md) | C #1 (GMP) | 1 | none | blocked: no arbitrary-precision integers (backlog B38, issue #481) |
+| [regex-redux](benchmarks-game/regex-redux.md) | Rust #1 | 9 | idiomatic, with `std.regex` (1 thread) | ready |
 
 Each reference is one C or Rust program from the site. None is marked with an
 asterisk, the site's mark for a program that uses a different algorithm, so
@@ -42,6 +42,12 @@ each benchmark has one idiomatic Plenty program that follows the reference's
 algorithm. Where the reference uses
 threads and the Plenty program does not, the table says so; compare CPU time
 (`user_s`) as well as wall time for those.
+
+Each benchmark name links to a page with the complete reference and all available
+Plenty variants. Listings include the live source files at documentation build
+time, so source changes appear without maintaining a second copy. Plenty blocks
+use `plenty fragment` to keep them out of the executable documentation tests;
+the [benchmark tests](#tests) check the actual programs.
 
 ## Running
 
@@ -103,19 +109,19 @@ the median of three runs pinned to cores `0,2,4,6,8,10,12,14`.
 
 | Benchmark | Size | Reference | Plenty | Ratio |
 |---|---:|---:|---:|---:|
-| binary-trees | 21 | 10.96 s | 20.10 s | 1.83 |
-| fannkuch-redux | 12 | 25.40 s | 24.25 s | 0.95 |
-| fannkuch-redux (parallel, 8 threads) | 12 | 25.40 s | 2.77 s | 0.11 |
-| fasta | 25,000,000 | 1.33 s | 1.63 s | 1.22 |
-| k-nucleotide | 25,000,000 | 11.42 s (7 threads) | 13.87 s | 1.21 |
-| k-nucleotide (parallel, 7 threads) | 25,000,000 | 11.42 s (7 threads) | 6.74 s | 0.59 |
-| mandelbrot | 16,000 | 11.80 s | 11.92 s | 1.01 |
-| n-body | 50,000,000 | 1.30 s | 2.60 s | 2.01 |
-| n-body (clist) | 50,000,000 | 1.30 s | 4.07 s | 3.14 |
-| pidigits | 10,000 | blocked | blocked | |
-| regex-redux | 5,000,000 | 0.74 s (9 threads) | 3.40 s | 4.60 |
-| reverse-complement | 25,000,000 | 0.39 s | 0.41 s | 1.06 |
-| spectral-norm | 5,500 | 1.18 s | 1.20 s | 1.01 |
+| [binary-trees](benchmarks-game/binary-trees.md) | 21 | 10.96 s | 20.10 s | 1.83 |
+| [fannkuch-redux](benchmarks-game/fannkuch-redux.md) | 12 | 25.40 s | 24.25 s | 0.95 |
+| [fannkuch-redux (parallel, 8 threads)](benchmarks-game/fannkuch-redux.md) | 12 | 25.40 s | 2.77 s | 0.11 |
+| [fasta](benchmarks-game/fasta.md) | 25,000,000 | 1.33 s | 1.63 s | 1.22 |
+| [k-nucleotide](benchmarks-game/k-nucleotide.md) | 25,000,000 | 11.42 s (7 threads) | 13.87 s | 1.21 |
+| [k-nucleotide (parallel, 7 threads)](benchmarks-game/k-nucleotide.md) | 25,000,000 | 11.42 s (7 threads) | 6.74 s | 0.59 |
+| [mandelbrot](benchmarks-game/mandelbrot.md) | 16,000 | 11.80 s | 11.92 s | 1.01 |
+| [n-body](benchmarks-game/n-body.md) | 50,000,000 | 1.30 s | 2.60 s | 2.01 |
+| [n-body (clist)](benchmarks-game/n-body.md) | 50,000,000 | 1.30 s | 4.07 s | 3.14 |
+| [pidigits](benchmarks-game/pidigits.md) | 10,000 | blocked | blocked | |
+| [regex-redux](benchmarks-game/regex-redux.md) | 5,000,000 | 0.74 s (9 threads) | 3.40 s | 4.60 |
+| [reverse-complement](benchmarks-game/reverse-complement.md) | 25,000,000 | 0.39 s | 0.41 s | 1.06 |
+| [spectral-norm](benchmarks-game/spectral-norm.md) | 5,500 | 1.18 s | 1.20 s | 1.01 |
 
 Times are median wall-clock seconds; ratios use the unrounded medians. The
 JSON retains all three samples, CPU time, peak RSS, instruction/cycle counts,
@@ -195,4 +201,16 @@ python3 -B -m unittest discover -s benchmarks/game -p 'test_*.py'
 2. Write `benchmark.json` following an existing one, then the Plenty program.
 3. Add the benchmark to `ready_benchmarks!` (or `BLOCKED`) in
    `tests/test_benchmarks_game.rs` and to the table above.
-4. Run `bench.py check`, then a full run, and update `baseline.json`.
+4. Add a source page under `book/src/development/benchmarks-game/`, link it
+   from `SUMMARY.md` and the tables, and include each source with mdBook's
+   `include` directive. Wrap Plenty includes in `plenty fragment` fences.
+5. Run `bench.py check`, then a full run, and update `baseline.json`.
+
+## Reference license
+
+The reference listings retain their source headers and are distributed under
+the Benchmarks Game revised BSD license:
+
+```text
+{{#include ../../../benchmarks/game/LICENSE-benchmarks-game.txt}}
+```

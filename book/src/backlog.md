@@ -238,6 +238,8 @@ Use [profiling](development/profiling.md), [faster-linking evidence](proposals/f
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [Benchmarks Game baseline refresh](completed-work/performance.md#benchmarks-game-baseline-refresh-2026-11-11)
 records full-suite measurements at `1ade579c`; optimization scope remains here.
+The [benchmark source pages](completed-work/performance.md#benchmarks-game-source-pages-2026-11-12)
+make the measured programs available alongside that baseline.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
 (issue #743) is concluded; its delivered fixes and rejected counting experiment
 are recorded there.

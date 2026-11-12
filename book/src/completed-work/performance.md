@@ -7,6 +7,14 @@ an optimization queue. Workloads, methods and current measurements belong to
 [profiling](../development/profiling.md); remaining B19/B23/B74 scope belongs
 only to the [backlog](../backlog.md).
 
+## Benchmarks Game source pages (2026-11-12)
+
+The [suite inventory and baseline](../development/benchmarks-game.md) link to
+one page per benchmark, showing the C or Rust reference and every available
+Plenty variant. mdBook includes the actual source files at build time; Plenty
+listings use `plenty fragment` so documentation tests do not execute them.
+pidigits shows its reference and the existing implementation blocker.
+
 ## Benchmarks Game baseline refresh (2026-11-11)
 
 The [full-suite baseline](../development/benchmarks-game.md#sizes-and-baseline)
