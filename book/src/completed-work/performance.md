@@ -464,7 +464,102 @@ range, and declining rows would give up the gain for normal values.
 What remains in the step is data movement: 20 rows and the scalar `z` state
 exceed the 16 vector registers, so rows are reloaded and stored around most
 instructions, and the `z` differences are still assembled into lanes for the
-magnitudes. Folding reloads after register allocation remains issue #930.
+magnitudes. [Folding reloads after register allocation](#spill-reloads-folded-after-register-allocation-issue-930)
+removes part of that movement.
+
+### Spill reloads folded after register allocation (issue #930)
+
+The Cranelift fork rewrites spill reloads while emitting each x86-64 block,
+after register allocation and without changing regalloc2. It applies to both
+allocators, and so to `--fast-compile`, which uses the backtracking allocator
+without optimization; the single-pass allocator serves only functions with
+more than 2,048 branch arguments. Other targets are unchanged. Two rewrites
+are kept:
+
+- **Memory operand.** A reload whose register is read once, by a read-only
+  XMM operand that accepts memory, and is written again in the same block
+  before any other read: the instruction reads the spill slot and the reload
+  is dropped. Legacy SSE packed instructions fault on an unaligned memory
+  operand, so they fold only a slot at a multiple of 16 bytes from the frame
+  pointer; scalar and VEX instructions fold any slot. An instruction that
+  modifies its operand, and `insertps`, whose memory form reads different
+  bytes, do not fold.
+- **Store forwarding.** A reload of a slot stored earlier in the block from a
+  register that still holds the value becomes a register copy, or nothing
+  when it is the same register. This applies to every register class.
+
+A third rewrite, moving a reload to the destination of the register copy that
+was its only reader, removed 35 to 41 instructions per n-body step at x86-64
+and no cycles, since the processor eliminates such copies at rename. It was
+dropped. The regalloc2 route, letting the allocator assign a slot to a use
+that accepts memory, had measured 17% slower in `experiments/nbody-spills`.
+
+Functions with debug value labels are left alone. Spill slots are not in
+stack maps, and the analysis does not cross block boundaries, so safepoints
+and exception edges see the same slots as before.
+
+Zen 4, one pinned core, cycles and instructions per n-body step (the
+difference between 200,000 and 2,200,000 steps, minimum of five interleaved
+runs), baselines measured in the same session. The `f64x2` sources are the
+hand-vectorized variants of the fixed-state measurements; the `f64x4` source
+holds each body's position and velocity in one `f64x4`.
+
+| Source | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
+|---|---:|---:|---:|---:|
+| `list[Body]` | 185.3 / 494 | 175.4 / 465 | 184.1 / 424 | 176.9 / 394 |
+| `clist[Body]` | 197.0 / 514 | 178.5 / 480 | 186.2 / 423 | 170.0 / 393 |
+| `f64x2`, x and y paired | 207.2 / 549 | 201.6 / 515 | 197.7 / 413 | 193.1 / 385 |
+| `f64x2`, locals | 207.7 / 642 | 202.0 / 603 | 190.1 / 498 | 184.6 / 473 |
+| `f64x4` | 197.9 / 504 | 192.8 / 479 | 175.3 / 250 | 175.3 / 242 |
+
+For reference at x86-64 and x86-64-v3: GCC 177.0 and 177.1, Clang 179.0 and
+298.4, rustc 154.7 and 190.2 cycles. All three compilers use spilled values as
+memory operands in `advance` (GCC 9, Clang 37 and rustc 48 instructions at
+x86-64).
+
+`advance` for `list[Body]` goes from 1,599 to 1,568 instructions and 9,694 to
+9,536 bytes at x86-64: 34 fewer loads from the stack (207 to 173), 31
+floating-point instructions with a stack operand (none before) and 3 more
+register copies. At x86-64-v3: 1,491 to 1,461 instructions, 9,006 to 8,847
+bytes, 203 to 170 stack loads. Stores are unchanged at 134. Forwarding gives
+most of the cycles: without it the step costs 5 to 12 cycles more.
+
+Whole-run cycles in millions, minimum of seven runs:
+
+| Program | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
+|---|---:|---:|---:|---:|
+| spectral-norm 2000 | 730.1 | 729.6 | 725.6 | 725.4 |
+| mandelbrot 2000 | 897.2 | 897.9 | 896.5 | 894.8 |
+| fannkuch-redux 10 | 704.6 | 706.2 | 708.2 | 723.3 |
+
+Fannkuch executes the same 1,622.8 million instructions before and after; the
+object differs in three loads on cold paths that became register copies, and
+builds with either rewrite disabled range from 705 to 724 million cycles
+without following the rewrites. The 2.1% at x86-64-v3 is code placement.
+
+Of 41 programs that compile (`examples`, `examples/cpu_codegen_audit`,
+`benchmarks/game`, `experiments/kernels/kernels.plenty`, the fixed-state
+fixtures and the packed-rows fixture), 34 objects change in optimized builds
+and 26 with `--fast-compile`, the same sets at x86-64, x86-64-v2 and
+x86-64-v3; most changes are forwarded general-purpose reloads. In each of the
+six configurations, 34 of the 38 programs that finish within 20 seconds print
+the same output before and after. The other four print timings or a port and
+differ between two runs of one build; with numbers masked they match. Three
+servers do not exit and were not compared. The eight measured programs give
+identical results before and after at both levels, the n-body variants over
+100,000 steps with the full state printed.
+
+Compilation: `compile_bench 1000 10 --workload aot` medians are 565 to 585 ms
+before and 562 to 564 ms after over three interleaved runs, within noise.
+The compiler executes 0.15% more instructions for `nbody.plenty`, 0.22% more
+for `examples/plot.plenty` and 0.21% more for `regexredux.plenty`, and 0.13%
+to 0.23% more with `--fast-compile`.
+
+Not handled: a reload into an operand the instruction modifies, a reload
+whose register is still live at the end of its block, and general-purpose
+memory operands. A legacy SSE packed fold assumes the 16-byte stack alignment
+the calling conventions require; code entered with a misaligned stack, which
+unaligned reloads tolerated, would fault.
 
 ## Value bounds and loop conditions
 
