@@ -1194,6 +1194,7 @@ impl Parser {
         if self.peek().is("match") {
             return self.match_statement();
         }
+        self.reject_trap_suite()?;
         if self.checked_block().is_some() {
             let value = self.statement_value()?;
             return Ok(Stmt {
@@ -1454,14 +1455,22 @@ impl Parser {
         if self.peek().is("checked") {
             return opens(1).then_some(Suite::Checked);
         }
-        if !self.peek().is("unchecked") {
-            return None;
+        (self.peek().is("unchecked") && opens(1)).then_some(Suite::Unchecked)
+    }
+    /// `unchecked trap:` was a removed spelling of `unchecked:`; name the
+    /// replacement instead of reporting an unexpected `trap`.
+    fn reject_trap_suite(&self) -> Result<()> {
+        let at = |offset: usize| self.tokens.get(self.pos + offset);
+        if self.peek().is("unchecked")
+            && at(1).is_some_and(|t| t.is("trap"))
+            && at(2).is_some_and(|t| t.is(":"))
+            && at(3).is_some_and(|t| t.kind == Kind::Newline)
+        {
+            return Err(at(1).unwrap().error(
+                "`unchecked trap:` is not a suite; write `unchecked:`, which already traps",
+            ));
         }
-        if opens(1) {
-            return Some(Suite::Unchecked);
-        }
-        (self.tokens.get(self.pos + 1).is_some_and(|t| t.is("trap")) && opens(2))
-            .then_some(Suite::Trap)
+        Ok(())
     }
     fn statement_value(&mut self) -> Result<Expr> {
         if self.peek().is("if") {
@@ -1474,11 +1483,9 @@ impl Parser {
                 kind: Expression::If(vec![statement]),
             });
         }
+        self.reject_trap_suite()?;
         if let Some(suite) = self.checked_block() {
             let at = self.take();
-            if suite == Suite::Trap {
-                self.take();
-            }
             let body = self.suite()?;
             return Ok(Expr {
                 at,

@@ -48,7 +48,7 @@ change the working directory. Child exit codes and Unix signal status follow
 diagnostics, but reject program arguments and never run the application.
 Scripts optimize by default; `--fast-compile` skips optimization for shorter
 edit-run cycles. `--release` remains a compatibility alias for the default.
-`--unchecked MODE` selects the [unchecked arithmetic mode](commands.md). `--offline`, `--locked`,
+`--offline`, `--locked`,
 `--verbose`, `--no-strip` and `--no-cache` retain their ordinary meanings.
 `--cache-stats` reports artifact reuse. Build status goes to stderr; a fresh cached
 run is quiet unless reporting was requested.

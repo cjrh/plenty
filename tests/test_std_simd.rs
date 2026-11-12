@@ -601,7 +601,7 @@ def borrowed(value: &s.{vector}) -> s.{vector}:
     value.sqrt()
 def main() -> ():
     values = [{ty}.NAN, {ty}.INF, -{ty}.INF, 0.0{ty}, -0.0{ty}, 2.0{ty}, -2.0{ty}, {tiny}, 1e30{ty}].unwrap()
-    unchecked trap:
+    unchecked:
         for start in range(len(values)):
             v = s.{vector}.Lanes({lanes})
             saved = v

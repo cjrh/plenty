@@ -363,7 +363,7 @@ fn resume_reserves_the_complete_inline_yield(#[case] optimize: bool, #[case] fie
 class Span:
 {declarations}
 def values(text: str) -> Generator[Span]:
-    unchecked trap:
+    unchecked:
         mut index = 0
         for scalar in text:
             index += 1

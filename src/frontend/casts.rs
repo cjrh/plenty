@@ -51,7 +51,7 @@ impl Lower<'_> {
         }
         if !literal {
             self.mark(cast, ops);
-            self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
+            ops.push(Op::CheckedCast(target.clone()));
             return Ok(());
         }
         if let Some((min, end)) = target.int_range() {
@@ -72,7 +72,7 @@ impl Lower<'_> {
                             "{number} is out of range for {target}; {target}.wrapping_from keeps the low bits"
                         )));
                     }
-                    self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
+                    ops.push(Op::CheckedCast(target.clone()));
                     let point = crate::interval::Interval::point(number);
                     self.note_interval(intervals::node(cast), target, point);
                     return Ok(());
@@ -94,7 +94,7 @@ impl Lower<'_> {
                 _ => {}
             }
         }
-        self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
+        ops.push(Op::CheckedCast(target.clone()));
         Ok(())
     }
 

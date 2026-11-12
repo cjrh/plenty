@@ -759,9 +759,6 @@ fn step(
                 Op::Add
                     | Op::Sub
                     | Op::Mul
-                    | Op::FloorDiv(_)
-                    | Op::Modulo(_)
-                    | Op::Numeric(crate::numeric::NumericOp::Pow)
                     | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight)
                     | Op::CheckedCast(_)
             );

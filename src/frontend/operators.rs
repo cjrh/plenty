@@ -396,7 +396,7 @@ impl Lower<'_> {
                 if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
                     self.shift_operation(kind, &a, right, outcome, &e.at, ops)?;
                 } else {
-                    self.push_trapping(Op::Integer(kind), &a, ops);
+                    ops.push(Op::Integer(kind));
                 }
                 self.note_outcome(operands.node, &a, outcome);
                 Self::end_reads(loans, ops);
@@ -441,7 +441,7 @@ impl Lower<'_> {
                 ">=" => Op::Ge,
                 _ => unreachable!(),
             };
-            self.push_trapping(operation, &a, ops);
+            ops.push(operation);
             Self::end_reads(loans, ops);
             if is_comparison(op) {
                 Some(Ty::Bool)
@@ -1103,7 +1103,6 @@ impl Lower<'_> {
                     start: self.locals.len(),
                     function: false,
                     arithmetic: false,
-                    assume: false,
                     failures: Vec::new(),
                     casts: false,
                 });

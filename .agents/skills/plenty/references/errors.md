@@ -65,17 +65,9 @@ and [local pipelines](../../../../book/src/design/language/09-iteration/06-pipel
 ## Unchecked arithmetic
 
 Prefer declared arithmetic errors or local `checked:` recovery. When the
-intended policy is termination, use `unchecked trap:`. Plain `unchecked:`
-asserts that integer arithmetic preconditions hold; `--unchecked trap` checks
-that assertion (the default), while `--unchecked assume` omits those checks
-and makes violations undefined behavior. Neither mode means wrapping.
-In assume mode, list, slice-view and `Bytes` indexing inside a plain
-`unchecked:` suite also requires a nonnegative index below the collection
-length: neither bounds checks nor negative-index normalization remain.
-`unchecked trap:` retains normal negative indexing and bounds traps.
-Optimization profiles do not select the mode. Other indexing, allocation,
-floating-point arithmetic and called functions keep their own contracts;
-`std` continues to check its unchecked suites. See
+intended policy is termination, use `unchecked:`. It asserts that integer arithmetic preconditions hold and
+traps when they do not; it never wraps. Indexing, allocation,
+floating-point arithmetic and called functions keep their own contracts. See
 [unchecked blocks](../../../../book/src/design/language/03-types/numbers.md#unchecked-blocks)
 for the full preconditions and lexical nesting rules.
 

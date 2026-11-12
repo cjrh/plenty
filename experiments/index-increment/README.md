@@ -1,5 +1,8 @@
 # Incrementing a checked index (issue #930)
 
+> The `--unchecked assume` build mode used in this record was removed. The
+> measurements are historical; commands that pass `--unchecked` no longer run.
+
 A successful list/view row check proves the original `i64` index is less than
 `i64.MAX`, including when it is negative. Lengths fit in `i64`; positive
 `i64.MAX` cannot pass the check. Therefore adding one cannot overflow. This is

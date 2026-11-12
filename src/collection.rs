@@ -593,25 +593,11 @@ impl CollectionOp {
         Some(crate::record::method(&class.name, name))
     }
 
-    /// Index syntax whose caller may assert a nonnegative, in-range index.
-    /// Methods, slices, strings, dictionaries and iteration keep their own contracts.
+    /// Indexing that [`crate::op::Op::Assumed`] may hold once the compiler
+    /// proves the index nonnegative and in range. Only the fixed-state pass
+    /// produces one, for list element references behind its length guard.
     pub(crate) fn assumable_index(&self) -> bool {
-        matches!(
-            self,
-            Self::ListScalarGetRef(_)
-                | Self::ListScalarGetView(_)
-                | Self::ListScalarSetRef(_)
-                | Self::ListScalarSetView(_)
-                | Self::ElementRef(Ty::List(_), _)
-                | Self::ElementRefView(Ty::List(_), _)
-                | Self::ViewRow(_, _)
-                | Self::Get(Ty::List(_))
-                | Self::Bytes(
-                    crate::bytes::BytesOp::Item
-                        | crate::bytes::BytesOp::SetItem
-                        | crate::bytes::BytesOp::ValueItem
-                )
-        )
+        matches!(self, Self::ElementRef(Ty::List(_), _))
     }
 
     pub fn key_set_relation(left: Ty, right: Ty, opcode: i64) -> Self {
