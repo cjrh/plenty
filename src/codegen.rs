@@ -2232,6 +2232,13 @@ fn build_user_function_at(
             module.optimizes(),
             module.simd_width(),
         );
+        let pairs = packed::Pairs::new(
+            body,
+            &locals,
+            decl.sig.inputs.len(),
+            &mut bcx,
+            module.optimizes(),
+        );
         let mut addressed = addressed_locals(body, &locals);
         for (index, addressed) in addressed.iter_mut().enumerate() {
             if portable_simd.promoted(index as u8) {
@@ -2268,6 +2275,7 @@ fn build_user_function_at(
             tags: Default::default(),
             scalar_captures,
             portable_simd,
+            pairs,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
             exits: Some(exits::Exits::for_body(body)),
@@ -2410,6 +2418,7 @@ fn build_main(
             tags: Default::default(),
             scalar_captures: Default::default(),
             portable_simd: Default::default(),
+            pairs: Default::default(),
             slot_copies: Vec::new(),
             empty_slot: None,
             exits: None,
@@ -2618,6 +2627,8 @@ struct Lowerer<'a, 'b> {
     tags: enums::TagFacts,
     scalar_captures: scalar_captures::Captures,
     portable_simd: portable_simd::State,
+    /// The `f64` locals kept two to a vector variable.
+    pairs: packed::Pairs,
     /// Counted one-word copies pushed since the last op that could run code
     /// or release a value (see [`keeps_slot_copies`]), with the
     /// `plenty_retain` call that counted each, and string literals, which are
@@ -2788,6 +2799,9 @@ impl Lowerer<'_, '_> {
         if let Some(value) = self.read_simd_local(i) {
             return value;
         }
+        if let Some(value) = self.read_row_local(i) {
+            return value;
+        }
         let (var, ty) = self.locals[i as usize].clone();
         let value = if let Some((frame, offset)) = self.local_address(i) {
             let value = self.bcx.ins().load(
@@ -2804,7 +2818,7 @@ impl Lowerer<'_, '_> {
         value
     }
     fn write_local(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
-        if self.write_simd_local(i, value) {
+        if self.write_simd_local(i, value) || self.write_row_local(i, value) {
             return;
         }
         self.save_capture_local(i, value);

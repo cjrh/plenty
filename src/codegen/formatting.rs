@@ -90,6 +90,7 @@ pub(super) fn build_adapter(
         tags: Default::default(),
         scalar_captures: Default::default(),
         portable_simd: Default::default(),
+        pairs: Default::default(),
         slot_copies: Vec::new(),
         empty_slot: None,
         exits: None,
