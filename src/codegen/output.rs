@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::{Function, Signature, UserFuncName};
+use cranelift_codegen::isa::x64::UNSUPPORTED_256_BIT;
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::{CodegenError, Context, MachReloc};
 use cranelift_frontend::FunctionBuilderContext;
@@ -562,6 +563,9 @@ pub(super) struct Worker {
     coverage: bool,
     dump: Option<Arc<Plan>>,
     built: Vec<Built>,
+    /// The function whose 256-bit form `define` just rejected; its rebuild
+    /// is marked in `--dump`.
+    rejected_wide: Option<FuncId>,
 }
 
 impl Worker {
@@ -580,6 +584,7 @@ impl Worker {
             coverage,
             dump: None,
             built: Vec::new(),
+            rejected_wide: None,
         }
     }
 
@@ -598,8 +603,16 @@ impl Worker {
         func
     }
 
-    /// Compile `func`, built against `symbols`, as the body of `id`.
-    pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) {
+    /// Compile `func`, built against `symbols`, as the body of `id`. Return
+    /// false, defining nothing, when the backend rejects a function built
+    /// with `Wide` `f64x4` lowering (see `portable_simd::Width`); its builder
+    /// then builds it again `Narrow`. Other failures are kept as the code.
+    pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) -> bool {
+        let wide = symbols.simd_width() == super::portable_simd::Width::Wide;
+        let rebuilt_narrow = self.rejected_wide.take() == Some(id);
+        if wide && reject_wide_for_tests() {
+            insert_unsupported_wide(&mut func);
+        }
         let release = symbols.declared_function("plenty_release");
         super::empty_slots::remove_empty_releases(&mut func, release);
         super::known::fold_constant_branches(&mut func);
@@ -612,7 +625,11 @@ impl Worker {
             .dump
             .as_ref()
             .filter(|plan| plan.wants(id, None))
-            .map(|_| Box::new(Capture::new(&func)));
+            .map(|_| {
+                let mut capture = Capture::new(&func);
+                capture.rebuilt_narrow = rebuilt_narrow;
+                Box::new(capture)
+            });
         let isa = self.targets.for_function(&func);
         let code = compile(
             &mut self.context,
@@ -622,6 +639,13 @@ impl Worker {
             self.cache.as_deref(),
             capture.as_deref_mut(),
         );
+        if wide
+            && let Err(message) = &code
+            && message.starts_with(UNSUPPORTED_256_BIT)
+        {
+            self.rejected_wide = Some(id);
+            return false;
+        }
         let (requests, checks) = symbols.finish();
         self.built.push(Built {
             id,
@@ -630,7 +654,30 @@ impl Worker {
             checks,
             capture,
         });
+        true
     }
+}
+
+/// Test hook: with `PLENTY_TEST_REJECT_WIDE_SIMD` set, every function built
+/// with `Wide` lowering also stores an `fneg` of an `F64X4` value, which the
+/// fork's admission check rejects, so tests exercise the `Narrow` rebuild.
+/// The program cache's key includes it.
+pub(super) fn reject_wide_for_tests() -> bool {
+    static SET: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| std::env::var_os("PLENTY_TEST_REJECT_WIDE_SIMD").is_some())
+}
+
+fn insert_unsupported_wide(func: &mut Function) {
+    use cranelift_codegen::cursor::{Cursor, FuncCursor};
+    use cranelift_codegen::ir::{InstBuilder, StackSlotData, StackSlotKind, types};
+    let slot = func.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 5));
+    let entry = func.layout.entry_block().expect("entry block");
+    let mut cursor = FuncCursor::new(func);
+    cursor.goto_first_insertion_point(entry);
+    let zero = cursor.ins().f64const(0.0);
+    let vector = cursor.ins().splat(types::F64X4, zero);
+    let negated = cursor.ins().fneg(vector);
+    cursor.ins().stack_store(types::I64, negated, slot, 0);
 }
 
 /// Describe a Cranelift failure to compile one function. Plenty does not use
@@ -642,6 +689,11 @@ pub(crate) fn describe_error(error: &CodegenError) -> String {
         CodegenError::ImplLimitExceeded => "its native stack frame exceeds the 1 GiB limit; \
              store large values in a `Box` or split the function"
             .into(),
+        // The fork's rejection of a function's 256-bit form, which it reports
+        // instead of miscompiling one. `Worker::define` matches the prefix.
+        CodegenError::Unsupported(message) if message.starts_with(UNSUPPORTED_256_BIT) => {
+            message.clone()
+        }
         error => format!("{error:?}"),
     }
 }
@@ -1548,6 +1600,34 @@ def main() -> ():
             for result in results {
                 assert_eq!(result.bytes.as_slice(), plain.bytes.as_slice());
             }
+        }
+    }
+
+    /// `Worker::define` recognises the fork's rejection of a 256-bit form by
+    /// the exported prefix, compiled directly or through the cache. Building
+    /// at x86-64-v3 does not need an AVX2 host.
+    #[test]
+    fn rejected_256_bit_forms_are_reported_with_the_fork_prefix() {
+        let isa = super::super::level_isa(
+            "x86_64-unknown-linux-gnu",
+            crate::CpuLevel::X86_64V3,
+            "backtracking",
+            "speed",
+            false,
+        )
+        .unwrap();
+        let mut func = constant(types::I64, 1, None);
+        insert_unsupported_wide(&mut func);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
+        let mut context = Context::new();
+        for cache in [None, Some(&*cache)] {
+            let id = FuncId::from_u32(1);
+            let Err(message) = compile_uncaptured(&mut context, &*isa, id, func.clone(), cache)
+            else {
+                panic!("the fork admitted `fneg` of an F64X4");
+            };
+            assert!(message.starts_with(UNSUPPORTED_256_BIT), "{message}");
         }
     }
 

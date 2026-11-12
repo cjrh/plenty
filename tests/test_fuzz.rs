@@ -446,6 +446,75 @@ def main() -> Result[(), IoError]:
     assert!(hits[0] > 0 && hits[1] > hits[0], "{text}");
 }
 
+/// A coverage build at x86-64-v3 whose `f64x4` function the backend rejects
+/// in its 256-bit form (`PLENTY_TEST_REJECT_WIDE_SIMD`, issue #962) is
+/// rebuilt with two halves and instrumented again: its counters and PC
+/// entries still match, and it prints what the 256-bit build prints.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn rebuilt_narrow_functions_keep_their_coverage() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = stub_archive(dir.path(), STUB);
+    let source = r#"import fuzz_input
+import std.simd as s
+
+def scaled(n: u64) -> s.f64x4:
+    mut v = s.f64x4.Lanes(0.1, -2.5, 1e300, 3.0)
+    for _ in range(n):
+        v = v.mul(v).sqrt().div(s.splat_f64x4(1.5))
+    v
+
+def main() -> Result[(), IoError]:
+    print(scaled(fuzz_input.size()).to_tuple())?
+    Ok(())
+"#;
+    let mut outputs = Vec::new();
+    for rejected in [false, true] {
+        let build_dir = dir.path().join(format!("rejected-{rejected}"));
+        std::fs::create_dir(&build_dir).unwrap();
+        std::fs::write(build_dir.join("fuzz_input.plentyi"), INPUT).unwrap();
+        std::fs::write(build_dir.join("main.plenty"), source).unwrap();
+        let target = build_dir.join("target");
+        let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
+        if rejected {
+            command.env("PLENTY_TEST_REJECT_WIDE_SIMD", "1");
+        }
+        let built = command
+            .env("PLENTY_CACHE", "off")
+            .args(["--fuzz", "--cpu", "x86-64-v3"])
+            .arg(build_dir.join("main.plenty"))
+            .arg("-o")
+            .arg(&target)
+            .arg("--libfuzzer")
+            .arg(&archive)
+            .output()
+            .unwrap();
+        assert!(
+            built.status.success(),
+            "{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        if !std::is_x86_feature_detected!("avx2") {
+            continue;
+        }
+        let output = Command::new(&target).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        let totals = numbers(text.lines().next().unwrap());
+        assert_eq!(totals[0], totals[1], "{text}");
+        let printed: Vec<_> = text
+            .lines()
+            .filter(|line| line.starts_with('('))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(printed.len(), 2, "{text}");
+        outputs.push(printed);
+    }
+    if let [wide, rebuilt] = &outputs[..] {
+        assert_eq!(wide, rebuilt);
+    }
+}
+
 /// `source` compiled into `dir/libstub.a`, linked in place of libFuzzer.
 fn stub_archive(dir: &Path, source: &str) -> PathBuf {
     let stub = dir.join("stub.c");

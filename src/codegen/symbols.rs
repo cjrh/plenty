@@ -101,6 +101,8 @@ pub(super) struct Symbols {
     site_table: Option<(u32, GlobalValue)>,
     sites: sites::Sites,
     checks: traps::Checks,
+    /// This function's `f64x4` lowering: see [`Self::wide_available`].
+    simd_width: super::portable_simd::Width,
 }
 
 impl Symbols {
@@ -126,6 +128,7 @@ impl Symbols {
             site_table: None,
             sites: sites::Sites::default(),
             checks: traps::Checks::default(),
+            simd_width: super::portable_simd::Width::Narrow,
         }
     }
 
@@ -167,6 +170,35 @@ impl Symbols {
     /// AArch64 backend does so only for `uadd_overflow` and the multiplies.
     pub(super) fn fuses_overflow_flags(&self) -> bool {
         self.declared.isa.triple().architecture == target_lexicon::Architecture::X86_64
+    }
+
+    /// Whether the target can lower `std.simd.f64x4` as one `F64X4` value.
+    /// The fork's x64 backend gives it a `ymm` register with AVX2 and
+    /// SSE4.1 (`x86-64-v3`), for the System V and Tail conventions only
+    /// (issue #962); Windows x64 preserves `xmm6`-`xmm15` across calls,
+    /// which its 256-bit lowering does not support.
+    pub(super) fn wide_available(&self) -> bool {
+        let isa = &self.declared.isa;
+        let triple = isa.triple();
+        let enabled = |name: &str| {
+            isa.isa_flags()
+                .iter()
+                .any(|flag| flag.name == name && flag.as_bool() == Some(true))
+        };
+        triple.architecture == target_lexicon::Architecture::X86_64
+            && triple.operating_system != target_lexicon::OperatingSystem::Windows
+            && enabled("has_avx2")
+            && enabled("has_sse41")
+    }
+
+    /// How this function lowers `std.simd.f64x4`: `Narrow` unless its
+    /// builder chose `Wide` with [`Self::set_simd_width`].
+    pub(super) fn simd_width(&self) -> super::portable_simd::Width {
+        self.simd_width
+    }
+
+    pub(super) fn set_simd_width(&mut self, width: super::portable_simd::Width) {
+        self.simd_width = width;
     }
 
     pub(super) fn make_signature(&self) -> ir::Signature {

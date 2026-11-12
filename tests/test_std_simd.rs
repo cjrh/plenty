@@ -4,6 +4,11 @@ use rstest::rstest;
 use std::process::{Command, Output};
 
 fn run(source: &str, release: bool) -> Output {
+    run_at(source, release, "x86-64")
+}
+
+/// `cpu` is a `--cpu` level; other targets than x86-64 take only the default.
+fn run_at(source: &str, release: bool, cpu: &str) -> Output {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("simd.plenty");
     std::fs::write(&path, source).unwrap();
@@ -12,11 +17,30 @@ fn run(source: &str, release: bool) -> Output {
     if !release {
         command.arg("--fast-compile");
     }
+    if cpu != "x86-64" {
+        command.args(["--cpu", cpu]);
+    }
     command.arg(path).output().unwrap()
 }
 
+/// Whether this machine runs `cpu` code natively.
+fn host_runs(cpu: &str) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    return cpu != "x86-64-v3" || std::is_x86_feature_detected!("avx2");
+    #[cfg(not(target_arch = "x86_64"))]
+    return cpu == "x86-64";
+}
+
 fn passes(source: &str, release: bool) {
-    let out = run(source, release);
+    passes_at(source, release, "x86-64")
+}
+
+fn passes_at(source: &str, release: bool, cpu: &str) {
+    if !host_runs(cpu) {
+        eprintln!("skipped: this machine does not run {cpu} code");
+        return;
+    }
+    let out = run_at(source, release, cpu);
     assert!(
         out.status.success(),
         "{}",
@@ -1046,7 +1070,7 @@ fn list_transfers_are_packed_without_calls_or_enum_storage() {
             String::from_utf8_lossy(&out.stderr)
         );
         let dump = String::from_utf8_lossy(&out.stdout);
-        // `f64x4` is two `f64x2` parts at every CPU level (issue #962).
+        // `f64x4` is two `f64x2` parts below x86-64-v3 (issue #962).
         let (native, parts) = match vector {
             "f64x4" => ("f64x2".to_owned(), 2),
             _ => (vector.replace('u', "i"), 1),
@@ -1417,12 +1441,17 @@ def main() -> ():
 
 /// `f64x4` keeps four distinct lanes through every operation, its halves,
 /// promoted locals, merges, options and calls; the native lowering holds it
-/// as two `f64x2` parts (issue #962).
+/// as two `f64x2` parts, or one `ymm` register at x86-64-v3 (issue #962).
 #[rstest]
-#[case(false)]
-#[case(true)]
-fn four_f64_lanes_stay_distinct_through_halves_merges_and_calls(#[case] release: bool) {
-    passes(
+#[case(false, "x86-64")]
+#[case(true, "x86-64")]
+#[case(true, "x86-64-v2")]
+#[case(true, "x86-64-v3")]
+fn four_f64_lanes_stay_distinct_through_halves_merges_and_calls(
+    #[case] release: bool,
+    #[case] cpu: &str,
+) {
+    passes_at(
         r#"import std.simd as s
 from std.test import check
 
@@ -1511,20 +1540,81 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 "#,
         release,
+        cpu,
     );
 }
 
-/// Optimized `f64x4` arithmetic, folds and halves stay in two vector
-/// registers per value: no calls to scalar bodies and no enum storage.
-#[test]
+/// `f64x4` values kept in an `Option`, a class field and a closure capture,
+/// then used by vector operations, keep their four lanes at every level,
+/// including in `ymm` registers at x86-64-v3 (issue #962).
+#[rstest]
+#[case(false, "x86-64")]
+#[case(true, "x86-64")]
+#[case(true, "x86-64-v3")]
+fn four_f64_lanes_survive_options_classes_and_closures(#[case] release: bool, #[case] cpu: &str) {
+    passes_at(
+        r#"import std.simd as s
+from std.test import check
+
+class Body:
+    position: s.f64x4
+    velocity: s.f64x4
+
+    def step(self: &mut Body, dt: f64) -> ():
+        self.position = self.position.add(self.velocity.mul(s.splat_f64x4(dt)))
+
+def apply[F: Callable[[s.f64x4], s.f64x4]](f: &F, v: s.f64x4) -> s.f64x4:
+    f(v)
+
+def first_large(values: &list[s.f64x4], limit: f64) -> Option[s.f64x4]:
+    for v in values:
+        if v.sum_ordered(0.0) > limit:
+            return Some(*v)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut body = Body(s.f64x4.Lanes(1.0, -2.0, 0.5, -0.0), s.f64x4.Lanes(0.5, 0.25, -1.0, 2.0))
+    for _ in range(4):
+        body.step(0.5)
+    check(body.position.to_tuple() == (2.0, -1.5, -1.5, 4.0), "class").unwrap()
+    offset = s.f64x4.Lanes(10.0, 20.0, 30.0, f64.INF)
+    shift = def [offset](v: s.f64x4) -> s.f64x4:
+        v.add(offset).sqrt()
+    shifted = apply(&shift, s.f64x4.Lanes(6.0, 5.0, -30.0, 1.0))
+    check(shifted.to_tuple() == (4.0, 5.0, 0.0, f64.INF), "closure").unwrap()
+    values = [s.splat_f64x4(1.0), s.f64x4.Lanes(1.0, 2.0, 3.0, 4.0), s.splat_f64x4(9.0)]?
+    found = first_large(&values, 5.0)
+    match found:
+        case Some(v):
+            check(v.mul(v).to_tuple() == (1.0, 4.0, 9.0, 16.0), "option").unwrap()
+        case Nothing:
+            check(False, "option missing").unwrap()
+    no_vector: Option[s.f64x4] = Nothing
+    check(first_large(&values, 100.0) == no_vector, "option nothing").unwrap()
+    print("ok")?
+    Ok(())
+"#,
+        release,
+        cpu,
+    );
+}
+
+/// Optimized `f64x4` arithmetic, folds and halves stay in vector registers,
+/// two `f64x2` parts per value or one `ymm` register at x86-64-v3: no calls to
+/// scalar bodies and no enum storage.
+#[rstest]
+#[case("x86-64", 2)]
+#[case("x86-64-v2", 2)]
+#[case("x86-64-v3", 1)]
 #[cfg(target_arch = "x86_64")]
-fn four_f64_lanes_lower_to_two_native_parts() {
+fn four_f64_lanes_lower_to_native_parts(#[case] cpu: &str, #[case] parts: usize) {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("parts.plenty");
     std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x4, b: &s.f64x4) -> f64:\n    c = a.div(a.high().concat(b.low()))\n    c.sqrt().sum_ordered(0.0)\ndef main() -> ():\n    a = s.splat_f64x4(4.0)\n    print(kernel(&a, &a)).unwrap()\n").unwrap();
     let out = Command::new(support::plenty_bin())
         .env("PLENTY_CACHE", "off")
         .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+        .args(["--cpu", cpu])
         .arg(input)
         .args(["-o", "-"])
         .output()
@@ -1536,8 +1626,9 @@ fn four_f64_lanes_lower_to_two_native_parts() {
     );
     let dump = String::from_utf8_lossy(&out.stdout);
     for opcode in ["sqrtpd", "divpd"] {
-        assert_eq!(dump.matches(opcode).count(), 2, "{opcode}: {dump}");
+        assert_eq!(dump.matches(opcode).count(), parts, "{opcode}: {dump}");
     }
+    assert_eq!(dump.contains("%ymm"), parts == 1, "{dump}");
     // The only callees are the runtime's caller-location bookkeeping.
     assert!(
         dump.lines()

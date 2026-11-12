@@ -340,7 +340,9 @@ impl Lowerer<'_, '_> {
             locals.push((var, ty.clone()));
         }
         let optimizes = self.module.optimizes();
-        let portable_simd = portable_simd::State::new(body, &locals, inputs, self.bcx, optimizes);
+        let width = self.module.simd_width();
+        let portable_simd =
+            portable_simd::State::new(body, &locals, inputs, self.bcx, optimizes, width);
         let mut addressed = addressed_locals(body, &locals);
         for (index, addressed) in addressed.iter_mut().enumerate() {
             if portable_simd.promoted(index as u8) {

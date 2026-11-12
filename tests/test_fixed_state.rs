@@ -4,12 +4,17 @@ use std::path::Path;
 use std::process::Command;
 
 fn compile(source: &Path, output: &Path, optimize: bool) {
+    compile_at(source, output, optimize, plenty::CpuLevel::Baseline);
+}
+
+fn compile_at(source: &Path, output: &Path, optimize: bool, cpu: plenty::CpuLevel) {
     plenty::compile_file_to_executable_with_options(
         source,
         output,
         None,
         &plenty::CompileOptions {
             optimize,
+            cpu,
             ..Default::default()
         },
     )
@@ -505,6 +510,25 @@ fn both_profiles(source: &str) -> (tempfile::TempDir, [std::path::PathBuf; 2]) {
     (dir, programs)
 }
 
+/// The scalar build, the optimized build and, where this machine runs it, the
+/// optimized x86-64-v3 build, which holds `f64x4` in one `ymm` register.
+fn vector_profiles(source: &str) -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
+    let (dir, programs) = both_profiles(source);
+    let mut programs = programs.to_vec();
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx2") {
+        let wide = dir.path().join("wide");
+        compile_at(
+            &dir.path().join("main.plenty"),
+            &wide,
+            true,
+            plenty::CpuLevel::X86_64V3,
+        );
+        programs.push(wide);
+    }
+    (dir, programs)
+}
+
 #[test]
 fn vector_view_accesses_match_scalar_code_for_sizes_and_tails() {
     for shape in VECTORS {
@@ -515,21 +539,27 @@ fn vector_view_accesses_match_scalar_code_for_sizes_and_tails() {
                 shape,
                 count,
             );
-            let (_dir, [slow, fast]) = both_profiles(&source);
+            let (_dir, programs) = vector_profiles(&source);
+            let [slow, optimized @ ..] = &programs[..] else {
+                unreachable!()
+            };
             // `extra` rows make the lists longer than the guessed lengths:
             // the guard fails and the checked loop runs.
             for extra in [0, 1, 5] {
                 for steps in [-1, 0, 1, 2, 9] {
                     let args = [steps.to_string(), extra.to_string()];
                     let a =
-                        support::assert_success(Command::new(&slow).args(&args).output().unwrap());
-                    let b =
-                        support::assert_success(Command::new(&fast).args(&args).output().unwrap());
-                    let case = format!("{} count {count} {args:?}", shape.0);
-                    assert_eq!(a.stdout, b.stdout, "{case}");
-                    let text = String::from_utf8(b.stdout).unwrap();
-                    assert!(text.starts_with("True\n"), "{case}: {text}");
-                    assert_eq!(text.lines().count(), 1 + count + extra, "{case}");
+                        support::assert_success(Command::new(slow).args(&args).output().unwrap());
+                    for fast in optimized {
+                        let b = support::assert_success(
+                            Command::new(fast).args(&args).output().unwrap(),
+                        );
+                        let case = format!("{} count {count} {args:?} {fast:?}", shape.0);
+                        assert_eq!(a.stdout, b.stdout, "{case}");
+                        let text = String::from_utf8(b.stdout).unwrap();
+                        assert!(text.starts_with("True\n"), "{case}: {text}");
+                        assert_eq!(text.lines().count(), 1 + count + extra, "{case}");
+                    }
                 }
             }
         }
@@ -554,7 +584,7 @@ fn vector_view_accesses_outside_a_short_list_trap_in_the_fallback() {
             ": {vector}.set: index is outside 0..len_{vector}(values)\nnote: called from main.plenty:{}:",
             line(".set(out, 1)")
         );
-        let (_dir, programs) = both_profiles(&source);
+        let (_dir, programs) = vector_profiles(&source);
         let mut passing = Vec::new();
         for program in &programs {
             let run = |sources: usize, sinks: usize| {
@@ -586,6 +616,8 @@ fn vector_view_accesses_outside_a_short_list_trap_in_the_fallback() {
                 assert!(stderr.contains(message.as_str()), "{case}");
             }
         }
-        assert_eq!(passing[..3], passing[3..], "{vector}");
+        for program in passing.chunks(3).skip(1) {
+            assert_eq!(passing[..3], *program, "{vector}");
+        }
     }
 }

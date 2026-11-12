@@ -1,6 +1,7 @@
 //! CPU levels (`--cpu`, `[build] cpu`; issue #962): parsing and errors, the
 //! startup-check trampoline, VEX encodings without implicit FMA at
-//! x86-64-v3, identical float results at every level, and cache separation.
+//! x86-64-v3, identical float results at every level, `ymm` registers for
+//! `f64x4` at x86-64-v3 only, and cache separation.
 //! See book/src/design/toolchain/01-building/linking.md#cpu-levels.
 mod support;
 use std::path::Path;
@@ -37,6 +38,89 @@ def main() -> Result[(), IoError]:
     print(w.to_f64x4().to_tuple(), u.to_f32x4().to_f64x2().to_tuple(), v.to_f32x4().to_f64x2().to_tuple())?
     Ok(())
 ";
+
+/// `std.simd.f64x4` results printed as bit patterns: NaN payloads (quiet,
+/// signaling, negative), signed zeros, infinities and a subnormal through
+/// every operation, list and view transfers, and a loop whose vectors cross
+/// calls. At x86-64-v3 each `f64x4` is one `ymm` register.
+const F64X4_BITS: &str = r#"import std.bytes
+import std.encoding
+import std.simd as s
+from std.encoding import Endian
+
+def from_bits(value: u64) -> f64:
+    mut field = std.bytes.with_capacity(8).unwrap()
+    std.encoding.append_u64(&mut field, value, Endian.Little).unwrap()
+    std.encoding.unpack_f64(&field, 0, Endian.Little)
+
+def show(label: str, v: &s.f64x4) -> Result[(), IoError]:
+    mut field = std.bytes.with_capacity(32).unwrap()
+    (a, b, c, d) = v.to_tuple()
+    std.encoding.append_f64(&mut field, a, Endian.Big).unwrap()
+    std.encoding.append_f64(&mut field, b, Endian.Big).unwrap()
+    std.encoding.append_f64(&mut field, c, Endian.Big).unwrap()
+    std.encoding.append_f64(&mut field, d, Endian.Big).unwrap()
+    print(label, std.encoding.hex_text(&field).unwrap())
+
+# The loop calls `print` while `a`, `b` and `c` are live, so each crosses a
+# call in a spill slot.
+def spilled(n: i64, x: s.f64x4, y: s.f64x4) -> Result[s.f64x4, IoError]:
+    mut a = x
+    mut b = y
+    mut c = x.mul(y)
+    for i in range(n):
+        print(i)?
+        a = a.add(b).div(c)
+        b = b.mul(c).sqrt()
+        c = c.sub(a)
+    Ok(a.add(b).add(c))
+
+# Narrowing rounds each lane to `f32`; widening it back is exact.
+def converted(x: &s.f64x4) -> s.f64x4:
+    x.to_f32x4().to_f64x4()
+
+def streamed(values: &mut list[f64]) -> f64:
+    mut total = s.splat_f64x4(0.0)
+    for i in range(s.len_f64x4(values)):
+        v = s.get_f64x4(values, i)
+        total = total.add(v.mul(v)).div(v.sqrt())
+        total.set(values, i)
+    total.sum_ordered(0.0)
+
+def main() -> Result[(), AllocError | IoError]:
+    quiet = from_bits(0x7FF8000000001234u64)
+    signaling = from_bits(0xFFF0000000000ABCu64)
+    tiny = from_bits(1u64)
+    specials = s.f64x4.Lanes(quiet, -0.0, f64.INF, -f64.INF)
+    others = s.f64x4.Lanes(signaling, 0.0, -f64.INF, tiny)
+    plain = s.f64x4.Lanes(0.1, -3.5, 1e300, 2.5e-308)
+    vectors = [specials, others, plain, plain.high().concat(specials.low())]?
+    for x in &vectors:
+        show("sqrt", &x.sqrt())?
+        show("f32", &converted(x))?
+        for y in &vectors:
+            show("add", &x.add(y))?
+            show("sub", &x.sub(y))?
+            show("mul", &x.mul(y))?
+            show("div", &x.div(y))?
+            show("select lt", &x.simd_lt(y).select(x, y))?
+            show("select ge", &x.simd_ge(y).select(x, y))?
+            show("select eq", &x.simd_eq(y).select(y, x))?
+            show("select ne", &x.simd_ne(y).select(y, x))?
+            show("select le", &x.simd_le(y).select(y, x))?
+            show("select gt", &x.simd_gt(y).select(y, x))?
+            print("masks", x.simd_lt(y).count(), x.simd_eq(y).any(), x.simd_ne(y).all())?
+            show("halves", &x.high().concat(y.low()))?
+        print("sum", x.sum_ordered(-0.0), x.lane(3))?
+    show("spilled", &spilled(5, plain, others.add(plain))?)?
+    mut values = [0.5, 2.0, quiet, -0.0, f64.INF, tiny, 3.0, 1e-300, 7.0]?
+    print("streamed", streamed(&mut values))?
+    loaded = s.load_f64x4(&values, 1).unwrap()
+    show("loaded", &loaded)?
+    print("stored", loaded.sqrt().store(&mut values, 5), loaded.store(&mut values, 6))?
+    print(values)?
+    Ok(())
+"#;
 
 /// The compiler with the suite's cache settings removed and the cache off,
 /// unless a test sets `PLENTY_CACHE_DIR` itself.
@@ -420,4 +504,232 @@ fn scripts_take_a_level() {
     assert!(contains(&manifest, b"plenty_rt_require_cpu"));
     let flag = compile(&["--no-strip", "--cpu", "x86-64"]);
     assert!(!contains(&flag, b"plenty_rt_require_cpu"));
+}
+
+/// `f64x4` gives the same bits at every level, optimized or not. The
+/// unoptimized build runs the scalar Plenty bodies, so it is the reference.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn f64x4_bits_match_at_every_level_and_mode() {
+    let dir = setup(F64X4_BITS);
+    let mut outputs = Vec::new();
+    for level in LEVELS {
+        if level == "x86-64-v3" && !std::is_x86_feature_detected!("avx2") {
+            continue;
+        }
+        for mode in [None, Some("--fast-compile")] {
+            let exe = dir.path().join(format!("demo-{level}-{}", mode.is_some()));
+            succeed(
+                plenty(dir.path())
+                    .args(["--compile", "--cpu", level])
+                    .args(mode)
+                    .args(["demo.plenty", "-o"])
+                    .arg(&exe)
+                    .output()
+                    .unwrap(),
+                level,
+            );
+            let run = succeed(Command::new(&exe).output().unwrap(), level);
+            outputs.push(((level, mode), String::from_utf8(run.stdout).unwrap()));
+        }
+    }
+    let reference = &outputs[1].1;
+    assert!(
+        reference.contains("loaded 4006a09e667f3bcc7ff8000000001234fff8000000000000"),
+        "{reference}"
+    );
+    for (build, output) in &outputs {
+        assert_eq!(
+            output, reference,
+            "{build:?} differs from unoptimized x86-64"
+        );
+    }
+}
+
+/// Only x86-64-v3 code holds `f64x4` in `ymm` registers. A function with one
+/// clears the upper halves before each call, and its spill slots hold all
+/// 256 bits.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn only_v3_uses_ymm_registers() {
+    let dir = setup(F64X4_BITS);
+    for level in LEVELS {
+        let out = dir.path().join(format!("dump-{level}"));
+        succeed(
+            plenty(dir.path())
+                .args(["--dump", "asm", "--cpu", level, "demo.plenty", "-o"])
+                .arg(&out)
+                .output()
+                .unwrap(),
+            level,
+        );
+        let asm = std::fs::read_to_string(out.join("asm.txt")).unwrap();
+        let wide = level == "x86-64-v3";
+        assert_eq!(asm.contains("%ymm"), wide, "{level}");
+        let spilled = asm
+            .split("==== ")
+            .find(|function| function.starts_with("spilled "))
+            .unwrap_or_else(|| panic!("no spilled function in {asm}"));
+        if wide {
+            let converted = asm
+                .split("==== ")
+                .find(|function| function.starts_with("converted "))
+                .unwrap_or_else(|| panic!("no converted function in {asm}"));
+            for op in ["vcvtpd2ps", "vcvtps2pd", "vinsertf128"] {
+                assert!(converted.contains(op), "{op}: {converted}");
+            }
+            for op in ["vdivpd  %ymm", "vsqrtpd %ymm"] {
+                assert!(spilled.contains(op), "{op}: {spilled}");
+            }
+            assert!(
+                spilled.contains("(%rsp),%ymm"),
+                "no 256-bit reload: {spilled}"
+            );
+            let instructions: Vec<_> = spilled
+                .lines()
+                .filter(|line| !line.trim_start().starts_with('#'))
+                .collect();
+            for pair in instructions.windows(2) {
+                if pair[1].contains("  call ") {
+                    assert!(pair[0].contains("vzeroupper"), "{spilled}");
+                }
+            }
+        } else {
+            assert!(!asm.contains("vzeroupper"), "{level}");
+        }
+    }
+}
+
+/// A function that only holds four `f64` values, as a 4-tuple or an
+/// `f64x4` it passes on, keeps the two-part lowering at x86-64-v3: only a
+/// function performing an `f64x4` operation, here `scale` and `main`, which
+/// inlines it, uses `ymm` registers. `std.plot` and `examples/plot.plenty` hold such tuples and so
+/// compile as at x86-64-v2.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn only_f64x4_operations_make_a_function_wide() {
+    let dir = setup(
+        "import std.simd as s
+
+def corners(x: f64, y: f64) -> (f64, f64, f64, f64):
+    (x, y, x + 1.0, y + 1.0)
+
+def summed(x: f64) -> f64:
+    (p, q, r, t) = corners(x * 2.0, x + 3.0)
+    p + q + r + t
+
+def passed(v: s.f64x4) -> s.f64x4:
+    v
+
+def scale(x: f64) -> (f64, f64, f64, f64):
+    passed(s.splat_f64x4(x)).mul(s.splat_f64x4(2.0)).to_tuple()
+
+def main() -> Result[(), IoError]:
+    print(summed(1.5))?
+    print(scale(0.5))?
+    Ok(())
+",
+    );
+    let plot = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/plot.plenty");
+    std::fs::copy(plot, dir.path().join("plot.plenty")).unwrap();
+    for source in ["demo.plenty", "plot.plenty"] {
+        let out = dir.path().join(format!("dump-{source}"));
+        succeed(
+            plenty(dir.path())
+                .args(["--dump", "asm", "--cpu", "x86-64-v3", source, "-o"])
+                .arg(&out)
+                .output()
+                .unwrap(),
+            source,
+        );
+        let asm = std::fs::read_to_string(out.join("asm.txt")).unwrap();
+        for function in asm.split("==== ").skip(1) {
+            let name = function.split_whitespace().next().unwrap();
+            let wide = function.contains("%ymm") || function.contains("vzeroupper");
+            let narrow = match source {
+                "demo.plenty" => ["corners", "summed", "passed"].contains(&name),
+                _ => !name.contains("f64x4"),
+            };
+            assert!(!(narrow && wide), "{source}: {function}");
+            assert!(name != "scale" || wide, "{function}");
+        }
+    }
+}
+
+/// When the backend rejects a function's 256-bit form, the compiler builds
+/// it again with two `f64x2` parts: the program prints the same results and
+/// holds no `ymm` register. `PLENTY_TEST_REJECT_WIDE_SIMD` adds an
+/// instruction the fork rejects to each function built wide. The function
+/// and program caches keep the two forms apart in any order.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn rejected_wide_functions_are_rebuilt_narrow() {
+    const HOOK: &str = "PLENTY_TEST_REJECT_WIDE_SIMD";
+    let dir = setup(F64X4_BITS);
+    let asm = |rejected: bool| {
+        let out = dir.path().join(format!("dump-{rejected}"));
+        let mut command = plenty(dir.path());
+        if rejected {
+            command.env(HOOK, "1");
+        }
+        command.args(["--dump", "asm", "--cpu", "x86-64-v3", "demo.plenty", "-o"]);
+        succeed(command.arg(&out).output().unwrap(), "dump");
+        std::fs::read_to_string(out.join("asm.txt")).unwrap()
+    };
+    let wide = asm(false);
+    assert!(wide.contains("%ymm") && !wide.contains("simd=rebuilt-narrow"));
+    let narrow = asm(true);
+    assert!(
+        !narrow.contains("%ymm") && !narrow.contains("vzeroupper"),
+        "{narrow}"
+    );
+    // `--dump` marks each rebuilt function, and only those.
+    for function in wide.split("==== ").skip(1) {
+        let name = function.split_whitespace().next().unwrap();
+        let header = narrow
+            .split("==== ")
+            .find(|rebuilt| rebuilt.split_whitespace().next() == Some(name))
+            .and_then(|rebuilt| rebuilt.lines().next())
+            .unwrap_or_else(|| panic!("{name} missing from the rebuilt dump"));
+        let was_wide = function.contains("%ymm") || function.contains("vzeroupper");
+        assert_eq!(
+            header.ends_with("simd=rebuilt-narrow"),
+            was_wide,
+            "{header}"
+        );
+    }
+    if std::is_x86_feature_detected!("avx2") {
+        let mut outputs = Vec::new();
+        for rejected in [false, true] {
+            let exe = dir.path().join(format!("demo-{rejected}"));
+            let mut command = plenty(dir.path());
+            if rejected {
+                command.env(HOOK, "1");
+            }
+            command.args(["--compile", "--cpu", "x86-64-v3", "demo.plenty", "-o"]);
+            succeed(command.arg(&exe).output().unwrap(), "compile");
+            outputs.push(succeed(Command::new(&exe).output().unwrap(), "run").stdout);
+        }
+        assert_eq!(outputs[0], outputs[1]);
+    }
+    let level = "x86-64-v3";
+    let wide = object(dir.path(), level, |_| {});
+    let rebuilt = object(dir.path(), level, |command| {
+        command.env(HOOK, "1");
+    });
+    assert!(wide != rebuilt);
+    let cache = dir.path().join("cache");
+    for _ in 0..3 {
+        for (rejected, expected) in [(false, &wide), (true, &rebuilt)] {
+            let cached = object(dir.path(), level, |command| {
+                command
+                    .env_remove("PLENTY_CACHE")
+                    .env("PLENTY_CACHE_DIR", &cache);
+                if rejected {
+                    command.env(HOOK, "1");
+                }
+            });
+            assert!(cached == *expected, "rejected {rejected}: mixed forms");
+        }
+    }
 }

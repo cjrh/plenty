@@ -37,26 +37,25 @@ impl Shape {
     }
 
     /// The Cranelift type of one native part.
-    fn part(self) -> cranelift_codegen::ir::Type {
+    fn part(self, width: Width) -> cranelift_codegen::ir::Type {
         match self {
             Self::I32 | Self::U32 => types::I32X4,
             Self::F32 => types::F32X4,
+            Self::F64x4 if width == Width::Wide => types::F64X4,
             Self::F64x2 | Self::F64x4 => types::F64X2,
         }
     }
 
-    /// Native parts of one logical vector, in lane order. `f64x4` is two
-    /// `f64x2` parts at every CPU level: the x64 backend has no 256-bit
-    /// vectors yet (issue #962). Every operation applies to each part, so a
-    /// one-part `F64X4` lowering changes only this and [`Self::part`].
-    fn parts(self) -> usize {
-        if matches!(self, Self::F64x4) { 2 } else { 1 }
+    /// Native parts of one logical vector, in lane order. Every operation
+    /// applies to each part, except the halves and their concatenation.
+    fn parts(self, width: Width) -> usize {
+        self.lanes() / self.part(width).lane_count() as usize
     }
 
     /// The mask part matching [`Self::part`]: an all-ones or zero integer
     /// lane of the same width per logical lane.
-    fn mask_part(self) -> cranelift_codegen::ir::Type {
-        self.part().as_int()
+    fn mask_part(self, width: Width) -> cranelift_codegen::ir::Type {
+        self.part(width).as_int()
     }
 
     fn mask(self) -> &'static str {
@@ -68,8 +67,18 @@ impl Shape {
     }
 
     fn lanes(self) -> usize {
-        self.part().lane_count() as usize * self.parts()
+        if self == Self::F64x2 { 2 } else { 4 }
     }
+}
+
+/// How the target lowers `f64x4`. `Wide` is one 256-bit `F64X4` value, which
+/// the fork's x64 backend gives `ymm` registers with AVX2; `Narrow` is two
+/// `F64X2` parts. See [`super::symbols`]'s `simd_width` for the conditions.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum Width {
+    #[default]
+    Narrow,
+    Wide,
 }
 
 /// One value per native part of a logical vector, in lane order: SSA
@@ -83,11 +92,12 @@ pub(super) struct Parts<T> {
 type Native = Parts<NativeValue>;
 
 impl<T: Copy> Parts<T> {
-    fn new(shape: Shape, mut part: impl FnMut(usize) -> T) -> Self {
+    /// `count` is one or two.
+    fn new(count: usize, mut part: impl FnMut(usize) -> T) -> Self {
         let low = part(0);
         Self {
             low,
-            high: (shape.parts() == 2).then(|| part(1)),
+            high: (count == 2).then(|| part(1)),
         }
     }
 
@@ -212,6 +222,55 @@ impl Operation {
             _ => self.shape,
         }
     }
+
+    /// Whether the operation takes or returns an `f64x4`.
+    fn f64x4(&self) -> bool {
+        self.shape == Shape::F64x4 || self.result() == Shape::F64x4
+    }
+}
+
+/// Whether lowering `name`, whose body is `body`, performs an `f64x4`
+/// operation: the function is one, or it or a body it inlines calls one.
+/// Only such a function uses [`Width::Wide`]; a function that merely holds
+/// four `f64` values, such as a 4-tuple, keeps the two-part lowering and
+/// stays identical on every CPU level.
+pub(super) fn uses_f64x4(
+    name: &str,
+    body: &[Op],
+    functions: &HashMap<String, UserFn>,
+    optimize: bool,
+) -> bool {
+    let is_f64x4 = |name: &str| {
+        functions
+            .get(name)
+            .and_then(|decl| operation(name, decl, optimize))
+            .is_some_and(|operation| operation.f64x4())
+    };
+    if is_f64x4(name) {
+        return true;
+    }
+    let mut seen = crate::hash::HashSet::default();
+    let mut pending = vec![body];
+    let mut found = false;
+    while let Some(ops) = pending.pop() {
+        crate::threading::walk(ops, &mut |op| {
+            if let Op::Call(callee) | Op::TailCall(callee) = op {
+                if is_f64x4(callee) {
+                    found = true;
+                } else if let Some(inlined) = functions
+                    .get(callee.as_str())
+                    .and_then(|decl| decl.inline_body.as_deref())
+                    && seen.insert(callee.as_str())
+                {
+                    pending.push(inlined);
+                }
+            }
+        });
+        if found {
+            return true;
+        }
+    }
+    false
 }
 
 /// Exact numeric vector locals without mutable borrows and split numeric tuple
@@ -236,6 +295,7 @@ pub(super) struct State {
     /// addresses their storage.
     fresh: crate::hash::HashSet<NativeValue>,
     snapshots: Vec<Vec<Inst>>,
+    width: Width,
 }
 
 fn shape_of(ty: &Ty) -> Option<Shape> {
@@ -258,6 +318,11 @@ fn option_shape(ty: &Ty) -> Option<(Ty, Shape)> {
     Some((payload.clone(), shape_of(payload)?))
 }
 
+/// The 128-bit half of a 256-bit part type.
+fn wide_half(ty: cranelift_codegen::ir::Type) -> Option<cranelift_codegen::ir::Type> {
+    (ty.bits() == 256).then(|| ty.lane_type().by(ty.lane_count() / 2))?
+}
+
 impl State {
     pub(super) fn new(
         body: &[Op],
@@ -265,10 +330,15 @@ impl State {
         inputs: usize,
         builder: &mut FunctionBuilder<'_>,
         enabled: bool,
+        width: Width,
     ) -> Self {
         if !enabled || !cfg!(target_arch = "x86_64") {
             return Self::default();
         }
+        let empty = Self {
+            width,
+            ..Self::default()
+        };
         // Destructuring introduces a temporary StoreLocal/MoveLocal/Split.
         // Preserve a native tuple through that temporary as well as the stack.
         let mut tuples = Vec::new();
@@ -289,7 +359,7 @@ impl State {
                 || option_shape(ty).is_some()
                 || tuples.iter().any(|(tuple, _)| tuple == ty)
         }) {
-            return Self::default();
+            return empty;
         }
         let mut excluded = vec![false; locals.len()];
         fn visit(body: &[Op], excluded: &mut [bool], locals: &[(Variable, Ty)]) {
@@ -343,7 +413,9 @@ impl State {
             .filter_map(|(index, (_, ty))| {
                 let (_, shape) = option_shape(ty).filter(|_| !excluded[index])?;
                 let tag = builder.declare_var(types::I64);
-                let payload = Parts::new(shape, |_| builder.declare_var(shape.part()));
+                let payload = Parts::new(shape.parts(width), |_| {
+                    builder.declare_var(shape.part(width))
+                });
                 Some((index as u8, (tag, payload, shape)))
             })
             .collect();
@@ -360,14 +432,16 @@ impl State {
                         .iter()
                         .find_map(|(tuple, shape)| (tuple == ty).then_some(*shape))
                 })?;
-                let parts = Parts::new(shape, |_| builder.declare_var(shape.part()));
+                let parts = Parts::new(shape.parts(width), |_| {
+                    builder.declare_var(shape.part(width))
+                });
                 Some((index as u8, (parts, shape)))
             })
             .collect();
         Self {
             locals,
             options,
-            ..Self::default()
+            ..empty
         }
     }
 
@@ -766,10 +840,10 @@ impl Lowerer<'_, '_> {
         // x86-64 scales an index by at most 8, so a 16-byte vector's address
         // is `rows + (index + index) * 8`: one `lea` and the access's own
         // addressing mode, not a copy and a shift. A 32-byte vector's is
-        // `rows + (index << 2) * 8`, and its parts are 16 bytes apart.
-        let part_bytes = op.shape.part().bytes();
-        debug_assert_eq!(part_bytes, 16);
-        let scaled = if op.shape.parts() == 1 {
+        // `rows + (index << 2) * 8`, in one 32-byte part or two 16-byte parts.
+        let part = self.simd_part(op.shape);
+        let part_bytes = part.bytes();
+        let scaled = if part_bytes as usize * self.simd_parts(op.shape) == 16 {
             self.bcx.ins().iadd(index, index)
         } else {
             self.bcx.ins().ishl_imm_u(index, 2)
@@ -785,10 +859,8 @@ impl Lowerer<'_, '_> {
                 }
             }
             None => {
-                let vector = Parts::new(op.shape, |part| {
-                    self.bcx
-                        .ins()
-                        .load(op.shape.part(), flags, address, offset(part))
+                let vector = Parts::new(self.simd_parts(op.shape), |index| {
+                    self.bcx.ins().load(part, flags, address, offset(index))
                 });
                 let value = self.materialize_simd(vector, op.shape, &op.output);
                 self.stack.push((value, op.output.clone()));
@@ -796,12 +868,31 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    /// Logical lane `lane` of a native vector.
+    /// The Cranelift type of one native part of `shape` on this target.
+    fn simd_part(&self, shape: Shape) -> cranelift_codegen::ir::Type {
+        shape.part(self.portable_simd.width)
+    }
+
+    fn simd_parts(&self, shape: Shape) -> usize {
+        shape.parts(self.portable_simd.width)
+    }
+
+    /// Logical lane `lane` of a native vector. A lane of a 256-bit part is
+    /// read from its 128-bit half, so lanes of one half share an extract.
     fn native_lane(&mut self, vector: Native, lane: usize) -> NativeValue {
-        let per = self.bcx.func.dfg.value_type(vector.low).lane_count() as usize;
-        self.bcx
-            .ins()
-            .extractlane(vector.get(lane / per), (lane % per) as u8)
+        let ty = self.bcx.func.dfg.value_type(vector.low);
+        let per = ty.lane_count() as usize;
+        let mut part = vector.get(lane / per);
+        let mut index = lane % per;
+        if let Some(half) = wide_half(ty) {
+            let halves = half.lane_count() as usize;
+            part = self
+                .bcx
+                .ins()
+                .x86_vextractf128(half, part, (index / halves) as u8);
+            index %= halves;
+        }
+        self.bcx.ins().extractlane(part, index as u8)
     }
 
     /// A native vector of `lanes`, in lane order.
@@ -812,14 +903,30 @@ impl Lowerer<'_, '_> {
         lanes: &[NativeValue],
     ) -> Native {
         let per = ty.lane_count() as usize;
-        Parts::new(shape, |part| {
+        Parts::new(shape.lanes() / per, |part| {
             let lanes = &lanes[part * per..][..per];
-            let mut vector = self.bcx.ins().splat(ty, lanes[0]);
-            for (index, &lane) in lanes.iter().enumerate().skip(1) {
-                vector = self.bcx.ins().insertlane(vector, lane, index as u8);
-            }
-            vector
+            // Two 128-bit halves pair their lanes with one unpack each; a
+            // 256-bit insert per lane would broadcast and blend.
+            let Some(half) = wide_half(ty) else {
+                return self.vector_from_lanes(ty, lanes);
+            };
+            let (low, high) = lanes.split_at(half.lane_count() as usize);
+            let low = self.vector_from_lanes(half, low);
+            let high = self.vector_from_lanes(half, high);
+            self.bcx.ins().x86_vinsertf128(ty, low, high)
         })
+    }
+
+    fn vector_from_lanes(
+        &mut self,
+        ty: cranelift_codegen::ir::Type,
+        lanes: &[NativeValue],
+    ) -> NativeValue {
+        let mut vector = self.bcx.ins().splat(ty, lanes[0]);
+        for (index, &lane) in lanes.iter().enumerate().skip(1) {
+            vector = self.bcx.ins().insertlane(vector, lane, index as u8);
+        }
+        vector
     }
 
     fn record_simd_snapshot(&mut self, before: Option<Inst>) {
@@ -926,7 +1033,7 @@ impl Lowerer<'_, '_> {
             lanes.push(self.pop_typed(shape.lane())?.0);
         }
         lanes.reverse();
-        let vector = self.native_from_lanes(shape, shape.part(), &lanes);
+        let vector = self.native_from_lanes(shape, self.simd_part(shape), &lanes);
         let value = self.materialize_simd(vector, shape, ty);
         self.stack.push((value, ty.clone()));
         Ok(true)
@@ -985,7 +1092,8 @@ impl Lowerer<'_, '_> {
             Shape::F64x2 | Shape::F64x4 => self.bcx.ins().f64const(0.0),
             Shape::I32 | Shape::U32 => self.bcx.ins().iconst(types::I32, 0),
         };
-        Parts::new(shape, |_| self.bcx.ins().splat(shape.part(), zero))
+        let part = self.simd_part(shape);
+        Parts::new(self.simd_parts(shape), |_| self.bcx.ins().splat(part, zero))
     }
 
     /// The canonical `Option[Vector]` for tag word `tag` (1 is `Some`) and
@@ -1021,8 +1129,8 @@ impl Lowerer<'_, '_> {
         let some = self.bcx.create_block();
         let nothing = self.bcx.create_block();
         let done = self.bcx.create_block();
-        for _ in 0..shape.parts() {
-            self.bcx.append_block_param(done, shape.part());
+        for _ in 0..self.simd_parts(shape) {
+            self.bcx.append_block_param(done, self.simd_part(shape));
         }
         self.bcx.ins().brif(tag, some, &[], nothing, &[]);
         self.bcx.switch_to_block(some);
@@ -1038,7 +1146,7 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);
         let params = self.bcx.block_params(done).to_vec();
-        (tag, Parts::new(shape, |part| params[part]))
+        (tag, Parts::new(params.len(), |part| params[part]))
     }
 
     pub(super) fn read_simd_local(&mut self, index: u8) -> Option<NativeValue> {
@@ -1116,9 +1224,9 @@ impl Lowerer<'_, '_> {
     fn gather_simd_lanes(&mut self, storage: NativeValue, shape: Shape, mask: bool) -> Native {
         let scalar = if mask { Ty::Bool } else { shape.lane() };
         let vector_ty = if mask {
-            shape.mask_part()
+            shape.mask_part(self.portable_simd.width)
         } else {
-            shape.part()
+            self.simd_part(shape)
         };
         let mut lanes = Vec::with_capacity(shape.lanes());
         for index in 0..shape.lanes() {
@@ -1157,7 +1265,8 @@ impl Lowerer<'_, '_> {
             .bcx
             .ins()
             .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
-        let row_bytes = i64::from(op.shape.part().lane_type().bytes());
+        let part = self.simd_part(op.shape);
+        let row_bytes = i64::from(part.lane_type().bytes());
         let length = self.dense_list_len(owner, row_bytes);
         let limit = self
             .bcx
@@ -1169,11 +1278,11 @@ impl Lowerer<'_, '_> {
         let outcome = if store { types::I8 } else { types::I64 };
         self.bcx.append_block_param(done, outcome);
         if !store {
-            for _ in 0..op.shape.parts() {
-                self.bcx.append_block_param(done, op.shape.part());
+            for _ in 0..self.simd_parts(op.shape) {
+                self.bcx.append_block_param(done, part);
             }
         }
-        let offset_of = |part: usize| (part as u32 * op.shape.part().bytes()) as i32;
+        let offset_of = |index: usize| (index as u32 * part.bytes()) as i32;
         let negative = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, offset, 0);
         self.bcx.ins().brif(negative, miss, &[], bounded, &[]);
         self.bcx.switch_to_block(bounded);
@@ -1195,10 +1304,8 @@ impl Lowerer<'_, '_> {
                 Some(_) => None,
                 None if fits => {
                     let address = self.row_address(rows, offset, row_bytes);
-                    Some(Parts::new(op.shape, |part| {
-                        self.bcx
-                            .ins()
-                            .load(op.shape.part(), flags, address, offset_of(part))
+                    Some(Parts::new(self.simd_parts(op.shape), |index| {
+                        self.bcx.ins().load(part, flags, address, offset_of(index))
                     }))
                 }
                 None => Some(self.zero_simd(op.shape)),
@@ -1217,7 +1324,7 @@ impl Lowerer<'_, '_> {
         let params = self.bcx.block_params(done).to_vec();
         let value = match params[..] {
             [tag, ref vector @ ..] if !store => {
-                let vector = Parts::new(op.shape, |part| vector[part]);
+                let vector = Parts::new(vector.len(), |part| vector[part]);
                 self.option_simd(tag, vector, op.shape, &op.output)
             }
             _ => params[0],
@@ -1245,7 +1352,10 @@ impl Lowerer<'_, '_> {
             return;
         }
         if matches!(op.action, Action::Splat) {
-            let vector = Parts::new(op.shape, |_| self.bcx.ins().splat(op.shape.part(), args[0]));
+            let part = self.simd_part(op.shape);
+            let vector = Parts::new(self.simd_parts(op.shape), |_| {
+                self.bcx.ins().splat(part, args[0])
+            });
             let value = self.materialize_simd(vector, op.shape, &op.output);
             self.stack.push((value, op.output.clone()));
             return;
@@ -1270,6 +1380,13 @@ impl Lowerer<'_, '_> {
         }
         if matches!(op.action, Action::Sqrt | Action::Half(_)) {
             let result = match op.action {
+                Action::Half(high) if left.high.is_none() => Parts {
+                    low: self
+                        .bcx
+                        .ins()
+                        .x86_vextractf128(types::F64X2, left.low, u8::from(high)),
+                    high: None,
+                },
                 Action::Half(high) => Parts {
                     low: left.get(usize::from(high)),
                     high: None,
@@ -1284,30 +1401,44 @@ impl Lowerer<'_, '_> {
             // `cvtpd2ps` rounds as the scalar cast does and zeroes lanes 2
             // and 3; `cvtps2pd` widens lanes 0 and 1 exactly. `f64x4` moves
             // 64-bit halves between its parts and the `f32x4`, viewed as
-            // `f64x2`.
+            // `f64x2`. A 256-bit `f64x4` part is converted as its two halves,
+            // which the fork's 256-bit lowering does not convert.
             let little =
                 MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
             let result = if matches!(op.shape, Shape::F32) {
-                Parts::new(to, |part| {
-                    let mut source = left.low;
-                    if part == 1 {
-                        // Bytes 8-15 in both halves: one `pshufd`.
-                        let mask = (8..16).chain(8..16).collect::<Vec<u8>>();
-                        let mask = self
-                            .bcx
-                            .func
-                            .dfg
-                            .immediates
-                            .push(cranelift_codegen::ir::ConstantData::from(&mask[..]));
-                        let bytes = self.bcx.ins().bitcast(types::I8X16, little, source);
-                        let high = self.bcx.ins().shuffle(bytes, bytes, mask);
-                        source = self.bcx.ins().bitcast(types::F32X4, little, high);
-                    }
-                    self.bcx.ins().fvpromote_low(source)
-                })
+                let low = self.bcx.ins().fvpromote_low(left.low);
+                let high = (to == Shape::F64x4).then(|| {
+                    // Bytes 8-15 in both halves: one `pshufd`.
+                    let mask = (8..16).chain(8..16).collect::<Vec<u8>>();
+                    let mask = self
+                        .bcx
+                        .func
+                        .dfg
+                        .immediates
+                        .push(cranelift_codegen::ir::ConstantData::from(&mask[..]));
+                    let bytes = self.bcx.ins().bitcast(types::I8X16, little, left.low);
+                    let high = self.bcx.ins().shuffle(bytes, bytes, mask);
+                    let high = self.bcx.ins().bitcast(types::F32X4, little, high);
+                    self.bcx.ins().fvpromote_low(high)
+                });
+                match high {
+                    Some(high) if self.simd_parts(to) == 1 => Parts {
+                        low: self.bcx.ins().x86_vinsertf128(types::F64X4, low, high),
+                        high: None,
+                    },
+                    high => Parts { low, high },
+                }
             } else {
-                let mut low = self.bcx.ins().fvdemote(left.low);
-                if let Some(high) = left.high {
+                let (low, high) = match left.high {
+                    Some(high) => (left.low, Some(high)),
+                    None if wide_half(self.bcx.func.dfg.value_type(left.low)).is_some() => (
+                        self.bcx.ins().x86_vextractf128(types::F64X2, left.low, 0),
+                        Some(self.bcx.ins().x86_vextractf128(types::F64X2, left.low, 1)),
+                    ),
+                    None => (left.low, None),
+                };
+                let mut low = self.bcx.ins().fvdemote(low);
+                if let Some(high) = high {
                     let high = self.bcx.ins().fvdemote(high);
                     let high = self.bcx.ins().bitcast(types::F64X2, little, high);
                     let high = self.bcx.ins().extractlane(high, 0);
@@ -1351,13 +1482,18 @@ impl Lowerer<'_, '_> {
         let result = match (op.action, mask) {
             (Action::Select, Some(mask)) => {
                 mask.zip(left.zip(right, |l, r| (l, r)), |m, (l, r)| {
-                    let m = self
-                        .bcx
-                        .ins()
-                        .bitcast(op.shape.part(), MemFlagsData::new(), m);
+                    let ty = self.bcx.func.dfg.value_type(l);
+                    let m = self.bcx.ins().bitcast(ty, MemFlagsData::new(), m);
                     self.bcx.ins().bitselect(m, l, r)
                 })
             }
+            (Action::Concat, _) if self.portable_simd.width == Width::Wide => Parts {
+                low: self
+                    .bcx
+                    .ins()
+                    .x86_vinsertf128(types::F64X4, left.low, right.low),
+                high: None,
+            },
             (Action::Concat, _) => Parts {
                 low: left.low,
                 high: Some(right.low),

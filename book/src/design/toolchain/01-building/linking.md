@@ -70,11 +70,30 @@ lists the valid ones, and a level other than `x86-64` on an AArch64 target is an
 error. The default output is unchanged by this feature.
 
 At `x86-64-v3`, Cranelift encodes SSE operations with VEX, uses three-operand
-forms, and selects BMI and LZCNT instructions; `std.simd` stays 128 bits wide.
+forms, and selects BMI and LZCNT instructions. Optimized code holds
+`std.simd.f64x4` and `mask64x4` in one 256-bit `ymm` register each on Linux and
+macOS; other `std.simd` shapes stay 128 bits wide, and Windows keeps `f64x4` as
+two 128-bit halves because its calling convention preserves `xmm6`-`xmm15`.
 Code generation never contracts `x * y + z` into a fused multiply-add, at any
 level, so scalar and `std.simd` float results are bit-identical across levels.
-Only 128-bit VEX code is emitted, so no `vzeroupper` is needed at calls into
-the runtime or C code compiled for SSE.
+
+Only a function that performs an `f64x4` operation, or inlines one, holds a
+256-bit value. A function that only stores four `f64` values, such as a 4-tuple
+or an `f64x4` it passes on, compiles as at `x86-64-v2` apart from VEX
+encodings. If the backend cannot lower such a function's 256-bit form, the
+compiler builds that function again with two 128-bit halves, which gives the
+same results; a level never makes a program fail to compile. The
+[`--dump`](../02-architecture/dump.md) header of such a function ends
+with `simd=rebuilt-narrow`.
+
+A function that holds a 256-bit value executes `vzeroupper` before every call
+and return, so the runtime, C code compiled for SSE and other Plenty functions
+never run with dirty upper halves, and no 256-bit value is live across a call:
+it is spilled. In such a function every float spill slot and register move is
+256 bits wide. Arguments and results are at most 128 bits: calls pass an
+`f64x4` as they do at other levels. The 256-bit lowering is
+a change in Plenty's [Cranelift fork](../../../development/workflow.md#cranelift-and-regalloc2-forks),
+not upstream Cranelift.
 
 **Startup check.** Above `x86-64`, the exported `plenty_main` is a trampoline
 compiled at the baseline. It calls the runtime's `plenty_rt_require_cpu`, which

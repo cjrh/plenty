@@ -32,8 +32,9 @@ and other distributions are not tested; see the
 [ARM development notes](../../../development/linux-aarch64.md). x86-64 retains
 its SSE2 baseline by default; `--cpu x86-64-v2` or `x86-64-v3` selects a
 [CPU level](../01-building/linking.md#cpu-levels) checked at startup, with
-128-bit VEX code at v3 and no 256-bit vectors; `std.simd.f64x4` is two
-128-bit halves at every level. Selecting `--target` or a linker does not turn an installed
+VEX code at v3, where optimized `std.simd.f64x4` uses one 256-bit `ymm`
+register; below v3, on Windows and in unoptimized builds it is two 128-bit
+halves or the scalar module bodies. Selecting `--target` or a linker does not turn an installed
 compiler into a cross-compiler.
 
 Native emission for `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` is
