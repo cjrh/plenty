@@ -240,6 +240,8 @@ The [Benchmarks Game baseline refresh](completed-work/performance.md#benchmarks-
 records full-suite measurements at `1ade579c`; optimization scope remains here.
 The [benchmark source pages](completed-work/performance.md#benchmarks-game-source-pages-2026-11-12)
 make the measured programs available alongside that baseline.
+A [nine-worker regex-redux variant](completed-work/performance.md#parallel-regex-redux-2026-11-12)
+now also matches the reference's parallel pattern counting.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
 (issue #743) is concluded; its delivered fixes and rejected counting experiment
 are recorded there.

@@ -19,7 +19,7 @@ Threads: 9. License: [Benchmarks Game revised BSD](../benchmarks-game.md#referen
 {{#include ../../../../benchmarks/game/regex-redux/reference/regexredux.rs}}
 ```
 
-The site links the regex crate from /opt/src/rust-libs; reference/Cargo.toml pins regex 1.12.3, the version in the workspace lockfile. The reference counts the 9 variants on 9 threads; the Plenty program uses std.regex on one thread.
+The site links the regex crate from /opt/src/rust-libs; reference/Cargo.toml pins regex 1.12.3, the version in the workspace lockfile. The reference counts the 9 variants on 9 threads; the idiomatic Plenty program uses std.regex on one thread. The parallel variant uses nine pool workers, with one pattern per job, while the main thread performs the five dependent substitutions. Each job owns its compiled regex and an immutable sequence handle; the sequence bytes are shared without copying. Results are printed in pattern order, and worker and submission errors propagate to the caller.
 
 ## Plenty: idiomatic
 
@@ -29,4 +29,14 @@ Threads: 1.
 
 ```plenty fragment
 {{#include ../../../../benchmarks/game/regex-redux/plenty/regexredux.plenty}}
+```
+
+## Plenty: parallel
+
+Threads: 9 pool workers, plus the main thread, matching the reference's counting parallelism.
+
+`benchmarks/game/regex-redux/plenty/regexredux_parallel.plenty`
+
+```plenty fragment
+{{#include ../../../../benchmarks/game/regex-redux/plenty/regexredux_parallel.plenty}}
 ```
