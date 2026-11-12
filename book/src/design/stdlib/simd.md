@@ -245,23 +245,36 @@ scalar bodies remain available. The AArch64 implementation currently uses these
 scalar bodies, including in optimized builds; ARM vector acceleration is separate
 work.
 The same source semantics apply with and without optimization. No runtime ISA
-selection or newer CPU feature is required. At
-[`--cpu x86-64-v3`](../toolchain/01-building/linking.md#cpu-levels) the same
-128-bit operations use VEX encodings; vectors stay 128 bits wide, nothing is
-fused into FMA, and results are bit-identical to the default level.
+selection is performed. At
+[`--cpu x86-64-v3`](../toolchain/01-building/linking.md#cpu-levels) the 128-bit
+operations use VEX encodings, nothing is fused into FMA, and results are
+bit-identical to the default level and to the unoptimized scalar bodies,
+including NaN payloads, signed zeros and infinities.
 
-`f64x4` lowers to two 128-bit `f64x2` halves at every CPU level: each
-operation is two native operations, a load or store is two unaligned 16-byte
-accesses after one bounds test, and `low()`, `high()` and `concat` select or
-pair halves without moving lanes. A `mask64x4` is
-likewise two native 128-bit masks. In a kernel, `f64x4` therefore costs what the same work written as two
-`f64x2` values costs; it does not use 256-bit AVX registers. Lane counts that
-are not a multiple of the vector width still need a scalar or narrower tail,
-and that tail can cost more than the vector work it follows.
+Below x86-64-v3, `f64x4` lowers to two 128-bit `f64x2` halves: each operation
+is two native operations, a load or store is two unaligned 16-byte accesses
+after one bounds test, and `low()`, `high()` and `concat` select or pair halves
+without moving lanes. A `mask64x4` is likewise two native 128-bit masks, and
+`f64x4` costs what the same work written as two `f64x2` values costs.
+
+At x86-64-v3 on Linux and macOS, an `f64x4` or `mask64x4` is one 256-bit `ymm`
+register: arithmetic, `sqrt`, comparisons, `select` and bitwise mask operations
+are one AVX instruction, a load or store is one unaligned 32-byte access after
+one bounds test, `low()` and `high()` extract a 128-bit half and `concat`
+inserts one. A function that holds such a value spills it across calls and
+clears the upper halves before each call and return (see
+[CPU levels](../toolchain/01-building/linking.md#cpu-levels)); all of its float
+spills and moves are 256 bits. On AMD Zen 4, 256-bit division and square root
+take half the time per lane of their 128-bit forms; on Intel cores whose
+dividers are 128 bits wide only addition and multiplication are expected to
+gain ([measurements](../../completed-work/performance.md#f64x4-in-ymm-registers-issue-962-stage-4)).
+Windows keeps the two halves at every level. Lane counts that are not a multiple
+of the vector width still need a scalar or narrower tail, and that tail can cost
+more than the vector work it follows.
 
 Storage boundaries, copying and lane assembly can dominate short operations.
 Explicit SIMD is not a blanket speedup over scalar code, and this module does
-not replace the packed-column lowering used by `clist`. 256-bit registers, `f32x8`, integer vectors wider than 128 bits, fused multiply-add, a view type that owns its vector count, generic
+not replace the packed-column lowering used by `clist`. `f32x8`, integer vectors wider than 128 bits, fused multiply-add, a view type that owns its vector count, generic
 lane counts, gathers/scatters, casts, shifts and integer division are not in this
 initial surface. See the [tutorial](../../tutorial/07-modules/19-portable-simd.md)
 and the [implementation evidence](../../proposals/std-simd/implementation.md).

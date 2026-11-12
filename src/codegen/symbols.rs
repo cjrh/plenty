@@ -169,6 +169,27 @@ impl Symbols {
         self.declared.isa.triple().architecture == target_lexicon::Architecture::X86_64
     }
 
+    /// How `std.simd.f64x4` is lowered. The fork's x64 backend gives
+    /// `F64X4` a `ymm` register with AVX2 (`x86-64-v3`), for the System V and
+    /// Tail conventions only (issue #962); Windows x64 preserves `xmm6`-`xmm15`
+    /// across calls, which its 256-bit lowering does not support.
+    pub(super) fn simd_width(&self) -> super::portable_simd::Width {
+        let isa = &self.declared.isa;
+        let triple = isa.triple();
+        let avx2 = isa
+            .isa_flags()
+            .iter()
+            .any(|flag| flag.name == "has_avx2" && flag.as_bool() == Some(true));
+        if triple.architecture == target_lexicon::Architecture::X86_64
+            && triple.operating_system != target_lexicon::OperatingSystem::Windows
+            && avx2
+        {
+            super::portable_simd::Width::Wide
+        } else {
+            super::portable_simd::Width::Narrow
+        }
+    }
+
     pub(super) fn make_signature(&self) -> ir::Signature {
         ir::Signature::new(self.declared.isa.default_call_conv())
     }

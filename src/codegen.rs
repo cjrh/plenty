@@ -2203,6 +2203,7 @@ fn build_user_function(
             decl.sig.inputs.len(),
             &mut bcx,
             module.optimizes(),
+            module.simd_width(),
         );
         let mut addressed = addressed_locals(body, &locals);
         for (index, addressed) in addressed.iter_mut().enumerate() {
