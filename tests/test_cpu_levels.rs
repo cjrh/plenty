@@ -586,3 +586,121 @@ fn only_v3_uses_ymm_registers() {
         }
     }
 }
+
+/// A function that only holds four `f64` values, as a 4-tuple or an
+/// `f64x4` it passes on, keeps the two-part lowering at x86-64-v3: only a
+/// function performing an `f64x4` operation, here `scale` and `main`, which
+/// inlines it, uses `ymm` registers. `std.plot` and `examples/plot.plenty` hold such tuples and so
+/// compile as at x86-64-v2.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn only_f64x4_operations_make_a_function_wide() {
+    let dir = setup(
+        "import std.simd as s
+
+def corners(x: f64, y: f64) -> (f64, f64, f64, f64):
+    (x, y, x + 1.0, y + 1.0)
+
+def summed(x: f64) -> f64:
+    (p, q, r, t) = corners(x * 2.0, x + 3.0)
+    p + q + r + t
+
+def passed(v: s.f64x4) -> s.f64x4:
+    v
+
+def scale(x: f64) -> (f64, f64, f64, f64):
+    passed(s.splat_f64x4(x)).mul(s.splat_f64x4(2.0)).to_tuple()
+
+def main() -> Result[(), IoError]:
+    print(summed(1.5))?
+    print(scale(0.5))?
+    Ok(())
+",
+    );
+    let plot = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/plot.plenty");
+    std::fs::copy(plot, dir.path().join("plot.plenty")).unwrap();
+    for source in ["demo.plenty", "plot.plenty"] {
+        let out = dir.path().join(format!("dump-{source}"));
+        succeed(
+            plenty(dir.path())
+                .args(["--dump", "asm", "--cpu", "x86-64-v3", source, "-o"])
+                .arg(&out)
+                .output()
+                .unwrap(),
+            source,
+        );
+        let asm = std::fs::read_to_string(out.join("asm.txt")).unwrap();
+        for function in asm.split("==== ").skip(1) {
+            let name = function.split_whitespace().next().unwrap();
+            let wide = function.contains("%ymm") || function.contains("vzeroupper");
+            let narrow = match source {
+                "demo.plenty" => ["corners", "summed", "passed"].contains(&name),
+                _ => !name.contains("f64x4"),
+            };
+            assert!(!(narrow && wide), "{source}: {function}");
+            assert!(name != "scale" || wide, "{function}");
+        }
+    }
+}
+
+/// When the backend rejects a function's 256-bit form, the compiler builds
+/// it again with two `f64x2` parts: the program prints the same results and
+/// holds no `ymm` register. `PLENTY_TEST_REJECT_WIDE_SIMD` adds an
+/// instruction the fork rejects to each function built wide. The function
+/// and program caches keep the two forms apart in any order.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn rejected_wide_functions_are_rebuilt_narrow() {
+    const HOOK: &str = "PLENTY_TEST_REJECT_WIDE_SIMD";
+    let dir = setup(F64X4_BITS);
+    let asm = |rejected: bool| {
+        let out = dir.path().join(format!("dump-{rejected}"));
+        let mut command = plenty(dir.path());
+        if rejected {
+            command.env(HOOK, "1");
+        }
+        command.args(["--dump", "asm", "--cpu", "x86-64-v3", "demo.plenty", "-o"]);
+        succeed(command.arg(&out).output().unwrap(), "dump");
+        std::fs::read_to_string(out.join("asm.txt")).unwrap()
+    };
+    assert!(asm(false).contains("%ymm"));
+    let narrow = asm(true);
+    assert!(
+        !narrow.contains("%ymm") && !narrow.contains("vzeroupper"),
+        "{narrow}"
+    );
+    if std::is_x86_feature_detected!("avx2") {
+        let mut outputs = Vec::new();
+        for rejected in [false, true] {
+            let exe = dir.path().join(format!("demo-{rejected}"));
+            let mut command = plenty(dir.path());
+            if rejected {
+                command.env(HOOK, "1");
+            }
+            command.args(["--compile", "--cpu", "x86-64-v3", "demo.plenty", "-o"]);
+            succeed(command.arg(&exe).output().unwrap(), "compile");
+            outputs.push(succeed(Command::new(&exe).output().unwrap(), "run").stdout);
+        }
+        assert_eq!(outputs[0], outputs[1]);
+    }
+    let level = "x86-64-v3";
+    let wide = object(dir.path(), level, |_| {});
+    let rebuilt = object(dir.path(), level, |command| {
+        command.env(HOOK, "1");
+    });
+    assert!(wide != rebuilt);
+    let cache = dir.path().join("cache");
+    for _ in 0..3 {
+        for (rejected, expected) in [(false, &wide), (true, &rebuilt)] {
+            let cached = object(dir.path(), level, |command| {
+                command
+                    .env_remove("PLENTY_CACHE")
+                    .env("PLENTY_CACHE_DIR", &cache);
+                if rejected {
+                    command.env(HOOK, "1");
+                }
+            });
+            assert!(cached == *expected, "rejected {rejected}: mixed forms");
+        }
+    }
+}

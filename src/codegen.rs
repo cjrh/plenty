@@ -370,10 +370,11 @@ fn program_object(
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} cpu {} test hooks {} coverage {} executable pruning {}",
+                "optimize {} cpu {} test hooks {} {} coverage {} executable pruning {}",
                 build.optimize,
                 build.cpu.name(),
                 build.test_hooks,
+                output::reject_wide_for_tests(),
                 build.coverage,
                 build.prune_user
             );
@@ -2163,7 +2164,33 @@ fn build_user_function(
     if decl.generator.is_some() {
         return generators::build_generator(name, body, fns, str_data, runtime, out);
     }
+    let wide = {
+        let module = out.symbols();
+        module.wide_available() && portable_simd::uses_f64x4(name, body, fns, module.optimizes())
+    };
+    let width = if wide {
+        portable_simd::Width::Wide
+    } else {
+        portable_simd::Width::Narrow
+    };
+    build_user_function_at(name, body, fns, str_data, runtime, out, width)
+}
+
+/// [`build_user_function`] with `f64x4` lowered at `width`. If the backend
+/// rejects the `Wide` form, the function is built again `Narrow`: the
+/// results are the same, and only the instructions differ.
+fn build_user_function_at(
+    name: &str,
+    body: &[Op],
+    fns: &HashMap<String, UserFn>,
+    str_data: &StrData,
+    runtime: &Runtime,
+    out: &mut Worker,
+    width: portable_simd::Width,
+) -> Result<()> {
+    let decl = &fns[name];
     let mut module = out.symbols();
+    module.set_simd_width(width);
     let cl_sig = user_fn_signature(&decl.sig);
 
     let mut func = out.take_function(decl.id, cl_sig);
@@ -2293,7 +2320,17 @@ fn build_user_function(
         lower.finish_portable_simd();
         bcx.finalize(crate::codegen::FRONTEND);
     }
-    out.define(decl.id, func, module);
+    if !out.define(decl.id, func, module) {
+        return build_user_function_at(
+            name,
+            body,
+            fns,
+            str_data,
+            runtime,
+            out,
+            portable_simd::Width::Narrow,
+        );
+    }
     if let Some(id) = decl.drop_callback {
         let mut module = out.symbols();
         let mut signature = module.make_signature();

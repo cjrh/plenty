@@ -598,8 +598,15 @@ impl Worker {
         func
     }
 
-    /// Compile `func`, built against `symbols`, as the body of `id`.
-    pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) {
+    /// Compile `func`, built against `symbols`, as the body of `id`. Return
+    /// false, defining nothing, when the backend rejects a function built
+    /// with `Wide` `f64x4` lowering (see `portable_simd::Width`); its builder
+    /// then builds it again `Narrow`. Other failures are kept as the code.
+    pub(super) fn define(&mut self, id: FuncId, mut func: Function, mut symbols: Symbols) -> bool {
+        let wide = symbols.simd_width() == super::portable_simd::Width::Wide;
+        if wide && reject_wide_for_tests() {
+            insert_unsupported_wide(&mut func);
+        }
         let release = symbols.declared_function("plenty_release");
         super::empty_slots::remove_empty_releases(&mut func, release);
         super::known::fold_constant_branches(&mut func);
@@ -622,6 +629,12 @@ impl Worker {
             self.cache.as_deref(),
             capture.as_deref_mut(),
         );
+        if wide
+            && let Err(message) = &code
+            && message.starts_with(WIDE_REJECTED)
+        {
+            return false;
+        }
         let (requests, checks) = symbols.finish();
         self.built.push(Built {
             id,
@@ -630,7 +643,34 @@ impl Worker {
             checks,
             capture,
         });
+        true
     }
+}
+
+/// How [`describe_error`] begins the fork's rejection of a function with
+/// 256-bit vectors, which it reports instead of miscompiling one.
+const WIDE_REJECTED: &str = "Unsupported(\"256-bit vectors in ";
+
+/// Test hook: with `PLENTY_TEST_REJECT_WIDE_SIMD` set, every function built
+/// with `Wide` lowering also stores an `fneg` of an `F64X4` value, which the
+/// fork's admission check rejects, so tests exercise the `Narrow` rebuild.
+/// The program cache's key includes it.
+pub(super) fn reject_wide_for_tests() -> bool {
+    static SET: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| std::env::var_os("PLENTY_TEST_REJECT_WIDE_SIMD").is_some())
+}
+
+fn insert_unsupported_wide(func: &mut Function) {
+    use cranelift_codegen::cursor::{Cursor, FuncCursor};
+    use cranelift_codegen::ir::{InstBuilder, StackSlotData, StackSlotKind, types};
+    let slot = func.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 32, 5));
+    let entry = func.layout.entry_block().expect("entry block");
+    let mut cursor = FuncCursor::new(func);
+    cursor.goto_first_insertion_point(entry);
+    let zero = cursor.ins().f64const(0.0);
+    let vector = cursor.ins().splat(types::F64X4, zero);
+    let negated = cursor.ins().fneg(vector);
+    cursor.ins().stack_store(types::I64, negated, slot, 0);
 }
 
 /// Describe a Cranelift failure to compile one function. Plenty does not use

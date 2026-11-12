@@ -1087,9 +1087,12 @@ At `--cpu x86-64-v3`, optimized `std.simd.f64x4` and `mask64x4` values are one
 256-bit `ymm` register each, through x64 lowering rules in Plenty's Cranelift
 fork (see [`std.simd` lowering](../design/stdlib/simd.md#rust-relationship-and-initial-limits)).
 Results are bit-identical to x86-64, x86-64-v2 and the unoptimized scalar
-bodies. Objects at x86-64 and x86-64-v2, and unoptimized objects at v3, are
-byte-identical to those of the stage 3 compiler for 22 sample programs
-(examples, the fixed-state fixture and `f64x4` probes).
+bodies. Only a function that performs an `f64x4` operation uses `ymm`
+registers, and one whose 256-bit form the backend rejects is rebuilt with two
+halves. For 22 sample programs (examples, the fixed-state fixture and two
+`f64x4` probes), every object is byte-identical to the stage 3 compiler's
+except the probes' optimized v3 objects; `examples/plot.plenty`, whose
+`std.plot` functions hold `(f64, f64, f64, f64)` tuples, is unchanged.
 
 AMD Zen 4, core 0, release compiler, `PLENTY_CACHE=off`, three interleaved
 rounds, minimum per program. List kernels over 1024-element `list[f64]` views,
@@ -1097,9 +1100,9 @@ cycles per element:
 
 | Kernel at v3 | `f64x2` | `f64x4`, two halves | `f64x4`, `ymm` |
 |---|---:|---:|---:|
-| `y = a * x + y` (no FMA) | 0.577 | 0.783 | 0.570 |
-| `x / y` | 2.465 | 2.281 | 1.171 |
-| `sqrt(x)` | 4.432 | 4.310 | 2.260 |
+| `y = a * x + y` (no FMA) | 0.572 | 0.788 | 0.576 |
+| `x / y` | 2.432 | 2.394 | 1.204 |
+| `sqrt(x)` | 4.411 | 4.426 | 2.255 |
 
 Zen 4 executes 256-bit `vdivpd` and `vsqrtpd` at the per-lane rate of two
 128-bit operations, so division and square root double. `axpy` is limited by
@@ -1115,15 +1118,15 @@ n-body, five million steps, eight padded layouts, median across layouts
 
 | Program | Two halves | `ymm` |
 |---|---:|---:|
-| `f64x2` magnitudes | 199.8 / 540 | 199.9 / 540 (unchanged code) |
-| `f64x4` magnitudes, scalar tail | 215.6 / 539 | 213.3 / 523 |
-| `f64x4` magnitudes, `f64x2` tail | 200.2 / 540 | 206.9 / 550 |
+| `f64x2` magnitudes | 200.3 / 540 | 200.3 / 540 (unchanged code) |
+| `f64x4` magnitudes, scalar tail | 216.0 / 539 | 213.7 / 523 |
+| `f64x4` magnitudes, `f64x2` tail | 200.5 / 540 | 207.6 / 550 |
 
 The magnitude loop is one `ymm` loop, but n-body is not limited by it: the
 fixed-state pass keeps the bodies in scalar variables, so most of `advance` is
 scalar arithmetic and spills. Once a function holds a 256-bit value, every
 float spill and register move in it is 256 bits wide; the scalar spills of
-`advance` double in width, and the `f64x2`-tail variant is 6.7 cycles slower
+`advance` double in width, and the `f64x2`-tail variant is 7.1 cycles slower
 per step. Narrow spills for scalar values in such functions are the next step
 for this variant. Building an `f64x4` from scalar lanes pairs them in two
 128-bit halves (`vmovlhps`) and joins the halves with `vinsertf128`. Inserting

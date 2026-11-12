@@ -77,6 +77,13 @@ two 128-bit halves because its calling convention preserves `xmm6`-`xmm15`.
 Code generation never contracts `x * y + z` into a fused multiply-add, at any
 level, so scalar and `std.simd` float results are bit-identical across levels.
 
+Only a function that performs an `f64x4` operation, or inlines one, holds a
+256-bit value. A function that only stores four `f64` values, such as a 4-tuple
+or an `f64x4` it passes on, compiles as at `x86-64-v2` apart from VEX
+encodings. If the backend cannot lower such a function's 256-bit form, the
+compiler builds that function again with two 128-bit halves, which gives the
+same results; a level never makes a program fail to compile.
+
 A function that holds a 256-bit value executes `vzeroupper` before every call
 and return, so the runtime, C code compiled for SSE and other Plenty functions
 never run with dirty upper halves, and no 256-bit value is live across a call:

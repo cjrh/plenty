@@ -261,8 +261,10 @@ At x86-64-v3 on Linux and macOS, an `f64x4` or `mask64x4` is one 256-bit `ymm`
 register: arithmetic, `sqrt`, comparisons, `select` and bitwise mask operations
 are one AVX instruction, a load or store is one unaligned 32-byte access after
 one bounds test, `low()` and `high()` extract a 128-bit half and `concat`
-inserts one. A function that holds such a value spills it across calls and
-clears the upper halves before each call and return (see
+inserts one. Only a function that performs an `f64x4` operation holds such a
+value; it spills the value across calls and clears the upper halves before each
+call and return, and if the backend cannot lower it, the function is compiled
+with two halves instead (see
 [CPU levels](../toolchain/01-building/linking.md#cpu-levels)); all of its float
 spills and moves are 256 bits. On AMD Zen 4, 256-bit division and square root
 take half the time per lane of their 128-bit forms; on Intel cores whose

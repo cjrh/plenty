@@ -217,6 +217,55 @@ impl Operation {
             _ => self.shape,
         }
     }
+
+    /// Whether the operation takes or returns an `f64x4`.
+    fn f64x4(&self) -> bool {
+        self.shape == Shape::F64x4 || self.result() == Shape::F64x4
+    }
+}
+
+/// Whether lowering `name`, whose body is `body`, performs an `f64x4`
+/// operation: the function is one, or it or a body it inlines calls one.
+/// Only such a function uses [`Width::Wide`]; a function that merely holds
+/// four `f64` values, such as a 4-tuple, keeps the two-part lowering and
+/// stays identical on every CPU level.
+pub(super) fn uses_f64x4(
+    name: &str,
+    body: &[Op],
+    functions: &HashMap<String, UserFn>,
+    optimize: bool,
+) -> bool {
+    let is_f64x4 = |name: &str| {
+        functions
+            .get(name)
+            .and_then(|decl| operation(name, decl, optimize))
+            .is_some_and(|operation| operation.f64x4())
+    };
+    if is_f64x4(name) {
+        return true;
+    }
+    let mut seen = crate::hash::HashSet::default();
+    let mut pending = vec![body];
+    let mut found = false;
+    while let Some(ops) = pending.pop() {
+        crate::threading::walk(ops, &mut |op| {
+            if let Op::Call(callee) | Op::TailCall(callee) = op {
+                if is_f64x4(callee) {
+                    found = true;
+                } else if let Some(inlined) = functions
+                    .get(callee.as_str())
+                    .and_then(|decl| decl.inline_body.as_deref())
+                    && seen.insert(callee.as_str())
+                {
+                    pending.push(inlined);
+                }
+            }
+        });
+        if found {
+            return true;
+        }
+    }
+    false
 }
 
 /// Exact numeric vector locals without mutable borrows and split numeric tuple

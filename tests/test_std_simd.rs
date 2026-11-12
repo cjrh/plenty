@@ -1463,6 +1463,61 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// `f64x4` values kept in an `Option`, a class field and a closure capture,
+/// then used by vector operations, keep their four lanes at every level,
+/// including in `ymm` registers at x86-64-v3 (issue #962).
+#[rstest]
+#[case(false, "x86-64")]
+#[case(true, "x86-64")]
+#[case(true, "x86-64-v3")]
+fn four_f64_lanes_survive_options_classes_and_closures(#[case] release: bool, #[case] cpu: &str) {
+    passes_at(
+        r#"import std.simd as s
+from std.test import check
+
+class Body:
+    position: s.f64x4
+    velocity: s.f64x4
+
+    def step(self: &mut Body, dt: f64) -> ():
+        self.position = self.position.add(self.velocity.mul(s.splat_f64x4(dt)))
+
+def apply[F: Callable[[s.f64x4], s.f64x4]](f: &F, v: s.f64x4) -> s.f64x4:
+    f(v)
+
+def first_large(values: &list[s.f64x4], limit: f64) -> Option[s.f64x4]:
+    for v in values:
+        if v.sum_ordered(0.0) > limit:
+            return Some(*v)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut body = Body(s.f64x4.Lanes(1.0, -2.0, 0.5, -0.0), s.f64x4.Lanes(0.5, 0.25, -1.0, 2.0))
+    for _ in range(4):
+        body.step(0.5)
+    check(body.position.to_tuple() == (2.0, -1.5, -1.5, 4.0), "class").unwrap()
+    offset = s.f64x4.Lanes(10.0, 20.0, 30.0, f64.INF)
+    shift = def [offset](v: s.f64x4) -> s.f64x4:
+        v.add(offset).sqrt()
+    shifted = apply(&shift, s.f64x4.Lanes(6.0, 5.0, -30.0, 1.0))
+    check(shifted.to_tuple() == (4.0, 5.0, 0.0, f64.INF), "closure").unwrap()
+    values = [s.splat_f64x4(1.0), s.f64x4.Lanes(1.0, 2.0, 3.0, 4.0), s.splat_f64x4(9.0)]?
+    found = first_large(&values, 5.0)
+    match found:
+        case Some(v):
+            check(v.mul(v).to_tuple() == (1.0, 4.0, 9.0, 16.0), "option").unwrap()
+        case Nothing:
+            check(False, "option missing").unwrap()
+    no_vector: Option[s.f64x4] = Nothing
+    check(first_large(&values, 100.0) == no_vector, "option nothing").unwrap()
+    print("ok")?
+    Ok(())
+"#,
+        release,
+        cpu,
+    );
+}
+
 /// Optimized `f64x4` arithmetic, folds and halves stay in vector registers,
 /// two `f64x2` parts per value or one `ymm` register at x86-64-v3: no calls to
 /// scalar bodies and no enum storage.
