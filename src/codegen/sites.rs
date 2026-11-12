@@ -543,6 +543,7 @@ fn primitive_reads_no_caller(op: &Op) -> bool {
         | Op::PushBool(_)
         | Op::PushStr(_)
         | Op::PushUnit
+        | Op::Proved(..)
         | Op::Add
         | Op::Sub
         | Op::Mul

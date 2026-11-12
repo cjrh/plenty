@@ -298,12 +298,13 @@ impl Lowerer<'_, '_> {
             && is_signed(ty.clone())
             && !self.nonnegative_division(a, b, proof);
         if let Some(divisor) = known::known_signed(&self.bcx.func.dfg, b) {
-            let zero = (proof == crate::numeric::Divisor::Any && divisor == 0)
-                .then(|| self.bcx.ins().iconst(types::I8, 1));
+            let zero =
+                (proof.may_be_zero() && divisor == 0).then(|| self.bcx.ins().iconst(types::I8, 1));
             let minus_one = (signed && divisor == -1).then(|| self.bcx.ins().iconst(types::I8, 1));
             return (zero, minus_one);
         }
-        let zero = (proof == crate::numeric::Divisor::Any)
+        let zero = proof
+            .may_be_zero()
             .then(|| self.bcx.ins().icmp_imm_s(IntCC::Equal, b, 0));
         let minus_one = signed.then(|| self.bcx.ins().icmp_imm_s(IntCC::Equal, b, -1));
         (zero, minus_one)

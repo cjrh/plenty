@@ -398,6 +398,7 @@ impl Scan {
                 | Op::CheckedArith { .. }
                 // `walk` inspects the wrapped arithmetic or indexing operation too.
                 | Op::Assumed(_)
+                | Op::Proved(..)
                 | Op::Cast(_)
                 | Op::CheckedCast(_)
                 | Op::PushInt(_)
@@ -757,6 +758,15 @@ impl Parser {
             clauses,
         })
     }
+}
+
+/// What computed a `len(x)` call.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Length {
+    /// A built-in collection, text or view: a stored count, never negative.
+    Collection,
+    /// A class or enum `len` method, which returns any i64.
+    Method,
 }
 
 impl Lower<'_> {
@@ -6186,6 +6196,125 @@ impl Lower<'_> {
         }
     }
 
+    /// Lower `len(args)` and say what computed it. Each return names its
+    /// source from the argument's resolved type, so lowering a nested
+    /// `len` inside the argument cannot change the answer.
+    pub(super) fn length(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Length> {
+        let name = "len";
+        if args.len() != 1 {
+            return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
+        }
+        // Normalize explicit shared call borrowing before receiver dispatch.
+        // `&source[a:b]` constructs a view instead, so keep its `&` intact.
+        let arg = match &ungroup(&args[0]).kind {
+            Expression::Unary(op, inner)
+                if op == "&" && !matches!(ungroup(inner).kind, Expression::Slice(..)) =>
+            {
+                inner
+            }
+            _ => &args[0],
+        };
+        if let Some(length) = self.literal_byte_count(arg) {
+            ops.push(Op::PushInt(Value::I64(length)));
+            return Ok(Length::Collection);
+        }
+        // A projection borrows its enclosing owner, including when that
+        // owner is a temporary or returned reference. Reuse method receiver
+        // lowering rather than asking a projected field/element to move.
+        if let Some((receiver, root)) = self.hold_receiver_root(arg, ops)? {
+            let result = self.length(&[receiver], at, ops);
+            self.names.remove(&root);
+            return result;
+        }
+        if let Some(ty @ Ty::Clist(_)) = self.place_type(arg) {
+            let (_, loan) = self.borrow(arg, false, ops)?;
+            ops.push(Op::Collection(CollectionOp::Clist(
+                crate::clist::ClistOp::Len(ty),
+            )));
+            Self::end_reads(vec![loan], ops);
+            return Ok(Length::Collection);
+        }
+        if let Some(ty @ Ty::List(_)) = self.place_type(arg) {
+            let (_, loan) = self.borrow(arg, false, ops)?;
+            ops.push(Op::Collection(CollectionOp::ListLenRef(ty)));
+            Self::end_reads(vec![loan], ops);
+            return Ok(Length::Collection);
+        }
+        if self.dictionary_projection_type(arg).is_some() || self.is_dictionary_projection(arg) {
+            let (ty, loans) = self.observe(arg, ops)?;
+            let Ty::DictView(owner, _) = ty else {
+                unreachable!("dictionary projection length")
+            };
+            ops.push(Op::Reborrow(Ty::Ref(owner.clone(), false)));
+            ops.push(Op::ReadRef((*owner).clone()));
+            Self::push_query(CollectionOp::Len((*owner).clone()), ops);
+            Self::end_reads(loans, ops);
+            return Ok(Length::Collection);
+        }
+        if let Some(ty) = self.place_type(arg)
+            && classes::method_owner(&ty).is_some()
+        {
+            self.validate_length_method(&ty, at)?;
+            self.method(arg, "len", &[], ops)?;
+            return Ok(Length::Method);
+        }
+        let (reference, loan) = self.shared_argument(arg, None, ops)?;
+        let ty = match &reference {
+            Ty::Ref(inner, _) => (**inner).clone(),
+            Ty::View(..) => reference.clone(),
+            _ => unreachable!("shared length argument"),
+        };
+        if classes::method_owner(&ty).is_some() {
+            self.validate_length_method(&ty, at)?;
+            // Keep a reference-shaped temporary: storing an observed owner
+            // would transfer its cleanup responsibility away from its source.
+            let slot = self.slot(reference.clone(), at)?;
+            ops.push(Op::StoreLocal(slot));
+            self.bind_reference(slot, loan, false, ops);
+            let name = format!("__plenty_length_receiver_{slot}");
+            self.bind(
+                name.clone(),
+                Local {
+                    slot,
+                    ty: reference,
+                    mutable: false,
+                },
+            );
+            let receiver = Expr {
+                at: arg.at.clone(),
+                kind: Expression::Name(name.clone()),
+            };
+            self.method(&receiver, "len", &[], ops)?;
+            self.names.remove(&name);
+            Self::end_reads(vec![loan], ops);
+            return Ok(Length::Method);
+        }
+        if matches!(reference, Ty::Ref(..)) {
+            ops.push(Op::ReadRef(ty.clone()));
+        }
+        if let Ty::View(..) = ty {
+            ops.push(Op::Collection(if ty == text_view() {
+                // Scalars, as for `str`; `v.byte_len()` is the stored count.
+                CollectionOp::TextView(crate::text::TextViewOp::Len)
+            } else {
+                CollectionOp::ViewLen(ty)
+            }));
+            Self::end_reads(vec![loan], ops);
+            return Ok(Length::Collection);
+        }
+        if ty.element().is_none() || ty.restricted_storage() && !matches!(ty, Ty::KeyView(_)) {
+            return Err(at.error(format!("len() is not defined for `{ty}`; use a collection or slice view with a known length")));
+        }
+        Self::push_query(CollectionOp::Len(ty), ops);
+        Self::end_reads(vec![loan], ops);
+        Ok(Length::Collection)
+    }
+
     pub(super) fn builtin_collection(
         &mut self,
         name: &str,
@@ -6209,111 +6338,7 @@ impl Lower<'_> {
             return Err(at.error(format!("{name} requires one iterable; empty collections need a type annotation or typed constructor")));
         }
         if name == "len" {
-            // Normalize explicit shared call borrowing before receiver dispatch.
-            // `&source[a:b]` constructs a view instead, so keep its `&` intact.
-            let arg = match &ungroup(&args[0]).kind {
-                Expression::Unary(op, inner)
-                    if op == "&" && !matches!(ungroup(inner).kind, Expression::Slice(..)) =>
-                {
-                    inner
-                }
-                _ => &args[0],
-            };
-            if let Some(length) = self.literal_byte_count(arg) {
-                ops.push(Op::PushInt(Value::I64(length)));
-                return Ok(Ty::I64);
-            }
-            // A projection borrows its enclosing owner, including when that
-            // owner is a temporary or returned reference. Reuse method receiver
-            // lowering rather than asking a projected field/element to move.
-            if let Some((receiver, root)) = self.hold_receiver_root(arg, ops)? {
-                let result = self.builtin_collection(name, &[receiver], at, ops);
-                self.names.remove(&root);
-                return result;
-            }
-            if let Some(ty @ Ty::Clist(_)) = self.place_type(arg) {
-                let (_, loan) = self.borrow(arg, false, ops)?;
-                ops.push(Op::Collection(CollectionOp::Clist(
-                    crate::clist::ClistOp::Len(ty),
-                )));
-                Self::end_reads(vec![loan], ops);
-                return Ok(Ty::I64);
-            }
-            if let Some(ty @ Ty::List(_)) = self.place_type(arg) {
-                let (_, loan) = self.borrow(arg, false, ops)?;
-                ops.push(Op::Collection(CollectionOp::ListLenRef(ty)));
-                Self::end_reads(vec![loan], ops);
-                return Ok(Ty::I64);
-            }
-            if self.dictionary_projection_type(arg).is_some() || self.is_dictionary_projection(arg)
-            {
-                let (ty, loans) = self.observe(arg, ops)?;
-                let Ty::DictView(owner, _) = ty else {
-                    unreachable!("dictionary projection length")
-                };
-                ops.push(Op::Reborrow(Ty::Ref(owner.clone(), false)));
-                ops.push(Op::ReadRef((*owner).clone()));
-                Self::push_query(CollectionOp::Len((*owner).clone()), ops);
-                Self::end_reads(loans, ops);
-                return Ok(Ty::I64);
-            }
-            if let Some(ty) = self.place_type(arg)
-                && classes::method_owner(&ty).is_some()
-            {
-                self.validate_length_method(&ty, at)?;
-                self.method(arg, "len", &[], ops)?;
-                return Ok(Ty::I64);
-            }
-            let (reference, loan) = self.shared_argument(arg, None, ops)?;
-            let ty = match &reference {
-                Ty::Ref(inner, _) => (**inner).clone(),
-                Ty::View(..) => reference.clone(),
-                _ => unreachable!("shared length argument"),
-            };
-            if classes::method_owner(&ty).is_some() {
-                self.validate_length_method(&ty, at)?;
-                // Keep a reference-shaped temporary: storing an observed owner
-                // would transfer its cleanup responsibility away from its source.
-                let slot = self.slot(reference.clone(), at)?;
-                ops.push(Op::StoreLocal(slot));
-                self.bind_reference(slot, loan, false, ops);
-                let name = format!("__plenty_length_receiver_{slot}");
-                self.bind(
-                    name.clone(),
-                    Local {
-                        slot,
-                        ty: reference,
-                        mutable: false,
-                    },
-                );
-                let receiver = Expr {
-                    at: arg.at.clone(),
-                    kind: Expression::Name(name.clone()),
-                };
-                self.method(&receiver, "len", &[], ops)?;
-                self.names.remove(&name);
-                Self::end_reads(vec![loan], ops);
-                return Ok(Ty::I64);
-            }
-            if matches!(reference, Ty::Ref(..)) {
-                ops.push(Op::ReadRef(ty.clone()));
-            }
-            if let Ty::View(..) = ty {
-                ops.push(Op::Collection(if ty == text_view() {
-                    // Scalars, as for `str`; `v.byte_len()` is the stored count.
-                    CollectionOp::TextView(crate::text::TextViewOp::Len)
-                } else {
-                    CollectionOp::ViewLen(ty)
-                }));
-                Self::end_reads(vec![loan], ops);
-                return Ok(Ty::I64);
-            }
-            if ty.element().is_none() || ty.restricted_storage() && !matches!(ty, Ty::KeyView(_)) {
-                return Err(at.error(format!("len() is not defined for `{ty}`; use a collection or slice view with a known length")));
-            }
-            Self::push_query(CollectionOp::Len(ty), ops);
-            Self::end_reads(vec![loan], ops);
-            return Ok(Ty::I64);
+            return self.length(args, at, ops).map(|_| Ty::I64);
         }
         if self.is_view(&args[0]) {
             if name == "list"
@@ -6423,6 +6448,7 @@ impl Lower<'_> {
             if args.len() != 1 {
                 return Err(at.error("numeric casts take one argument"));
             }
+            self.interval = None;
             let source = self.value(&args[0], ops)?;
             if !source.is_numeric() {
                 return Err(casts::operand_error(

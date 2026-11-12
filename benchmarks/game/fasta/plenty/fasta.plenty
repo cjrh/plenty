@@ -19,21 +19,22 @@ const IUB_CODES: bytes = b"acgtBDHKMNRSVWY"
 const HOMO_SAPIENS_CODES: bytes = b"acgt"
 
 type Out = std.io.BufWriter[std.io.Stdout]
-type FastaError = AllocError | OverflowError[i64] | ZeroDivisionError | std.io.Partial
+type FastaError = AllocError | OverflowError[i64] | std.io.Partial
 type AppError = FastaError | IoError | ParseError | std.io.StreamError
 
 
 # A remainder by IM. The type gives every reader the range, so the
-# generator's multiply and add are compiled without overflow checks.
+# generator's multiply and add cannot overflow and `next` returns no error.
 type Seed = Bounded[i64, 0, SEED_MAX]
 
 
 class Rng:
     seed: Seed
 
-    def next(self: &mut Rng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
-        self.seed = Seed.from((self.seed.get() * IA + IC) % IM)
-        Ok(self.seed.get())
+    def next(self: &mut Rng) -> i64:
+        value = (self.seed.get() * IA + IC) % IM
+        self.seed = Seed.from(value)
+        value
 
 
 # Cumulative limits in 0..=IM, accumulated in f32 as the reference does.
@@ -85,7 +86,7 @@ def random_fasta(out: &mut Out, block: &mut std.bytes.Bytes, rng: &mut Rng, code
         else:
             BLOCK_SIZE
         for i in range(count):
-            r = rng.next()?
+            r = rng.next()
             mut k = 0
             while limits[k] < r:
                 k += 1

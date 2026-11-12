@@ -144,6 +144,78 @@ impl Lower<'_> {
         result
     }
 
+    /// The errors `operation` on `ty` can produce.
+    fn failures(&self, operation: Checked, ty: &Ty, at: &Token) -> Result<Vec<Ty>> {
+        let mut failures = Vec::new();
+        if operation.divides() {
+            failures.push(self.arithmetic_error("ZeroDivisionError", None, at)?);
+        }
+        if operation.overflows(ty) {
+            failures.push(self.arithmetic_error("OverflowError", Some(ty), at)?);
+        }
+        if operation.shifts() {
+            failures.push(self.arithmetic_error("ShiftCountError", Some(ty), at)?);
+        }
+        Ok(failures)
+    }
+
+    /// Record, in an enclosing `checked:` block, the errors the integer
+    /// operator `op` has when no interval proves anything about it. `right`
+    /// is its right operand; a literal divisor or count and a masked count
+    /// are proofs by themselves.
+    ///
+    /// A block's error type therefore does not depend on interval proofs:
+    /// the same block is accepted, with the same type, for every
+    /// instantiation of a generic function, and stays valid when a proof
+    /// removes a check. The proved operation is still emitted without its
+    /// check. A function's own contract has no such rule: an unused declared
+    /// error is already legal there.
+    /// See `book/src/design/language/03-types/intervals.md#checked-blocks`.
+    pub(super) fn block_errors(
+        &mut self,
+        op: &str,
+        ty: &Ty,
+        right: Option<&Expr>,
+        at: &Token,
+    ) -> Result<()> {
+        if !ty.is_int()
+            || !self
+                .checked
+                .last()
+                .is_some_and(|scope| scope.arithmetic && !scope.function)
+        {
+            return Ok(());
+        }
+        let operation = match op {
+            "<<" | ">>" => {
+                let (min, end) = ty.int_range().expect("an integer type");
+                let width = i128::from((end - min).trailing_zeros());
+                if right.is_some_and(|count| {
+                    self.known_integer(count).is_some() || self.masked_count(count, width)
+                }) {
+                    return Ok(());
+                }
+                if op == "<<" {
+                    Checked::ShiftLeft
+                } else {
+                    Checked::ShiftRight
+                }
+            }
+            _ => match Checked::named(op, self.known_divisor(op, right)) {
+                Some(operation) => operation,
+                None => return Ok(()),
+            },
+        };
+        let failures = self.failures(operation, ty, at)?;
+        let scope = self.checked.last_mut().expect("checked above");
+        for failure in failures {
+            if !scope.failures.contains(&failure) {
+                scope.failures.push(failure);
+            }
+        }
+        Ok(())
+    }
+
     /// Select recoverable arithmetic at the nearest boundary and record its
     /// possible errors. False selects the ordinary operator in unchecked code
     /// or when divisor proofs remove every failure.
@@ -161,16 +233,7 @@ impl Lower<'_> {
             return Ok(false);
         }
         let start = scope.start;
-        let mut failures = Vec::new();
-        if operation.divides() {
-            failures.push(self.arithmetic_error("ZeroDivisionError", None, at)?);
-        }
-        if operation.overflows(ty) {
-            failures.push(self.arithmetic_error("OverflowError", Some(ty), at)?);
-        }
-        if operation.shifts() {
-            failures.push(self.arithmetic_error("ShiftCountError", Some(ty), at)?);
-        }
+        let failures = self.failures(operation, ty, at)?;
         if failures.is_empty() {
             return Ok(false);
         }
@@ -210,6 +273,30 @@ impl Lower<'_> {
     /// Push `op`, an ordinary integer operation on `ty` that traps when its
     /// preconditions fail. Inside an assuming `unchecked:` suite it becomes
     /// [`Op::Assumed`], which omits the checks; a violation is undefined.
+    /// Emit `+`, `-` or `*` on `ty` without a check when `outcome` proves it
+    /// cannot overflow. The same verdict keeps `OverflowError` out of the
+    /// function's errors and selects the unchecked instruction, so the
+    /// checker and native lowering cannot disagree. False emits nothing.
+    pub(super) fn proved_arithmetic(
+        &self,
+        op: &str,
+        ty: &Ty,
+        outcome: Option<crate::interval::Outcome>,
+        ops: &mut Vec<Op>,
+    ) -> bool {
+        let operation = match op {
+            "+" => Op::Add,
+            "-" => Op::Sub,
+            "*" => Op::Mul,
+            _ => return false,
+        };
+        let Some(outcome) = outcome.filter(|outcome| ty.is_int() && outcome.proved()) else {
+            return false;
+        };
+        ops.push(Op::Proved(Box::new(operation), outcome.value));
+        true
+    }
+
     pub(super) fn push_trapping(&self, op: Op, ty: &Ty, ops: &mut Vec<Op>) {
         let fallible = ty.is_int()
             && matches!(

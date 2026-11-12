@@ -2483,6 +2483,7 @@ impl Lowerer<'_, '_> {
             | Op::PushInt(_)
             | Op::PushBool(_)
             | Op::PushFloat { .. }
+            | Op::Proved(..)
             | Op::Add
             | Op::Sub
             | Op::Mul

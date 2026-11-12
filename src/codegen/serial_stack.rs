@@ -305,7 +305,7 @@ impl<'a> Graph<'a> {
                 | Op::ForeignCall { .. }
                 | Op::Thread(_)
                 | Op::Executor(_) => self.unknown = true,
-                Op::Assumed(inner) => self.body(std::slice::from_ref(inner)),
+                Op::Assumed(inner) | Op::Proved(inner, _) => self.body(std::slice::from_ref(inner)),
                 // Each nested definition is analyzed independently in prepare.
                 Op::DefineFn(..) => {}
                 Op::Match(arms) => {

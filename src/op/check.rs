@@ -2,6 +2,8 @@
 //! the IR's public surface, the contract a second backend would also consume.
 
 use super::*;
+use crate::interval::{Interval, Operator};
+use crate::numeric::{Checked, Divisor};
 
 /// Independently check a complete module's operations and function signatures.
 /// Abstract operand stacks track concrete types without executing the program.
@@ -80,13 +82,178 @@ fn check_sequence(
     yield_ty: Option<&Ty>,
 ) -> Result<Flow> {
     let mut flow = Flow::Continues;
+    let mut known = Known::new();
     for op in ops {
         if flow == Flow::Exits {
             return Err("unreachable operation after a control-flow exit".into());
         }
+        let result = check_proof(op, stack, &known)?;
         flow = step(op, stack, locals, sigs, returns, loop_stack, yield_ty)?;
+        track_known(op, stack.len(), result, &mut known);
     }
     Ok(flow)
+}
+
+/// The stack positions of one straight-line sequence whose interval the
+/// operations themselves determine: an integer literal, the result of a
+/// `Proved` operation, and a cast, `//`, `%` or `&` of such values. A local
+/// read, a call and every other operation leave a value whose interval
+/// only the frontend knew.
+type Known = Vec<(usize, Interval)>;
+
+fn known_at(known: &Known, index: Option<usize>) -> Option<Interval> {
+    let index = index?;
+    known
+        .iter()
+        .find(|(position, _)| *position == index)
+        .map(|(_, interval)| *interval)
+}
+
+fn literal(value: Value) -> i128 {
+    match value {
+        Value::I8(n) => i128::from(n),
+        Value::I16(n) => i128::from(n),
+        Value::I32(n) => i128::from(n),
+        Value::I64(n) => i128::from(n),
+        Value::U8(n) => i128::from(n),
+        Value::U16(n) => i128::from(n),
+        Value::U32(n) => i128::from(n),
+        Value::U64(n) => i128::from(n),
+    }
+}
+
+/// Update `known` for `op`, which left the stack `after` values deep with
+/// a top value in `result` when `check_proof` determined one.
+fn track_known(op: &Op, after: usize, result: Option<Interval>, known: &mut Known) {
+    match (op, result) {
+        // Pushes one value and pops none.
+        (Op::PushInt(value), _) => known.push((after - 1, Interval::point(literal(*value)))),
+        (Op::LoadLocal(_) | Op::Site(_) | Op::CallerSite(_), _) => {}
+        // Replaces its operands with one result.
+        (_, Some(result)) => {
+            known.retain(|(position, _)| *position + 1 < after);
+            known.push((after - 1, result));
+        }
+        // Any other operation may replace values at any depth.
+        _ => known.clear(),
+    }
+}
+
+/// Recompute what the frontend claimed about `op` from the operand
+/// intervals in `known`, before `op` is applied to `stack`, and return the
+/// interval of its result when the operations determine one.
+///
+/// A `Proved` operation is recomputed when every operand is known. A `//`
+/// or `%` divisor proof is checked against a known divisor, and its claim
+/// about `MIN // -1` when the dividend is known too. An operand that is a
+/// local, a `.get()` or a `len` has an interval only in the frontend, so a
+/// proof that depends on one is checked for its shape alone, in `step`.
+fn check_proof(op: &Op, stack: &[Ty], known: &Known) -> Result<Option<Interval>> {
+    if !matches!(
+        op,
+        Op::Proved(..)
+            | Op::CheckedCast(_)
+            | Op::FloorDiv(_)
+            | Op::Modulo(_)
+            | Op::Integer(IntegerOp::And)
+            | Op::CheckedArith { .. }
+    ) {
+        return Ok(None);
+    }
+    let right = known_at(known, stack.len().checked_sub(1));
+    let left = known_at(known, stack.len().checked_sub(2));
+    let integer = stack.last().and_then(|ty| Some((ty, Interval::of(ty)?)));
+    // Both operands, when the operations determine them and they have the
+    // type on top of the stack; `step` reports operands of two types.
+    let pair = match (left, right, integer) {
+        (Some(a), Some(b), Some((ty, full))) if a.within(full) && b.within(full) => {
+            Some((a, b, ty))
+        }
+        _ => None,
+    };
+    match op {
+        Op::Proved(inner, claimed) => {
+            if let Op::CheckedCast(target) = &**inner {
+                if let Some(operand) = right.filter(|_| Interval::of(target).is_some()) {
+                    let (value, fits) = operand.cast(target);
+                    if !fits || !value.within(*claimed) {
+                        return Err(format!(
+                            "`Proved` {inner:?} {claimed} does not follow from its operand {operand}"
+                        )
+                        .into());
+                    }
+                }
+                return Ok(Some(*claimed));
+            }
+            let operator = match &**inner {
+                Op::Add => Operator::Add,
+                Op::Sub => Operator::Sub,
+                Op::Mul => Operator::Mul,
+                Op::Integer(IntegerOp::ShiftLeft) => Operator::ShiftLeft,
+                Op::Integer(IntegerOp::ShiftRight) => Operator::ShiftRight,
+                // `step` rejects any other operation.
+                _ => return Ok(None),
+            };
+            if let Some((a, b, ty)) = pair {
+                let outcome = Interval::operation(operator, ty, a, b);
+                // A shift discards bits without failing; only its count can.
+                let shift = matches!(operator, Operator::ShiftLeft | Operator::ShiftRight);
+                let fails = if shift {
+                    outcome.bad_count
+                } else {
+                    !outcome.proved()
+                };
+                if fails || !outcome.value.within(*claimed) {
+                    return Err(format!(
+                        "`Proved` {inner:?} {claimed} does not follow from its operands {a} and {b}"
+                    )
+                    .into());
+                }
+            }
+            Ok(Some(*claimed))
+        }
+        Op::CheckedCast(target) => Ok(right
+            .filter(|_| Interval::of(target).is_some())
+            .map(|operand| operand.cast(target).0)),
+        Op::Integer(IntegerOp::And) => {
+            Ok(pair.map(|(a, b, ty)| Interval::operation(Operator::And, ty, a, b).value))
+        }
+        Op::FloorDiv(proof)
+        | Op::Modulo(proof)
+        | Op::CheckedArith {
+            operation: Checked::FloorDiv(proof) | Checked::Modulo(proof),
+            ..
+        } => {
+            let (Some(b), Some((_, full))) = (right, integer) else {
+                return Ok(None);
+            };
+            let nonzero = proof.may_be_zero() || !b.contains(0);
+            let sign = match proof {
+                Divisor::Positive => b.lo > 0,
+                Divisor::BelowMinusOne => b.hi < -1,
+                _ => true,
+            };
+            // `MIN // -1` needs both operands; an unknown dividend may be
+            // one the frontend bounded.
+            let fits = proof.may_be_minus_one()
+                || !b.contains(-1)
+                || left.is_none_or(|a| !a.within(full) || !(full.lo < 0 && a.contains(full.lo)));
+            if !(nonzero && sign && fits) {
+                return Err(format!(
+                    "the divisor proof {proof:?} does not follow from the divisor {b}"
+                )
+                .into());
+            }
+            let operator = match op {
+                Op::FloorDiv(_) => Operator::FloorDiv,
+                Op::Modulo(_) => Operator::Modulo,
+                // A checked operation leaves a `Result`.
+                _ => return Ok(None),
+            };
+            Ok(pair.map(|(a, b, ty)| Interval::operation(operator, ty, a, b).value))
+        }
+        _ => Ok(None),
+    }
 }
 
 fn check_return(stack: &[Ty], returns: Option<&[Ty]>) -> Result<Flow> {
@@ -564,6 +731,27 @@ fn step(
                 }
             }
             stack.extend(sig.outputs.iter().cloned());
+        }
+        Op::Proved(inner, interval) => {
+            let (before, ty) = match &**inner {
+                Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight) => {
+                    (stack.last().cloned(), stack.last().cloned())
+                }
+                Op::CheckedCast(target) => (stack.last().cloned(), Some(target.clone())),
+                _ => return Err(format!("`Proved` cannot hold {inner:?}").into()),
+            };
+            let fits = |ty: &Option<Ty>| {
+                ty.as_ref()
+                    .and_then(crate::interval::Interval::of)
+                    .is_some_and(|full| interval.within(full))
+            };
+            if before.as_ref().is_none_or(|ty| !ty.is_int()) || !fits(&ty) {
+                return Err(format!("`Proved` {inner:?} does not fit {interval}").into());
+            }
+            return step(inner, stack, locals, sigs, returns, loop_stack, yield_ty);
         }
         Op::Assumed(inner) => {
             let operand = matches!(
@@ -1638,5 +1826,160 @@ mod tests {
             assert!(error.is::<crate::diagnostic::Diagnostic>(), "{error}");
             assert_eq!(error.to_string(), first);
         }
+    }
+
+    fn sequence(ops: Vec<Op>, locals: &[Ty]) -> Result<()> {
+        let mut stack = Vec::new();
+        check_sequence(&ops, &mut stack, locals, &Sigs::default(), None, None, None).map(|_| ())
+    }
+
+    fn proved(op: Op, lo: i128, hi: i128) -> Op {
+        Op::Proved(Box::new(op), Interval { lo, hi })
+    }
+
+    fn int(value: i64) -> Op {
+        Op::PushInt(Value::I64(value))
+    }
+
+    /// A `Proved` interval is recomputed from operands the operations
+    /// determine, through literals, other proofs, casts, `//`, `%` and `&`.
+    #[test]
+    fn a_proved_interval_must_follow_from_known_operands() {
+        let site = || {
+            Op::Site(crate::ownership::Site {
+                line: 1,
+                column: 1,
+                scope_end: false,
+            })
+        };
+        for ops in [
+            vec![int(3), int(4), proved(Op::Add, 7, 7)],
+            // A wider claim is still true.
+            vec![int(3), int(4), proved(Op::Add, 0, 9)],
+            vec![
+                int(3),
+                int(4),
+                site(),
+                proved(Op::Mul, 12, 12),
+                int(1),
+                proved(Op::Sub, 11, 11),
+            ],
+            vec![
+                int(5),
+                int(2),
+                proved(Op::Integer(IntegerOp::ShiftLeft), 20, 20),
+            ],
+            vec![
+                Op::PushInt(Value::U8(200)),
+                proved(Op::CheckedCast(Ty::I64), 200, 200),
+                int(1000),
+                Op::Modulo(Divisor::Positive),
+                int(7),
+                Op::Integer(IntegerOp::And),
+                int(i64::MAX - 7),
+                proved(Op::Add, i128::from(i64::MAX) - 7, i128::from(i64::MAX)),
+            ],
+        ] {
+            sequence(ops, &[]).unwrap();
+        }
+        for (ops, message) in [
+            (
+                vec![int(3), int(4), proved(Op::Add, 0, 5)],
+                "`Proved` Add 0..5 does not follow from its operands 3..3 and 4..4",
+            ),
+            (
+                vec![int(i64::MAX), int(1), proved(Op::Add, 0, 5)],
+                "does not follow from its operands",
+            ),
+            (
+                vec![
+                    int(3),
+                    int(4),
+                    proved(Op::Mul, 12, 12),
+                    int(1),
+                    proved(Op::Sub, 12, 12),
+                ],
+                "`Proved` Sub 12..12 does not follow from its operands 12..12 and 1..1",
+            ),
+            (
+                vec![
+                    int(5),
+                    int(64),
+                    proved(Op::Integer(IntegerOp::ShiftLeft), 0, 5),
+                ],
+                "does not follow from its operands",
+            ),
+            (
+                vec![int(300), proved(Op::CheckedCast(Ty::U8), 0, 255)],
+                "`Proved` CheckedCast(U8) 0..255 does not follow from its operand 300..300",
+            ),
+            (
+                vec![
+                    int(250),
+                    int(1000),
+                    Op::Modulo(Divisor::Positive),
+                    proved(Op::CheckedCast(Ty::U8), 0, 100),
+                ],
+                "does not follow from its operand 0..250",
+            ),
+        ] {
+            let error = sequence(ops, &[]).unwrap_err().to_string();
+            assert!(error.contains(message), "{error}");
+        }
+    }
+
+    /// A local's interval is the frontend's alone, so a proof over one is
+    /// checked only for fitting its type.
+    #[test]
+    fn a_proof_over_a_local_is_checked_for_its_shape_alone() {
+        let locals = [Ty::I64];
+        sequence(
+            vec![Op::LoadLocal(0), int(4), proved(Op::Add, 0, 9)],
+            &locals,
+        )
+        .unwrap();
+        // A call or any other operation forgets what was known below it.
+        sequence(
+            vec![int(3), int(4), Op::Dup, Op::Drop, proved(Op::Add, 0, 5)],
+            &locals,
+        )
+        .unwrap();
+        let error = sequence(
+            vec![Op::LoadLocal(0), int(4), proved(Op::Add, 0, 1i128 << 70)],
+            &locals,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("does not fit"), "{error}");
+    }
+
+    #[test]
+    fn a_divisor_proof_must_follow_from_a_known_divisor() {
+        let locals = [Ty::I64];
+        for (divisor, proof, valid) in [
+            (5, Divisor::Positive, true),
+            (-1, Divisor::NonZero, true),
+            (-2, Divisor::BelowMinusOne, true),
+            (0, Divisor::Fits, true),
+            (0, Divisor::NonZero, false),
+            (0, Divisor::Positive, false),
+            (-1, Divisor::BelowMinusOne, false),
+            (-1, Divisor::Positive, false),
+        ] {
+            for op in [Op::FloorDiv(proof), Op::Modulo(proof)] {
+                let result = sequence(vec![Op::LoadLocal(0), int(divisor), op], &locals);
+                assert_eq!(result.is_ok(), valid, "{divisor} {proof:?}");
+            }
+        }
+        // `MIN // -1` is excluded only by a known dividend.
+        let fits = |dividend: i64| {
+            sequence(
+                vec![int(dividend), int(-1), Op::FloorDiv(Divisor::NonZeroFits)],
+                &[],
+            )
+        };
+        fits(i64::MIN + 1).unwrap();
+        let error = fits(i64::MIN).unwrap_err().to_string();
+        assert!(error.contains("the divisor proof NonZeroFits"), "{error}");
     }
 }

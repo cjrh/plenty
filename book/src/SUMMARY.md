@@ -285,6 +285,7 @@
         - [Types and data definitions](design/language/03-types/index.md)
             - [Numeric types and literals](design/language/03-types/numbers.md)
             - [Bounded integers](design/language/03-types/bounded.md)
+            - [Integer intervals](design/language/03-types/intervals.md)
             - [Byte literals and bytes](design/language/03-types/bytes.md)
             - [Type aliases](design/language/03-types/aliases.md)
             - [Compile-time dimensions](design/language/03-types/dimensions.md)

@@ -1299,6 +1299,13 @@ pub enum Op {
     /// `Collection` indices omit bounds checks and negative normalization;
     /// see `CollectionOp::assumable_index`.
     Assumed(Box<Op>),
+    /// An integer operation the checker proved cannot fail, with the
+    /// interval of its result: the inner `Add`, `Sub`, `Mul`, shift or
+    /// `CheckedCast` without its overflow, shift-count or range check. The
+    /// function's error type omits the failure for the same reason, so
+    /// lowering and checking cannot disagree. See
+    /// `book/src/design/language/03-types/intervals.md`.
+    Proved(Box<Op>, crate::interval::Interval),
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
         condition: Arc<[Op]>,
@@ -1492,7 +1499,9 @@ fn breaks_out(body: &[Op]) -> bool {
                 Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                     pending.push(body)
                 }
-                Op::Assumed(inner) => pending.push(std::slice::from_ref(&**inner)),
+                Op::Assumed(inner) | Op::Proved(inner, _) => {
+                    pending.push(std::slice::from_ref(&**inner))
+                }
                 _ => {}
             }
         }

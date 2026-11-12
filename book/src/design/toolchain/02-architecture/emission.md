@@ -671,10 +671,44 @@ length needs no overflow check (issue #721).
 
 ## Value bounds
 
-The lowerer also records an upper bound for some nonnegative signed values
-(`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow check
-of arithmetic that the bounds keep in range, in trapping and
-`Result`-returning functions alike:
+Two mechanisms remove arithmetic checks. The checker's
+[intervals](../../language/03-types/intervals.md) decide which operations are
+infallible in the language: such an operation arrives as `Op::Proved` (or a
+division with a `Divisor` proof) and is lowered as the plain instruction. Code
+generation does not recompute the interval, so it cannot disagree with the
+error contract. A proved operation's nonnegative signed interval also seeds
+the bounds below.
+
+The operation validator (`src/op/check.rs`) checks a proof as far as the
+sequence shows its operands:
+
+- Every `Op::Proved` wraps `Add`, `Sub`, `Mul`, a shift or a checked cast on an
+  integer type, and its interval lies inside that type.
+- It tracks the interval of a stack value that is an integer literal, the
+  result of a `Proved` operation, or a cast, `//`, `%` or `&` of such values,
+  within one straight-line sequence. `LoadLocal` and source-site markers keep
+  the tracked values; any other operation forgets them.
+- When every operand of a `Proved` operation is tracked, the validator
+  recomputes the operation with `Interval::operation` (or `Interval::cast`)
+  and rejects a claimed interval that the operands do not prove, or that does
+  not contain the computed one. A `Divisor` proof is compared with the
+  tracked divisor in the same way, and the `MIN // -1` claim also needs a
+  tracked dividend.
+- An operand it does not track (a local, `get()`, `len()`) is not
+  recomputed: that proof has the shape check alone. The validator does not
+  know which locals are immutable or what a call returns.
+
+The interval rules themselves are tested against `interval::exact`, the
+reference semantics of each operator, for every pair of values of the 8-bit
+types; `tests/test_intervals.rs` runs compiled programs against the same
+function for all 8-bit pairs and the edge values of the wider types.
+
+Separately, the lowerer records an upper bound for some nonnegative signed
+values (`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow
+check of arithmetic that the bounds keep in range, in trapping and
+`Result`-returning functions alike. These bounds see what the interval rules
+do not, such as loop counters and locals written in a loop. They remove
+instructions only: the operation's error stays in the function's contract.
 
 - A view of numeric items holds at most `i64.MAX / item size` of them, so
   `len(xs)` of a `&[f64]` is at most `i64.MAX / 8`.

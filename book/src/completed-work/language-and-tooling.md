@@ -1505,6 +1505,25 @@ are unchanged: only `format` forwards. Mutable, consuming,
 `Self`-using and generic protocols are rejected with the reason. See
 [protocols on anonymous sums](../design/language/07-generics/protocols.md#anonymous-sums).
 
+## Integer intervals in the checker (issue #952)
+
+The checker derives an inclusive [interval](../design/language/03-types/intervals.md)
+for every integer expression from fixed rules: literals, module constants,
+`T.MIN`/`T.MAX`, `get()` on `Bounded`, `NonNegative` and `Positive`, `len()`,
+immutable locals, and `+ - * // % & << >>`, unary minus and integer casts.
+Arithmetic whose result interval fits its type adds no `OverflowError`, a
+divisor that excludes zero adds no `ZeroDivisionError`, and
+[`Bounded.from`](../design/language/03-types/bounded.md#proved-ranges) accepts
+any argument whose interval lies in the bounds. Parameters, `mut` locals,
+fields and call results have the full range, and conditions do not narrow.
+
+A proved operation reaches code generation as `Op::Proved` or a `Divisor`
+proof, so one decision removes both the error and the check. A signature may
+still declare an error its body cannot return. A `checked:` block's error type
+[ignores interval proofs](../design/language/03-types/intervals.md#checked-blocks),
+so a block stays valid when its arithmetic is proved. fasta's generator now returns a plain `i64`;
+[measurements](performance.md#checker-intervals-issue-952).
+
 ## Raw C host interfaces
 
 Trusted interface declarations now expose scalar/pointer raw loads and stores,

@@ -23,7 +23,7 @@ updated value. For a new selected value, bind an inline conditional when each
 branch is one expression. A block conditional also supports branch-local work:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[i64]]:
+def main() -> Result[(), IoError]:
     discounted = True
     price = if discounted:
         discount = 20
