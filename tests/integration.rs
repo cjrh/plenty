@@ -30,8 +30,8 @@ mod test_checked_defaults;
 mod test_checked_shifts;
 #[path = "test_constant_proofs.rs"]
 mod test_constant_proofs;
-#[path = "test_unchecked_modes.rs"]
-mod test_unchecked_modes;
+#[path = "test_unchecked_blocks.rs"]
+mod test_unchecked_blocks;
 
 #[path = "test_record_walks.rs"]
 mod test_record_walks;
@@ -511,6 +511,8 @@ mod test_bounded_from;
 mod test_bytes_literal_access;
 #[path = "test_indexed_loop_conditions.rs"]
 mod test_indexed_loop_conditions;
+#[path = "test_intervals.rs"]
+mod test_intervals;
 #[path = "test_loop_cache_hoisting.rs"]
 mod test_loop_cache_hoisting;
 #[path = "test_remainder_locals.rs"]
@@ -861,3 +863,9 @@ mod test_fs_create_dirs;
 
 #[path = "test_fixed_state.rs"]
 mod test_fixed_state;
+
+#[path = "test_cpu_levels.rs"]
+mod test_cpu_levels;
+
+#[path = "test_packed_statements.rs"]
+mod test_packed_statements;

@@ -837,70 +837,6 @@ impl Lowerer<'_, '_> {
         ))
     }
 
-    /// Indexing a value consumes that value. Snapshot and retain a copied
-    /// list row before releasing its owner; byte results need no ownership.
-    pub(super) fn lower_assumed_index(&mut self, operation: &CollectionOp) -> Result<()> {
-        use crate::bytes::BytesOp;
-        match operation {
-            CollectionOp::Get(ty @ Ty::List(element)) => {
-                let (index, _) = self.pop_typed(Ty::I64)?;
-                let (owner, _) = self.pop_typed(ty.clone())?;
-                let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-                let rows = self
-                    .bcx
-                    .ins()
-                    .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
-                let address =
-                    self.row_address(rows, index, metadata::list_row_bytes(element) as i64);
-                let reference = self.bcx.ins().uextend(types::I128, address);
-                self.stack
-                    .push((reference, Ty::Ref(element.clone(), false)));
-                self.lower(&Op::ReadRef((**element).clone()))?;
-                self.release(owner, ty);
-                Ok(())
-            }
-            CollectionOp::Bytes(kind @ (BytesOp::Item | BytesOp::SetItem | BytesOp::ValueItem)) => {
-                let (inputs, output) = operation.signature();
-                let value = if *kind == BytesOp::SetItem {
-                    Some(self.pop_typed(Ty::U8)?.0)
-                } else {
-                    None
-                };
-                let (index, _) = self.pop_typed(Ty::I64)?;
-                let (receiver, _) = self.pop_typed(inputs[0].clone())?;
-                let owned = *kind == BytesOp::ValueItem;
-                let owner = if owned {
-                    receiver
-                } else {
-                    self.reference_word(receiver)
-                };
-                // The existing view helper exposes the live buffer's rows,
-                // without depending on Rust's private Vec layout.
-                let helper = self
-                    .module
-                    .declare_func_in_func(self.runtime.byte_view_rows, self.bcx.func);
-                let call = self.bcx.ins().call(helper, &[owner]);
-                let rows = self.bcx.inst_results(call)[0];
-                let address = self.row_address(rows, index, 1);
-                let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-                let result = match value {
-                    Some(value) => {
-                        self.bcx.ins().store(flags, value, address, 0);
-                        let unit = self.bcx.ins().iconst(types::I64, 0);
-                        self.unpack(unit, &Ty::Unit)
-                    }
-                    None => self.bcx.ins().load(types::I8, flags, address, 0),
-                };
-                if owned {
-                    self.release(owner, &inputs[0]);
-                }
-                self.stack.push((result, output));
-                Ok(())
-            }
-            _ => self.lower_collection(operation),
-        }
-    }
-
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
         if let CollectionOp::Clist(op) = operation {
             return self.lower_clist(op);
@@ -2379,12 +2315,27 @@ impl Lowerer<'_, '_> {
         }
         self.loop_targets.push((latch, exit));
         self.enter_loop_exits(latch, exit);
+        // Operations already lowered as vector lanes, and whether a
+        // statement starts here.
+        let mut packed = 0;
+        let mut statement = true;
         for (index, op) in body.iter().enumerate() {
             if let Some((_, below)) = relation.take_if(|&mut (prefix, _)| prefix == index) {
                 self.leave_relation(below);
             }
             if self.terminated {
                 break;
+            }
+            if packed > 0 {
+                packed -= 1;
+                continue;
+            }
+            if std::mem::replace(&mut statement, matches!(op, Op::StoreLocal(_)))
+                && let Some(covered) = self.lower_packed(&body[index..])?
+            {
+                packed = covered - 1;
+                statement = true;
+                continue;
             }
             if proven(index) && !self.gathering() {
                 self.lower_proven_step(op)?;
@@ -2483,6 +2434,7 @@ impl Lowerer<'_, '_> {
             | Op::PushInt(_)
             | Op::PushBool(_)
             | Op::PushFloat { .. }
+            | Op::Proved(..)
             | Op::Add
             | Op::Sub
             | Op::Mul

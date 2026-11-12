@@ -1571,7 +1571,7 @@ impl Lower<'_> {
                     self.same(actual, Some(Ty::I64), &index.at)?;
                 }
                 self.mark(&e.at, ops);
-                ops.push(self.index_op(CollectionOp::ViewRow(view, mutable)));
+                ops.push(Op::Collection(CollectionOp::ViewRow(view, mutable)));
                 return Ok((Ty::Ref(element.clone(), mutable), loan));
             }
             let key = match &collection {
@@ -1627,7 +1627,7 @@ impl Lower<'_> {
                 None => CollectionOp::ElementRef(collection, mutable),
             };
             let output = operation.signature().1;
-            ops.push(self.index_op(operation));
+            ops.push(Op::Collection(operation));
             Self::end_reads(reads, ops);
             return Ok((output, loan));
         }
@@ -2128,7 +2128,7 @@ impl Lower<'_> {
         let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
         self.same(Some(actual), Some(key), &index.at)?;
         self.mark(&e.at, ops);
-        ops.push(self.index_op(CollectionOp::Get(ty)));
+        ops.push(Op::Collection(CollectionOp::Get(ty)));
         let mut loans = loans;
         loans.extend(reads);
         Ok((value, loans))

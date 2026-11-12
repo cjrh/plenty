@@ -111,6 +111,7 @@ pub(crate) use relax::relax_local_addresses;
 mod fixed_state;
 mod inline_calls;
 mod leaf_calls;
+mod packed;
 mod reachability;
 mod scalar_captures;
 mod serial_stack;
@@ -369,9 +370,9 @@ fn program_object(
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} unchecked {} test hooks {} coverage {} executable pruning {}",
+                "optimize {} cpu {} test hooks {} coverage {} executable pruning {}",
                 build.optimize,
-                build.unchecked.name(),
+                build.cpu.name(),
                 build.test_hooks,
                 build.coverage,
                 build.prune_user
@@ -395,7 +396,7 @@ fn program_object(
         eprintln!(" Compiling {}", entry.display());
     }
     let mut heap = Heap::default();
-    let program = sources.compile(&mut heap, build.unchecked)?;
+    let program = sources.compile(&mut heap)?;
     op::check(&program.ops)?;
     compile_to_object(program.ops, &heap, object, program.returns_status, build)?;
     if let Some((cache, key)) = &cached {
@@ -487,9 +488,8 @@ struct Build {
     target: Option<&'static str>,
     /// Ask Cranelift to optimize for speed.
     optimize: bool,
-    /// The frontend's mode for plain `unchecked:` suites. Function cache
-    /// keys see its effect on the emitted code; the program key names it.
-    unchecked: crate::UncheckedMode,
+    /// The CPU level of every function except the entry trampoline.
+    cpu: crate::CpuLevel,
     /// Lower std's `__test_fault` to the explicitly enabled hook object.
     test_hooks: bool,
     /// Count each block's runs for libFuzzer ([`coverage`]).
@@ -511,7 +511,7 @@ impl Build {
     fn new(options: &crate::CompileOptions, test_hooks: bool) -> Self {
         Self {
             optimize: options.optimize,
-            unchecked: options.unchecked,
+            cpu: options.cpu,
             prune_user: false,
             #[cfg(test)]
             target: None,
@@ -525,16 +525,32 @@ impl Build {
     }
 
     fn targets(&self, opt_level: &str) -> Result<output::Targets> {
+        let check = self.check_cache_hits;
+        // The entry trampoline runs before the CPU check, so it is baseline
+        // code. Baseline builds have no trampoline.
+        let above_baseline = self.cpu != crate::CpuLevel::Baseline;
         #[cfg(test)]
         if let Some(target) = self.target {
+            let isa = |cpu, regalloc| level_isa(target, cpu, regalloc, opt_level, check);
             return Ok(output::Targets {
-                ordinary: baseline_isa(target, "backtracking", opt_level, self.check_cache_hits)?,
-                single_pass: baseline_isa(target, "single_pass", opt_level, self.check_cache_hits)?,
+                ordinary: isa(self.cpu, "backtracking")?,
+                single_pass: isa(self.cpu, "single_pass")?,
+                entry: if above_baseline {
+                    Some(isa(crate::CpuLevel::Baseline, "backtracking")?)
+                } else {
+                    None
+                },
             });
         }
+        let isa = |cpu, regalloc| optimized_isa(cpu, regalloc, opt_level, check);
         Ok(output::Targets {
-            ordinary: optimized_isa("backtracking", opt_level, self.check_cache_hits)?,
-            single_pass: optimized_isa("single_pass", opt_level, self.check_cache_hits)?,
+            ordinary: isa(self.cpu, "backtracking")?,
+            single_pass: isa(self.cpu, "single_pass")?,
+            entry: if above_baseline {
+                Some(isa(crate::CpuLevel::Baseline, "backtracking")?)
+            } else {
+                None
+            },
         })
     }
 
@@ -654,13 +670,14 @@ pub fn dump_file(
     crate::validate_target(None)?;
     let sources = Sources::file(path, root)?;
     let mut heap = Heap::default();
-    let program = sources.compile(&mut heap, options.unchecked)?;
+    let program = sources.compile(&mut heap)?;
     op::check(&program.ops)?;
     dump_program(
         program.ops,
         &heap,
         program.returns_status,
         options.optimize,
+        options.cpu,
         crate::parallel::workers(),
         dump,
     )
@@ -671,11 +688,13 @@ fn dump_program(
     heap: &Heap,
     returns_status: bool,
     optimize: bool,
+    cpu: crate::CpuLevel,
     workers: usize,
     dump: &DumpOptions,
 ) -> Result<Dump> {
     let build = Build {
         optimize,
+        cpu,
         functions_only: true,
         dump: Some(dump.clone()),
         ..Build::default()
@@ -711,6 +730,7 @@ pub(crate) fn emit_library_object(
     interface: &crate::exports::Interface,
     options: &crate::CompileOptions,
 ) -> Result<()> {
+    crate::library::reject_cpu_level(options.cpu)?;
     let build = Build::new(options, false);
     let cache = build.cache.clone();
     emit_object(ops, heap, output, None, exports, Some(interface), build)?;
@@ -868,10 +888,22 @@ fn object_module(
     }
     exports::declare(exports, &mut out.module)?;
     export_objects::define(&objects, &mut out.module)?;
+    // Above the baseline, the exported `plenty_main` is a baseline trampoline
+    // that checks the running CPU and then calls the program's entry, so no
+    // instruction of the level runs on a CPU without it (issue #962).
+    let checked_entry = entry.is_some() && build.cpu != crate::CpuLevel::Baseline;
     let main_id = match entry {
         Some(_) => Some(out.module.declare_function(
-            "plenty_main",
-            Linkage::Export,
+            if checked_entry {
+                "__plenty_main"
+            } else {
+                "plenty_main"
+            },
+            if checked_entry {
+                Linkage::Local
+            } else {
+                Linkage::Export
+            },
             &main_signature(),
         )?),
         None => None,
@@ -966,7 +998,38 @@ fn object_module(
     deferred.finish(&mut out, workers, &runtime, fns, &build_job)?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
     box_release::define_destroy_entries(&runtime, &mut out)?;
+    if let (true, Some(body)) = (checked_entry, main_id) {
+        define_cpu_entry(&mut out, body, build.cpu)?;
+    }
     Ok(out)
+}
+
+/// `plenty_main` for a program above the baseline CPU level: call the
+/// runtime's `plenty_rt_require_cpu(level)`, which exits unless the running
+/// CPU has the level, then return the program entry `body`'s status. Compiled
+/// with the baseline ISA ([`Output::define_entry`]).
+fn define_cpu_entry(out: &mut Output, body: FuncId, cpu: crate::CpuLevel) -> Result<()> {
+    let module = &mut out.module;
+    let mut require = module.make_signature();
+    require.call_conv = crate::target::native_call_conv();
+    require.params.push(AbiParam::new(types::I64));
+    let require = module.declare_function("plenty_rt_require_cpu", Linkage::Import, &require)?;
+    let id = module.declare_function("plenty_main", Linkage::Export, &main_signature())?;
+    let mut func =
+        Function::with_name_signature(UserFuncName::user(0, id.as_u32()), main_signature());
+    let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
+    let block = b.create_block();
+    b.switch_to_block(block);
+    b.seal_block(block);
+    let require = module.declare_func_in_func(require, b.func);
+    let level = b.ins().iconst(types::I64, cpu.code());
+    b.ins().call(require, &[level]);
+    let body = module.declare_func_in_func(body, b.func);
+    let call = b.ins().call(body, &[]);
+    let status = b.inst_results(call)[0];
+    b.ins().return_(&[status]);
+    b.finalize(FRONTEND);
+    out.define_entry(id, func)
 }
 
 /// Functions built together on one thread, in the order they are placed in
@@ -994,7 +1057,7 @@ fn host_isa() -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
 fn target_isa(
     regalloc_algorithm: &str,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
-    optimized_isa(regalloc_algorithm, "none", false)
+    optimized_isa(crate::CpuLevel::Baseline, regalloc_algorithm, "none", false)
 }
 
 /// Build the target's baseline ISA without inspecting the running CPU.
@@ -1003,14 +1066,16 @@ fn target_isa(
 /// `speed` for release builds. Language checks are part of the IR, so both
 /// levels keep identical semantics.
 fn optimized_isa(
+    cpu: crate::CpuLevel,
     regalloc_algorithm: &str,
     opt_level: &str,
     check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::validate_target(None)?;
     let compiler_target = crate::target::compiler_host();
-    let isa = baseline_isa(
+    let isa = level_isa(
         compiler_target,
+        cpu,
         regalloc_algorithm,
         opt_level,
         check_cache_hits,
@@ -1023,13 +1088,33 @@ fn optimized_isa(
     Ok(isa)
 }
 
+/// The baseline ISA for `triple`, for tests that build objects directly.
+#[cfg(test)]
 pub(crate) fn baseline_isa(
     triple: &str,
     regalloc_algorithm: &str,
     opt_level: &str,
     check_cache_hits: bool,
 ) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
+    level_isa(
+        triple,
+        crate::CpuLevel::Baseline,
+        regalloc_algorithm,
+        opt_level,
+        check_cache_hits,
+    )
+}
+
+/// The ISA for `triple` at CPU level `cpu`, never inspecting the running CPU.
+pub(crate) fn level_isa(
+    triple: &str,
+    cpu: crate::CpuLevel,
+    regalloc_algorithm: &str,
+    opt_level: &str,
+    check_cache_hits: bool,
+) -> Result<std::sync::Arc<dyn cranelift_codegen::isa::TargetIsa>> {
     crate::target::target_description(triple).ok_or("unsupported native target")?;
+    cpu.validate_for(triple)?;
     let mut flags = settings::builder();
     flags.set("regalloc_algorithm", regalloc_algorithm)?;
     flags.set("opt_level", opt_level)?;
@@ -1064,12 +1149,18 @@ pub(crate) fn baseline_isa(
             "false"
         },
     )?;
-    // An explicit lookup leaves optional CPU features disabled on both ISAs.
-    let isa_builder = cranelift_codegen::isa::lookup(
+    // An explicit lookup leaves optional CPU features disabled unless the
+    // level names them. Cranelift never fuses a multiply and an add: it emits
+    // FMA only for an explicit `fma` instruction, which Plenty never builds,
+    // so `has_fma` changes no result (tests/test_cpu_levels.rs).
+    let mut isa_builder = cranelift_codegen::isa::lookup(
         triple
             .parse()
             .map_err(|error: target_lexicon::ParseError| error.to_string())?,
     )?;
+    for flag in cpu.isa_flags() {
+        isa_builder.enable(flag)?;
+    }
     Ok(isa_builder.finish(settings::Flags::new(flags))?)
 }
 
@@ -2467,7 +2558,7 @@ struct Lowerer<'a, 'b> {
     /// Once set, the outer loop in
     /// [`build_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
-    /// Only while lowering one explicitly assumed indexing operation.
+    /// Only while lowering one `Op::Assumed` index the compiler proved in range.
     assumed_index: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
@@ -2942,10 +3033,11 @@ impl Lowerer<'_, '_> {
             Op::Add => self.lower_add()?,
             Op::Sub => self.lower_checked_arith(ArithKind::Sub)?,
             Op::Mul => self.lower_checked_arith(ArithKind::Mul)?,
-            Op::Div => self.lower_div(false, crate::numeric::Divisor::Any, true)?,
-            Op::FloorDiv(proof) => self.lower_div(true, *proof, true)?,
-            Op::Modulo(proof) => self.lower_modulo(*proof, true)?,
+            Op::Div => self.lower_div(false, crate::numeric::Divisor::Any)?,
+            Op::FloorDiv(proof) => self.lower_div(true, *proof)?,
+            Op::Modulo(proof) => self.lower_modulo(*proof)?,
             Op::Assumed(op) => self.lower_assumed(op)?,
+            Op::Proved(op, interval) => self.lower_proved(op, *interval)?,
             Op::Integer(kind) => self.lower_integer(*kind)?,
             Op::Numeric(operation) => self.lower_numeric(operation)?,
             Op::Eq => self.lower_eq()?,
@@ -3523,13 +3615,47 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// An [`Op::Proved`] operation: the plain instruction, with the bound
+    /// the checker proved recorded for the operations that use the result.
+    fn lower_proved(&mut self, op: &Op, interval: crate::interval::Interval) -> Result<()> {
+        if !matches!(
+            op,
+            Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight)
+                | Op::CheckedCast(_)
+        ) {
+            return Err(format!("AOT: `Proved` cannot hold {op:?}").into());
+        }
+        self.lower_assumed(op)?;
+        let Some((value, ty)) = self.stack.last() else {
+            return Err("AOT: stack underflow on proved arithmetic".into());
+        };
+        // The bound facts describe signed values.
+        if is_signed(ty.clone())
+            && interval.lo >= 0
+            && let Ok(limit) = u64::try_from(interval.hi)
+        {
+            let value = *value;
+            self.counters.nonnegative.insert(value);
+            let limit = self
+                .counters
+                .at_most
+                .get(&value)
+                .map_or(limit, |&l| l.min(limit));
+            self.counters.at_most.insert(value, limit);
+        }
+        Ok(())
+    }
+
     /// An [`Op::Assumed`] operation: the plain instruction, without
     /// the check that would trap.
     fn lower_assumed(&mut self, op: &Op) -> Result<()> {
         match op {
             Op::Collection(operation) if operation.assumable_index() => {
                 self.assumed_index = true;
-                let result = self.lower_assumed_index(operation);
+                let result = self.lower_collection(operation);
                 self.assumed_index = false;
                 result?;
             }
@@ -3540,15 +3666,6 @@ impl Lowerer<'_, '_> {
                     Op::Sub => self.bcx.ins().isub(a, b),
                     _ => self.bcx.ins().imul(a, b),
                 };
-                self.stack.push((result, ty));
-            }
-            Op::FloorDiv(proof) => self.lower_div(true, *proof, false)?,
-            Op::Modulo(proof) => self.lower_modulo(*proof, false)?,
-            Op::Numeric(crate::numeric::NumericOp::Pow) => {
-                let (base, exponent, ty) = self.pop_int_pair()?;
-                // The runtime still rejects a negative exponent; only the
-                // overflow flag is ignored.
-                let (result, _) = self.int_pow_checked(base, exponent, &ty)?;
                 self.stack.push((result, ty));
             }
             // Cranelift masks the count to the operand width.
@@ -3573,13 +3690,8 @@ impl Lowerer<'_, '_> {
 
     /// Check divisor zero and signed INT_MIN/-1 before emitting division,
     /// so both failures produce runtime diagnostics instead of hardware
-    /// traps. Without `checks`, both are assumed absent ([`Op::Assumed`]).
-    fn lower_div(
-        &mut self,
-        floor: bool,
-        proof: crate::numeric::Divisor,
-        checks: bool,
-    ) -> Result<()> {
+    /// traps.
+    fn lower_div(&mut self, floor: bool, proof: crate::numeric::Divisor) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty.is_float() {
             let a = self.float_left_operand(a, b);
@@ -3589,14 +3701,14 @@ impl Lowerer<'_, '_> {
         }
         let cty = clif_type(ty.clone());
 
-        if checks && proof == crate::numeric::Divisor::Any {
+        if proof.may_be_zero() {
             let zero = self.bcx.ins().iconst(cty, 0);
             let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
             self.trap_if(b_is_zero, TrapKind::DivZero)?;
         }
 
         let signed = is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof);
-        if checks && signed && proof.may_be_minus_one() {
+        if signed && proof.may_be_minus_one() {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -3639,11 +3751,9 @@ impl Lowerer<'_, '_> {
     }
 
     /// Python-style modulo has the divisor's sign, including negative divisors.
-    /// Without `checks`, a zero divisor is assumed absent ([`Op::Assumed`]);
-    /// `INT_MIN % -1` is still zero, since that case is defined.
-    fn lower_modulo(&mut self, proof: crate::numeric::Divisor, checks: bool) -> Result<()> {
+    fn lower_modulo(&mut self, proof: crate::numeric::Divisor) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        if checks && proof == crate::numeric::Divisor::Any {
+        if proof.may_be_zero() {
             let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
             let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
             self.trap_if(is_zero, TrapKind::DivZero)?;

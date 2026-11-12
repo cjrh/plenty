@@ -1,0 +1,167 @@
+{
+ "core": 2,
+ "repeat": 5,
+ "args": [
+  "5000000"
+ ],
+ "loads": [
+  2.232421875,
+  2.18017578125,
+  1.998046875
+ ],
+ "observations": {
+  "main": [
+   {
+    "instructions": 3235376625.0,
+    "cycles": 1233316549.0,
+    "task-clock": 264.01
+   },
+   {
+    "instructions": 3235376622.0,
+    "cycles": 1232628719.0,
+    "task-clock": 264.8
+   },
+   {
+    "instructions": 3235376646.0,
+    "cycles": 1229340596.0,
+    "task-clock": 261.75
+   }
+  ],
+  "branch": [
+   {
+    "instructions": 3260376595.0,
+    "cycles": 1175053866.0,
+    "task-clock": 252.96
+   },
+   {
+    "instructions": 3260376617.0,
+    "cycles": 1169182804.0,
+    "task-clock": 254.6
+   },
+   {
+    "instructions": 3260376649.0,
+    "cycles": 1165644284.0,
+    "task-clock": 249.31
+   }
+  ],
+  "regalloc-fold": [
+   {
+    "instructions": 2960376363.0,
+    "cycles": 1447511683.0,
+    "task-clock": 311.06
+   },
+   {
+    "instructions": 2960376342.0,
+    "cycles": 1439331182.0,
+    "task-clock": 309.99
+   },
+   {
+    "instructions": 2960376365.0,
+    "cycles": 1439494632.0,
+    "task-clock": 308.49
+   }
+  ],
+  "branch+regalloc-fold": [
+   {
+    "instructions": 3240376374.0,
+    "cycles": 1353665706.0,
+    "task-clock": 289.69
+   },
+   {
+    "instructions": 3240376407.0,
+    "cycles": 1329844308.0,
+    "task-clock": 286.67
+   },
+   {
+    "instructions": 3240376397.0,
+    "cycles": 1330526790.0,
+    "task-clock": 285.55
+   }
+  ],
+  "kernel": [
+   {
+    "instructions": 3225164328.0,
+    "cycles": 1161249414.0,
+    "task-clock": 247.64
+   },
+   {
+    "instructions": 3225164342.0,
+    "cycles": 1150305800.0,
+    "task-clock": 248.3
+   },
+   {
+    "instructions": 3225164345.0,
+    "cycles": 1155216869.0,
+    "task-clock": 247.61
+   }
+  ],
+  "kernel-fold": [
+   {
+    "instructions": 3060164322.0,
+    "cycles": 1110599958.0,
+    "task-clock": 238.71
+   },
+   {
+    "instructions": 3060164303.0,
+    "cycles": 1100635253.0,
+    "task-clock": 237.86
+   },
+   {
+    "instructions": 3060164330.0,
+    "cycles": 1096349239.0,
+    "task-clock": 235.54
+   }
+  ],
+  "kernel-copies": [
+   {
+    "instructions": 3010164336.0,
+    "cycles": 1131871122.0,
+    "task-clock": 244.07
+   },
+   {
+    "instructions": 3010164333.0,
+    "cycles": 1131217643.0,
+    "task-clock": 247.25
+   },
+   {
+    "instructions": 3010164340.0,
+    "cycles": 1132376664.0,
+    "task-clock": 241.92
+   }
+  ],
+  "kernel-fold-copies": [
+   {
+    "instructions": 2845164325.0,
+    "cycles": 1064256246.0,
+    "task-clock": 230.02
+   },
+   {
+    "instructions": 2845164321.0,
+    "cycles": 1066625676.0,
+    "task-clock": 230.46
+   },
+   {
+    "instructions": 2845164346.0,
+    "cycles": 1068677180.0,
+    "task-clock": 230.21
+   }
+  ],
+  "kernel-fold-scalar": [
+   {
+    "instructions": 3060164331.0,
+    "cycles": 1092598894.0,
+    "task-clock": 235.74
+   },
+   {
+    "instructions": 3060164317.0,
+    "cycles": 1093781835.0,
+    "task-clock": 236.08
+   },
+   {
+    "instructions": 3060164350.0,
+    "cycles": 1094051911.0,
+    "task-clock": 233.1
+   }
+  ]
+ }
+}

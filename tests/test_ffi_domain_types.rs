@@ -546,9 +546,8 @@ fn decoding_and_reinterpretation_cannot_build_a_domain_value() {
     }
 }
 
-/// A plain `unchecked:` suite traps in the default mode before a wrapped
-/// product can become a zero `NonZero`. Under `--unchecked assume` the
-/// violation is documented undefined behavior, as for any other integer.
+/// A plain `unchecked:` suite traps before a wrapped product can become a
+/// zero `NonZero`.
 #[test]
 fn unchecked_suites_trap_before_leaving_a_domain() {
     support::assert_file_traps(

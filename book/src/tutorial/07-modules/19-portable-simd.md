@@ -27,9 +27,12 @@ def main() -> Result[(), IoError]:
 ```
 
 Vectors are copyable and allocate nothing. Operations borrow their inputs and
-produce new values, so the original readings remain unchanged. `i32x4`, `u32x4`
-and `f64x2` provide the same pattern with other lane types. Mask shapes must
-match the vectors they select.
+produce new values, so the original readings remain unchanged. `i32x4`, `u32x4`,
+`f64x2` and `f64x4` provide the same pattern with other lane types. Mask shapes
+must match the vectors they select. `f64x4.low()` and `high()` split four `f64`
+lanes into two `f64x2`, and `low.concat(high)` joins them; on current x86-64
+targets an `f64x4` costs the same as two `f64x2`
+([lowering](../../design/stdlib/simd.md#rust-relationship-and-initial-limits)).
 
 Use `add`, `sub` and `mul` for ordinary arithmetic. Integer versions return a
 `Result` with a lane-typed overflow error; propagate it with `?` or handle it

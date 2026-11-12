@@ -86,10 +86,8 @@ fn constants_that_can_fail_keep_their_errors() {
             "mut y = x\n    y //= minus_one\n    y",
             "OverflowError[i64]",
         ),
-        // A negated constant and a local are arithmetic and values, not
-        // constants.
-        ("x // -two", "OverflowError[i64]"),
-        ("d = two\n    x // d", "ZeroDivisionError"),
+        // A `mut` local has the full range of its type.
+        ("mut d = two\n    x // d", "ZeroDivisionError"),
         ("x << count", "ShiftCountError[i64]"),
         ("x << (count & wide)", "ShiftCountError[i64]"),
     ] {

@@ -212,7 +212,14 @@ impl Lower<'_> {
             let mut rhs = Vec::new();
             let (b, right_loans) = self.observe_right(op, &a, right, &mut rhs)?;
             Self::end_reads(right_loans, &mut rhs);
-            result = self.binary_values(node, (a, b), rhs, std::mem::take(&mut loans), ops)?;
+            result = self.binary_values(
+                node,
+                (a, b),
+                intervals::Operands::default(),
+                rhs,
+                std::mem::take(&mut loans),
+                ops,
+            )?;
             a = result
                 .clone()
                 .ok_or_else(|| node.at.error("expected a value, got ()"))?;
@@ -248,6 +255,7 @@ impl Lower<'_> {
         &mut self,
         e: &Expr,
         (a, b): (Ty, Ty),
+        operands: intervals::Operands,
         rhs: Vec<Op>,
         loans: Vec<usize>,
         ops: &mut Vec<Op>,
@@ -383,11 +391,14 @@ impl Lower<'_> {
                 if !a.is_int() {
                     return Err(e.at.error("bitwise operations require integers"));
                 }
+                let outcome = self.outcome(op, &a, operands);
+                self.block_errors(op, &a, Some(right), &e.at)?;
                 if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
-                    self.shift_operation(kind, &a, right, &e.at, ops)?;
+                    self.shift_operation(kind, &a, right, outcome, &e.at, ops)?;
                 } else {
-                    self.push_trapping(Op::Integer(kind), &a, ops);
+                    ops.push(Op::Integer(kind));
                 }
+                self.note_outcome(operands.node, &a, outcome);
                 Self::end_reads(loans, ops);
                 return Ok(Some(a));
             }
@@ -397,13 +408,23 @@ impl Lower<'_> {
                 return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
             }
             self.mark_arithmetic(op, &a, &e.at, ops);
-            let proof = self.known_divisor(op, right);
+            let outcome = self.outcome(op, &a, operands);
+            self.block_errors(op, &a, Some(right), &e.at)?;
+            if self.proved_arithmetic(op, &a, outcome, ops) {
+                self.note_outcome(operands.node, &a, outcome);
+                Self::end_reads(loans, ops);
+                return Ok(Some(a));
+            }
+            let proof = self.divisor_proof(op, &a, operands);
             if a.is_int()
                 && let Some(operation) = crate::numeric::Checked::named(op, proof)
                 && self.checked_arith(operation, &a, &e.at, ops)?
             {
                 Self::end_reads(loans, ops);
                 return Ok(Some(a));
+            }
+            if !is_comparison(op) {
+                self.note_outcome(operands.node, &a, outcome);
             }
             let operation = match op.as_str() {
                 "+" => Op::Add,
@@ -420,7 +441,7 @@ impl Lower<'_> {
                 ">=" => Op::Ge,
                 _ => unreachable!(),
             };
-            self.push_trapping(operation, &a, ops);
+            ops.push(operation);
             Self::end_reads(loans, ops);
             if is_comparison(op) {
                 Some(Ty::Bool)
@@ -1082,7 +1103,6 @@ impl Lower<'_> {
                     start: self.locals.len(),
                     function: false,
                     arithmetic: false,
-                    assume: false,
                     failures: Vec::new(),
                     casts: false,
                 });

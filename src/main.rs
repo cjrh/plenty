@@ -27,10 +27,10 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
        plenty check [--tests] [--locked] [--offline] [--check-all-methods]
-       plenty build [--fast-compile] [--unchecked MODE] [--no-strip] [--locked] [--offline]
-       plenty run [--fast-compile] [--unchecked MODE] [--no-strip] [--locked] [--offline]
+       plenty build [--fast-compile] [--cpu LEVEL] [--no-strip] [--locked] [--offline]
+       plenty run [--fast-compile] [--cpu LEVEL] [--no-strip] [--locked] [--offline]
                   [--bin NAME] [-- ARGS...]
-       plenty test [--fast-compile] [--unchecked MODE] [--locked] [--offline] [--no-capture]
+       plenty test [--fast-compile] [--cpu LEVEL] [--locked] [--offline] [--no-capture]
                    [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]
        plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR])
                   [--version REQ] [--offline]
@@ -46,8 +46,7 @@ check: type-check every target and warn about .plenty/.p files under src/ that n
 target imports; --check-all-methods also checks every method
 of every generic instance, including methods nothing calls; --tests also checks
 the files in tests/ as plenty test compiles them, without linking or running them. build: compile executables into target/optimized,
-or target/fast-compile with --fast-compile. --unchecked MODE: `trap` (default)
-or `assume` for plain `unchecked:` blocks outside std (see plentyc --help). run: build one executable and run it with
+or target/fast-compile with --fast-compile. run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
 each tests/*.plenty program that defines main (.p files work too); a FILTER keeps the tests whose
 FILE::NAME contains it. Output is shown only for failing tests unless
@@ -64,6 +63,8 @@ default ~/.cache/plenty; PLENTY_CACHE=off disables it).
 lsp: serve the Language Server Protocol on stdin and stdout for an editor:
 diagnostics, hover, go to definition, inlay hints, completion, and a code
 action that moves a declaration to another module.
+--cpu LEVEL: x86-64 (default), x86-64-v2 or x86-64-v3; overrides [build] cpu in
+plenty.toml. Above x86-64, executables check the CPU at startup (see plentyc --help).
 --no-strip: keep the symbol table and debug sections in built executables.
 --test-hooks: with build or run, enable std.test failure injection.
 --locked: fail instead of creating or updating plenty.lock.
@@ -251,6 +252,17 @@ fn template_options(args: &[String]) -> Result<(Template, Option<String>, Vec<St
     Ok((template, name, positional))
 }
 
+/// The value of `--cpu`.
+fn cpu_level(value: Option<&String>) -> Result<plenty::CpuLevel, String> {
+    let value = value.ok_or_else(|| {
+        format!(
+            "--cpu requires a level: {}",
+            plenty::CpuLevel::NAMES.join(", ")
+        )
+    })?;
+    plenty::CpuLevel::parse(value)
+}
+
 fn test_options(args: &[String]) -> Result<TestOptions, String> {
     let mut options = TestOptions::default();
     let mut args = args.iter();
@@ -258,12 +270,7 @@ fn test_options(args: &[String]) -> Result<TestOptions, String> {
         match arg.as_str() {
             "--release" => {}
             "--fast-compile" => options.build.profile = Profile::FastCompile,
-            "--unchecked" => {
-                let mode = args
-                    .next()
-                    .ok_or("--unchecked requires `trap` or `assume`")?;
-                options.build.compile.unchecked = plenty::UncheckedMode::parse(mode)?;
-            }
+            "--cpu" => options.build.cpu = Some(cpu_level(args.next())?),
             "--locked" => options.build.locked = true,
             "--offline" => options.build.offline = true,
             "--no-capture" => options.no_capture = true,
@@ -316,12 +323,7 @@ fn build_options(
         match arg.as_str() {
             "--release" if profiles => {}
             "--fast-compile" if profiles => options.profile = Profile::FastCompile,
-            "--unchecked" if profiles => {
-                let mode = args
-                    .next()
-                    .ok_or("--unchecked requires `trap` or `assume`")?;
-                options.compile.unchecked = plenty::UncheckedMode::parse(mode)?;
-            }
+            "--cpu" if profiles => options.cpu = Some(cpu_level(args.next())?),
             "--no-strip" if profiles => options.compile.strip = false,
             "--test-hooks" if profiles => options.compile.test_hooks = true,
             "--locked" => options.locked = true,

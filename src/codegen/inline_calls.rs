@@ -51,6 +51,7 @@ fn marker(op: &Op) -> bool {
     matches!(
         op,
         Op::Assumed(_)
+            | Op::Proved(..)
             | Op::Site(_)
             | Op::CallerSite(_)
             | Op::Access(..)

@@ -42,17 +42,15 @@ supply valid addresses or obey its lifetime and aliasing contract.
 - **Buffer overruns.** List, text, range and `Bytes` indexing is
   bounds-checked, and an out-of-range index stops the program with
   `index out of bounds: index I, length N`
-  ([traps](../language/08-errors/02-allocation-and-traps.md)) by default.
-  [Unchecked assume mode](../language/03-types/numbers.md#unchecked-blocks)
-  can omit checks for asserted preconditions; raw host accesses have no bounds
-  checks. [Slices](../language/04-expressions/slices.md)
+  ([traps](../language/08-errors/02-allocation-and-traps.md)); raw host
+  accesses have no bounds checks. [Slices](../language/04-expressions/slices.md)
   clamp their bounds instead of trapping. Ordinary integer arithmetic reports
-  declared errors; `unchecked trap:` traps on overflow, while unchecked assume
-  mode places the arithmetic preconditions on the author.
+  declared errors;
+  [`unchecked:`](../language/03-types/numbers.md#unchecked-blocks) traps on
+  overflow.
 - **References.** A reference is created from existing storage, such as a
   variable, a list element or a slice, and cannot outlive it. Creating one
-  from an index checks bounds unless the author explicitly assumes that
-  precondition in unchecked assume mode.
+  from an index checks bounds.
 - **Limits.** Raw host interfaces permit manual native-memory algorithms, but
   do not provide C-layout classes, inferred pointer lifetimes, volatile device
   access or a safe allocator abstraction. Keep such code behind a small trusted

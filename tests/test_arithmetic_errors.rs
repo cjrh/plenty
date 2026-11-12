@@ -185,7 +185,7 @@ fn unsigned_division_can_only_fail_on_a_zero_divisor() {
     let output = run_stdout(
         "def main() -> Result[(), IoError]:
     a: u8 = 255
-    two: u8 = 2
+    mut two: u8 = 2
     zero: u8 = 0
     quotient: Result[u8, ZeroDivisionError] = checked:
         a // two
@@ -246,9 +246,8 @@ fn other_divisors_keep_their_failures() {
         ("x // -1", "OverflowError[i64]"),
         ("x // 0", "ZeroDivisionError"),
         ("x % 0", "ZeroDivisionError"),
-        ("d = 2\n    x // d", "ZeroDivisionError"),
-        // A negated expression is computed, so it is not a literal.
-        ("x // -(-2)", "OverflowError[i64]"),
+        // A `mut` local has the full range of its type.
+        ("mut d = 2\n    x // d", "ZeroDivisionError"),
         ("-x", "OverflowError[i64]"),
     ] {
         let message = check_diagnostic(&format!(
@@ -262,6 +261,9 @@ fn other_divisors_keep_their_failures() {
     // `-1` keeps only the overflow, and `% -1` cannot fail.
     check_source("def f(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x // -1 + x % -1)\n")
         .unwrap();
+    // An immutable local and a negated literal carry their intervals
+    // (issue #952).
+    check_source("def f(x: i64) -> i64:\n    d = 2\n    x // d + x // -(-2)\n").unwrap();
     let message = check_diagnostic("def f(x: i64) -> i64:\n    checked:\n        x // 2\n");
     assert!(
         message.contains("this `checked:` block contains no arithmetic that can fail"),

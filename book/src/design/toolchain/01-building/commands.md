@@ -44,14 +44,10 @@ for shorter edit-run cycles in large projects; it preserves all language checks.
 `--release` remains a compatibility alias for the optimized default. See
 [profiles](packages.md#profiles).
 
-`--unchecked MODE` selects what plain
-[`unchecked:` suites](../../language/03-types/numbers.md#unchecked-blocks)
-outside `std` do with their arithmetic and indexing preconditions: `trap`, the default,
-checks them; `assume` omits the checks, so a violation is undefined behavior.
-Assumed list, slice-view and `Bytes` indices must be nonnegative and in range;
-bounds checks and negative-index normalization are omitted.
-It applies to compiling modes, including `plenty build`, `run`, `test` and
-scripts; checking modes reject it.
+`--cpu LEVEL` selects the [CPU level](linking.md#cpu-levels) of an executable:
+`x86-64` (default), `x86-64-v2` or `x86-64-v3`. Above `x86-64` the executable
+checks the CPU at startup and exits with an error on one without the level.
+Shared and static libraries reject levels above `x86-64`.
 
 `--test-hooks` with `FILE` or `--compile` enables
 [failure injection](../../stdlib/test.md#failure-injection) in an ordinary

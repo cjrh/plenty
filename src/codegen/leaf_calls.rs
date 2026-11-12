@@ -78,6 +78,7 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
                     Op::PushInt(_)
                     | Op::PushFloat { .. }
                     | Op::PushBool(_)
+                    | Op::Proved(..)
                     | Op::Add
                     | Op::Sub
                     | Op::Mul

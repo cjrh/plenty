@@ -64,7 +64,7 @@ pub(super) fn digest(
         options.linker,
         options.link_args,
         options.optimize,
-        options.unchecked.name(),
+        options.cpu.name(),
         options.strip,
         options.test_hooks,
         // Package libraries are checked, not linked.

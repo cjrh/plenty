@@ -681,12 +681,7 @@ fn check(path: &Path, graph: Option<&crate::project::SourceGraph>) -> Result<()>
     resolved.require_main = resolved.functions.iter().any(|f| f.name == "main");
     let generic = generic_bodies::Bodies::of(&resolved);
     let mut heap = Heap::default();
-    let lowered = lower(
-        resolved,
-        &mut heap,
-        crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
-    );
+    let lowered = lower(resolved, &mut heap, crate::CheckOptions::default());
     generic.walk();
     let mut program = lowered?;
     let warnings = std::mem::take(&mut program.warnings);

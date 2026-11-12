@@ -120,8 +120,9 @@ fn float_lanes_preserve_ieee_comparisons_and_ordered_folds(#[case] release: bool
     for (ty, vector, count, tiny) in [
         ("f32", "f32x4", 4, "1e-40f32"),
         ("f64", "f64x2", 2, "1e-310"),
+        ("f64", "f64x4", 4, "1e-310"),
     ] {
-        source.push_str(&format!("    values_{ty} = [{ty}.NAN, {ty}.INF, -{ty}.INF, 0.0{ty}, -0.0{ty}, 1.0{ty}, -2.0{ty}, {tiny}].unwrap()\n    for left in &values_{ty}:\n        for right in &values_{ty}:\n            a = simd.splat_{vector}(*left)\n            b = simd.splat_{vector}(*right)\n"));
+        source.push_str(&format!("    values_{vector} = [{ty}.NAN, {ty}.INF, -{ty}.INF, 0.0{ty}, -0.0{ty}, 1.0{ty}, -2.0{ty}, {tiny}].unwrap()\n    for left in &values_{vector}:\n        for right in &values_{vector}:\n            a = simd.splat_{vector}(*left)\n            b = simd.splat_{vector}(*right)\n"));
         for (method, operator) in [("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")] {
             source.push_str(&format!("            expected_{method} = *left {operator} *right\n            result_{method} = a.{method}(b).lane({}).unwrap()\n            check(result_{method} == expected_{method} or (result_{method} != result_{method} and expected_{method} != expected_{method}), \"{vector} {method}\").unwrap()\n            if result_{method} == 0.0{ty}:\n                check((1.0{ty}).copysign(result_{method}) == (1.0{ty}).copysign(expected_{method}), \"signed zero\").unwrap()\n", count - 1));
         }
@@ -286,6 +287,7 @@ fn every_shape_checks_empty_short_and_complete_buffers(#[case] release: bool) {
         ("u32x4", "u32", 4, "7u32"),
         ("f32x4", "f32", 4, "7.0f32"),
         ("f64x2", "f64", 2, "7.0"),
+        ("f64x4", "f64", 4, "7.0"),
     ] {
         let stop = count + 1;
         passes(
@@ -492,11 +494,14 @@ def main() -> ():
     for i in range(s.len_f64x2(&values)):
         v = s.get_f64x2(&values, i)
         v.add(v).set(&mut values, i)
+    for i in range(s.len_f64x4(&values)):
+        w = s.get_f64x4(&values, i)
+        w.low().concat(&w.high()).mul(w).set(&mut values, i)
     tail = s.tail_f64x2(&values)
     print("__test_restore_allocations__").unwrap()
-    print(tail, values).unwrap()
+    print(tail, s.tail_f64x4(&values), values).unwrap()
 "#,
-        "4 [2.0, 4.0, 6.0, 8.0, 5.0]",
+        "4 4 [4.0, 16.0, 36.0, 64.0, 5.0]",
     );
 }
 
@@ -588,6 +593,7 @@ fn square_roots_match_scalar_lanes_and_preserve_zero_sign(#[case] release: bool)
     for (ty, vector, count, tiny) in [
         ("f32", "f32x4", 4, "1e-40f32"),
         ("f64", "f64x2", 2, "1e-310"),
+        ("f64", "f64x4", 4, "1e-310"),
     ] {
         let lanes = (0..count)
             .map(|i| format!("values[(start + {i}) % len(values)]"))
@@ -601,7 +607,7 @@ def borrowed(value: &s.{vector}) -> s.{vector}:
     value.sqrt()
 def main() -> ():
     values = [{ty}.NAN, {ty}.INF, -{ty}.INF, 0.0{ty}, -0.0{ty}, 2.0{ty}, -2.0{ty}, {tiny}, 1e30{ty}].unwrap()
-    unchecked trap:
+    unchecked:
         for start in range(len(values)):
             v = s.{vector}.Lanes({lanes})
             saved = v
@@ -767,7 +773,11 @@ fn exact_reciprocal_square_root_is_not_rewritten_to_the_estimate() {
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn square_root_chains_stay_in_vector_registers() {
-    for (vector, opcode) in [("f32x4", "sqrtps"), ("f64x2", "sqrtpd")] {
+    for (vector, opcode) in [
+        ("f32x4", "sqrtps"),
+        ("f64x2", "sqrtpd"),
+        ("f64x4", "sqrtpd"),
+    ] {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("sqrt.plenty");
         std::fs::write(&input, format!("import std.simd as s\ndef kernel(a: &s.{vector}, b: &s.{vector}) -> s.{vector}:\n    v = a.mul(b)\n    root = v.sqrt()\n    root.div(v)\ndef main() -> ():\n    a = s.splat_{vector}(4.0)\n    print(kernel(&a, &a).to_tuple()).unwrap()\n")).unwrap();
@@ -913,6 +923,7 @@ fn list_transfers_keep_scalar_bounds_at_every_offset(#[case] release: bool) {
             "-0.25f32",
         ),
         ("f64x2", "f64", 2, "0.0", "1.5", "next + 2.0", "-0.25"),
+        ("f64x4", "f64", 4, "0.0", "1.5", "next + 2.0", "-0.25"),
     ] {
         let lanes = (0..count)
             .map(|lane| format!("source[offset + {lane}]"))
@@ -1054,6 +1065,11 @@ fn list_transfers_are_packed_without_calls_or_enum_storage() {
             "a = s.load_f64x2(x, p).unwrap()\n        if not a.mul(a).store(out, p):\n            return False",
         ),
         (
+            "f64x4",
+            "movupd",
+            "a = s.load_f64x4(x, p).unwrap()\n        if not a.mul(a).store(out, p):\n            return False",
+        ),
+        (
             "f32x4",
             "movups",
             "a = s.load_f32x4(x, p).unwrap()\n        if not a.mul(a).store(out, p):\n            return False",
@@ -1086,9 +1102,13 @@ fn list_transfers_are_packed_without_calls_or_enum_storage() {
             String::from_utf8_lossy(&out.stderr)
         );
         let dump = String::from_utf8_lossy(&out.stdout);
-        let native = vector.replace('u', "i");
+        // `f64x4` is two `f64x2` parts at every CPU level (issue #962).
+        let (native, parts) = match vector {
+            "f64x4" => ("f64x2".to_owned(), 2),
+            _ => (vector.replace('u', "i"), 1),
+        };
         assert!(dump.contains(&format!("load.{native}")), "{dump}");
-        assert_eq!(dump.matches(load).count(), 2, "{dump}");
+        assert_eq!(dump.matches(load).count(), 2 * parts, "{dump}");
         assert!(!dump.contains("call "), "{dump}");
         assert!(
             !dump.contains("stack_load") && !dump.contains("stack_store"),
@@ -1098,8 +1118,9 @@ fn list_transfers_are_packed_without_calls_or_enum_storage() {
 }
 
 /// Lane type, lane count, zero and a nonzero lane literal for each shape.
-const VIEW_SHAPES: [(&str, &str, i64, &str, &str); 4] = [
+const VIEW_SHAPES: [(&str, &str, i64, &str, &str); 5] = [
     ("f64x2", "f64", 2, "0.0", "7.0"),
+    ("f64x4", "f64", 4, "0.0", "7.0"),
     ("f32x4", "f32", 4, "0.0f32", "7.0f32"),
     ("i32x4", "i32", 4, "0i32", "7i32"),
     ("u32x4", "u32", 4, "0u32", "7u32"),
@@ -1447,5 +1468,141 @@ def main() -> ():
     print("ok").unwrap()
 "#,
         release,
+    );
+}
+
+/// `f64x4` keeps four distinct lanes through every operation, its halves,
+/// promoted locals, merges, options and calls; the native lowering holds it
+/// as two `f64x2` parts (issue #962).
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn four_f64_lanes_stay_distinct_through_halves_merges_and_calls(#[case] release: bool) {
+    passes(
+        r#"import std.simd as s
+from std.test import check
+
+def same(a: f64, b: f64) -> bool:
+    if a != a:
+        return b != b
+    a == b and (1.0).copysign(a) == (1.0).copysign(b)
+
+def lanes_are(v: &s.f64x4, expected: (f64, f64, f64, f64)) -> bool:
+    (a, b, c, d) = v.to_tuple()
+    (w, x, y, z) = expected
+    same(a, w) and same(b, x) and same(c, y) and same(d, z)
+
+def echo(value: s.f64x4) -> s.f64x4:
+    value
+
+def choose(flag: bool, a: s.f64x4, b: s.f64x4) -> s.f64x4:
+    a if flag else b
+
+def borrowed_halves(v: &s.f64x4) -> s.f64x4:
+    v.high().concat(v.low())
+
+def doubled(n: i64) -> s.f64x4:
+    mut v = s.f64x4.Lanes(1.0, -2.0, 0.5, -0.0)
+    two = s.splat_f64x4(2.0)
+    for i in range(n):
+        if i % 2 == 0:
+            v = v.mul(two)
+        else:
+            v = v.add(v)
+    v
+
+def loaded(values: &list[f64], offset: i64) -> Option[s.f64x4]:
+    mut result: Option[s.f64x4] = Nothing
+    for i in range(3):
+        if i == offset:
+            result = s.load_f64x4(values, offset)
+    result
+
+def main() -> Result[(), AllocError | IoError]:
+    a = s.f64x4.Lanes(1.0, -20.0, 3.0, f64.NAN)
+    b = s.f64x4.Lanes(10.0, 2.0, -0.0, 4.0)
+    check(lanes_are(&a.add(b), (11.0, -18.0, 3.0, f64.NAN)), "add").unwrap()
+    check(lanes_are(&a.sub(b), (-9.0, -22.0, 3.0, f64.NAN)), "sub").unwrap()
+    check(lanes_are(&a.mul(b), (10.0, -40.0, -0.0, f64.NAN)), "mul").unwrap()
+    check(lanes_are(&a.div(b), (0.1, -10.0, -f64.INF, f64.NAN)), "div").unwrap()
+    roots = s.f64x4.Lanes(4.0, -0.0, f64.INF, -1.0).sqrt()
+    check(lanes_are(&roots, (2.0, -0.0, f64.INF, f64.NAN)), "sqrt").unwrap()
+    check(a.simd_lt(b) == s.mask64x4.Lanes(True, True, False, False), "lt").unwrap()
+    check(a.simd_ge(b) == s.mask64x4.Lanes(False, False, True, False), "ge").unwrap()
+    check(a.simd_ne(b) == s.mask64x4.Lanes(True, True, True, True), "ne").unwrap()
+    check(a.simd_eq(a) == s.mask64x4.Lanes(True, True, True, False), "eq NaN").unwrap()
+    check(a.simd_le(b) == s.mask64x4.Lanes(True, True, False, False), "le").unwrap()
+    check(a.simd_gt(b) == s.mask64x4.Lanes(False, False, True, False), "gt").unwrap()
+    m = a.simd_lt(b)
+    check(lanes_are(&m.select(a, b), (1.0, -20.0, -0.0, 4.0)), "select").unwrap()
+    check(m.any() and not m.all() and m.count() == 2, "mask summaries").unwrap()
+    check(m.invert() == s.mask64x4.Lanes(False, False, True, True), "invert").unwrap()
+    odd = s.mask64x4.Lanes(False, True, False, True)
+    check(m.and_mask(odd) == s.mask64x4.Lanes(False, True, False, False), "and").unwrap()
+    check(m.or_mask(odd) == s.mask64x4.Lanes(True, True, False, True), "or").unwrap()
+    check(m.xor_mask(odd) == s.mask64x4.Lanes(True, False, False, True), "xor").unwrap()
+    no_lane: Option[f64] = Nothing
+    check(a.lane(1) == Some(-20.0) and a.lane(-1) == no_lane and a.lane(4) == no_lane, "lane").unwrap()
+    ordered = s.f64x4.Lanes(1e308, 1e308, -1e308, -1e308)
+    check(ordered.sum_ordered(0.0) == f64.INF, "left to right").unwrap()
+    check(s.f64x4.Lanes(1.0, 2.0, 3.0, 4.0).sum_ordered(0.5) == 10.5, "initial").unwrap()
+    check(a.low().to_tuple() == (1.0, -20.0) and b.high().to_tuple() == (-0.0, 4.0), "halves").unwrap()
+    check(lanes_are(&a.low().concat(a.high()), a.to_tuple()), "concat").unwrap()
+    check(lanes_are(&borrowed_halves(&b), (-0.0, 4.0, 10.0, 2.0)), "swapped halves").unwrap()
+    check(lanes_are(&echo(b), b.to_tuple()), "by value").unwrap()
+    check(lanes_are(&choose(True, a, b), a.to_tuple()), "merge true").unwrap()
+    check(lanes_are(&choose(False, a, b), b.to_tuple()), "merge false").unwrap()
+    check(lanes_are(&doubled(3), (8.0, -16.0, 4.0, -0.0)), "loop-carried").unwrap()
+    values = [1.0, 2.0, 3.0, 4.0, 5.0]?
+    check(lanes_are(&loaded(&values, 1).unwrap(), (2.0, 3.0, 4.0, 5.0)), "option local").unwrap()
+    no_vector: Option[s.f64x4] = Nothing
+    check(loaded(&values, 2) == no_vector, "option nothing").unwrap()
+    mut kept: list[s.f64x4] = []?
+    mut v = s.splat_f64x4(1.0)
+    for i in range(3):
+        kept.append(v)?
+        v = v.add(s.f64x4.Lanes(1.0, 2.0, 3.0, 4.0))
+    check(lanes_are(&kept[2], (3.0, 5.0, 7.0, 9.0)) and lanes_are(&v, (4.0, 7.0, 10.0, 13.0)), "copies").unwrap()
+    print("ok")?
+    Ok(())
+"#,
+        release,
+    );
+}
+
+/// Optimized `f64x4` arithmetic, folds and halves stay in two vector
+/// registers per value: no calls to scalar bodies and no enum storage.
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn four_f64_lanes_lower_to_two_native_parts() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("parts.plenty");
+    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x4, b: &s.f64x4) -> f64:\n    c = a.div(a.high().concat(b.low()))\n    c.sqrt().sum_ordered(0.0)\ndef main() -> ():\n    a = s.splat_f64x4(4.0)\n    print(kernel(&a, &a)).unwrap()\n").unwrap();
+    let out = Command::new(support::plenty_bin())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+        .arg(input)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let dump = String::from_utf8_lossy(&out.stdout);
+    for opcode in ["sqrtpd", "divpd"] {
+        assert_eq!(dump.matches(opcode).count(), 2, "{opcode}: {dump}");
+    }
+    // The only callees are the runtime's caller-location bookkeeping.
+    assert!(
+        dump.lines()
+            .filter(|line| line.contains(" = colocated "))
+            .all(|line| line.contains("plenty_caller_")),
+        "{dump}"
+    );
+    assert!(
+        !dump.contains("stack_load") && !dump.contains("stack_store"),
+        "{dump}"
     );
 }

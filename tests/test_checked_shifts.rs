@@ -251,7 +251,7 @@ def main() -> Result[(), IoError]:
     );
 }
 
-/// `unchecked:` and `unchecked trap:` keep the runtime trap for invalid counts.
+/// `unchecked:` keeps the runtime trap for invalid counts, also inside `checked:`.
 #[test]
 fn trapping_suites_keep_the_shift_trap() {
     let source = r#"
@@ -264,7 +264,7 @@ def main() -> Result[(), AllocError | IoError]:
         print(value)?
     else:
         result = checked:
-            value = unchecked trap:
+            value = unchecked:
                 1 >> count
             value + 1
         print(result.is_err())?

@@ -711,6 +711,11 @@ always traps; caches key on the mode. Issue #764 extends assumed suites to list,
 slice-view and `Bytes` index reads, writes and borrows: indices must be
 nonnegative and in range, and both bounds checks and negative normalization
 are omitted. Trapping scopes, other indexing and `std` keep their contracts.
+The `--unchecked` option and assumed suites were later removed, a breaking
+command-line change: `--unchecked` is now an unknown option in `plenty`,
+`plentyc` and `plenty script`. Every `unchecked:` suite traps on a violation.
+The `unchecked trap:` spelling was removed in the same breaking change; it is
+now a syntax error that suggests `unchecked:`.
 The private
 callback channel is removed. Initial std migration covers math helpers, bytes
 and time: integer reductions preserve typed overflow payloads, separate float
@@ -1504,6 +1509,25 @@ bounded body dispatches once to the active member through a synthesized
 are unchanged: only `format` forwards. Mutable, consuming,
 `Self`-using and generic protocols are rejected with the reason. See
 [protocols on anonymous sums](../design/language/07-generics/protocols.md#anonymous-sums).
+
+## Integer intervals in the checker (issue #952)
+
+The checker derives an inclusive [interval](../design/language/03-types/intervals.md)
+for every integer expression from fixed rules: literals, module constants,
+`T.MIN`/`T.MAX`, `get()` on `Bounded`, `NonNegative` and `Positive`, `len()`,
+immutable locals, and `+ - * // % & << >>`, unary minus and integer casts.
+Arithmetic whose result interval fits its type adds no `OverflowError`, a
+divisor that excludes zero adds no `ZeroDivisionError`, and
+[`Bounded.from`](../design/language/03-types/bounded.md#proved-ranges) accepts
+any argument whose interval lies in the bounds. Parameters, `mut` locals,
+fields and call results have the full range, and conditions do not narrow.
+
+A proved operation reaches code generation as `Op::Proved` or a `Divisor`
+proof, so one decision removes both the error and the check. A signature may
+still declare an error its body cannot return. A `checked:` block's error type
+[ignores interval proofs](../design/language/03-types/intervals.md#checked-blocks),
+so a block stays valid when its arithmetic is proved. fasta's generator now returns a plain `i64`;
+[measurements](performance.md#checker-intervals-issue-952).
 
 ## Raw C host interfaces
 

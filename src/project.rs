@@ -1247,6 +1247,8 @@ pub struct BuildOptions {
     /// Never fetch; use only `.pkg/`.
     pub offline: bool,
     pub compile: crate::CompileOptions,
+    /// `--cpu`, which overrides each package's `[build] cpu`.
+    pub cpu: Option<crate::CpuLevel>,
     /// Used only by `plenty check`, which never reuses an earlier result.
     pub check: crate::CheckOptions,
 }
@@ -1258,6 +1260,7 @@ impl Default for BuildOptions {
             locked: false,
             offline: false,
             compile: crate::CompileOptions::default(),
+            cpu: None,
             check: crate::CheckOptions::default(),
         }
     }
@@ -1459,9 +1462,13 @@ fn output_directory(project: &Project, profile: Profile) -> PathBuf {
     project.root.join("target").join(profile.name())
 }
 
-fn compile_options(options: &BuildOptions) -> crate::CompileOptions {
+/// The options for compiling `package`'s executables and tests. Only the
+/// package being built chooses its CPU level; dependencies are compiled into
+/// its program at that level.
+fn compile_options(options: &BuildOptions, package: &Package) -> crate::CompileOptions {
     let mut compile = options.compile.clone();
     compile.optimize = options.profile == Profile::Optimized;
+    compile.cpu = options.cpu.or(package.manifest.cpu).unwrap_or_default();
     compile
 }
 
@@ -1523,7 +1530,7 @@ fn build_member(
     let directory = output_directory(project, options.profile);
     std::fs::create_dir_all(&directory)?;
     let graph = project.source_graph(member);
-    let compile = compile_options(options);
+    let compile = compile_options(options, package);
     let mut progress = Progress {
         package,
         profile: options.profile,
@@ -1838,10 +1845,10 @@ pub fn test(directory: &Path, options: &TestOptions) -> Result<TestSummary> {
         return Ok(summary);
     }
     let output = output_directory(&project, options.build.profile);
-    let compile = compile_options(&options.build);
     let mut executables = vec![None; files.len()];
     for &member in &project.selected {
         let package = project.member(member);
+        let compile = compile_options(&options.build, package);
         let mut progress = Progress {
             package,
             profile: options.build.profile,

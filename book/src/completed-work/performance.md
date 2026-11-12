@@ -256,6 +256,106 @@ initial state and eighty randomized cases; fallback and allocation-failure
 checks retain their original behavior. Broader aggregate eligibility, automatic
 SIMD packing and backend register use remain issue #930 in the [backlog](../backlog.md).
 
+### Paired divisions and square roots
+
+The lowerer now computes [adjacent statements of one shape](../design/toolchain/02-architecture/numerical-loops.md#paired-statements)
+in two `f64x2` lanes when they divide or take a square root. In n-body's
+expanded step this pairs the ten magnitudes: five `sqrtpd` and five `divpd`
+replace ten `sqrtsd` and ten `divsd`. Output is identical.
+
+Per step, one pinned core, three interleaved rounds of `perf stat -r 5` over
+five million steps, load average 2.5 to 2.8 (`experiments/nbody-spills/`):
+
+| Build | Instructions | Cycles | ms per 5M steps |
+|---|---:|---:|---:|
+| Plenty before (`02f2e245`) | 647 | 236.4 | 256 |
+| Plenty with paired statements | 652 | 220.0 | 236 |
+| gcc 16.2 `-O3`, vectorization off | 549 | 221.5 | 239 |
+| clang 22.1 `-O3`, vectorization off | 495 | 215.0 | 233 |
+| Rust (LLVM vectorizes pairs) | 451 | 158.0 | 171 |
+
+The gain is in cycles, not instructions: the divider and square-root unit
+handle two lanes at the cost of one. Across eight binaries whose `advance`
+starts at different addresses, the previous compiler takes 236.0 to 238.5
+cycles per step and this one 220.5 to 225.1, so the change is not a placement
+effect. The `std.simd` source variant (214 cycles) and the `clist` variant
+(377 cycles) compile to the same code as before, as do all other programs
+under `benchmarks/game` and `examples`.
+
+Every instruction beyond C's is data movement; the loop has no checks or
+address computation. Per step:
+
+| Category | Before | Now | gcc | clang | Rust |
+|---|---:|---:|---:|---:|---:|
+| FP arithmetic, register operands | 280 | 240 | 229 | 215 | 138 |
+| FP arithmetic, stack operand | 0 | 0 | 51 | 65 | 33 |
+| Stack loads | 170 | 187 | 58 | 47 | 53 |
+| Stack stores | 75 | 73 | 24 | 51 | 66 |
+| Register copies | 107 | 112 | 184 | 97 | 92 |
+| Lane rearrangements | 0 | 20 | 0 | 0 | 62 |
+| Zeroing, other loads, control | 15 | 20 | 3 | 20 | 7 |
+| Total | 647 | 652 | 549 | 495 | 451 |
+
+Cranelift never uses a spilled value as a memory operand and the step
+keeps more values live than the 16 vector registers hold. Two fork prototypes that let
+regalloc2 leave read-only scalar operands in their spill slots removed 55
+instructions and cost 17% more cycles: regalloc2 then keeps a value used only
+by such operands in memory for its whole life. Rewriting the allocated code
+of a hand-written kernel instead, folding a reload into the next instruction
+when the reloaded register is not read again, gave 612 instructions and 220
+cycles against 645 and 231; also retargeting reloads that feed a copy gave 569
+and 213. That post-allocation fold in the Cranelift fork
+and keeping pair data in vectors (a hand-written IR with `x`/`y` pairs runs at
+187 cycles) remain issue #930.
+
+### Clist columns as numerical state
+
+`nbody_clist.plenty` is the n-body source with its bodies in a
+`clist[Body]`. (`nbody.plenty` holds a `list[Body]` of a `@copy` class and
+was already promoted.) [Guarded numerical state](../design/toolchain/02-architecture/numerical-loops.md)
+did not recognize a clist, so each of the step's 245 field accesses kept its
+bounds check, reloaded the index, row count and column address from the
+stack, and read or wrote memory. The pass now takes a clist as a root, with
+one row of an `f32` or `f64` column as a cell, and, for a row whose fields
+are all floats, `clist[T].with_capacity` with a literal from two to eight as
+a size hint.
+Output is identical.
+
+Per step, user mode, one pinned core, three interleaved rounds of
+`perf stat -r 5` over five million steps, load average 3.6 to 5.0 from
+unrelated work (`experiments/nbody-spills/`):
+
+| Build | Instructions | Branches | Loads | Stores | Cycles | ms per 5M steps |
+|---|---:|---:|---:|---:|---:|---:|
+| `clist[Body]` before (`d2e335b2`) | 1,573 | 173 | 576 | 199 | 382.6 | 415 |
+| `clist[Body]` now | 648 | 2 | 189 | 77 | 225.8 | 244 |
+| `list[Body]` (unchanged) | 652 | 2 | 187 | 73 | 220.6 | 236 |
+| gcc 16.2 `-O3`, scalar locals, vectorization off | 549 | 1 | 109 | 24 | 221.5 | 236 |
+| clang 22.1 `-O3`, scalar locals, vectorization off | 495 | 1 | 120 | 51 | 215.1 | 229 |
+| Rust, `[Body; 5]` | 451 | 1 | 94 | 66 | 157.9 | 169 |
+| gcc `-O3`, heap array of structs, run-time length | 684 | 43 | 161 | 77 | 197.0 | 212 |
+| gcc, same, vectorization off | 768 | 50 | 200 | 117 | 247.7 | 266 |
+| clang `-O3`, heap array of structs, run-time length | 799 | 70 | 200 | 80 | 192.0 | 208 |
+| clang, same, vectorization off | 879 | 70 | 218 | 115 | 257.1 | 277 |
+| Rust, `Vec<Body>`, run-time length | 988 | 91 | 318 | 109 | 222.5 | 242 |
+
+The run-time-length sources (`experiments/nbody-spills/aos/`) follow the
+Plenty statement order and hide the body count from the optimizer, as a
+caller's list does. The clist step now has the list step's shape: no
+checks, no address computation, and four fewer instructions. It runs 2%
+slower than the list step; the allocator places its spills differently. Across
+eight binaries whose `advance` starts at different addresses the previous
+compiler takes 373.8 to 407.6 cycles per step and this one 224.2 to 233.9.
+Of the other programs under `benchmarks/game` and `examples`, all 36 that
+compile alone produce the same binary as before.
+
+With `--cpu x86-64-v3` the clist step takes 549 instructions and 214.0
+cycles, and the list step 552 and 215.5.
+
+gcc and clang reach 192 to 197 cycles on the array of structs by packing
+`x`/`y` and `vx`/`vy` pairs into vectors, which is the pair-data work still
+open in issue #930.
+
 ## Value bounds and loop conditions
 
 Instruction counts (`instructions:u`, x86-64, `--release`) against `28cb7214`,
@@ -893,3 +993,104 @@ IR variants before the compiler change and verify snapshot movement, branch
 assignment, closure replacement, mutable and borrowed captures, and float edge
 cases. Whole-program instructions fall from 44,158,729 to 40,881,853 with the
 same checksum. This is an instruction-count result, not an elapsed-time claim.
+
+## Checker intervals (issue #952)
+
+The checker's [integer intervals](../design/language/03-types/intervals.md)
+decide which arithmetic is infallible and pass the verdict to code
+generation as `Op::Proved`, so the check is omitted exactly where the error
+is. Code generation's own
+[value bounds](../design/toolchain/02-architecture/emission.md#value-bounds)
+still remove further checks, with the error left in the contract.
+
+Against `584acca1`, one pinned core of a Ryzen 7 7840HS, `perf stat -r 5`,
+three interleaved rounds (load average 2.4 to 4.1 from another task's builds
+on other cores), identical output; cycles and time are the range of the
+rounds:
+
+| Program | Instructions | Cycles | Time |
+| --- | ---: | ---: | ---: |
+| fasta 25,000,000, before | 10,434.6M | 7,010M to 7,030M | 1,507 to 1,513 ms |
+| fasta 25,000,000, after, generator returning `i64` | 10,434.6M | 7,045M to 7,073M | 1,513 to 1,522 ms |
+| `field-rng` `fill_bounded`, before | 4,920.5M | 4,928M to 4,951M | 1,044 to 1,049 ms |
+| `field-rng` `fill_bounded`, after, returning `i64` | 4,920.1M | 4,919M to 4,923M | 1,042 to 1,061 ms |
+
+fasta executes the same instructions in the same loops and takes 0.5% more
+cycles. Its hot loop is sensitive to where it is placed (the effect
+investigated under issue #437): the previous fasta source, compiled by this
+compiler to the same assembly as before, has that loop 32 bytes further into
+its 64-byte line and takes 7,307M to 7,335M cycles, 4% more.
+
+fasta's and `field-rng`'s loops are unchanged: value bounds had already
+removed their checks, and intervals now remove the errors from their
+signatures. Where only intervals prove the arithmetic, each loop loses its
+overflow branches (`experiments/kernels/intervals/`, instructions per pass):
+
+| Kernel | Before | After |
+| --- | ---: | ---: |
+| `(x & 1023) * 1000 - 500000` | 10 | 8 |
+| `i64(x) * 3 - 7`, `x` an `i32` | 9 | 7 |
+| `-(x % 1000) * 5` | 20 | 18 |
+
+Compile time, `compile_bench 1000 10 --workload aot` on cores 0-7, five
+interleaved runs: 442 to 469 ms before, 438 to 470 ms after (medians 448 and
+445); 64.45 against 64.69 billion instructions (+0.4%).
+
+A method whose final expression is a call is not inlined (issue #958), so
+fasta's generator returns the local it stored.
+
+## CPU levels (issue #962, stage 1)
+
+[CPU levels](../design/toolchain/01-building/linking.md#cpu-levels) let an
+executable use x86-64-v2 or x86-64-v3 instructions after a startup check.
+Output is identical at every level for every program measured.
+
+AMD Zen 4, one pinned core, nine interleaved rounds over five million steps
+(n-body) or the argument shown, medians, after
+[paired divisions and square roots](#paired-divisions-and-square-roots):
+
+| Program | Instructions, x86-64 → v3 | Cycles, x86-64 → v3 |
+|---|---:|---:|
+| n-body, per step | 652 → 552 | 220.7 → 216.8 (-1.8%) |
+| n-body, `std.simd` magnitudes, per step | 621 → 540 | 214.9 → 200.2 (-6.8%) |
+| n-body, list of classes | -4.1% | -1.2% |
+| mandelbrot (4000) | -23% | 0% |
+| spectral-norm (2000) | -5.9% | -0.7% |
+| fannkuch-redux (10) | 0% | 0% |
+
+The v3 gain is three-operand VEX removing register copies: n-body's step has
+112 register copies at x86-64 and 15 at v3, and 187 → 171 stack loads and
+73 → 71 stores. Before paired statements, the same change saved 6.7% of
+n-body's cycles (236 to 220); paired statements already removed most of that
+time, and copies are cheap on Zen 4, which eliminates many at rename. Mandelbrot is latency-bound. Six padded n-body variants shift
+`advance` in 16-byte steps; their minimum cycles per step are 219.5 to 221.3
+at x86-64 and 216.0 to 217.3 at v3, so the gain is not a placement effect.
+x86-64-v2 emits the same instructions as x86-64 in every user function of
+these programs.
+
+## `f64x4` as two `f64x2` halves (issue #962, stage 3)
+
+[`std.simd.f64x4`](../design/stdlib/simd.md#values-and-construction) lowers
+to two 128-bit `f64x2` halves at every CPU level. In n-body's magnitude loop
+it costs the same as the work written with `f64x2`; the remaining difference
+is the scalar tail.
+
+AMD Zen 4, one pinned core, five million steps, three interleaved rounds over
+eight padded layouts that shift `advance` in 16-byte steps; minimum per
+layout, median across layouts. The ten pair distances are computed as five
+`f64x2`, two `f64x4` and two scalar pairs, or eight `f64x4` lanes plus one
+`f64x2`:
+
+| Program | Cycles per step, x86-64 | v3 | Instructions, x86-64 | v3 |
+|---|---:|---:|---:|---:|
+| Scalar | 220.4 | 216.6 | 652 | 552 |
+| `f64x2` magnitudes | 214.8 | 199.8 | 621 | 540 |
+| `f64x4` magnitudes, scalar tail | 225.7 | 215.9 | 667 | 539 |
+| `f64x4` magnitudes, `f64x2` tail | 213.3-214.0 | 200.2-200.8 | 617 | 540 |
+
+With an `f64x2` tail the loop runs the same vector arithmetic as the `f64x2`
+version (5 `sqrtpd`, 5 `divpd`, 20 `mulpd`, 10 `addpd`) and the same time.
+With a scalar tail, the two remaining distances are
+[paired](#paired-divisions-and-square-roots) by assembling lanes
+(`xorpd`, `movsd`, `movlhps`) and the loop has 42 more register copies and 14
+more spills. Layout spread is at most 3 cycles.

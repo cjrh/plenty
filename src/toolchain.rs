@@ -122,10 +122,9 @@ pub struct CompileOptions {
     /// Optimize generated code for speed. Enabled by default; disabling it
     /// selects the fast-compile profile.
     pub optimize: bool,
-    /// What plain `unchecked:` suites outside `std` do with their arithmetic
-    /// preconditions. Changes the program's meaning, so it is part of every
-    /// cache identity.
-    pub unchecked: UncheckedMode,
+    /// The CPU level of the generated code (`--cpu`). Above the baseline the
+    /// executable checks the running CPU first. Part of every cache identity.
+    pub cpu: crate::CpuLevel,
     /// Where compiled functions are cached between compilations.
     pub cache: crate::cache::CacheMode,
     /// Reuse a whole program's object from the cache when none of its
@@ -170,7 +169,7 @@ impl Default for CompileOptions {
             dataframe_engine: None,
             linalg_engine: None,
             optimize: true,
-            unchecked: UncheckedMode::Trap,
+            cpu: crate::CpuLevel::Baseline,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
             executable_cache: false,
@@ -180,38 +179,6 @@ impl Default for CompileOptions {
             strip: true,
             temporary_output: false,
             distribution: false,
-        }
-    }
-}
-
-/// The build's choice for plain `unchecked:` suites (`--unchecked MODE`); see
-/// `book/src/design/language/03-types/numbers.md#unchecked-blocks`.
-/// `unchecked trap:` and `std` always check.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum UncheckedMode {
-    /// Check the preconditions and trap on a violation.
-    #[default]
-    Trap,
-    /// Assume the preconditions hold and omit their checks. A violation is
-    /// undefined behavior.
-    Assume,
-}
-
-impl UncheckedMode {
-    pub fn parse(text: &str) -> Result<Self, String> {
-        match text {
-            "trap" => Ok(Self::Trap),
-            "assume" => Ok(Self::Assume),
-            _ => Err(format!(
-                "--unchecked takes `trap` or `assume`, not `{text}`"
-            )),
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Trap => "trap",
-            Self::Assume => "assume",
         }
     }
 }

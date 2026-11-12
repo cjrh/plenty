@@ -88,25 +88,25 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.sketch.xor`](#stdsketchxor): 3260-3271
 - [`std.sketch.cuckoo`](#stdsketchcuckoo): 3273-3288
 - [`std.signal`](#stdsignal): 3290-3307
-- [`std.simd`](#stdsimd): 3309-3431
-- [`std.stat`](#stdstat): 3433-3466
-- [`std.plot`](#stdplot): 3468-3557
-- [`std.linalg`](#stdlinalg): 3559-3600
-- [`std.sync`](#stdsync): 3602-3634
-- [`std.system`](#stdsystem): 3636-3695
-- [`std.tempfile`](#stdtempfile): 3697-3729
-- [`std.test`](#stdtest): 3731-3773
-- [`std.text`](#stdtext): 3775-3818
-- [`std.thread`](#stdthread): 3820-3824
-- [`std.time`](#stdtime): 3826-3870
-- [`std.tls`](#stdtls): 3872-3954
-- [`std.toml`](#stdtoml): 3956-4055
-- [`std.unicode`](#stdunicode): 4057-4069
-- [`std.units`](#stdunits): 4071-4308
-- [`std.units.catalogue`](#stdunitscatalogue): 4310-5088
-- [`std.url`](#stdurl): 5090-5118
-- [`std.uuid`](#stduuid): 5120-5143
-- [`std.xml`](#stdxml): 5145-5178
+- [`std.simd`](#stdsimd): 3309-3467
+- [`std.stat`](#stdstat): 3469-3502
+- [`std.plot`](#stdplot): 3504-3593
+- [`std.linalg`](#stdlinalg): 3595-3636
+- [`std.sync`](#stdsync): 3638-3670
+- [`std.system`](#stdsystem): 3672-3731
+- [`std.tempfile`](#stdtempfile): 3733-3765
+- [`std.test`](#stdtest): 3767-3809
+- [`std.text`](#stdtext): 3811-3854
+- [`std.thread`](#stdthread): 3856-3860
+- [`std.time`](#stdtime): 3862-3906
+- [`std.tls`](#stdtls): 3908-3990
+- [`std.toml`](#stdtoml): 3992-4091
+- [`std.unicode`](#stdunicode): 4093-4105
+- [`std.units`](#stdunits): 4107-4344
+- [`std.units.catalogue`](#stdunitscatalogue): 4346-5124
+- [`std.url`](#stdurl): 5126-5154
+- [`std.uuid`](#stduuid): 5156-5179
+- [`std.xml`](#stdxml): 5181-5214
 
 ## `std.actor`
 
@@ -3401,6 +3401,7 @@ enum f64x2
     def simd_gt(self, other: &f64x2) -> mask64x2
     def simd_ge(self, other: &f64x2) -> mask64x2
     def sum_ordered(self, initial: f64) -> f64
+    def concat(self, high: &f64x2) -> f64x4
     def set(self, values: &mut [f64], index: i64) -> ()
     def store(self, values: &mut list[f64], offset: i64) -> bool
 def splat_f64x2(value: f64) -> f64x2
@@ -3408,6 +3409,31 @@ def len_f64x2(values: &[f64]) -> i64
 def tail_f64x2(values: &[f64]) -> i64
 def get_f64x2(values: &[f64], index: i64) -> f64x2
 def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]
+enum f64x4
+    Lanes(f64, f64, f64, f64)
+    def lane(self, index: i64) -> Option[f64]
+    def to_tuple(self) -> (f64, f64, f64, f64)
+    def add(self, other: &f64x4) -> f64x4
+    def sub(self, other: &f64x4) -> f64x4
+    def mul(self, other: &f64x4) -> f64x4
+    def sqrt(self) -> f64x4
+    def div(self, other: &f64x4) -> f64x4
+    def simd_eq(self, other: &f64x4) -> mask64x4
+    def simd_ne(self, other: &f64x4) -> mask64x4
+    def simd_lt(self, other: &f64x4) -> mask64x4
+    def simd_le(self, other: &f64x4) -> mask64x4
+    def simd_gt(self, other: &f64x4) -> mask64x4
+    def simd_ge(self, other: &f64x4) -> mask64x4
+    def sum_ordered(self, initial: f64) -> f64
+    def low(self) -> f64x2
+    def high(self) -> f64x2
+    def set(self, values: &mut [f64], index: i64) -> ()
+    def store(self, values: &mut list[f64], offset: i64) -> bool
+def splat_f64x4(value: f64) -> f64x4
+def len_f64x4(values: &[f64]) -> i64
+def tail_f64x4(values: &[f64]) -> i64
+def get_f64x4(values: &[f64], index: i64) -> f64x4
+def load_f64x4(values: &list[f64], offset: i64 = 0) -> Option[f64x4]
 enum mask32x4
     Lanes(bool, bool, bool, bool)
     def any(self) -> bool
@@ -3428,6 +3454,16 @@ enum mask64x2
     def and_mask(self, other: &mask64x2) -> mask64x2
     def or_mask(self, other: &mask64x2) -> mask64x2
     def xor_mask(self, other: &mask64x2) -> mask64x2
+enum mask64x4
+    Lanes(bool, bool, bool, bool)
+    def any(self) -> bool
+    def all(self) -> bool
+    def count(self) -> i64
+    def select[T](self, yes: &T, no: &T) -> T
+    def invert(self) -> mask64x4
+    def and_mask(self, other: &mask64x4) -> mask64x4
+    def or_mask(self, other: &mask64x4) -> mask64x4
+    def xor_mask(self, other: &mask64x4) -> mask64x4
 ```
 
 ## `std.stat`

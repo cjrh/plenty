@@ -18,7 +18,7 @@ cannot combine u8 with i64; convert with `i64(small)`
 Choose a matching literal or explicitly convert a value:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[u8] | OverflowError[i64]]:
+def main() -> Result[(), IoError]:
     small = 7u8
     print(small + 1u8)?
     print(i64(small) + 1)?
@@ -29,6 +29,10 @@ def main() -> Result[(), IoError | OverflowError[u8] | OverflowError[i64]]:
 8
 8
 ```
+
+Neither addition can overflow, so `main` lists no arithmetic error: `small` is
+bound once to `7`, and the compiler follows that value into both sums.
+[Arithmetic that cannot fail](#arithmetic-that-cannot-fail) gives the rule.
 
 `i64(small)` is safe because every `u8` value fits in an `i64`. When the target
 cannot hold every value of the source, use `try_from`. It checks the range and
@@ -50,7 +54,9 @@ def main() -> Result[(), RangeError | IoError | OverflowError[u8]]:
 
 `?` takes the converted value or returns its error to the caller. The
 `RangeError | IoError` error type preserves either a conversion error or a
-printing error. [Absence and failure](../03-absence/index.md) explains propagation
+printing error. `small` now comes from a conversion, so it can be any `u8`,
+and `small + 1u8` adds `OverflowError[u8]`.
+[Absence and failure](../03-absence/index.md) explains propagation
 and how to recover from an error.
 
 A cast to an integer type requires the value to fit. A literal that does not
@@ -123,7 +129,7 @@ unary minus is not defined for unsigned type u8
 and rounds down, including for negative values:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[i64]]:
+def main() -> Result[(), IoError]:
     print(1 + 2 * 3)?
     print((1 + 2) * 3)?
     print(-7 // 3)?
@@ -137,14 +143,13 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 ```
 
 Integer division by zero returns `ZeroDivisionError`. Signed division also
-returns `OverflowError[T]` for `T.MIN // -1`. The contract follows the
-operators and operand types, with one exception: a divisor written as an
-integer literal rules out what it cannot cause. `n // 3` and `n % 3` can fail
-with neither error, and `n // -1` only with overflow. A divisor held in a
-variable still requires `ZeroDivisionError`, and for a signed type
-`OverflowError[T]`, even when you know it is nonzero or not `-1`. An integer
+returns `OverflowError[T]` for `T.MIN // -1`. A divisor whose value the
+compiler knows rules out what it cannot cause: `n // 3` and `n % 3` can fail
+with neither error, and `n // -1` only with overflow. An integer
 [module constant](../07-modules/03-standard-math.md) proves the same as the
-literal it holds.
+literal it holds. A divisor that can be any value, such as a parameter or a
+`mut` variable, requires `ZeroDivisionError`, and for a signed type
+`OverflowError[T]`, even when you know it is nonzero or not `-1`.
 Use `/` for floating-point division.
 
 Integers also support bitwise operations and shifts. Signed right shifts
@@ -215,6 +220,8 @@ invalid shift count 8
 Masking the count with a literal below the width, as in `value >> (count & 7u8)`,
 keeps it in range, so that shift adds no error. As with divisors, an integer
 module constant count or mask proves the same as its literal.
+[Arithmetic that cannot fail](#arithmetic-that-cannot-fail) explains how the
+compiler knows.
 
 `rotate_left` and `rotate_right` move bits around the ends of an integer
 instead of discarding them. The count has the integer's own type. No count
@@ -243,7 +250,7 @@ def main() -> Result[(), IoError]:
 one type, and the result has that type:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[i64] | OverflowError[u8]]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     change = -7
     small = 200u8
     print(change.pow(2))?
@@ -264,7 +271,8 @@ There is no `**` operator. An integer literal receiver needs parentheses, as in
 `(2).pow(10)`.
 
 A result that does not fit returns the same typed overflow error as the
-operators. An integer power with a negative exponent still stops with
+operators, and an integer `pow` always lists it. `u8.MAX - small` lists none:
+both values are known. An integer power with a negative exponent still stops with
 `negative integer exponent`; convert to a float for that.
 
 ## Recover from overflow
@@ -332,17 +340,57 @@ need explicit handling.
 
 Use `unchecked:` only where you can show the arithmetic cannot fail. It
 yields an ordinary value, not a `Result`. A failure inside it terminates the
-process by default, but `--unchecked assume` builds omit that check, so do not
-use the suite to reject bad input. In assume builds, list, slice-view and
-`Bytes` indexing inside the suite also requires nonnegative, in-range indices;
-normal negative indexing is unavailable there. Keep these suites small and
-justify every indexed access as well as the arithmetic. Write `unchecked trap:`
-when termination is the intent. See
-[arithmetic modes](../../design/language/03-types/numbers.md#unchecked-blocks).
+process, so do not use the suite to reject bad input that the caller should
+be able to handle. Keep these suites small. See
+[unchecked blocks](../../design/language/03-types/numbers.md#unchecked-blocks).
 Integer [`std.math` helpers](../../design/stdlib/math.md) return ordinary
 overflow results; their float variants remain infallible. Remaining std
 implementations and parallel reductions still need the coordinated adoption
 described in [B14](../../backlog.md). Calls never inherit a caller's mode.
+
+## Arithmetic that cannot fail
+
+The compiler gives each integer expression a range of possible values and
+requires an error only where the result's range does not fit the type. The
+ranges come from fixed rules, not from guesses:
+
+- A literal, a module constant and `T.MIN` or `T.MAX` are one value.
+- A variable bound once has the range of the expression it was bound to. A
+  `mut` variable, a parameter and a call's result can be any value of the
+  type.
+- `x % 10` is in `0..9`, `x & 15` in `0..15`, and `i64(byte)` of a `u8` in
+  `0..255`. `len(items)` is never negative.
+- `+`, `-`, `*`, `//`, `%` and shifts combine the ranges of their operands.
+
+```plenty
+def mean(a: u8, b: u8) -> i64:
+    (i64(a) + i64(b)) // 2
+
+def check_digit(number: i64) -> i64:
+    last = number % 10
+    (last * 3 + 7) % 10
+
+def main() -> Result[(), IoError]:
+    print(mean(255, 255), check_digit(-13))?
+    Ok(())
+```
+```output
+255 8
+```
+
+`i64(a) + i64(b)` is at most 510, so `mean` returns a plain `i64`. In
+`check_digit`, `last` is in `0..9`, so `last * 3 + 7` is in `7..34`. Written
+with `u8` operands, `a + b` can exceed 255 and needs `OverflowError[u8]`:
+the rule looks at ranges, never at what the values happen to be when the
+program runs.
+
+A comparison does not narrow a range: after `if n < 10:`, `n * 2` still
+requires its error. To carry a range in a parameter or field, give it a
+[bounded type](../09-generics/value-parameters.md). A `checked:` block keeps
+its error type when a range proves its arithmetic, so the block and the
+`match` on its result stay valid. The
+[interval reference](../../design/language/03-types/intervals.md) lists every
+rule.
 
 ## Validate a divisor once
 

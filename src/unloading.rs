@@ -174,6 +174,7 @@ fn allowed(op: &Op) -> bool {
         | Op::CheckedFunction { .. }
         | Op::CheckedArith { .. }
         | Op::Assumed(_)
+        | Op::Proved(..)
         | Op::Loop { .. }
         | Op::If { .. }
         | Op::PushInt(_)

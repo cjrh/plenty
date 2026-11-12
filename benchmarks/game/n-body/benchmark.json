@@ -59,13 +59,6 @@
       "file": "plenty/nbody_simd.plenty",
       "threads": 1,
       "note": "The magnitude step with std.simd: f64x2 view accesses, a reciprocal square root estimate and two Newton-Raphson steps, as the fast C and Rust entries do (issue #946)."
-    },
-    {
-      "variant": "unchecked",
-      "file": "plenty/nbody_unchecked.plenty",
-      "threads": 1,
-      "flags": ["--unchecked", "assume"],
-      "note": "The idiomatic program with its index arithmetic in unchecked: suites, built with --unchecked assume. Indices inside those suites are nonnegative and in range; bounds checks are omitted too."
     }
   ]
 }

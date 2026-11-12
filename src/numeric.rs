@@ -135,9 +135,9 @@ pub fn int_kind(ty: &Ty) -> i64 {
     }
 }
 
-/// Proof supplied by the divisor's nominal type or by an integer literal
-/// divisor, retained until native lowering. The literal rule is in
-/// `book/src/design/language/03-types/numbers.md#checked-blocks`.
+/// Proof supplied by the divisor's nominal type or by the operands'
+/// [intervals](crate::interval), retained until native lowering. The rules
+/// are in `book/src/design/language/03-types/intervals.md`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Divisor {
     Any,
@@ -145,12 +145,19 @@ pub enum Divisor {
     NonZero,
     /// Greater than zero.
     Positive,
-    /// At most `-2`: a negative literal other than `-1`.
+    /// At most `-2`.
     BelowMinusOne,
+    /// May be zero, but the operands are never `MIN` and `-1` together, so
+    /// a quotient fits.
+    Fits,
+    /// Never zero, and the operands are never `MIN` and `-1` together.
+    NonZeroFits,
 }
 
 impl Divisor {
-    /// The proof an integer literal divisor with `value` supplies.
+    /// The proof an integer literal divisor with `value` supplies by
+    /// itself. A `checked:` block's error type uses this proof and not the
+    /// operands' intervals.
     pub fn literal(value: i128) -> Self {
         match value {
             0 => Self::Any,
@@ -160,8 +167,14 @@ impl Divisor {
         }
     }
 
+    /// Whether the operands may be `MIN` and `-1` together: the one signed
+    /// quotient that overflows, and the pair the hardware division faults on.
     pub fn may_be_minus_one(self) -> bool {
         matches!(self, Self::Any | Self::NonZero)
+    }
+
+    pub fn may_be_zero(self) -> bool {
+        matches!(self, Self::Any | Self::Fits)
     }
 }
 
@@ -218,10 +231,10 @@ impl Checked {
 
     /// Whether a zero divisor is an error.
     pub fn divides(self) -> bool {
-        matches!(
-            self,
-            Self::FloorDiv(Divisor::Any) | Self::Modulo(Divisor::Any) | Self::FloatDiv
-        )
+        match self {
+            Self::FloorDiv(proof) | Self::Modulo(proof) => proof.may_be_zero(),
+            other => other == Self::FloatDiv,
+        }
     }
 
     /// Pops `T T` and pushes `T`.

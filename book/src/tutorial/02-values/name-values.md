@@ -4,7 +4,7 @@ Use `=` to create a binding. Plenty infers the type of a local value, so you
 usually do not need an annotation:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[i64]]:
+def main() -> Result[(), IoError]:
     # Comments begin with a hash.
     price = 20
     quantity = 3

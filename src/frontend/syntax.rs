@@ -225,7 +225,7 @@ pub(super) enum Expression {
     /// A `checked:` block, accepted where a `match` block is. Its value is
     /// `Ok` of its final expression, or `Err` of the first arithmetic error
     /// written inside it.
-    /// Arithmetic suite: `checked:`, `unchecked:` or `unchecked trap:`.
+    /// Arithmetic suite: `checked:` or `unchecked:`.
     Checked(Suite, Vec<Stmt>),
     /// One conditional statement used as a whole statement value; retaining
     /// its suites shares branch joins, lazy tests, and cleanup with tail `if`.
@@ -239,10 +239,8 @@ pub(super) enum Suite {
     /// `checked:`: local recoverable arithmetic.
     Checked,
     /// `unchecked:`: the programmer guarantees the arithmetic preconditions;
-    /// the build's unchecked mode decides whether they are checked.
+    /// a violation traps.
     Unchecked,
-    /// `unchecked trap:`: checked, trapping on a violation, in every mode.
-    Trap,
 }
 
 /// The bounds of a slice, each optional as in Python.

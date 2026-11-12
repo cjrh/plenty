@@ -51,6 +51,7 @@ mod functions;
 mod generators;
 mod generics;
 pub(crate) mod ide;
+mod intervals;
 #[cfg(test)]
 mod lexer_tests;
 mod lints;
@@ -1221,6 +1222,15 @@ struct Lower<'a> {
     /// Free hidden operand locals of collection displays; see
     /// `Lower::operand_slot`.
     spare_operands: Vec<u8>,
+    /// The interval of the integer expression lowered last, with its token's
+    /// address and type; see [`intervals`].
+    interval: Option<(usize, Ty, crate::interval::Interval)>,
+    /// The interval of each immutable integer local, by slot.
+    slot_intervals: HashMap<u8, crate::interval::Interval>,
+    /// The interval of each `.get()` resolved to an integer domain's method
+    /// while the enclosing method calls are lowered, with the address of
+    /// the receiver's token and the integer type.
+    accessors: Vec<(usize, Ty, crate::interval::Interval)>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
     /// Source name of each slot, kept after the binding leaves scope so an
@@ -1374,7 +1384,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        self.interval = None;
         let (a, mut loans) = self.observe_expected(left, Some(ty.clone()), ops)?;
+        let left_interval = self.operand_interval(left, &a);
         if a.is_numeric() && a != ty && self.fixes_numeric_type(right, &ty) {
             return Err(mixed_numeric(left, &a, right, &ty));
         }
@@ -1385,7 +1397,13 @@ impl Lower<'_> {
             return Err(left.at.error(STR_REPETITION));
         }
         self.same(Some(a), Some(ty.clone()), &left.at)?;
+        self.interval = None;
         let (b, other_loans) = self.observe_expected(right, Some(ty.clone()), ops)?;
+        let operands = intervals::Operands {
+            node: intervals::node(at),
+            left: left_interval,
+            right: self.operand_interval(right, &b),
+        };
         if b.is_numeric() && b != ty && self.fixes_numeric_type(left, &ty) {
             return Err(mixed_numeric(left, &ty, right, &b));
         }
@@ -1398,7 +1416,7 @@ impl Lower<'_> {
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
-        let output = self.numeric_operation(op, ty, right, at, ops)?;
+        let output = self.numeric_operation(op, ty, right, operands, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
     }
@@ -1415,21 +1433,29 @@ impl Lower<'_> {
         op: &str,
         ty: Ty,
         right: &Expr,
+        operands: intervals::Operands,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        let outcome = self.outcome(op, &ty, operands);
+        self.block_errors(op, &ty, Some(right), at)?;
         if let Some(kind) = IntegerOp::binary(op) {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
             }
             if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
-                self.shift_operation(kind, &ty, right, at, ops)?;
+                self.shift_operation(kind, &ty, right, outcome, at, ops)?;
             } else {
-                self.push_trapping(Op::Integer(kind), &ty, ops);
+                ops.push(Op::Integer(kind));
             }
+            self.note_outcome(operands.node, &ty, outcome);
             return Ok(ty);
         }
-        let proof = self.known_divisor(op, right);
+        if self.proved_arithmetic(op, &ty, outcome, ops) {
+            self.note_outcome(operands.node, &ty, outcome);
+            return Ok(ty);
+        }
+        let proof = self.divisor_proof(op, &ty, operands);
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }
@@ -1442,6 +1468,7 @@ impl Lower<'_> {
         {
             return Ok(ty);
         }
+        self.note_outcome(operands.node, &ty, outcome);
         let operation = match op {
             "+" => Op::Add,
             "-" => Op::Sub,
@@ -1457,7 +1484,7 @@ impl Lower<'_> {
             ">=" => Op::Ge,
             _ => unreachable!(),
         };
-        self.push_trapping(operation, &ty, ops);
+        ops.push(operation);
         Ok(if is_comparison(op) { Ty::Bool } else { ty })
     }
     fn number(&self, text: &str, negative: bool, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
@@ -2105,9 +2132,23 @@ impl Lower<'_> {
         }
         ide::enter_method(*pos, name);
         self.method_depth += 1;
+        // Calls lowered inside the receiver or arguments push and remove
+        // their own entries above this mark, so none of them can replace or
+        // discard what this call's resolution records.
+        let mark = self.accessors.len();
         let ty = self.method(base, name, args, ops);
         self.method_depth -= 1;
         ide::leave_method();
+        let receiver = intervals::node(&base.at);
+        let accessor = self
+            .accessors
+            .drain(mark..)
+            .find(|(node, ..)| *node == receiver);
+        if let Some((_, element, interval)) = accessor
+            && matches!(&ty, Ok(Some(ty)) if *ty == element)
+        {
+            self.note_interval(intervals::node(&e.at), &element, interval);
+        }
         ty
     }
     /// A method call `e` whose context expects `expected`; a generic method
@@ -2168,11 +2209,19 @@ impl Lower<'_> {
                 .numeric_binary(op, left, right, hint, &e.at, ops)
                 .map(Some);
         }
+        self.interval = None;
         let (a, mut loans) = self.observe(left, ops)?;
+        let left_interval = self.operand_interval(left, &a);
         let mut rhs = Vec::new();
+        self.interval = None;
         let (b, other_loans) = self.observe_right(op, &a, right, &mut rhs)?;
+        let operands = intervals::Operands {
+            node: intervals::node(&e.at),
+            left: left_interval,
+            right: self.operand_interval(right, &b),
+        };
         loans.extend(other_loans);
-        self.binary_values(e, (a, b), rhs, loans, ops)
+        self.binary_values(e, (a, b), operands, rhs, loans, ops)
     }
     /// A field read or a qualified module name. Outlined so that its locals do
     /// not enlarge the frame of every recursive `expr` call (issue #841).
@@ -2186,7 +2235,24 @@ impl Lower<'_> {
             match self.qualified_type(base)? {
                 Some(ty) => {
                     if ty.is_numeric() {
-                        return self.numeric_constant(ty, name, &e.at, ops).map(Some);
+                        let limit = crate::interval::Interval::of(&ty).and_then(|full| match name
+                            .as_str()
+                        {
+                            "MIN" => Some(full.lo),
+                            "MAX" => Some(full.hi),
+                            _ => None,
+                        });
+                        let constant = self.numeric_constant(ty.clone(), name, &e.at, ops)?;
+                        // Recorded where the constant is lowered, so the
+                        // type is the one `base` resolved to: a built-in
+                        // name, an alias or an instantiated type parameter.
+                        if let Some(limit) = limit
+                            && constant == ty
+                        {
+                            let point = crate::interval::Interval::point(limit);
+                            self.note_interval(intervals::node(&e.at), &ty, point);
+                        }
+                        return Ok(Some(constant));
                     }
                     self.variant(ty, name, None, &e.at, ops)?
                 }
@@ -2395,7 +2461,9 @@ impl Lower<'_> {
                 return self.number(n, true, &e.at, ops).map(Some);
             }
             let mut body = Vec::new();
+            self.interval = None;
             let ty = self.value(value, &mut body)?;
+            let operand = self.operand_interval(value, &ty);
             if op == "~" {
                 if !ty.is_int() {
                     return Err(e.at.error("bitwise complement requires an integer"));
@@ -2424,9 +2492,24 @@ impl Lower<'_> {
                 ops.extend(body);
                 if op == "-" {
                     self.mark(&e.at, ops);
-                    if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
-                        self.push_trapping(Op::Sub, &ty, ops);
+                    // `-x` is `0 - x`.
+                    let outcome = self.outcome(
+                        "-",
+                        &ty,
+                        intervals::Operands {
+                            node: 0,
+                            left: Some(crate::interval::Interval::point(0)),
+                            right: operand,
+                        },
+                    );
+                    self.block_errors("-", &ty, None, &e.at)?;
+                    if self.proved_arithmetic("-", &ty, outcome, ops) {
+                        self.note_outcome(intervals::node(&e.at), &ty, outcome);
+                    } else if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
+                        ops.push(Op::Sub);
                     }
+                } else if let Some(operand) = operand {
+                    self.note_interval(intervals::node(&e.at), &ty, operand);
                 }
             }
             Some(ty.clone())
@@ -2985,10 +3068,21 @@ impl Lower<'_> {
             } {
                 return self.system_call(operation, args, &e.at, ops).map(Some);
             }
-            if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
-                return self
-                    .builtin_collection(name, args, &e.at, ops)
-                    .map(|ty| Some(Some(ty)));
+            if name == "len" {
+                // Only a built-in collection's length is never negative: a
+                // class's `len` method returns any i64.
+                if self.length(args, &e.at, ops)? == collections::Length::Collection {
+                    let length = crate::interval::Interval {
+                        lo: 0,
+                        hi: i128::from(i64::MAX),
+                    };
+                    self.note_interval(intervals::node(&e.at), &Ty::I64, length);
+                }
+                return Ok(Some(Some(Ty::I64)));
+            }
+            if matches!(name.as_str(), "range" | "list" | "set" | "dict") {
+                let ty = self.builtin_collection(name, args, &e.at, ops)?;
+                return Ok(Some(Some(ty)));
             }
             if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
                 if Ty::Class(t.clone()).layout_depth() >= 64 {
@@ -3021,6 +3115,7 @@ impl Lower<'_> {
                     if args.len() != 1 {
                         return Err(e.at.error("numeric casts take one argument"));
                     }
+                    self.interval = None;
                     let source = self.value(&args[0], ops)?;
                     if !source.is_numeric() {
                         return Err(casts::operand_error(
@@ -3882,8 +3977,8 @@ impl Lower<'_> {
                 }
                 Statement::Expr(Expr {
                     at,
-                    kind: Expression::Checked(suite @ (Suite::Unchecked | Suite::Trap), suite_body),
-                }) => match self.unchecked_suite(at, *suite, suite_body, tail, ops)? {
+                    kind: Expression::Checked(Suite::Unchecked, suite_body),
+                }) => match self.unchecked_suite(at, suite_body, tail, ops)? {
                     BlockResult::Continues(ty) => ty,
                     BlockResult::Exits => return exited_block(body, i),
                 },
@@ -4123,6 +4218,7 @@ impl Lower<'_> {
                             local.mutable && local.ty.carried_reference().is_some()
                         });
                     self.clear_mismatch();
+                    self.interval = None;
                     let lowered = if emptied {
                         self.expr_expected(value, context, ops).and_then(|ty| {
                             let ty =
@@ -4174,6 +4270,16 @@ impl Lower<'_> {
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
                         self.locals.push(ty.clone());
+                        // An immutable integer keeps the interval of its
+                        // value: nothing assigns to it again.
+                        match self.operand_interval(value, &ty) {
+                            Some(interval) if !*mutable => {
+                                self.slot_intervals.insert(slot, interval);
+                            }
+                            _ => {
+                                self.slot_intervals.remove(&slot);
+                            }
+                        }
                         self.note_declared(slot, &ty, &value.at);
                         ide::local_type(&stmt.at, &ty);
                         if annotation.is_none() {
@@ -4682,18 +4788,12 @@ pub(crate) fn compile(source: &str, heap: &mut Heap) -> Result<Program> {
         modules::single(source)?,
         heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )
 }
 
 /// [`compile`] with the checks `check` adds.
 pub(crate) fn check(source: &str, heap: &mut Heap, check: crate::CheckOptions) -> Result<Program> {
-    lower(
-        modules::single(source)?,
-        heap,
-        check,
-        crate::UncheckedMode::Trap,
-    )
+    lower(modules::single(source)?, heap, check)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -4703,14 +4803,8 @@ pub(crate) fn compile_file(
     require_main: bool,
     heap: &mut Heap,
     check: crate::CheckOptions,
-    unchecked: crate::UncheckedMode,
 ) -> Result<Program> {
-    lower(
-        modules::load(path, root, require_main)?,
-        heap,
-        check,
-        unchecked,
-    )
+    lower(modules::load(path, root, require_main)?, heap, check)
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -4721,12 +4815,7 @@ pub(crate) fn compile_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(
-        modules::load_graph(path, graph, require_main)?,
-        heap,
-        check,
-        crate::UncheckedMode::Trap,
-    )
+    lower(modules::load_graph(path, graph, require_main)?, heap, check)
 }
 
 /// The test file at `path` as `plenty test` builds it, for checking without
@@ -4743,7 +4832,6 @@ pub(crate) fn compile_test_graph(
         modules::load_graph_with(path, graph, true, appendix, false)?,
         heap,
         check,
-        crate::UncheckedMode::Trap,
     )
 }
 
@@ -4756,7 +4844,6 @@ pub(crate) fn compile_script(
         modules::load_graph_with(path, graph, true, None, true)?,
         heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )
 }
 
@@ -4789,17 +4876,12 @@ impl<'a> Sources<'a> {
         })
     }
 
-    pub(crate) fn compile(
-        &self,
-        heap: &mut Heap,
-        unchecked: crate::UncheckedMode,
-    ) -> Result<Program> {
+    pub(crate) fn compile(&self, heap: &mut Heap) -> Result<Program> {
         match self {
             Sources::Text(source) => lower(
                 modules::single(source)?,
                 heap,
                 crate::CheckOptions::default(),
-                unchecked,
             ),
             Sources::Graph {
                 entry,
@@ -4810,7 +4892,6 @@ impl<'a> Sources<'a> {
                 modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
                 heap,
                 crate::CheckOptions::default(),
-                unchecked,
             ),
         }
     }
@@ -4865,7 +4946,6 @@ pub(crate) fn check_generated_interface(source: &str) -> Result<()> {
         modules::generated_interface(source)?,
         &mut heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )?;
     crate::op::check(&program.ops)
 }
@@ -5274,6 +5354,9 @@ fn lower_body(
                 range_stop: None,
                 expression_temps: Vec::new(),
                 spare_operands: Vec::new(),
+                interval: None,
+                slot_intervals: HashMap::default(),
+                accessors: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs
@@ -5381,7 +5464,6 @@ fn lower_body(
         start: 0,
         function: true,
         arithmetic: true,
-        assume: false,
         failures: Vec::new(),
         casts: false,
     });
@@ -5584,7 +5666,6 @@ fn lower(
     resolved: modules::Resolved,
     heap: &mut Heap,
     check: crate::CheckOptions,
-    unchecked: crate::UncheckedMode,
 ) -> Result<Program> {
     ide::declare_program(&resolved);
     let modules::Resolved {
@@ -5638,7 +5719,6 @@ fn lower(
     drop((generic_enums, generic_classes));
     generics.source_root = source_root;
     generics.standard_sources = standard_sources;
-    generics.unchecked = unchecked;
     // Queued functions are registered below, in queue order; unused data
     // methods are not queued, so they are registered after them.
     let mut unused_methods = Vec::new();

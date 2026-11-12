@@ -49,7 +49,7 @@ def write_source(directory, name, n, body):
     # Default integer arithmetic (`+`, `-`, `//`, `%`) is checked and reports
     # OverflowError[i64] or ZeroDivisionError through main's return type, so
     # the workloads measure the checked operators. Wrapping a body in
-    # `unchecked:` (default trap mode) reproduces the old trapping programs.
+    # `unchecked:` reproduces the old trapping programs.
     source = directory / f"{name}-{n}.plenty"
     lines = "".join(f"    {line}\n" for line in body.splitlines())
     source.write_text(f"def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:\n{lines}    Ok(())\n")

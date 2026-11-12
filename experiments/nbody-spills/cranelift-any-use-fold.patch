@@ -1,0 +1,165 @@
+diff --git i/cranelift/assembler-x64/meta/src/generate/inst.rs w/cranelift/assembler-x64/meta/src/generate/inst.rs
+index 71ec243abd..c87f7b1583 100644
+--- i/cranelift/assembler-x64/meta/src/generate/inst.rs
++++ w/cranelift/assembler-x64/meta/src/generate/inst.rs
+@@ -244,7 +244,17 @@ impl dsl::Inst {
+                     RegMem(loc) => {
+                         let reg = reg.unwrap();
+                         let reg_lower = reg.to_string().to_lowercase();
+-                        fmtln!(f, "visitor.{mutability}_{reg_lower}_mem(&mut self.{loc});");
++                        // `insertps` selects a source lane from a register
++                        // and ignores that selection for memory, so its
++                        // operand forms are not interchangeable.
++                        let foldable = matches!(
++                            o.location,
++                            dsl::Location::xmm_m32 | dsl::Location::xmm_m64
++                        ) && matches!(o.mutability, dsl::Mutability::Read)
++                            && !o.align
++                            && !self.mnemonic.ends_with("insertps");
++                        let suffix = if foldable { "_foldable" } else { "" };
++                        fmtln!(f, "visitor.{mutability}_{reg_lower}_mem{suffix}(&mut self.{loc});");
+                     }
+                     Mem(loc) => {
+                         // Note that this is always "read" because from a
+diff --git i/cranelift/assembler-x64/src/api.rs w/cranelift/assembler-x64/src/api.rs
+index f861b77268..3fa7043911 100644
+--- i/cranelift/assembler-x64/src/api.rs
++++ w/cranelift/assembler-x64/src/api.rs
+@@ -235,6 +235,13 @@ pub trait RegisterVisitor<R: Registers> {
+         }
+     }
+ 
++    /// Handle a read-only [`XmmMem`] operand that reads at most the low 64
++    /// bits and needs no alignment, so that a register allocator may leave
++    /// the value in a stack slot and have the instruction read it from there.
++    fn read_xmm_mem_foldable(&mut self, op: &mut XmmMem<R::ReadXmm, R::ReadGpr>) {
++        self.read_xmm_mem(op);
++    }
++
+     /// Helper method to handle a write [`XmmMem`] operand.
+     fn write_xmm_mem(&mut self, op: &mut XmmMem<R::WriteXmm, R::ReadGpr>) {
+         match op {
+diff --git i/cranelift/codegen/src/isa/x64/inst/emit.rs w/cranelift/codegen/src/isa/x64/inst/emit.rs
+index fb8cba43e0..7b8658a182 100644
+--- i/cranelift/codegen/src/isa/x64/inst/emit.rs
++++ w/cranelift/codegen/src/isa/x64/inst/emit.rs
+@@ -1843,7 +1843,7 @@ pub(crate) fn emit(
+         Inst::External { inst } => {
+             let frame = state.frame_layout();
+             emit_maybe_shrink(
+-                inst,
++                &external::SpillFolder { frame }.fold(inst),
+                 &mut external::AsmCodeSink {
+                     sink,
+ 
+diff --git i/cranelift/codegen/src/isa/x64/inst/external.rs w/cranelift/codegen/src/isa/x64/inst/external.rs
+index 8d41f2e6d4..c521c30d8c 100644
+--- i/cranelift/codegen/src/isa/x64/inst/external.rs
++++ w/cranelift/codegen/src/isa/x64/inst/external.rs
+@@ -327,6 +327,63 @@ impl<'a, T: OperandVisitor> asm::RegisterVisitor<CraneliftRegisters> for Regallo
+         self.collector
+             .reg_fixed_def(reg, fixed_reg(enc, RegClass::Float));
+     }
++
++    fn read_xmm_mem_foldable(&mut self, op: &mut asm::XmmMem<Xmm, Gpr>) {
++        match op {
++            // The allocator may leave this value in its spill slot;
++            // `SpillFolder` then makes the operand that slot's address.
++            asm::XmmMem::Xmm(reg) => self.collector.any_use(reg),
++            asm::XmmMem::Mem(amode) => self.read_amode(amode),
++        }
++    }
++}
++
++/// Rewrites each operand the allocator left in a spill slot into a memory
++/// operand addressing that slot, as a reload from it would.
++pub(crate) struct SpillFolder<'a> {
++    pub frame: &'a crate::machinst::abi::FrameLayout,
++}
++
++impl SpillFolder<'_> {
++    /// The instruction to emit for `inst`.
++    pub(crate) fn fold(&mut self, inst: &AsmInst) -> AsmInst {
++        let mut inst = inst.clone();
++        inst.visit(self);
++        inst
++    }
++}
++
++impl asm::RegisterVisitor<CraneliftRegisters> for SpillFolder<'_> {
++    fn read_gpr(&mut self, _: &mut Gpr) {}
++    fn read_write_gpr(&mut self, _: &mut PairedGpr) {}
++    fn write_gpr(&mut self, _: &mut WritableGpr) {}
++    fn fixed_read_gpr(&mut self, _: &mut Gpr, _: u8) {}
++    fn fixed_read_write_gpr(&mut self, _: &mut PairedGpr, _: u8) {}
++    fn fixed_write_gpr(&mut self, _: &mut WritableGpr, _: u8) {}
++    fn read_xmm(&mut self, _: &mut Xmm) {}
++    fn read_write_xmm(&mut self, _: &mut PairedXmm) {}
++    fn write_xmm(&mut self, _: &mut WritableXmm) {}
++    fn fixed_read_xmm(&mut self, _: &mut Xmm, _: u8) {}
++    fn fixed_read_write_xmm(&mut self, _: &mut PairedXmm, _: u8) {}
++    fn fixed_write_xmm(&mut self, _: &mut WritableXmm, _: u8) {}
++
++    fn read_xmm_mem_foldable(&mut self, op: &mut asm::XmmMem<Xmm, Gpr>) {
++        let asm::XmmMem::Xmm(reg) = op else {
++            return;
++        };
++        let Some(slot) = reg.to_reg().to_spillslot() else {
++            return;
++        };
++        let offset = i32::try_from(self.frame.spillslot_offset(slot)).unwrap();
++        *op = asm::XmmMem::Mem(asm::Amode::ImmReg {
++            base: Gpr::RSP,
++            simm32: asm::AmodeOffsetPlusKnownOffset {
++                simm32: offset.into(),
++                offset: Some(offsets::KEY_SLOT_OFFSET),
++            },
++            trap: None,
++        });
++    }
+ }
+ 
+ /// A helper for building a fixed register from its hardware encoding.
+diff --git i/cranelift/codegen/src/isa/x64/inst/mod.rs w/cranelift/codegen/src/isa/x64/inst/mod.rs
+index e758ee087c..fe9bcc8dd7 100644
+--- i/cranelift/codegen/src/isa/x64/inst/mod.rs
++++ w/cranelift/codegen/src/isa/x64/inst/mod.rs
+@@ -1611,7 +1611,14 @@ impl MachInstEmit for Inst {
+         emit::emit(self, sink, info, state);
+     }
+ 
+-    fn pretty_print_inst(&self, _: &mut Self::State) -> String {
++    fn pretty_print_inst(&self, state: &mut Self::State) -> String {
++        if let Inst::External { inst } = self {
++            let inst = external::SpillFolder {
++                frame: state.frame_layout(),
++            }
++            .fold(inst);
++            return PrettyPrint::pretty_print(&Inst::External { inst }, 0);
++        }
+         PrettyPrint::pretty_print(self, 0)
+     }
+ }
+diff --git i/cranelift/codegen/src/machinst/reg.rs w/cranelift/codegen/src/machinst/reg.rs
+index 0c004483cc..b81aa15b7f 100644
+--- i/cranelift/codegen/src/machinst/reg.rs
++++ w/cranelift/codegen/src/machinst/reg.rs
+@@ -522,6 +522,18 @@ pub trait OperandVisitorImpl: OperandVisitor {
+         );
+     }
+ 
++    /// Add a use that can be allocated to either a register or a
++    /// spillslot, at the start of the instruction. The instruction must
++    /// accept a spillslot here: it reads the operand from memory.
++    fn any_use(&mut self, reg: &mut impl AsMut<Reg>) {
++        self.add_operand(
++            reg.as_mut(),
++            OperandConstraint::Any,
++            OperandKind::Use,
++            OperandPos::Early,
++        );
++    }
++
+     /// Add a use that can be allocated to either a register or a
+     /// spillslot, at the end of the instruction (`After` position).
+     fn any_late_use(&mut self, reg: &mut impl AsMut<Reg>) {

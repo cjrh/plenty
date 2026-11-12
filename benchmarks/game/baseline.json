@@ -298,23 +298,6 @@
           "instructions": 78900699749,
           "cycles": 18876410403,
           "ratio_to_reference": 3.139
-        },
-        "plenty-unchecked": {
-          "median_s": 2.9282,
-          "min_s": 2.9251,
-          "user_s": 2.9126,
-          "max_rss_kb": 2508,
-          "runs": [
-            2.9485,
-            2.9282,
-            2.9251
-          ],
-          "threads": 1,
-          "matches_reference": true,
-          "flags": "--unchecked assume",
-          "instructions": 50600699251,
-          "cycles": 13681827405,
-          "ratio_to_reference": 2.258
         }
       }
     },

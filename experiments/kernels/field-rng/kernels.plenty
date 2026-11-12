@@ -27,17 +27,18 @@ type Seed = Bounded[i64, 0, 139967]
 class BoundedRng:
     seed: Seed
 
-    def next(self: &mut BoundedRng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
-        self.seed = Seed.from((self.seed.get() * IA + IC) % IM)
-        Ok(self.seed.get())
+    def next(self: &mut BoundedRng) -> i64:
+        value = (self.seed.get() * IA + IC) % IM
+        self.seed = Seed.from(value)
+        value
 
 
-# `fill` with the field's range in its type. The signature still names
-# OverflowError: the checker does not track ranges, only codegen does.
-def fill_bounded(rng: &mut BoundedRng, out: &mut [i64]) -> Result[(), OverflowError[i64] | ZeroDivisionError]:
+# `fill` with the field's range in its type. The checker's interval for
+# `seed.get() * IA + IC` fits i64, so neither function returns an error
+# (issue #952).
+def fill_bounded(rng: &mut BoundedRng, out: &mut [i64]) -> ():
     for i in range(len(out)):
-        out[i] = rng.next()?
-    Ok(())
+        out[i] = rng.next()
 
 
 # The same recurrence on a local: the remainder bounds the carried value.
@@ -108,7 +109,7 @@ def time(kernel: &str, rounds: i64) -> Result[(), TimingError]:
     elif kernel == "fill_bounded":
         mut rng = BoundedRng(42)
         for _ in range(rounds):
-            fill_bounded(&mut rng, &mut out)?
+            fill_bounded(&mut rng, &mut out)
         last = rng.seed.get()
     elif kernel == "fill_local":
         for _ in range(rounds):
@@ -137,7 +138,7 @@ def main() -> Result[(), TimingError]:
     fill(&mut rng, &mut out)?
     last = fill_local(42, &mut out)?
     mut bounded = BoundedRng(42)
-    fill_bounded(&mut bounded, &mut out)?
+    fill_bounded(&mut bounded, &mut out)
     print(out, bounded.seed.get())?
     arms = fill_arms(42, &mut out)?
     inner = fill_inner(42, &mut out, 3)?
