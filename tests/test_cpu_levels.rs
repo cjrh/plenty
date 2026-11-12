@@ -34,14 +34,7 @@ def main() -> Result[(), IoError]:
     print(v.to_tuple())?
     print(w.to_tuple())?
     print(u.to_tuple(), u.sum_ordered(0.0))?
-    # The estimate's bits depend on the processor, not the level: `vrsqrtps`
-    # at v3 computes what `rsqrtps` does.
-    estimate = w.add(simd.f32x4.Lanes(0.0f32, 3e-39f32, 7.0f32, 1e30f32)).reciprocal_sqrt_estimate()
-    print(estimate.to_tuple(), estimate.to_f64x4().to_tuple(), u.to_f32x4().to_f64x2().to_tuple())?
-    mut r = 1e-30f32
-    while r < 1e30f32:
-        print(simd.f32x4.Lanes(r, r * 1.1f32, r * 1.3f32, r * 1.7f32).reciprocal_sqrt_estimate().to_tuple())?
-        r = r * 7.3f32
+    print(w.to_f64x4().to_tuple(), u.to_f32x4().to_f64x2().to_tuple(), v.to_f32x4().to_f64x2().to_tuple())?
     Ok(())
 ";
 
@@ -273,19 +266,6 @@ fn v3_emits_vex_without_fma() {
         assert_eq!(step.contains("vmulsd"), vex, "{level}: {step}");
         assert_eq!(step.contains("vaddsd"), vex, "{level}: {step}");
         assert!(!asm.contains("vfmadd"), "{level} fused: {asm}");
-        let (estimate, other) = if vex {
-            (" vrsqrtps ", " rsqrtps ")
-        } else {
-            (" rsqrtps ", " vrsqrtps ")
-        };
-        let main = asm
-            .split("==== ")
-            .find(|function| function.starts_with("main "))
-            .unwrap_or_else(|| panic!("no main function in {asm}"));
-        assert!(
-            main.contains(estimate) && !main.contains(other),
-            "{level}: {main}"
-        );
         if vex {
             let entry = asm
                 .split("==== ")

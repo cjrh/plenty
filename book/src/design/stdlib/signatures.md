@@ -88,25 +88,25 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.sketch.xor`](#stdsketchxor): 3260-3271
 - [`std.sketch.cuckoo`](#stdsketchcuckoo): 3273-3288
 - [`std.signal`](#stdsignal): 3290-3307
-- [`std.simd`](#stdsimd): 3309-3469
-- [`std.stat`](#stdstat): 3471-3504
-- [`std.plot`](#stdplot): 3506-3595
-- [`std.linalg`](#stdlinalg): 3597-3638
-- [`std.sync`](#stdsync): 3640-3672
-- [`std.system`](#stdsystem): 3674-3733
-- [`std.tempfile`](#stdtempfile): 3735-3767
-- [`std.test`](#stdtest): 3769-3811
-- [`std.text`](#stdtext): 3813-3856
-- [`std.thread`](#stdthread): 3858-3862
-- [`std.time`](#stdtime): 3864-3908
-- [`std.tls`](#stdtls): 3910-3992
-- [`std.toml`](#stdtoml): 3994-4093
-- [`std.unicode`](#stdunicode): 4095-4107
-- [`std.units`](#stdunits): 4109-4346
-- [`std.units.catalogue`](#stdunitscatalogue): 4348-5126
-- [`std.url`](#stdurl): 5128-5156
-- [`std.uuid`](#stduuid): 5158-5181
-- [`std.xml`](#stdxml): 5183-5216
+- [`std.simd`](#stdsimd): 3309-3468
+- [`std.stat`](#stdstat): 3470-3503
+- [`std.plot`](#stdplot): 3505-3594
+- [`std.linalg`](#stdlinalg): 3596-3637
+- [`std.sync`](#stdsync): 3639-3671
+- [`std.system`](#stdsystem): 3673-3732
+- [`std.tempfile`](#stdtempfile): 3734-3766
+- [`std.test`](#stdtest): 3768-3810
+- [`std.text`](#stdtext): 3812-3855
+- [`std.thread`](#stdthread): 3857-3861
+- [`std.time`](#stdtime): 3863-3907
+- [`std.tls`](#stdtls): 3909-3991
+- [`std.toml`](#stdtoml): 3993-4092
+- [`std.unicode`](#stdunicode): 4094-4106
+- [`std.units`](#stdunits): 4108-4345
+- [`std.units.catalogue`](#stdunitscatalogue): 4347-5125
+- [`std.url`](#stdurl): 5127-5155
+- [`std.uuid`](#stduuid): 5157-5180
+- [`std.xml`](#stdxml): 5182-5215
 
 ## `std.actor`
 
@@ -3367,7 +3367,6 @@ enum f32x4
     def sub(self, other: &f32x4) -> f32x4
     def mul(self, other: &f32x4) -> f32x4
     def sqrt(self) -> f32x4
-    def reciprocal_sqrt_estimate(self) -> f32x4
     def to_f64x2(self) -> f64x2
     def to_f64x4(self) -> f64x4
     def div(self, other: &f32x4) -> f32x4

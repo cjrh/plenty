@@ -125,10 +125,8 @@ enum Action {
     Mul,
     Div,
     Sqrt,
-    /// `f32x4.reciprocal_sqrt_estimate()`: the target's estimate instruction.
-    ReciprocalSqrtEstimate,
-    /// `f64x2.to_f32x4()` and `f32x4.to_f64x2()`: the two low lanes
-    /// converted, into a vector of this shape.
+    /// `to_f32x4()`, `to_f64x2()` and `to_f64x4()`: lanes converted into a
+    /// vector of this shape.
     Convert(Shape),
     ToTuple,
     Compare(IntCC, FloatCC),
@@ -192,7 +190,6 @@ impl Operation {
             | Action::Mul
             | Action::Div
             | Action::Sqrt
-            | Action::ReciprocalSqrtEstimate
             | Action::Convert(_)
             | Action::Splat
             | Action::Half(_)
@@ -478,7 +475,6 @@ pub(super) fn classify(
         "mul" if float => Action::Mul,
         "div" if float => Action::Div,
         "sqrt" if float => Action::Sqrt,
-        "reciprocal_sqrt_estimate" if matches!(shape, Shape::F32) => Action::ReciprocalSqrtEstimate,
         "to_f32x4" if matches!(shape, Shape::F64x2 | Shape::F64x4) => Action::Convert(Shape::F32),
         "to_f64x2" if matches!(shape, Shape::F32) => Action::Convert(Shape::F64x2),
         "to_f64x4" if matches!(shape, Shape::F32) => Action::Convert(Shape::F64x4),
@@ -554,7 +550,7 @@ pub(super) fn classify(
             output: output.clone(),
         });
     }
-    if matches!(action, Action::Sqrt | Action::ReciprocalSqrtEstimate) {
+    if matches!(action, Action::Sqrt) {
         return (input.len() == 1
             && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
             && logical_type(output, name, &shape.lane(), shape.lanes()))
@@ -1272,17 +1268,12 @@ impl Lowerer<'_, '_> {
             self.stack.push((value, op.output.clone()));
             return;
         }
-        if matches!(
-            op.action,
-            Action::Sqrt | Action::ReciprocalSqrtEstimate | Action::Half(_)
-        ) {
+        if matches!(op.action, Action::Sqrt | Action::Half(_)) {
             let result = match op.action {
                 Action::Half(high) => Parts {
                     low: left.get(usize::from(high)),
                     high: None,
                 },
-                // `classify` admits the estimate on x86-64 and `f32x4` only.
-                Action::ReciprocalSqrtEstimate => left.map(|part| self.bcx.ins().x86_rsqrtps(part)),
                 _ => left.map(|part| self.bcx.ins().sqrt(part)),
             };
             let value = self.materialize_simd(result, op.result(), &op.output);

@@ -633,44 +633,6 @@ def main() -> ():
     }
 }
 
-// The bound holds for the processor's estimate and for the scalar body
-// alike; only special lanes have results exact enough to compare.
-#[rstest]
-#[case(false)]
-#[case(true)]
-fn reciprocal_square_root_estimate_is_within_its_bound(#[case] release: bool) {
-    passes(
-        r#"import std.simd as s
-from std.test import check
-def borrowed(value: &s.f32x4) -> s.f32x4:
-    value.reciprocal_sqrt_estimate()
-def main() -> ():
-    bound = 1.5 / 4096.0
-    mut x = 1e-30f32
-    while x < 1e30f32:
-        v = s.f32x4.Lanes(x, x * 1.1f32, x * 1.3f32, x * 1.7f32)
-        direct = v.reciprocal_sqrt_estimate()
-        indirect = borrowed(&v)
-        for lane in range(4):
-            input = f64(v.lane(lane).unwrap())
-            for estimate in [direct.lane(lane).unwrap(), indirect.lane(lane).unwrap()].unwrap():
-                product = f64(estimate) * input.sqrt()
-                check(product >= 1.0 - bound and product <= 1.0 + bound, "relative error").unwrap()
-        x = x * 1.37f32
-    special = s.f32x4.Lanes(0.0f32, -0.0f32, f32.INF, -1.0f32).reciprocal_sqrt_estimate()
-    check(special.lane(0).unwrap() == f32.INF, "zero").unwrap()
-    check(special.lane(1).unwrap() == -f32.INF, "negative zero").unwrap()
-    check(special.lane(2).unwrap() == 0.0f32, "infinity").unwrap()
-    negative = special.lane(3).unwrap()
-    check(negative != negative, "negative").unwrap()
-    nan = s.splat_f32x4(f32.NAN).reciprocal_sqrt_estimate().lane(0).unwrap()
-    check(nan != nan, "nan").unwrap()
-    print("ok").unwrap()
-"#,
-        release,
-    );
-}
-
 #[rstest]
 #[case(false)]
 #[case(true)]
@@ -724,10 +686,10 @@ def main() -> ():
 
 #[test]
 #[cfg(target_arch = "x86_64")]
-fn reciprocal_square_root_estimate_lowers_to_the_estimate_instruction() {
+fn lane_conversions_lower_to_conversion_instructions() {
     let dir = tempfile::tempdir().unwrap();
-    let input = dir.path().join("estimate.plenty");
-    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x2) -> s.f64x2:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x2()\n    y.mul(d2)\ndef kernel4(a: &s.f64x4) -> s.f64x4:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().reciprocal_sqrt_estimate().to_f64x4()\n    y.mul(&d2)\ndef main() -> ():\n    a = s.splat_f64x2(4.0)\n    print(kernel(&a).to_tuple()).unwrap()\n    print(kernel4(&s.splat_f64x4(4.0)).to_tuple()).unwrap()\n").unwrap();
+    let input = dir.path().join("convert.plenty");
+    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f64x2) -> s.f64x2:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().to_f64x2()\n    y.mul(d2)\ndef kernel4(a: &s.f64x4) -> s.f64x4:\n    d2 = a.mul(a)\n    y = d2.to_f32x4().to_f64x4()\n    y.mul(&d2)\ndef main() -> ():\n    a = s.splat_f64x2(4.0)\n    print(kernel(&a).to_tuple()).unwrap()\n    print(kernel4(&s.splat_f64x4(4.0)).to_tuple()).unwrap()\n").unwrap();
     let out = Command::new(support::plenty_bin())
         .env("PLENTY_CACHE", "off")
         .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
@@ -741,48 +703,15 @@ fn reciprocal_square_root_estimate_lowers_to_the_estimate_instruction() {
         String::from_utf8_lossy(&out.stderr)
     );
     let dump = String::from_utf8_lossy(&out.stdout);
-    for opcode in [
-        "fvdemote",
-        "x86_rsqrtps",
-        "fvpromote_low",
-        "cvtpd2ps",
-        "rsqrtps",
-        "cvtps2pd",
-    ] {
+    for opcode in ["fvdemote", "fvpromote_low", "cvtpd2ps", "cvtps2pd"] {
         assert!(dump.contains(opcode), "{opcode}: {dump}");
     }
-    assert!(!dump.contains("sqrtpd") && !dump.contains("div"), "{dump}");
     assert!(dump.contains("==== kernel4 "), "{dump}");
     assert!(!dump.contains("call "), "{dump}");
     assert!(
         !dump.contains("stack_load") && !dump.contains("stack_store"),
         "{dump}"
     );
-}
-
-// The compiler never substitutes the estimate: the exact expression keeps
-// its square root and division.
-#[test]
-#[cfg(target_arch = "x86_64")]
-fn exact_reciprocal_square_root_is_not_rewritten_to_the_estimate() {
-    let dir = tempfile::tempdir().unwrap();
-    let input = dir.path().join("exact.plenty");
-    std::fs::write(&input, "import std.simd as s\ndef kernel(a: &s.f32x4) -> s.f32x4:\n    s.splat_f32x4(1.0f32).div(a.sqrt())\ndef main() -> ():\n    a = s.splat_f32x4(4.0f32)\n    print(kernel(&a).to_tuple()).unwrap()\n").unwrap();
-    let out = Command::new(support::plenty_bin())
-        .env("PLENTY_CACHE", "off")
-        .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
-        .arg(input)
-        .args(["-o", "-"])
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    let dump = String::from_utf8_lossy(&out.stdout);
-    assert!(dump.contains("sqrtps") && dump.contains("divps"), "{dump}");
-    assert!(!dump.contains("rsqrt"), "{dump}");
 }
 
 #[test]

@@ -43,7 +43,6 @@ def main() -> Result[(), IoError]:
 | `add`, `sub`, `mul` | Integer vectors return `Result[Vector, OverflowError[Lane]]`; float vectors stay infallible |
 | Float `sqrt()` | Per-lane scalar square root: negative inputs yield NaN, signed zero and positive infinity are preserved |
 | Float `div` | Scalar IEEE division, including infinities and NaNs |
-| `f32x4.reciprocal_sqrt_estimate()` | An approximation of `1.0 / sqrt(lane)`; see [the estimate's contract](#reciprocal-square-root-estimate) |
 | `f64x2.to_f32x4()` | Lanes 0 and 1 are the two lanes cast with `f32(lane)`; lanes 2 and 3 are `0.0` |
 | `f32x4.to_f64x2()` | Lanes 0 and 1 cast with `f64(lane)`, which is exact; lanes 2 and 3 are not read |
 | `f64x4.to_f32x4()` | Every lane cast with `f32(lane)` |
@@ -204,69 +203,6 @@ Plenty cannot yet keep a reference in a class field (backlog B11), so there is
 no separate view class with a `len()` method: the builtin slice view carries
 the borrow and `len_<vector>` counts its vectors.
 
-## Reciprocal square root estimate
-
-`f32x4.reciprocal_sqrt_estimate()` trades precision for speed. For a positive
-normal lane `x` the result `y` satisfies `|y * sqrt(x) - 1| <= 1.5 * 2**-12`:
-about 11 correct bits. It allocates nothing and cannot fail.
-
-**The result's bits are not specified.** Optimized x86-64 builds use the
-processor's `rsqrtps` instruction, whose results differ between Intel and AMD
-processors and between processor generations. `--fast-compile`, other targets
-(including AArch64) and any call that reaches the module's own body compute
-`1.0f32 / lane.sqrt()`, which is correctly rounded and differs again. The same
-program can therefore print different digits on two machines, or in two build
-profiles on one machine. This is the module's one exception to the rule that
-optimization does not change results. A program that needs reproducible
-output uses `sqrt()` and `div`. The compiler never replaces those with the
-estimate.
-
-Special lanes have defined results everywhere:
-
-| Lane | Result |
-| --- | --- |
-| `0.0` | `INF` |
-| `-0.0` | `-INF` |
-| `INF` | `0.0` |
-| Negative, including `-INF` | NaN |
-| NaN | NaN |
-
-A subnormal lane yields either `INF` with the lane's sign or a value within
-the bound.
-
-Refine an estimate with Newton-Raphson steps, `y = y * (1.5 - 0.5 * x * y * y)`.
-Each step roughly squares the relative error: one step leaves about `2**-22`,
-and a second, computed in `f64`, about `2**-43`. The lane conversions carry an
-`f64x2` through the `f32x4` estimate:
-
-```plenty
-import std.simd as simd
-def main() -> Result[(), AllocError | IoError]:
-    x = simd.f64x2.Lanes(4.0, 0.25)
-    half_x = x.mul(simd.splat_f64x2(0.5))
-    three_halves = simd.splat_f64x2(1.5)
-    mut y = x.to_f32x4().reciprocal_sqrt_estimate().to_f64x2()
-    y = y.mul(three_halves).sub(half_x.mul(y).mul(y.mul(y)))
-    y = y.mul(three_halves).sub(half_x.mul(y).mul(y.mul(y)))
-    (a, b) = y.to_tuple()
-    print(f"{a:.9f} {b:.9f}"?)?
-    Ok(())
-```
-```output
-0.500000000 2.000000000
-```
-
-`to_f32x4()` rounds as the scalar cast does: an `f64` beyond `f32`'s range
-becomes an infinity, whose estimate is zero, and a small one may become zero
-or subnormal. Scale such inputs before narrowing.
-
-On Zen 4, replacing `sqrt` and `div` with the refined estimate in the n-body
-magnitude step lowers a C program's cycles by 10% (GCC) to 23% (Clang). The
-Plenty program gains 1.4% at the default level and loses 1.6% at
-`x86-64-v3`; `experiments/nbody-rsqrt/` has the sources and figures. Measure
-before adopting it: the refined sequence executes more instructions, and gains
-only where square root and division occupancy limits the loop.
-
 ## Rust relationship and initial limits
 
 The model follows Rust's portable `std::simd`: fixed logical lanes, splats,
@@ -284,8 +220,7 @@ register ABI. Mask variants expose logical booleans, not hardware masks. Neither
 vector nor mask layout is a C, serialization, Arrow or Parquet contract.
 
 On x86-64, the default optimized profile lowers wrapping arithmetic, float arithmetic (including `sqrt`), comparisons
-and selection to baseline 128-bit SIMD. `reciprocal_sqrt_estimate` lowers to `rsqrtps`
-(`vrsqrtps` at `x86-64-v3`); the lane conversions lower to `cvtpd2ps` and
+and selection to baseline 128-bit SIMD. The two-lane conversions lower to `cvtpd2ps` and
 `cvtps2pd`. Numeric `Lanes` constructors and
 `to_tuple()` followed by unpacking preserve native lanes without a scalar call
 or a round trip through tuple storage. Unborrowed matching numeric tuple locals
@@ -314,14 +249,11 @@ their ordinary scalar implementations. On other compiler hosts, the module's
 scalar bodies remain available. The AArch64 implementation currently uses these
 scalar bodies, including in optimized builds; ARM vector acceleration is separate
 work.
-The same source semantics apply with and without optimization, except for the
-bits of a [reciprocal square root estimate](#reciprocal-square-root-estimate). No runtime ISA
+The same source semantics apply with and without optimization. No runtime ISA
 selection or newer CPU feature is required. At
 [`--cpu x86-64-v3`](../toolchain/01-building/linking.md#cpu-levels) the same
 128-bit operations use VEX encodings; vectors stay 128 bits wide, nothing is
-fused into FMA, and results are bit-identical to the default level on the same
-processor, including the estimate's (`vrsqrtps` and `rsqrtps` compute the same
-approximation).
+fused into FMA, and results are bit-identical to the default level.
 
 `f64x4` lowers to two 128-bit `f64x2` halves at every CPU level: each
 operation is two native operations, a load or store is two unaligned 16-byte

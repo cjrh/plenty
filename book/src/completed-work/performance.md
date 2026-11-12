@@ -738,21 +738,28 @@ state: the same step with a scalar magnitude loop in a view function runs
 859M. The benchmark source stays scalar and every benchmark binary is
 unchanged.
 
-`f32x4.reciprocal_sqrt_estimate()` and the lane conversions
-`f64x2.to_f32x4()`, `f32x4.to_f64x2()`, `f64x4.to_f32x4()` and
-`f32x4.to_f64x4()` (issue #946) express the estimate-and-refine
-magnitude step of the fast C and Rust n-body programs. Optimized x86-64
-builds emit `cvtpd2ps`, `rsqrtps` and `cvtps2pd` through a new Cranelift
-instruction, `x86_rsqrtps`; other builds compute `1.0 / sqrt(lane)`. The
-estimate's bits are unspecified within a relative error of `1.5 * 2**-12`.
-The n-body `simd` variant with two Newton-Raphson steps prints the same nine
-decimals as the scalar program at 1,000 and 50,000,000 steps. On Zen 4,
-median over eight code layouts, it takes 211.7 cycles per step at the default
-level and 203.2 at `x86-64-v3`, against 214.7 and 199.9 with exact vector
-`sqrt` and 220.5 and 216.6 scalar. The same change to a C program saves 10%
-(GCC) to 23% (Clang): the Plenty step is limited by spilled promoted cells and
-lane assembly, not by the divider.
-`experiments/nbody-rsqrt/` records the sources and measurements.
+The lane conversions `f64x2.to_f32x4()`, `f32x4.to_f64x2()`,
+`f64x4.to_f32x4()` and `f32x4.to_f64x4()` (issue #946) lower to `cvtpd2ps`
+and `cvtps2pd` in optimized x86-64 builds and round exactly as the scalar
+casts do.
+
+A reciprocal square root estimate for the n-body magnitude step, as the fast
+C and Rust programs use, was measured and declined (issue #946). The
+prototype narrowed `d2` to `f32`, took `rsqrtps`, widened, and refined with
+two Newton-Raphson steps in `f64`; it printed the same nine decimals as the
+scalar program at 1,000 and 50,000,000 steps. On Zen 4, median over eight
+code layouts, it cut cycles per step by 1.4% at the default level (211.7
+against 214.7 with exact vector `sqrt` and `div`) and raised them by 1.6% at
+`x86-64-v3` (203.2 against 199.9). The step is a latency chain through spilled
+promoted cells, and the estimate frees the divider without shortening it. The
+estimate's bits also differ between Intel and AMD, between targets and
+between build profiles, which would have been the only exception to
+`std.simd`'s identical results. A deterministic estimate, an integer
+bit-trick first guess on `f64` lanes and three refinement steps, needs
+integer lane shifts and float/integer lane bitcasts in `std.simd`.
+`experiments/nbody-rsqrt/`
+records the measurements. The Cranelift fork keeps the unused
+`x86_rsqrtps` instruction.
 
 [Guarded numerical state](../design/toolchain/02-architecture/numerical-loops.md)
 now accepts `get_*`, `set`, `len_*`, `tail_*` and float lane arithmetic on a

@@ -398,15 +398,6 @@ pub enum f32x4:
             case f32x4.Lanes(a0, a1, a2, a3):
                 f32x4.Lanes((*a0).sqrt(), (*a1).sqrt(), (*a2).sqrt(), (*a3).sqrt())
 
-    # An approximation of `1.0 / sqrt(lane)` with a relative error of at most
-    # 1.5 * 2**-12. This body is the result on targets without an estimate
-    # instruction; x86-64 optimized builds use `rsqrtps`, whose bits depend
-    # on the processor.
-    pub def reciprocal_sqrt_estimate(self) -> f32x4:
-        match self:
-            case f32x4.Lanes(a0, a1, a2, a3):
-                f32x4.Lanes(1.0f32 / (*a0).sqrt(), 1.0f32 / (*a1).sqrt(), 1.0f32 / (*a2).sqrt(), 1.0f32 / (*a3).sqrt())
-
     # Lanes 0 and 1, widened exactly. Lanes 2 and 3 are not read.
     pub def to_f64x2(self) -> f64x2:
         match self:
