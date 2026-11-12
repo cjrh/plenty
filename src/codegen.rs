@@ -676,6 +676,7 @@ pub fn dump_file(
         &heap,
         program.returns_status,
         options.optimize,
+        options.cpu,
         crate::parallel::workers(),
         dump,
     )
@@ -686,11 +687,13 @@ fn dump_program(
     heap: &Heap,
     returns_status: bool,
     optimize: bool,
+    cpu: crate::CpuLevel,
     workers: usize,
     dump: &DumpOptions,
 ) -> Result<Dump> {
     let build = Build {
         optimize,
+        cpu,
         functions_only: true,
         dump: Some(dump.clone()),
         ..Build::default()
@@ -1011,7 +1014,8 @@ fn define_cpu_entry(out: &mut Output, body: FuncId, cpu: crate::CpuLevel) -> Res
     require.params.push(AbiParam::new(types::I64));
     let require = module.declare_function("plenty_rt_require_cpu", Linkage::Import, &require)?;
     let id = module.declare_function("plenty_main", Linkage::Export, &main_signature())?;
-    let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), main_signature());
+    let mut func =
+        Function::with_name_signature(UserFuncName::user(0, id.as_u32()), main_signature());
     let mut b = FunctionBuilder::new(&mut func, &mut out.builder);
     let block = b.create_block();
     b.switch_to_block(block);

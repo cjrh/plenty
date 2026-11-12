@@ -1,0 +1,413 @@
+//! CPU levels (`--cpu`, `[build] cpu`; issue #962): parsing and errors, the
+//! startup-check trampoline, VEX encodings without implicit FMA at
+//! x86-64-v3, identical float results at every level, and cache separation.
+//! See book/src/design/toolchain/01-building/linking.md#cpu-levels.
+mod support;
+use std::path::Path;
+use std::process::{Command, Output};
+
+const LEVELS: [&str; 3] = ["x86-64", "x86-64-v2", "x86-64-v3"];
+
+/// Scalar and `std.simd` float arithmetic whose results change if any
+/// `x * y + z` is fused, printed with round-trip precision.
+const FLOATS: &str = "import std.simd as simd
+
+def step(x: f64, y: f64, z: f64) -> f64:
+    x * y + z
+
+def main() -> Result[(), IoError]:
+    mut x = 0.1
+    mut v = simd.f64x2.Lanes(0.1, 0.7)
+    scale = simd.splat_f64x2(1.0000001)
+    offset = simd.splat_f64x2(0.3)
+    mut w = simd.f32x4.Lanes(0.1f32, 0.2f32, 0.3f32, 0.4f32)
+    for _ in range(1000):
+        x = step(x, 1.0000001, 0.3) / 1.3
+        v = v.mul(scale).add(offset).div(simd.splat_f64x2(1.3))
+        w = w.mul(simd.splat_f32x4(1.0001f32)).add(simd.splat_f32x4(0.01f32)).sqrt()
+    print(x)?
+    print(v.to_tuple())?
+    print(w.to_tuple())?
+    Ok(())
+";
+
+/// The compiler with the suite's cache settings removed and the cache off,
+/// unless a test sets `PLENTY_CACHE_DIR` itself.
+fn plenty(dir: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
+    command
+        .current_dir(dir)
+        .env_remove("PLENTY_CACHE_DIR")
+        .env_remove("PLENTY_CACHE_LIMIT")
+        .env("PLENTY_CACHE", "off");
+    command
+}
+
+fn succeed(output: Output, what: &str) -> Output {
+    assert!(
+        output.status.success(),
+        "{what} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output
+}
+
+fn fail(output: Output) -> String {
+    assert!(!output.status.success(), "unexpected success");
+    String::from_utf8(output.stderr).unwrap()
+}
+
+fn setup(source: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("demo.plenty"), source).unwrap();
+    dir
+}
+
+/// The object `plenty --emit-object` writes at `level`.
+fn object(dir: &Path, level: &str, configure: impl FnOnce(&mut Command)) -> Vec<u8> {
+    let out = dir.join(format!("demo-{level}.o"));
+    let mut command = plenty(dir);
+    configure(&mut command);
+    command.args(["--emit-object", "--cpu", level, "demo.plenty", "-o"]);
+    succeed(command.arg(&out).output().unwrap(), level);
+    std::fs::read(out).unwrap()
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+#[test]
+fn unknown_missing_and_foreign_levels_are_rejected() {
+    let dir = setup(FLOATS);
+    let unknown = fail(
+        plenty(dir.path())
+            .args(["--cpu", "native", "demo.plenty"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        unknown.contains("unknown CPU level `native`; valid levels: x86-64, x86-64-v2, x86-64-v3"),
+        "{unknown}"
+    );
+    let missing = fail(plenty(dir.path()).arg("--cpu").output().unwrap());
+    assert!(
+        missing.contains("--cpu requires a level: x86-64, x86-64-v2, x86-64-v3"),
+        "{missing}"
+    );
+    let foreign = fail(
+        plenty(dir.path())
+            .args([
+                "--target",
+                "aarch64-unknown-linux-gnu",
+                "--cpu",
+                "x86-64-v2",
+            ])
+            .args(["--emit-object", "demo.plenty", "-o", "out.o"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        foreign.contains("CPU level `x86-64-v2` needs an x86-64 target"),
+        "{foreign}"
+    );
+}
+
+#[test]
+fn print_target_names_a_non_baseline_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = succeed(
+        plenty(dir.path()).arg("--print-target").output().unwrap(),
+        "plain",
+    );
+    let triple = String::from_utf8(plain.stdout).unwrap();
+    let native = triple.split(' ').next().unwrap();
+    assert!(triple.contains("(CPU baseline: "), "{triple}");
+    let baseline = succeed(
+        plenty(dir.path())
+            .args(["--print-target", "--cpu", "x86-64"])
+            .output()
+            .unwrap(),
+        "baseline",
+    );
+    assert_eq!(String::from_utf8(baseline.stdout).unwrap(), triple);
+    if cfg!(target_arch = "x86_64") {
+        let v3 = succeed(
+            plenty(dir.path())
+                .args(["--print-target", "--cpu", "x86-64-v3"])
+                .output()
+                .unwrap(),
+            "v3",
+        );
+        assert_eq!(
+            String::from_utf8(v3.stdout).unwrap(),
+            format!("{native} (CPU level: x86-64-v3)\n")
+        );
+    }
+}
+
+#[test]
+fn libraries_reject_levels_above_the_baseline() {
+    let source = "@export(c)\ndef twice(x: i64) -> i64:\n    x * 2\n";
+    let dir = setup(source);
+    for mode in ["--shared-library", "--static-library"] {
+        let stderr = fail(
+            plenty(dir.path())
+                .args([
+                    mode,
+                    "demo.plenty",
+                    "--library-name",
+                    "demo",
+                    "--cpu",
+                    "x86-64-v2",
+                ])
+                .args(["-o", "out"])
+                .output()
+                .unwrap(),
+        );
+        assert!(
+            stderr.contains("CPU level `x86-64-v2` applies to executables"),
+            "{mode}: {stderr}"
+        );
+    }
+}
+
+/// Only a non-baseline object has the trampoline: the baseline object
+/// exports the program as `plenty_main` directly, as before CPU levels.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn only_non_baseline_objects_check_the_cpu() {
+    let dir = setup(FLOATS);
+    let baseline = object(dir.path(), "x86-64", |_| {});
+    let unflagged = {
+        let out = dir.path().join("plain.o");
+        succeed(
+            plenty(dir.path())
+                .args(["--emit-object", "demo.plenty", "-o"])
+                .arg(&out)
+                .output()
+                .unwrap(),
+            "plain",
+        );
+        std::fs::read(out).unwrap()
+    };
+    assert_eq!(baseline, unflagged, "`--cpu x86-64` changed the object");
+    assert!(!contains(&baseline, b"plenty_rt_require_cpu"));
+    assert!(!contains(&baseline, b"__plenty_main"));
+    for level in ["x86-64-v2", "x86-64-v3"] {
+        let checked = object(dir.path(), level, |_| {});
+        assert!(contains(&checked, b"plenty_rt_require_cpu"), "{level}");
+        assert!(contains(&checked, b"__plenty_main"), "{level}");
+    }
+}
+
+/// Each level's executables print the same results, so no level fuses,
+/// reassociates or otherwise changes float arithmetic. Run only on a CPU
+/// that has each level; the startup check refuses the others.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn every_level_prints_identical_float_results() {
+    let dir = setup(FLOATS);
+    let mut outputs = Vec::new();
+    for level in LEVELS {
+        if level == "x86-64-v3" && !std::is_x86_feature_detected!("avx2") {
+            continue;
+        }
+        let exe = dir.path().join(format!("demo-{level}"));
+        succeed(
+            plenty(dir.path())
+                .args(["--compile", "--cpu", level, "demo.plenty", "-o"])
+                .arg(&exe)
+                .output()
+                .unwrap(),
+            level,
+        );
+        let run = succeed(Command::new(&exe).output().unwrap(), level);
+        outputs.push((level, String::from_utf8(run.stdout).unwrap()));
+    }
+    for (level, output) in &outputs[1..] {
+        assert_eq!(output, &outputs[0].1, "{level} differs from x86-64");
+    }
+}
+
+/// x86-64-v3 code uses VEX encodings and never contracts `x * y + z` into FMA;
+/// the trampoline is compiled at the baseline.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn v3_emits_vex_without_fma() {
+    let dir = setup(FLOATS);
+    for (level, vex) in [("x86-64", false), ("x86-64-v3", true)] {
+        let out = dir.path().join(format!("dump-{level}"));
+        succeed(
+            plenty(dir.path())
+                .args(["--dump", "asm", "--cpu", level, "demo.plenty", "-o"])
+                .arg(&out)
+                .output()
+                .unwrap(),
+            level,
+        );
+        let asm = std::fs::read_to_string(out.join("asm.txt")).unwrap();
+        let step = asm
+            .split("==== ")
+            .find(|function| function.starts_with("step "))
+            .unwrap_or_else(|| panic!("no step function in {asm}"));
+        assert_eq!(step.contains("vmulsd"), vex, "{level}: {step}");
+        assert_eq!(step.contains("vaddsd"), vex, "{level}: {step}");
+        assert!(!asm.contains("vfmadd"), "{level} fused: {asm}");
+        if vex {
+            let entry = asm
+                .split("==== ")
+                .find(|function| function.contains("symbol=plenty_main "))
+                .unwrap_or_else(|| panic!("no trampoline in {asm}"));
+            assert!(entry.contains("plenty_rt_require_cpu"), "{entry}");
+        }
+    }
+}
+
+/// One cache directory serves every level without mixing their code: each
+/// level's object equals its uncached object, in any order.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn caches_keep_levels_apart() {
+    let dir = setup(FLOATS);
+    let cache = dir.path().join("cache");
+    let uncached: Vec<_> = LEVELS
+        .iter()
+        .map(|level| object(dir.path(), level, |_| {}))
+        .collect();
+    for _ in 0..2 {
+        for (level, expected) in LEVELS.iter().zip(&uncached).rev() {
+            let cached = object(dir.path(), level, |command| {
+                command
+                    .env_remove("PLENTY_CACHE")
+                    .env("PLENTY_CACHE_DIR", &cache);
+            });
+            assert!(cached == *expected, "{level} reused another level's code");
+        }
+    }
+    assert!(uncached[0] != uncached[1] && uncached[1] != uncached[2]);
+}
+
+/// `[build] cpu` sets a package's level; `--cpu` overrides it.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn manifest_level_applies_and_the_flag_overrides_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/main.plenty"), FLOATS).unwrap();
+    let manifest = |cpu: &str| {
+        std::fs::write(
+            dir.path().join("plenty.toml"),
+            format!("manifest-version = 1\n[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[build]\ncpu = \"{cpu}\"\n"),
+        )
+        .unwrap();
+    };
+    let build = |args: &[&str]| {
+        let output = plenty(dir.path())
+            .args(["build", "--no-strip"])
+            .args(args)
+            .output()
+            .unwrap();
+        let output = succeed(output, "plenty build");
+        drop(output);
+        std::fs::read(dir.path().join("target/optimized/demo")).unwrap()
+    };
+    manifest("x86-64-v2");
+    assert!(contains(&build(&[]), b"plenty_rt_require_cpu"));
+    assert!(!contains(
+        &build(&["--cpu", "x86-64"]),
+        b"plenty_rt_require_cpu"
+    ));
+    manifest("native");
+    let stderr = fail(plenty(dir.path()).arg("build").output().unwrap());
+    assert!(stderr.contains("unknown CPU level `native`"), "{stderr}");
+    assert!(stderr.contains("plenty.toml"), "{stderr}");
+}
+
+/// Under an emulated CPU without the level, the startup check prints one line
+/// and exits with status 1 before any program code runs; with the level, the
+/// program runs. Skipped where `qemu-x86_64` is not installed.
+#[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+#[test]
+fn startup_check_refuses_cpus_without_the_level() {
+    if Command::new("qemu-x86_64")
+        .arg("-version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: qemu-x86_64 is not installed");
+        return;
+    }
+    let dir = setup(FLOATS);
+    let mut expected = None;
+    for level in LEVELS {
+        let exe = dir.path().join(format!("demo-{level}"));
+        succeed(
+            plenty(dir.path())
+                .args(["--compile", "--cpu", level, "demo.plenty", "-o"])
+                .arg(&exe)
+                .output()
+                .unwrap(),
+            level,
+        );
+        for (cpu, passes) in [
+            ("qemu64", level == "x86-64"),
+            ("Nehalem", level != "x86-64-v3"),
+            ("Haswell", true),
+        ] {
+            let run = Command::new("qemu-x86_64")
+                .args(["-cpu", cpu])
+                .arg(&exe)
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&run.stderr);
+            if passes {
+                let stdout = String::from_utf8(succeed(run, cpu).stdout).unwrap();
+                assert_eq!(expected.get_or_insert_with(|| stdout.clone()), &stdout);
+            } else {
+                assert_eq!(run.status.code(), Some(1), "{level} on {cpu}: {stderr}");
+                assert!(run.stdout.is_empty(), "{level} on {cpu} ran");
+                assert_eq!(stderr.lines().count(), 1, "{stderr}");
+                assert!(
+                    stderr.starts_with(&format!(
+                        "error: this program requires an {level} CPU (missing: "
+                    )),
+                    "{stderr}"
+                );
+            }
+        }
+    }
+}
+
+/// `plenty script` takes `--cpu` and `[build] cpu`, the flag first.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn scripts_take_a_level() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("demo.plenty");
+    std::fs::write(
+        &script,
+        format!("---plenty\n[build]\ncpu = \"x86-64-v2\"\n---\n{FLOATS}"),
+    )
+    .unwrap();
+    let compile = |args: &[&str]| {
+        let exe = dir.path().join("demo");
+        succeed(
+            plenty(dir.path())
+                .args(["script", "--compile", "-o"])
+                .arg(&exe)
+                .args(args)
+                .arg(&script)
+                .output()
+                .unwrap(),
+            "plenty script",
+        );
+        std::fs::read(exe).unwrap()
+    };
+    let manifest = compile(&["--no-strip"]);
+    assert!(contains(&manifest, b"plenty_rt_require_cpu"));
+    let flag = compile(&["--no-strip", "--cpu", "x86-64"]);
+    assert!(!contains(&flag, b"plenty_rt_require_cpu"));
+}

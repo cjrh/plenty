@@ -1211,6 +1211,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
                 &heap,
                 program.returns_status,
                 false,
+                crate::CpuLevel::Baseline,
                 workers,
                 &options,
             )

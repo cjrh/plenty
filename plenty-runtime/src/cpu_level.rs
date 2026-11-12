@@ -176,7 +176,11 @@ mod tests {
             }
             let lacking: Vec<_> = missing(3, &features).collect();
             assert_eq!(lacking, [*name], "level 3 without {name}");
-            assert_eq!(missing(2, &features).count(), usize::from(*level == 2), "{name}");
+            assert_eq!(
+                missing(2, &features).count(),
+                usize::from(*level == 2),
+                "{name}"
+            );
         }
     }
 
@@ -185,7 +189,9 @@ mod tests {
         let sse2_only = Features::default();
         let message = failure(3, &sse2_only).unwrap();
         assert!(!message.contains('\n'));
-        assert!(message.starts_with("error: this program requires an x86-64-v3 CPU (missing: sse3, "));
+        assert!(
+            message.starts_with("error: this program requires an x86-64-v3 CPU (missing: sse3, ")
+        );
         assert!(message.ends_with("os avx state)"), "{message}");
         let message = failure(2, &sse2_only).unwrap();
         assert_eq!(
@@ -212,18 +218,20 @@ mod tests {
     #[test]
     fn reader_agrees_with_std_detection() {
         let features = read();
-        let v3 = ["avx", "avx2", "fma", "bmi1", "bmi2", "lzcnt", "movbe", "f16c"]
-            .iter()
-            .all(|name| match *name {
-                "avx" => std::is_x86_feature_detected!("avx"),
-                "avx2" => std::is_x86_feature_detected!("avx2"),
-                "fma" => std::is_x86_feature_detected!("fma"),
-                "bmi1" => std::is_x86_feature_detected!("bmi1"),
-                "bmi2" => std::is_x86_feature_detected!("bmi2"),
-                "lzcnt" => std::is_x86_feature_detected!("lzcnt"),
-                "movbe" => std::is_x86_feature_detected!("movbe"),
-                _ => std::is_x86_feature_detected!("f16c"),
-            });
+        let v3 = [
+            "avx", "avx2", "fma", "bmi1", "bmi2", "lzcnt", "movbe", "f16c",
+        ]
+        .iter()
+        .all(|name| match *name {
+            "avx" => std::is_x86_feature_detected!("avx"),
+            "avx2" => std::is_x86_feature_detected!("avx2"),
+            "fma" => std::is_x86_feature_detected!("fma"),
+            "bmi1" => std::is_x86_feature_detected!("bmi1"),
+            "bmi2" => std::is_x86_feature_detected!("bmi2"),
+            "lzcnt" => std::is_x86_feature_detected!("lzcnt"),
+            "movbe" => std::is_x86_feature_detected!("movbe"),
+            _ => std::is_x86_feature_detected!("f16c"),
+        });
         assert_eq!(failure(3, &features).is_none(), v3);
     }
 }

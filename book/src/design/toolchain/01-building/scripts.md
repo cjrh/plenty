@@ -48,7 +48,8 @@ change the working directory. Child exit codes and Unix signal status follow
 diagnostics, but reject program arguments and never run the application.
 Scripts optimize by default; `--fast-compile` skips optimization for shorter
 edit-run cycles. `--release` remains a compatibility alias for the default.
-`--offline`, `--locked`,
+`--cpu LEVEL` selects the [CPU level](linking.md#cpu-levels) and overrides the
+header's `[build] cpu`. `--offline`, `--locked`,
 `--verbose`, `--no-strip` and `--no-cache` retain their ordinary meanings.
 `--cache-stats` reports artifact reuse. Build status goes to stderr; a fresh cached
 run is quiet unless reporting was requested.
@@ -88,7 +89,7 @@ version `0.0.0` and a name derived from the lowercase filename stem. Invalid nam
 characters become `_`; names needing an initial identifier character or colliding
 with reserved `std` receive a `script_` prefix. Explicit names use package
 validation. Description, authors, license and minimum `plenty-version` are
-supported. Unknown keys, workspaces and explicit library/binary targets are rejected.
+supported, as is `[build] cpu`. Unknown keys, workspaces and explicit library/binary targets are rejected.
 There is exactly one target: the original script. Neighboring targets and enclosing
 workspaces are never discovered.
 

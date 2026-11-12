@@ -239,7 +239,10 @@ scalar bodies remain available. The AArch64 implementation currently uses these
 scalar bodies, including in optimized builds; ARM vector acceleration is separate
 work.
 The same source semantics apply with and without optimization. No runtime ISA
-selection or newer CPU feature is required.
+selection or newer CPU feature is required. At
+[`--cpu x86-64-v3`](../toolchain/01-building/linking.md#cpu-levels) the same
+128-bit operations use VEX encodings; vectors stay 128 bits wide, nothing is
+fused into FMA, and results are bit-identical to the default level.
 
 Storage boundaries, copying and lane assembly can dominate short operations.
 Explicit SIMD is not a blanket speedup over scalar code, and this module does

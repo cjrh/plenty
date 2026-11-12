@@ -695,7 +695,10 @@ fn read_document(
                 None => None,
                 Some(level) => {
                     let text = reader.string("cpu", level)?;
-                    Some(crate::CpuLevel::parse(&text).or_else(|error| reader.error(level, error))?)
+                    Some(
+                        crate::CpuLevel::parse(&text)
+                            .or_else(|error| reader.error(level, error))?,
+                    )
                 }
             }
         }
@@ -871,6 +874,30 @@ mod tests {
             m.dependencies["util"].version.unwrap().to_string(),
             "^0.3.1"
         );
+    }
+
+    #[test]
+    fn build_cpu_level() {
+        assert_eq!(manifest("").unwrap().cpu, None);
+        let m = manifest("[build]\ncpu = \"x86-64-v3\"\n").unwrap();
+        assert_eq!(m.cpu, Some(crate::CpuLevel::X86_64V3));
+        for (body, message) in [
+            ("[build]\ncpu = \"native\"\n", "unknown CPU level `native`"),
+            ("[build]\ncpu = 3\n", "string"),
+            ("[build]\nopt = \"x\"\n", "opt"),
+        ] {
+            let error = manifest(body).unwrap_err();
+            assert!(error.contains(message), "{body:?}: {error}");
+            assert!(error.contains("plenty.toml"), "{body:?}: {error}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let error = parse(
+            "manifest-version = 1\n[workspace]\nmembers = []\n[build]\ncpu = \"x86-64\"\n",
+            "plenty.toml",
+            dir.path(),
+        )
+        .unwrap_err();
+        assert!(error.contains("build"), "{error}");
     }
 
     #[test]

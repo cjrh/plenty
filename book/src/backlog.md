@@ -240,8 +240,11 @@ are recorded there.
 - **Generated code:** retain/release for text operands computed by calls or loaded
   in another block; dispatcher copies of sums with inline-record payloads;
   code size and compilation/link latency. Revisit match density/size policies
-  only with application/CPU evidence. An opt-in CPU target such as x86-64-v2
-  requires a decision against B17's fixed-baseline reproducibility contract.
+  only with application/CPU evidence. Opt-in
+  [CPU levels](design/toolchain/01-building/linking.md#cpu-levels) x86-64-v2 and
+  x86-64-v3 with a startup check and 128-bit VEX code are delivered (issue #962,
+  stage 1); remaining: 256-bit vectors (`f64x4`), and a CPU check for shared and
+  static libraries, which reject levels above x86-64 until one is designed.
   Strict byte-method dispatcher removal (issue #741), loop-cached byte
   access (issue #843), caller sites in inlined byte access (issue #842) and
   one-word reference reads (issue #844) are recorded in the

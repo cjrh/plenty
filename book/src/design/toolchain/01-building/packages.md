@@ -175,7 +175,8 @@ Profiles change code generation only. Overflow, bounds, ownership, and every
 other language check behave identically; neither profile adds debug information.
 Use `--fast-compile` for shorter edit-run cycles in large projects. Measure runtime
 performance with the optimized default. Compiled functions, program objects and
-executables remain cached separately by profile.
+executables remain cached separately by profile and by
+[CPU level](linking.md#cpu-levels).
 
 `plentyc FILE` and `plentyc --compile FILE -o OUT` also optimize by default;
 `--fast-compile` selects the same unoptimized code generation for single files.
@@ -231,6 +232,9 @@ path = "src/lib.plenty"
 name = "app"
 path = "src/main.plenty"
 
+[build]
+cpu = "x86-64-v3"
+
 [dependencies]
 util = { path = "../util", version = "^0.1.0" }
 
@@ -250,6 +254,13 @@ and tables are errors, so a misspelled setting is never ignored. The manifest is
 a subset of TOML 1.0: basic and literal strings, decimal integers, booleans,
 arrays, tables, inline tables, and arrays of tables. Dotted keys, dates, floats,
 and multi-line strings are errors.
+
+`[build] cpu` sets the [CPU level](linking.md#cpu-levels) of the package's
+executables and tests: `x86-64` (the default when absent), `x86-64-v2` or
+`x86-64-v3`. `--cpu` on `build`, `run`, `test` and `script` overrides it. Only
+the package being built chooses: a dependency's `[build]` table is ignored, and
+its code is compiled at the level of the program that uses it. A workspace root
+without `[package]` rejects `[build]`; set it in each member.
 
 Targets default to `src/lib.plenty` or `src/lib.p` (the library) and
 `src/main.plenty` or `src/main.p` (an executable named after the package) when
