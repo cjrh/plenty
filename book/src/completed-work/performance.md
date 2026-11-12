@@ -278,7 +278,7 @@ The gain is in cycles, not instructions: the divider and square-root unit
 handle two lanes at the cost of one. Across eight binaries whose `advance`
 starts at different addresses, the previous compiler takes 236.0 to 238.5
 cycles per step and this one 220.5 to 225.1, so the change is not a placement
-effect. The `std.simd` source variant (214 cycles) and the list-of-class variant
+effect. The `std.simd` source variant (214 cycles) and the `clist` variant
 (377 cycles) compile to the same code as before, as do all other programs
 under `benchmarks/game` and `examples`.
 
@@ -304,9 +304,57 @@ by such operands in memory for its whole life. Rewriting the allocated code
 of a hand-written kernel instead, folding a reload into the next instruction
 when the reloaded register is not read again, gave 612 instructions and 220
 cycles against 645 and 231; also retargeting reloads that feed a copy gave 569
-and 213. That post-allocation fold in the Cranelift fork, clist eligibility,
+and 213. That post-allocation fold in the Cranelift fork
 and keeping pair data in vectors (a hand-written IR with `x`/`y` pairs runs at
 187 cycles) remain issue #930.
+
+### Clist columns as numerical state
+
+`nbody_clist.plenty` is the n-body source with its bodies in a
+`clist[Body]`. (`nbody.plenty` holds a `list[Body]` of a `@copy` class and
+was already promoted.) [Guarded numerical state](../design/toolchain/02-architecture/numerical-loops.md)
+did not recognize a clist, so each of the step's 245 field accesses kept its
+bounds check, reloaded the index, row count and column address from the
+stack, and read or wrote memory. The pass now takes a clist as a root, with
+one row of an `f32` or `f64` column as a cell, and, for a row whose fields
+are all floats, `clist[T].with_capacity` with a literal from two to eight as
+a size hint.
+Output is identical.
+
+Per step, user mode, one pinned core, three interleaved rounds of
+`perf stat -r 5` over five million steps, load average 3.6 to 5.0 from
+unrelated work (`experiments/nbody-spills/`):
+
+| Build | Instructions | Branches | Loads | Stores | Cycles | ms per 5M steps |
+|---|---:|---:|---:|---:|---:|---:|
+| `clist[Body]` before (`d2e335b2`) | 1,573 | 173 | 576 | 199 | 382.6 | 415 |
+| `clist[Body]` now | 648 | 2 | 189 | 77 | 225.8 | 244 |
+| `list[Body]` (unchanged) | 652 | 2 | 187 | 73 | 220.6 | 236 |
+| gcc 16.2 `-O3`, scalar locals, vectorization off | 549 | 1 | 109 | 24 | 221.5 | 236 |
+| clang 22.1 `-O3`, scalar locals, vectorization off | 495 | 1 | 120 | 51 | 215.1 | 229 |
+| Rust, `[Body; 5]` | 451 | 1 | 94 | 66 | 157.9 | 169 |
+| gcc `-O3`, heap array of structs, run-time length | 684 | 43 | 161 | 77 | 197.0 | 212 |
+| gcc, same, vectorization off | 768 | 50 | 200 | 117 | 247.7 | 266 |
+| clang `-O3`, heap array of structs, run-time length | 799 | 70 | 200 | 80 | 192.0 | 208 |
+| clang, same, vectorization off | 879 | 70 | 218 | 115 | 257.1 | 277 |
+| Rust, `Vec<Body>`, run-time length | 988 | 91 | 318 | 109 | 222.5 | 242 |
+
+The run-time-length sources (`experiments/nbody-spills/aos/`) follow the
+Plenty statement order and hide the body count from the optimizer, as a
+caller's list does. The clist step now has the list step's shape: no
+checks, no address computation, and four fewer instructions. It runs 2%
+slower than the list step; the allocator places its spills differently. Across
+eight binaries whose `advance` starts at different addresses the previous
+compiler takes 373.8 to 407.6 cycles per step and this one 224.2 to 233.9.
+Of the other programs under `benchmarks/game` and `examples`, all 36 that
+compile alone produce the same binary as before.
+
+With `--cpu x86-64-v3` the clist step takes 549 instructions and 214.0
+cycles, and the list step 552 and 215.5.
+
+gcc and clang reach 192 to 197 cycles on the array of structs by packing
+`x`/`y` and `vx`/`vy` pairs into vectors, which is the pair-data work still
+open in issue #930.
 
 ## Value bounds and loop conditions
 

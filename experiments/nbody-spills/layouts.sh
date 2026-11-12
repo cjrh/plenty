@@ -10,14 +10,15 @@ after=$2
 work=$3
 core=${4:-2}
 steps=${5:-5000000}
-source_file="$here/../../benchmarks/game/n-body/plenty/nbody.plenty"
+# NBODY_SOURCE selects another variant, such as nbody_clist.plenty.
+source_file=${NBODY_SOURCE:-"$here/../../benchmarks/game/n-body/plenty/nbody.plenty"}
 mkdir -p "$work"
 echo "statements before_instructions before_cycles after_instructions after_cycles advance_address_after"
 for appends in $(seq 0 7); do
     source="$work/layout$appends.plenty"
     awk -v n="$appends" '/^    Ok\(e\)$/ {
             for (i = 0; i < n; i++) print "    e += 0.0 * (dt + " i ".0)"
-        } { print }' "$source_file" | sed 's/^def energy(bodies: &list\[Body\])/def energy(bodies: \&list[Body], dt: f64)/; s/energy(&bodies)/energy(\&bodies, 0.01)/' > "$source"
+        } { print }' "$source_file" | sed 's/^def energy(bodies: &\(c*list\)\[Body\])/def energy(bodies: \&\1[Body], dt: f64)/; s/energy(&bodies)/energy(\&bodies, 0.01)/' > "$source"
     address=$(PLENTY_CACHE=off "$after" --no-strip --compile "$source" -o "$work/layout" && nm "$work/layout" | awk '/__plenty_fn_advance$/ { print $1 }')
     line="$appends"
     for compiler in "$before" "$after"; do

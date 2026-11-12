@@ -18,6 +18,7 @@
 #![allow(clippy::mutable_key_type)]
 
 use super::*;
+use crate::clist::ClistOp;
 use crate::collection::CollectionOp as C;
 use crate::hash::HashSet;
 use crate::numeric::{Checked, NumericOp};
@@ -45,21 +46,30 @@ fn marker(op: &Op) -> bool {
 fn float(ty: &Ty) -> bool {
     matches!(ty, Ty::F32 | Ty::F64)
 }
+/// The list or clist a local owns or refers to.
 fn list(ty: &Ty) -> Option<Ty> {
     match ty {
-        Ty::List(_) => Some(ty.clone()),
-        Ty::Ref(t, _) if matches!(**t, Ty::List(_)) => Some((**t).clone()),
+        Ty::List(_) | Ty::Clist(_) => Some(ty.clone()),
+        Ty::Ref(t, _) if matches!(**t, Ty::List(_) | Ty::Clist(_)) => Some((**t).clone()),
         _ => None,
     }
 }
 fn numerical(ty: &Ty) -> bool {
+    let floats =
+        |row: &Ty| matches!(row, Ty::Class(c) if c.get().fields.iter().all(|(_, t)| float(t)));
     match ty {
-        Ty::List(t) => {
-            float(t)
-                || matches!(&**t, Ty::Class(c) if c.get().copy && c.get().fields.iter().all(|(_, t)| float(t)))
-        }
+        Ty::List(t) => float(t) || matches!(&**t, Ty::Class(c) if c.get().copy) && floats(t),
+        // A clist row is a value in every column, whatever its class says.
+        Ty::Clist(row) => floats(row),
         _ => false,
     }
+}
+/// Reads the row count of a list or clist from a reference to it.
+fn length_of(ty: Ty) -> Op {
+    Op::Collection(match ty {
+        Ty::Clist(_) => C::Clist(ClistOp::Len(ty)),
+        _ => C::ListLenRef(ty),
+    })
 }
 
 /// Literal capacities are only speculative hints, scoped by the exact list type.
@@ -78,7 +88,9 @@ pub(super) fn prepare(ops: &mut [Op], optimize: bool) {
             match op {
                 Op::DefineFn(_, f) => collect(&f.body, hints),
                 Op::CheckedFunction { body, .. } => collect(body, hints),
-                Op::Collection(C::TryNew(t)) if numerical(t) => {
+                Op::Collection(C::TryNew(t) | C::Clist(ClistOp::WithCapacity(t)))
+                    if numerical(t) =>
+                {
                     if let Some(n @ 2..=8) = previous {
                         hints
                             .entry(t.clone())
@@ -157,6 +169,8 @@ enum Val {
     Code(Vec<Op>, Ty),
     Root(u8),
     Rows(u8, bool),
+    /// The address of one column of a clist root.
+    Column(u8, usize),
     /// A root's length read before the candidate loop, with its size hint.
     Len(u8, i64),
     Cell(u8, i64, Option<usize>),
@@ -265,13 +279,16 @@ impl<'a> Eval<'a> {
         if !(0..64).contains(&index) {
             return None;
         }
-        let lt = list(&self.types[root as usize])?;
-        let Ty::List(element) = lt else {
-            return None;
-        };
-        let ty = match (field, &*element) {
-            (None, t) if float(t) => t.clone(),
-            (Some(f), Ty::Class(c)) if c.get().copy => c.get().fields.get(f)?.1.clone(),
+        let ty = match (field, list(&self.types[root as usize])?) {
+            (Some(f), Ty::Clist(row)) => match &*row {
+                Ty::Class(c) => c.get().fields.get(f)?.1.clone(),
+                _ => return None,
+            },
+            (None, Ty::List(t)) if float(&t) => (*t).clone(),
+            (Some(f), Ty::List(t)) => match &*t {
+                Ty::Class(c) if c.get().copy => c.get().fields.get(f)?.1.clone(),
+                _ => return None,
+            },
             _ => return None,
         };
         float(&ty).then_some(ty)
@@ -323,16 +340,20 @@ impl<'a> Eval<'a> {
         }
         Some(())
     }
-    /// A store may not change what a deferred stack value will read. The
-    /// borrow of another vector local is the one deferred value kept across
-    /// a store: no store of the fast loop writes that local.
+    /// A store may not change what a deferred stack value will read. A
+    /// store to a named local leaves a value that does not mention that
+    /// local unchanged. A cell store (`None`) keeps only the borrow of a
+    /// vector local: no store of the fast loop writes that local.
     fn settled(&self, local: Option<u8>) -> Option<()> {
         self.stack
             .iter()
-            .all(|value| match value {
-                Val::Code(ops, _) => {
-                    matches!(ops.as_slice(), [Op::BorrowLocal(i, false)] if Some(*i) != local)
+            .all(|value| match (value, local) {
+                (Val::Code(ops, _), Some(local)) => {
+                    let (mut read, mut written) = (HashSet::default(), HashSet::default());
+                    induction::local_uses(ops, &mut read, &mut written);
+                    !read.contains(&local) && !written.contains(&local)
                 }
+                (Val::Code(ops, _), None) => matches!(ops.as_slice(), [Op::BorrowLocal(_, false)]),
                 _ => true,
             })
             .then_some(())
@@ -387,6 +408,20 @@ impl<'a> Eval<'a> {
             return None;
         };
         (rows == length).then_some(Some(rows))
+    }
+    /// The root whose cached row count and column address a clist view
+    /// access names above its operands.
+    fn column_root(&mut self, cached: bool, field: usize) -> Option<Option<u8>> {
+        if !cached {
+            return Some(None);
+        }
+        let Val::Column(column, of) = self.pop()? else {
+            return None;
+        };
+        let (Val::Rows(length, false) | Val::Len(length, _)) = self.pop()? else {
+            return None;
+        };
+        (column == length && of == field).then_some(Some(column))
     }
     fn step(&mut self, op: &Op) -> Option<()> {
         // A proved operation computes what its plain form does. Only an
@@ -443,14 +478,24 @@ impl<'a> Eval<'a> {
                         if self.strict {
                             self.out.extend(root_ref(self.types, r, false));
                             let t = list(&self.types[r as usize])?;
-                            self.out.push(Op::Collection(if rows {
-                                C::ListRowsRef(t)
+                            self.out.push(if rows {
+                                Op::Collection(C::ListRowsRef(t))
                             } else {
-                                C::ListLenRef(t)
-                            }));
+                                length_of(t)
+                            });
                             self.out.push(op.clone());
                         }
                         Val::Rows(r, rows)
+                    }
+                    Val::Column(r, field) => {
+                        if self.strict {
+                            self.out.extend(root_ref(self.types, r, false));
+                            let t = list(&self.types[r as usize])?;
+                            self.out
+                                .push(Op::Collection(C::Clist(ClistOp::Column(t, field))));
+                            self.out.push(op.clone());
+                        }
+                        Val::Column(r, field)
                     }
                     // A moved owner now lives in this slot, not its emptied
                     // source. Local reference bindings are likewise kept as
@@ -489,7 +534,7 @@ impl<'a> Eval<'a> {
                     self.out.extend(code);
                 }
             }
-            Op::Collection(C::ListLenRef(t)) => {
+            Op::Collection(C::ListLenRef(t) | C::Clist(ClistOp::Len(t))) => {
                 let Val::Root(root) = self.pop()? else {
                     return None;
                 };
@@ -528,6 +573,51 @@ impl<'a> Eval<'a> {
                 } else {
                     let (slot, ty) = self.cell(root, index, None, false)?;
                     self.stack.push(Val::Code(vec![Op::LoadLocal(slot)], ty));
+                }
+            }
+            Op::Collection(C::Clist(ClistOp::Column(_, field))) => {
+                let Val::Root(root) = self.pop()? else {
+                    return None;
+                };
+                self.stack.push(Val::Column(root, *field));
+            }
+            Op::Collection(C::Clist(
+                c @ (ClistOp::Get(t, field)
+                | ClistOp::GetView(t, field)
+                | ClistOp::Set(t, field)
+                | ClistOp::SetView(t, field)),
+            )) if self.strict => {
+                let cached = matches!(c, ClistOp::GetView(..) | ClistOp::SetView(..));
+                let column = self.column_root(cached, *field)?;
+                let write = matches!(c, ClistOp::Set(..) | ClistOp::SetView(..));
+                let value = if write {
+                    Some(self.pop()?.code()?)
+                } else {
+                    None
+                };
+                let index = self.pop()?.int()?;
+                let Val::Root(root) = self.pop()? else {
+                    return None;
+                };
+                if column.is_some_and(|c| c != root)
+                    || list(&self.types[root as usize]).as_ref() != Some(t)
+                {
+                    return None;
+                }
+                if write {
+                    self.settled(None)?;
+                }
+                let (slot, ty) = self.cell(root, index, Some(*field), write)?;
+                match value {
+                    Some((mut code, vt)) => {
+                        if vt != ty {
+                            return None;
+                        }
+                        code.push(Op::StoreLocal(slot));
+                        self.out.extend(code);
+                        self.stack.push(Val::Unit);
+                    }
+                    None => self.stack.push(Val::Code(vec![Op::LoadLocal(slot)], ty)),
                 }
             }
             Op::Collection(C::ViewNew(source @ Ty::List(_), _)) => {
@@ -813,24 +903,43 @@ fn root_ref(types: &[Ty], root: u8, mutable: bool) -> Vec<Op> {
         _ => vec![Op::BorrowLocal(root, mutable)],
     }
 }
-fn cell_ref(types: &[Ty], c: &Cell, mutable: bool) -> Vec<Op> {
+/// Reads a cell into its local at entry, or writes it back at exit.
+///
+/// Every cell has a nonnegative constant index. The dominating fast-path
+/// guard proves root.len > the maximum index for this root. No operation
+/// between the guard and these entry/exit accesses can resize or retarget
+/// a root, so these accesses cannot fail, including after deferred writes.
+fn cell_access(types: &[Ty], c: &Cell, write: bool) -> Vec<Op> {
     let t = list(&types[c.root as usize]).unwrap();
-    let mut ops = root_ref(types, c.root, mutable);
+    let mut ops = root_ref(types, c.root, write);
     ops.push(Op::PushInt(Literal::I64(c.index)));
-    // Every cell has a nonnegative constant index. The dominating fast-path
-    // guard proves root.len > the maximum index for this root. No operation
-    // between the guard and these entry/exit accesses can resize or retarget
-    // a root, so these accesses cannot fail, including after deferred writes.
-    ops.push(Op::Assumed(Box::new(Op::Collection(C::ElementRef(
-        t.clone(),
-        mutable,
-    )))));
-    if let Some(field) = c.field {
-        let Ty::List(element) = t else { unreachable!() };
-        let Ty::Class(class) = &*element else {
-            unreachable!()
-        };
-        ops.push(Op::Class(ClassOp::FieldRef(class.clone(), field, mutable)));
+    let assumed = |op| Op::Assumed(Box::new(Op::Collection(op)));
+    match (&t, c.field) {
+        (Ty::Clist(_), Some(field)) if write => ops.extend([
+            Op::LoadLocal(c.slot),
+            assumed(C::Clist(ClistOp::Set(t.clone(), field))),
+            Op::Drop,
+        ]),
+        (Ty::Clist(_), Some(field)) => ops.extend([
+            assumed(C::Clist(ClistOp::Get(t.clone(), field))),
+            Op::StoreLocal(c.slot),
+        ]),
+        (Ty::List(element), field) => {
+            ops.push(assumed(C::ElementRef(t.clone(), write)));
+            if let Some(field) = field {
+                let Ty::Class(class) = &**element else {
+                    unreachable!()
+                };
+                ops.push(Op::Class(ClassOp::FieldRef(class.clone(), field, write)));
+            }
+            if write {
+                ops.splice(0..0, [Op::LoadLocal(c.slot)]);
+                ops.push(Op::WriteRef(c.ty.clone()));
+            } else {
+                ops.extend([Op::ReadRef(c.ty.clone()), Op::StoreLocal(c.slot)]);
+            }
+        }
+        _ => unreachable!("a cell of a list or of a clist column"),
     }
     ops
 }
@@ -883,7 +992,11 @@ fn cache_reads(ops: &[Op], types: &[Ty]) -> (usize, Vec<Read>) {
         let at = back(at - 1);
         let (at, source) = match previous(at) {
             Some(Op::LoadLocal(from)) => (at - 1, Err(*from)),
-            Some(Op::Collection(part @ (C::ListLenRef(_) | C::ListRowsRef(_)))) => {
+            Some(Op::Collection(
+                part @ (C::ListLenRef(_)
+                | C::ListRowsRef(_)
+                | C::Clist(ClistOp::Len(_) | ClistOp::Column(..))),
+            )) => {
                 let at = back(at - 1);
                 let root = match previous(at) {
                     Some(Op::BorrowLocal(root, false)) => Some((at - 1, *root)),
@@ -1042,18 +1155,14 @@ fn specialize(
     }
     let mut fast = Vec::new();
     for c in &eval.cells {
-        fast.extend(cell_ref(prefix.types, c, false));
-        fast.push(Op::ReadRef(c.ty.clone()));
-        fast.push(Op::StoreLocal(c.slot));
+        fast.extend(cell_access(prefix.types, c, false));
     }
     fast.push(Op::Loop {
         condition: condition.clone(),
         body: eval.out.into(),
     });
     for c in eval.cells.iter().filter(|c| c.written) {
-        fast.push(Op::LoadLocal(c.slot));
-        fast.extend(cell_ref(prefix.types, c, true));
-        fast.push(Op::WriteRef(c.ty.clone()));
+        fast.extend(cell_access(prefix.types, c, true));
     }
     // Guard lengths before any hoisted field access; no list changes in the fast loop.
     let mut checks = Vec::new();
@@ -1067,9 +1176,7 @@ fn specialize(
             .map(|c| c.index)
             .max();
         let mut guard = root_ref(prefix.types, root, false);
-        guard.push(Op::Collection(C::ListLenRef(list(
-            &prefix.types[root as usize],
-        )?)));
+        guard.push(length_of(list(&prefix.types[root as usize])?));
         // A length the expansion used as a fact is required exactly.
         if eval.exact.contains(&root) {
             let n = eval.lengths[&root];
@@ -1087,9 +1194,7 @@ fn specialize(
         let mut check = match root.filter(|_| cached.contains(&slot)) {
             Some(root) => {
                 let mut read = root_ref(prefix.types, root, false);
-                read.push(Op::Collection(C::ListLenRef(list(
-                    &prefix.types[root as usize],
-                )?)));
+                read.push(length_of(list(&prefix.types[root as usize])?));
                 read
             }
             None => vec![Op::LoadLocal(slot)],
