@@ -7,6 +7,16 @@ an optimization queue. Workloads, methods and current measurements belong to
 [profiling](../development/profiling.md); remaining B19/B23/B74 scope belongs
 only to the [backlog](../backlog.md).
 
+## Parallel regex-redux (2026-11-12)
+
+The [regex-redux benchmark](../development/benchmarks-game/regex-redux.md)
+now has a parallel variant with nine pool workers, one per variant pattern,
+while the main thread applies the five substitutions. Jobs own independent
+compiled regexes and immutable handles to the same sequence bytes. Futures
+preserve worker errors and print counts in pattern order; pool scope exit
+joins accepted work on success and failure. The serial variant and historical
+baseline remain available for comparison.
+
 ## Benchmarks Game source pages (2026-11-12)
 
 The [suite inventory and baseline](../development/benchmarks-game.md) link to

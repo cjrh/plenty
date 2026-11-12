@@ -34,7 +34,7 @@ Each manifest names the program's page and contributors.
 | [reverse-complement](benchmarks-game/reverse-complement.md) | C #5 | 1 | idiomatic | ready |
 | [binary-trees](benchmarks-game/binary-trees.md) | C #1 | 1 | idiomatic | ready |
 | [pidigits](benchmarks-game/pidigits.md) | C #1 (GMP) | 1 | none | blocked: no arbitrary-precision integers (backlog B38, issue #481) |
-| [regex-redux](benchmarks-game/regex-redux.md) | Rust #1 | 9 | idiomatic, with `std.regex` (1 thread) | ready |
+| [regex-redux](benchmarks-game/regex-redux.md) | Rust #1 | 9 | idiomatic (1 thread); parallel (9 pool workers), both with `std.regex` | ready |
 
 Each reference is one C or Rust program from the site. None is marked with an
 asterisk, the site's mark for a program that uses a different algorithm, so
@@ -141,6 +141,11 @@ a separate measurement with its own C/Rust comparisons and instruction ledger.
 The k-nucleotide and regex-redux references are multithreaded while the
 idiomatic Plenty programs run one thread; `user_s` in the JSON gives CPU time
 (37.05 s for the k-nucleotide reference, 0.63 s for regex-redux).
+
+regex-redux's parallel variant counts the nine patterns on nine pool workers
+while the main thread performs substitutions, matching the reference's work
+split. It shares immutable sequence storage and preserves pattern output order.
+The recorded baseline above predates this variant.
 
 k-nucleotide's parallel variant counts the seven frame lengths on seven pool
 workers, as the reference does, and is the suite's threaded workload for
