@@ -1,6 +1,6 @@
 [package]
 name = "plenty"
-version = "0.8.26"
+version = "0.8.27"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
