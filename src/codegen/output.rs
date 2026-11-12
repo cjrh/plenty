@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::{Function, Signature, UserFuncName};
+use cranelift_codegen::isa::x64::UNSUPPORTED_256_BIT;
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::{CodegenError, Context, MachReloc};
 use cranelift_frontend::FunctionBuilderContext;
@@ -631,7 +632,7 @@ impl Worker {
         );
         if wide
             && let Err(message) = &code
-            && message.starts_with(WIDE_REJECTED)
+            && message.starts_with(UNSUPPORTED_256_BIT)
         {
             return false;
         }
@@ -646,10 +647,6 @@ impl Worker {
         true
     }
 }
-
-/// How [`describe_error`] begins the fork's rejection of a function with
-/// 256-bit vectors, which it reports instead of miscompiling one.
-const WIDE_REJECTED: &str = "Unsupported(\"256-bit vectors in ";
 
 /// Test hook: with `PLENTY_TEST_REJECT_WIDE_SIMD` set, every function built
 /// with `Wide` lowering also stores an `fneg` of an `F64X4` value, which the
@@ -682,6 +679,11 @@ pub(crate) fn describe_error(error: &CodegenError) -> String {
         CodegenError::ImplLimitExceeded => "its native stack frame exceeds the 1 GiB limit; \
              store large values in a `Box` or split the function"
             .into(),
+        // The fork's rejection of a function's 256-bit form, which it reports
+        // instead of miscompiling one. `Worker::define` matches the prefix.
+        CodegenError::Unsupported(message) if message.starts_with(UNSUPPORTED_256_BIT) => {
+            message.clone()
+        }
         error => format!("{error:?}"),
     }
 }
@@ -1588,6 +1590,34 @@ def main() -> ():
             for result in results {
                 assert_eq!(result.bytes.as_slice(), plain.bytes.as_slice());
             }
+        }
+    }
+
+    /// `Worker::define` recognises the fork's rejection of a 256-bit form by
+    /// the exported prefix, compiled directly or through the cache. Building
+    /// at x86-64-v3 does not need an AVX2 host.
+    #[test]
+    fn rejected_256_bit_forms_are_reported_with_the_fork_prefix() {
+        let isa = super::super::level_isa(
+            "x86_64-unknown-linux-gnu",
+            crate::CpuLevel::X86_64V3,
+            "backtracking",
+            "speed",
+            false,
+        )
+        .unwrap();
+        let mut func = constant(types::I64, 1, None);
+        insert_unsupported_wide(&mut func);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::open(&CacheMode::Directory(dir.path().to_path_buf())).unwrap();
+        let mut context = Context::new();
+        for cache in [None, Some(&cache)] {
+            let id = FuncId::from_u32(1);
+            let Err(message) = compile_uncaptured(&mut context, &*isa, id, func.clone(), cache)
+            else {
+                panic!("the fork admitted `fneg` of an F64X4");
+            };
+            assert!(message.starts_with(UNSUPPORTED_256_BIT), "{message}");
         }
     }
 
