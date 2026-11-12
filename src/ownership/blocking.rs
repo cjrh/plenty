@@ -115,6 +115,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::CheckedFunction { .. }
         | Op::CheckedArith { .. }
         | Op::Assumed { .. }
+        | Op::Proved(..)
         | Op::Loop { .. }
         | Op::If { .. }
         | Op::PushInt { .. }

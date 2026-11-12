@@ -71,6 +71,12 @@ def main() -> Result[(), IoError | ParseError | OverflowError[i64]]:
   signature. `x // 2` cannot fail at all. A shift by a count other than a
   literal or module constant adds `ShiftCountError[T]`. Still write `Ok(...)` on
   success; operators themselves return ordinary numbers. No `**`: use `x.pow(n)`.
+- Arithmetic the compiler proves cannot fail adds no error. It follows fixed
+  [interval rules](../language/03-types/intervals.md): literals, module
+  constants, `Bounded`/`NonNegative`/`Positive` `.get()`, `len(x)`, `x % c`,
+  `x & c`, casts and immutable locals have known ranges, so
+  `i64(a_u8) * 3 + 1` and `(seed.get() * 3877 + 29573) % 139968` need no
+  `OverflowError`. Parameters, `mut` locals and call results have none.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
 Use `checked:` for local recovery instead of returning arithmetic errors from
@@ -98,8 +104,10 @@ def main() -> Result[(), IoError]:
   types and inclusive compile-time bounds. Literals convert where expected;
   an alias such as `type Percent = Bounded[u8, 0, 100]` provides
   `Percent.try_from(n)?` for runtime inputs. `Bounded[i64, 0, 15].from(n % 16)`
-  has no check: `from` accepts only `x % c`, `x & c` with a constant `c`, or a
-  `Bounded` inside the target. Read `.get()` for arithmetic.
+  has no check: `from` accepts a value whose
+  [interval](../language/03-types/intervals.md) lies inside the target, such
+  as `x % c`, `x & c`, `b.get() + 1`, or a `Bounded` inside the target. Read
+  `.get()` for arithmetic.
   [Value parameters](../language/07-generics/values.md) use `const N: i64` or
   `[T: IntType, const N: T]`.
 

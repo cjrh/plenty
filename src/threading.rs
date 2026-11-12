@@ -774,7 +774,9 @@ pub fn walk<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
         for op in ops {
             visit(op);
             match op {
-                Op::Assumed(inner) => pending.push(std::slice::from_ref(inner)),
+                Op::Assumed(inner) | Op::Proved(inner, _) => {
+                    pending.push(std::slice::from_ref(inner))
+                }
                 Op::DefineFn(_, f) => pending.push(&f.body),
                 Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
                 Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
@@ -815,7 +817,9 @@ pub fn walk_sited<'a>(
             }
             visit(op, site);
             match op {
-                Op::Assumed(inner) => pending.push((std::slice::from_ref(inner), site)),
+                Op::Assumed(inner) | Op::Proved(inner, _) => {
+                    pending.push((std::slice::from_ref(inner), site))
+                }
                 Op::DefineFn(_, f) => pending.push((&f.body, None)),
                 Op::Match(arms) => {
                     pending.extend(arms.iter().map(|arm| (arm.body.as_ref(), site)));

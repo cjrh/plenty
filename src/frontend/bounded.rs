@@ -111,17 +111,11 @@ impl Lower<'_> {
     }
 
     /// `Bounded[T, lo, hi].from(value)`: the conversion with no run-time
-    /// check, accepted only when one of these rules gives an interval inside
-    /// `lo..hi` (issue #937):
-    ///
-    /// - `x % c`, `c` a literal or constant above zero: `0..c - 1`, because
-    ///   `%` is the floored remainder;
-    /// - `x & c` or `c & x`, `c` a literal or constant of at least zero:
-    ///   `0..c`, because the result has no bit that `c` lacks;
-    /// - a `Bounded[T, a, b]` value: `a..b`.
-    ///
-    /// The operator must be the integer one: the last operation lowered is
-    /// checked, so a class's `__mod__` or `__and__` hook proves nothing.
+    /// check, accepted only when the argument's
+    /// [interval](crate::interval) lies inside `lo..hi` (issues #937 and
+    /// #952). A `Bounded[T, a, b]` argument has the interval `a..b`; an
+    /// integer argument has the interval its lowering recorded, so a
+    /// class's operator hook proves nothing.
     pub(super) fn bounded_from(
         &mut self,
         ty: &Ty,
@@ -133,58 +127,47 @@ impl Lower<'_> {
         let [value] = args else {
             return Err(at.error("Bounded.from takes one value"));
         };
-        let unproved = || {
-            value.at.error(format!(
-                "`Bounded.from` takes a value the compiler proves is in {lo}..{hi}: `x % c` or `x & c` with a constant `c`, or a `Bounded` value; use `Bounded.try_from(value)?` to check a value at run time"
-            ))
+        let bounds = crate::interval::Interval {
+            lo: lo.value,
+            hi: hi.value,
         };
-        let form = match &ungroup(value).kind {
-            Expression::Binary(op, _, right) if op == "%" => self
-                .known_integer(right)
-                .filter(|divisor| *divisor > 0)
-                .map(|divisor| (IntegerOp::Mod, divisor - 1)),
-            Expression::Binary(op, left, right) if op == "&" => [left, right]
-                .into_iter()
-                .filter_map(|side| self.known_integer(side))
-                .filter(|mask| *mask >= 0)
-                .min()
-                .map(|mask| (IntegerOp::And, mask)),
-            _ => None,
-        };
-        let (source, proved) = if let Some((operator, most)) = form {
-            let actual = self.expr_expected(value, Some(element.clone()), ops)?;
-            self.same(actual, Some(element.clone()), &value.at)?;
-            let last = ops
-                .iter()
-                .rev()
-                .find(|op| !matches!(op, Op::Site(_) | Op::CallerSite(_)));
-            let integer = matches!(
-                (operator, last),
-                (IntegerOp::Mod, Some(Op::Modulo(_)))
-                    | (IntegerOp::And, Some(Op::Integer(crate::op::IntegerOp::And)))
-            );
-            if !integer {
-                return Err(unproved());
-            }
-            (element.clone(), (0, most))
+        let hinted = self.operator_hint(value).is_some_and(|hint| {
+            let hint = match &hint {
+                Ty::Ref(inner, _) => inner,
+                other => other,
+            };
+            self.aliases.bounded(hint).is_some()
+        });
+        self.interval = None;
+        let source = if hinted {
+            self.expr(value, ops)?
         } else {
-            let source = self.expr(value, ops)?.ok_or_else(unproved)?;
-            let source = if let Ty::Ref(inner, _) = source {
-                ops.push(Op::ReadRef((*inner).clone()));
-                (*inner).clone()
-            } else {
-                source
-            };
-            let Some((inner, from, to)) = self.aliases.bounded(&source) else {
-                return Err(unproved());
-            };
-            self.same(Some(inner), Some(element.clone()), &value.at)?;
-            (source, (from.value, to.value))
+            self.expr_expected(value, Some(element.clone()), ops)?
         };
-        if proved.0 < lo.value || proved.1 > hi.value {
+        let source = source.ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        // Read before the dereference: a reference has no recorded interval.
+        let recorded = self.operand_interval(value, &source);
+        let source = if let Ty::Ref(inner, _) = source {
+            ops.push(Op::ReadRef((*inner).clone()));
+            (*inner).clone()
+        } else {
+            source
+        };
+        let proved = if let Some((inner, from, to)) = self.aliases.bounded(&source) {
+            self.same(Some(inner), Some(element.clone()), &value.at)?;
+            crate::interval::Interval {
+                lo: from.value,
+                hi: to.value,
+            }
+        } else {
+            self.same(Some(source.clone()), Some(element.clone()), &value.at)?;
+            recorded
+                .or_else(|| crate::interval::Interval::of(&element))
+                .expect("a bounded integer stores an integer")
+        };
+        if !proved.within(bounds) {
             return Err(value.at.error(format!(
-                "this value is in {}..{}, which is not inside `{ty}`'s inclusive bounds {lo}..{hi}; use `Bounded.try_from(value)?` to check it at run time",
-                proved.0, proved.1
+                "this value is in {proved}, which is not inside `{ty}`'s inclusive bounds {lo}..{hi}; use `Bounded.try_from(value)?` to check it at run time"
             )));
         }
         let slot = self.slot(source.clone(), at)?;
@@ -218,11 +201,4 @@ impl Lower<'_> {
         self.names.remove(&held);
         out
     }
-}
-
-/// The operator of a `Bounded.from` argument whose result has a known range.
-#[derive(Clone, Copy)]
-enum IntegerOp {
-    Mod,
-    And,
 }

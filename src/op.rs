@@ -1293,10 +1293,17 @@ pub enum Op {
     },
     /// An operation whose preconditions the compiler has proved: the inner
     /// `Add`, `Sub`, `Mul`, shift or `CheckedCast` without its overflow,
-    /// shift-count or range check, or an eligible `Collection` index without
-    /// bounds checks or negative normalization (see
-    /// `CollectionOp::assumable_index`). Source code cannot request one.
+    /// shift-count or range check, or a list element reference without bounds
+    /// checks or negative normalization (see `CollectionOp::assumable_index`).
+    /// Source code cannot request one.
     Assumed(Box<Op>),
+    /// An integer operation the checker proved cannot fail, with the
+    /// interval of its result: the inner `Add`, `Sub`, `Mul`, shift or
+    /// `CheckedCast` without its overflow, shift-count or range check. The
+    /// function's error type omits the failure for the same reason, so
+    /// lowering and checking cannot disagree. See
+    /// `book/src/design/language/03-types/intervals.md`.
+    Proved(Box<Op>, crate::interval::Interval),
     /// The condition leaves bool; a continuing body preserves the operand stack.
     Loop {
         condition: Arc<[Op]>,
@@ -1490,7 +1497,9 @@ fn breaks_out(body: &[Op]) -> bool {
                 Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                     pending.push(body)
                 }
-                Op::Assumed(inner) => pending.push(std::slice::from_ref(&**inner)),
+                Op::Assumed(inner) | Op::Proved(inner, _) => {
+                    pending.push(std::slice::from_ref(&**inner))
+                }
                 _ => {}
             }
         }

@@ -50,7 +50,8 @@ same runtime error. The message is `integer cast out of range`.
 A cast whose operand is a numeric literal is checked at compile time, so
 `u8(300)` and `u8(300.7)` are compile-time errors. A cast between integer types
 where the target represents every source value, such as `i64(small_u8)`, emits
-no check. A failing check calls the runtime; a passing one does not, and no cast
+no check, and neither does one whose operand [interval](intervals.md) lies
+inside the target, such as `u8(n % 256)` for a nonnegative remainder. A failing check calls the runtime; a passing one does not, and no cast
 allocates. A cast whose operand compiles to a constant, such as `i64(u16.MAX)`
 or `u8(i64(200))` in a function body, emits the converted constant with no
 conversion or check, as the literal `65535` would. Such an operand outside the
@@ -84,7 +85,8 @@ default. Its declared `Result` error type must include the possible errors;
 successful arithmetic still produces ordinary integers. Use an explicit
 [`checked:` block](#checked-blocks) for local recovery, or
 [`unchecked:`](#unchecked-blocks) where the programmer guarantees that the
-arithmetic cannot fail.
+arithmetic cannot fail. An operation whose [interval](intervals.md) proves it
+cannot fail adds no error and needs neither.
 `//` floors signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.
@@ -94,10 +96,9 @@ Operands must have the same integer type; a typed left operand guides an
 unsuffixed count literal. Counts must be nonnegative and less than the integer
 width. A count written as an integer literal or an integer
 [module constant](../02-source/modules.md#constants) outside that range, such
-as `x << 64` on an `i64`, is a compile-time error. A count of the form `n & L`
-or `L & n`, where `L` is such a literal or constant in `0..width`, lies in
-`0..=L` and adds no error either; this covers the masking idiom
-`x << (n & 63)`. Any other count can fail with
+as `x << 64` on an `i64`, is a compile-time error. A count whose
+[interval](intervals.md) lies in `0..width - 1` adds no error either; this
+covers the masking idiom `x << (n & 63)`. Any other count can fail with
 `ShiftCountError[T]`, a recoverable arithmetic error like overflow, before
 shifting. Left shifts discard high bits rather than overflow.
 Signed right shifts extend the sign bit; unsigned right shifts fill with zero.
@@ -170,8 +171,10 @@ Explicit `Ok`, `Err`, returns and `?` keep their ordinary meaning. Operators
 do not produce individual `Result` wrappers or implicitly unwrap calls.
 
 The operation/error table under [checked blocks](#checked-blocks) also applies
-to the function default. Error contracts follow operators and operand types,
-not range analysis. Locally handled errors do not have to appear in the
+to the function default. Error contracts follow operators, operand types and
+the operands' [intervals](intervals.md): an operation proved infallible adds
+no error. A signature may still declare an error its body cannot return.
+Locally handled errors do not have to appear in the
 function's error type. Generators cannot propagate function-level arithmetic
 errors: handle a local checked result or explicitly opt out.
 
@@ -246,6 +249,14 @@ operators can produce:
 | `//` and `%` with a plain integer divisor, unless the divisor is a nonzero literal or module constant | `ZeroDivisionError` |
 | `<<` and `>>` on `T`, unless the count is an integer literal or module constant, or `n & L` with such an `L` below the width | `ShiftCountError[T]` |
 
+The table is the whole rule for a block. An operand
+[interval](intervals.md) that proves an operation infallible removes its check
+from the generated code and its error from a
+[function's contract](#function-arithmetic-contracts), but a block's error
+type [does not depend on such proofs](intervals.md#checked-blocks), so a block
+means the same when a proof appears and for every instantiation of a generic
+function.
+
 `OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
 2<sup>N</sup> for an N-bit `T`. `ShiftCountError[T]` has one field, `count: T`,
 the count that is negative or not less than N. `ZeroDivisionError` has no
@@ -307,18 +318,19 @@ The error type follows the operators and operand types, not their values,
 with one exception: a divisor or shift count written as an integer literal,
 such as `4`, `-3` or `(4u8)`, or as an integer
 [module constant](../02-source/modules.md#constants), removes the failures it
-rules out. A constant proves what the literal it evaluates to proves, whether
-it is local, imported or aliased, and whatever constant expression initializes
-it. A nonzero divisor cannot
+rules out. A constant proves what the literal it
+evaluates to proves, whether it is local, imported or aliased, and whatever
+constant expression initializes it. A nonzero divisor cannot
 divide by zero, and one other than `-1` cannot overflow, so `n // 4`
 and `n % -3` add no error, `n // -1` adds only `OverflowError[T]` for a signed
 `T`, and `n // 0` still adds `ZeroDivisionError`; the same holds for
 `n // step` after `const step: i64 = 4`. A valid shift count, as in `x << 3`,
 adds no error, nor does a count masked by such a literal or constant, as in
-`x << (n & 7)`. The rule applies to the operand's form
+`x << (n & 7)`. In a block the rule applies to the operand's form
 only. A variable assigned from a literal or constant, a negated constant such
 as `-step`, a guard such as
-`if d != 0:` or `if n < 64:` and arithmetic such as `1 + 1` prove nothing; use
+`if d != 0:` or `if n < 64:` and arithmetic such as `1 + 1` leave the block's
+error type unchanged, whatever their [intervals](intervals.md) prove; use
 a [`NonZero[T]`](#nonzero-integers) or [`Positive[T]`](#positive-and-non-negative-integers)
 divisor to carry a proof checked elsewhere. Guards do not narrow other
 operations either: `-x` adds `OverflowError[T]` even inside

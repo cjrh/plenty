@@ -2938,6 +2938,7 @@ impl Lowerer<'_, '_> {
             Op::FloorDiv(proof) => self.lower_div(true, *proof)?,
             Op::Modulo(proof) => self.lower_modulo(*proof)?,
             Op::Assumed(op) => self.lower_assumed(op)?,
+            Op::Proved(op, interval) => self.lower_proved(op, *interval)?,
             Op::Integer(kind) => self.lower_integer(*kind)?,
             Op::Numeric(operation) => self.lower_numeric(operation)?,
             Op::Eq => self.lower_eq()?,
@@ -3515,13 +3516,47 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// An [`Op::Proved`] operation: the plain instruction, with the bound
+    /// the checker proved recorded for the operations that use the result.
+    fn lower_proved(&mut self, op: &Op, interval: crate::interval::Interval) -> Result<()> {
+        if !matches!(
+            op,
+            Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight)
+                | Op::CheckedCast(_)
+        ) {
+            return Err(format!("AOT: `Proved` cannot hold {op:?}").into());
+        }
+        self.lower_assumed(op)?;
+        let Some((value, ty)) = self.stack.last() else {
+            return Err("AOT: stack underflow on proved arithmetic".into());
+        };
+        // The bound facts describe signed values.
+        if is_signed(ty.clone())
+            && interval.lo >= 0
+            && let Ok(limit) = u64::try_from(interval.hi)
+        {
+            let value = *value;
+            self.counters.nonnegative.insert(value);
+            let limit = self
+                .counters
+                .at_most
+                .get(&value)
+                .map_or(limit, |&l| l.min(limit));
+            self.counters.at_most.insert(value, limit);
+        }
+        Ok(())
+    }
+
     /// An [`Op::Assumed`] operation: the plain instruction, without
     /// the check that would trap.
     fn lower_assumed(&mut self, op: &Op) -> Result<()> {
         match op {
             Op::Collection(operation) if operation.assumable_index() => {
                 self.assumed_index = true;
-                let result = self.lower_assumed_index(operation);
+                let result = self.lower_collection(operation);
                 self.assumed_index = false;
                 result?;
             }
@@ -3567,7 +3602,7 @@ impl Lowerer<'_, '_> {
         }
         let cty = clif_type(ty.clone());
 
-        if proof == crate::numeric::Divisor::Any {
+        if proof.may_be_zero() {
             let zero = self.bcx.ins().iconst(cty, 0);
             let b_is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
             self.trap_if(b_is_zero, TrapKind::DivZero)?;
@@ -3619,7 +3654,7 @@ impl Lowerer<'_, '_> {
     /// Python-style modulo has the divisor's sign, including negative divisors.
     fn lower_modulo(&mut self, proof: crate::numeric::Divisor) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
-        if proof == crate::numeric::Divisor::Any {
+        if proof.may_be_zero() {
             let zero = self.bcx.ins().iconst(clif_type(ty.clone()), 0);
             let is_zero = self.bcx.ins().icmp(IntCC::Equal, b, zero);
             self.trap_if(is_zero, TrapKind::DivZero)?;
