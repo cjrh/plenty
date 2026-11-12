@@ -482,16 +482,22 @@ after register allocation and without changing regalloc2. It applies to both
 allocators, and so to `--fast-compile`, which uses the backtracking allocator
 without optimization; the single-pass allocator serves only functions with
 more than 2,048 branch arguments. Other targets are unchanged. Two rewrites
-are kept:
+are kept, each behind a Cranelift setting that defaults to off
+(`regalloc_fold_reloads`, `regalloc_forward_spills`) and that Plenty turns
+on. `PLENTY_RELOAD_FOLD=off`, `operands` or `forwarding` selects neither or
+one of them for comparisons:
 
 - **Memory operand.** A reload whose register is read once, by a read-only
   XMM operand that accepts memory, and is written again in the same block
   before any other read: the instruction reads the spill slot and the reload
   is dropped. Legacy SSE packed instructions fault on an unaligned memory
   operand, so they fold only a slot at a multiple of 16 bytes from the frame
-  pointer; scalar and VEX instructions fold any slot. An instruction that
-  modifies its operand, and `insertps`, whose memory form reads different
-  bytes, do not fold.
+  pointer, and only in a function whose calling convention fixes the stack
+  alignment at entry (System V, Windows fastcall, `fast`, `tail`); scalar
+  and VEX instructions fold any slot. An instruction that modifies its
+  operand, `insertps`, whose memory form reads different bytes, and EVEX
+  forms do not fold. A destination that keeps part of its old value, such as
+  that of `roundsd`, counts as a read of the register.
 - **Store forwarding.** A reload of a slot stored earlier in the block from a
   register that still holds the value becomes a register copy, or nothing
   when it is the same register. This applies to every register class.
@@ -508,66 +514,147 @@ and exception edges see the same slots as before.
 
 Zen 4, one pinned core, cycles and instructions per n-body step (the
 difference between 200,000 and 2,200,000 steps, minimum of five interleaved
-runs), baselines measured in the same session. The `f64x2` sources are the
+runs), all four builds measured in one session. The `f64x2` sources are the
 hand-vectorized variants of the fixed-state measurements; the `f64x4` source
 holds each body's position and velocity in one `f64x4`.
 
-| Source | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
+| Source and level | Neither | Memory operand | Forwarding | Both |
 |---|---:|---:|---:|---:|
-| `list[Body]` | 185.3 / 494 | 175.4 / 465 | 184.1 / 424 | 176.9 / 394 |
-| `clist[Body]` | 197.0 / 514 | 178.5 / 480 | 186.2 / 423 | 170.0 / 393 |
-| `f64x2`, x and y paired | 207.2 / 549 | 201.6 / 515 | 197.7 / 413 | 193.1 / 385 |
-| `f64x2`, locals | 207.7 / 642 | 202.0 / 603 | 190.1 / 498 | 184.6 / 473 |
-| `f64x4` | 197.9 / 504 | 192.8 / 479 | 175.3 / 250 | 175.3 / 242 |
+| `list[Body]`, x86-64 | 188.4 / 494 | 181.3 / 465 | 182.2 / 494 | 176.8 / 466 |
+| `clist[Body]`, x86-64 | 200.4 / 514 | 188.2 / 482 | 184.9 / 514 | 181.6 / 482 |
+| `f64x2`, x and y paired, x86-64 | 209.6 / 549 | 204.5 / 515 | 209.4 / 549 | 203.4 / 515 |
+| `f64x2`, locals, x86-64 | 213.3 / 642 | 208.5 / 604 | 211.3 / 641 | 207.8 / 603 |
+| `f64x4`, x86-64 | 201.9 / 504 | 199.0 / 479 | 199.3 / 504 | 197.4 / 479 |
+| `list[Body]`, x86-64-v3 | 186.1 / 424 | 185.0 / 394 | 181.5 / 424 | 177.6 / 395 |
+| `clist[Body]`, x86-64-v3 | 187.5 / 423 | 184.0 / 392 | 178.9 / 423 | 172.1 / 393 |
+| `f64x2`, x and y paired, x86-64-v3 | 200.9 / 413 | 196.0 / 385 | 200.4 / 413 | 196.0 / 385 |
+| `f64x2`, locals, x86-64-v3 | 191.4 / 498 | 186.5 / 473 | 190.7 / 498 | 187.3 / 473 |
+| `f64x4`, x86-64-v3 | 175.7 / 250 | 176.1 / 242 | 175.7 / 250 | 175.7 / 242 |
+
+Forwarding removes almost no instructions (the copy replaces the load) and
+gives 5 to 16 cycles for the two scalar sources; the memory operand removes
+8 to 38 instructions and gives up to 12 cycles.
 
 For reference at x86-64 and x86-64-v3: GCC 177.0 and 177.1, Clang 179.0 and
 298.4, rustc 154.7 and 190.2 cycles. All three compilers use spilled values as
 memory operands in `advance` (GCC 9, Clang 37 and rustc 48 instructions at
 x86-64).
 
+#### Every Benchmarks Game program
+
+All twelve Plenty programs of `benchmarks/game` at their full sizes,
+optimized, wall seconds, minimum of seven interleaved rounds, one run at a
+time; single-threaded programs pinned to one core, the two parallel variants
+to the eight physical cores. "Absent" is the same compiler with both rewrites
+off: its object is byte-identical to the one main's compiler emits for all 24
+rows. Executables from main's compiler were not used as the baseline because
+they link a separately built runtime (2.27% more instructions executed by
+regex-redux for the same program object).
+
+| Program | Level | Absent s | Fold s | Change | Both s | Change | Object changed by | Verdict |
+|---|---|---:|---:|---:|---:|---:|---|---|
+| binary-trees.idiomatic | x86-64 | 19.699 | 19.647 | -0.3% | 19.742 | +0.2% | none | noise |
+| binary-trees.idiomatic | x86-64-v3 | 19.976 | 19.764 | -1.1% | 19.859 | -0.6% | none | noise |
+| fannkuch-redux.idiomatic | x86-64 | 23.481 | 23.478 | -0.0% | 23.688 | +0.9% | forwarding | noise |
+| fannkuch-redux.idiomatic | x86-64-v3 | 24.475 | 24.528 | +0.2% | 25.061 | +2.4% | forwarding | slower: forwarding |
+| fannkuch-redux.parallel | x86-64 | 3.260 | 3.101 | -4.9% | 3.182 | -2.4% | forwarding | noise |
+| fannkuch-redux.parallel | x86-64-v3 | 3.169 | 3.145 | -0.7% | 3.092 | -2.4% | forwarding | noise |
+| fasta.idiomatic | x86-64 | 1.639 | 1.649 | +0.6% | 1.645 | +0.4% | fold | noise |
+| fasta.idiomatic | x86-64-v3 | 1.680 | 1.688 | +0.5% | 1.677 | -0.2% | fold | noise |
+| k-nucleotide.idiomatic | x86-64 | 20.120 | 19.413 | -3.5% | 19.867 | -1.3% | fold and forwarding | noise |
+| k-nucleotide.idiomatic | x86-64-v3 | 20.148 | 20.104 | -0.2% | 20.170 | +0.1% | fold and forwarding | noise |
+| k-nucleotide.parallel | x86-64 | 8.521 | 8.498 | -0.3% | 8.511 | -0.1% | fold and forwarding | noise |
+| k-nucleotide.parallel | x86-64-v3 | 8.835 | 8.570 | -3.0% | 8.789 | -0.5% | fold and forwarding | noise |
+| mandelbrot.idiomatic | x86-64 | 12.277 | 12.260 | -0.1% | 12.257 | -0.2% | fold | noise |
+| mandelbrot.idiomatic | x86-64-v3 | 12.235 | 12.213 | -0.2% | 12.211 | -0.2% | fold | noise |
+| n-body.idiomatic | x86-64 | 2.024 | 1.963 | -3.0% | 1.912 | -5.5% | fold and forwarding | faster: fold and forwarding |
+| n-body.idiomatic | x86-64-v3 | 2.102 | 2.022 | -3.8% | 1.973 | -6.1% | fold and forwarding | faster: fold and forwarding |
+| n-body.clist | x86-64 | 2.312 | 2.104 | -9.0% | 2.021 | -12.6% | fold and forwarding | faster: fold and forwarding |
+| n-body.clist | x86-64-v3 | 2.067 | 2.026 | -2.0% | 1.892 | -8.5% | fold and forwarding | faster: fold and forwarding |
+| regex-redux.idiomatic | x86-64 | 3.605 | 3.577 | -0.8% | 3.541 | -1.8% | forwarding | faster: forwarding |
+| regex-redux.idiomatic | x86-64-v3 | 3.600 | 3.646 | +1.3% | 3.510 | -2.5% | forwarding | faster: forwarding |
+| reverse-complement.idiomatic | x86-64 | 0.386 | 0.380 | -1.4% | 0.383 | -0.8% | none | noise |
+| reverse-complement.idiomatic | x86-64-v3 | 0.382 | 0.382 | -0.2% | 0.387 | +1.1% | none | noise |
+| spectral-norm.idiomatic | x86-64 | 1.226 | 1.226 | -0.0% | 1.232 | +0.5% | forwarding | noise |
+| spectral-norm.idiomatic | x86-64-v3 | 1.211 | 1.211 | +0.0% | 1.210 | -0.1% | forwarding | noise |
+
+Noise was measured from pairs of byte-identical executables in the same
+run: up to 1.4% for single-threaded programs and 4.9% (6.1% in cycles) for
+the parallel ones. k-nucleotide allocates heavily on a machine whose swap
+was full; its runs spread 1.4% to 6.4% from minimum to median, and its
+executed instructions change by at most 0.15%. The machine was in
+interactive use, and absolute times moved between runs: n-body with both
+rewrites took 1.84 s in an earlier run and 1.91 s here, k-nucleotide 15 s
+and 20 s.
+
+- **n-body** is the only program that gains clearly. The memory operand and
+  forwarding each contribute, as in the per-step table.
+- **fannkuch-redux at x86-64-v3 is 2.4% slower, and forwarding causes it.**
+  The memory-operand build is byte-identical to the build without rewrites.
+  Forwarding turns three stack loads in `fannkuch` into register copies,
+  each five bytes shorter, which moves the code after them by 5 to 15 bytes.
+  Instructions executed (1,622.8 million at size 10) and branch
+  mispredictions are unchanged; cycles at size 10 are 712.4 million
+  without rewrites, 710.6 with the memory operand, 728.9 with forwarding
+  and 728.3 with both (minimum of seven). The same three edits at x86-64
+  cost 0.4%. The cause beyond code position was not isolated.
+- **regex-redux** is 1.8% to 2.5% faster with forwarding, just above noise,
+  at unchanged instruction counts.
+- fasta, mandelbrot and spectral-norm objects change without a measurable
+  effect; binary-trees and reverse-complement objects do not change.
+
 `advance` for `list[Body]` goes from 1,599 to 1,568 instructions and 9,694 to
 9,536 bytes at x86-64: 34 fewer loads from the stack (207 to 173), 31
 floating-point instructions with a stack operand (none before) and 3 more
-register copies. At x86-64-v3: 1,491 to 1,461 instructions, 9,006 to 8,847
-bytes, 203 to 170 stack loads. Stores are unchanged at 134. Forwarding gives
-most of the cycles: without it the step costs 5 to 12 cycles more.
+register copies. At x86-64-v3: 1,491 to 1,461 instructions, 8,847 bytes from
+9,006, 203 to 170 stack loads. Stores are unchanged at 134. These counts
+predate the rule for partial destinations, which costs one or two
+instructions per step.
 
-Whole-run cycles in millions, minimum of seven runs:
+#### Checks on the rewritten code
 
-| Program | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
-|---|---:|---:|---:|---:|
-| spectral-norm 2000 | 730.1 | 729.6 | 725.6 | 725.4 |
-| mandelbrot 2000 | 897.2 | 897.9 | 896.5 | 894.8 |
-| fannkuch-redux 10 | 704.6 | 706.2 | 708.2 | 723.3 |
+regalloc2's checker runs before this pass, so the pass has its own:
+`check_reload_folds` simulates each block's original and rewritten edits
+symbolically and requires every operand to read the same value. It runs
+whenever `regalloc_checker` is set and in every build with debug assertions,
+which includes the compiler the test suite uses; `PLENTY_REGALLOC_CHECKER=1`
+enables it in a release compiler. It trusts each instruction's operand and
+clobber declarations, does not decode the rewritten instruction's bytes, and
+works within a block, as the pass does.
 
-Fannkuch executes the same 1,622.8 million instructions before and after; the
-object differs in three loads on cold paths that became register copies, and
-builds with either rewrite disabled range from 705 to 724 million cycles
-without following the rewrites. The 2.1% at x86-64-v3 is code placement.
+A randomized driver in the fork (`cranelift/filetests/examples/reload_fold_fuzz.rs`,
+generator `cranelift-fuzzgen` with mutation of accepted inputs; not libFuzzer,
+since `cargo-fuzz` is not installed) compared the interpreter, native code
+without rewrites and native code with them: 795,977 functions over 35
+minutes on eight cores, 195,592 of them with changed machine code,
+3,034,776 non-trapping inputs compared, across both allocators, SSE2, SSE4.1
+and AVX2, and each rewrite alone and together, with no difference.
 
-Of 41 programs that compile (`examples`, `examples/cpu_codegen_audit`,
+The full suite passes with both rewrites on and with both off (7,346 tests
+each). Of 41 programs that compile (`examples`, `examples/cpu_codegen_audit`,
 `benchmarks/game`, `experiments/kernels/kernels.plenty`, the fixed-state
 fixtures and the packed-rows fixture), 34 objects change in optimized builds
 and 26 with `--fast-compile`, the same sets at x86-64, x86-64-v2 and
-x86-64-v3; most changes are forwarded general-purpose reloads. In each of the
-six configurations, 34 of the 38 programs that finish within 20 seconds print
-the same output before and after. The other four print timings or a port and
-differ between two runs of one build; with numbers masked they match. Three
-servers do not exit and were not compared. The eight measured programs give
-identical results before and after at both levels, the n-body variants over
-100,000 steps with the full state printed.
+x86-64-v3, and all 41 objects with the rewrites off equal those of main's
+compiler. In each of the six configurations, 34 of the 38 programs that
+finish within 20 seconds print the same output on and off. The other four
+print timings or a port and differ between two runs of one build. Three
+servers do not exit and were not compared.
 
-Compilation: `compile_bench 1000 10 --workload aot` medians are 565 to 585 ms
-before and 562 to 564 ms after over three interleaved runs, within noise.
-The compiler executes 0.15% more instructions for `nbody.plenty`, 0.22% more
-for `examples/plot.plenty` and 0.21% more for `regexredux.plenty`, and 0.13%
-to 0.23% more with `--fast-compile`.
+Compilation, measured before the settings and the check were added:
+`compile_bench 1000 10 --workload aot` medians are 565 to 585 ms before and
+562 to 564 ms after over three interleaved runs, within noise. The compiler
+executes 0.15% more instructions for `nbody.plenty`, 0.22% more for
+`examples/plot.plenty` and 0.21% more for `regexredux.plenty`, and 0.13% to
+0.23% more with `--fast-compile`.
 
 Not handled: a reload into an operand the instruction modifies, a reload
 whose register is still live at the end of its block, and general-purpose
-memory operands. A legacy SSE packed fold assumes the 16-byte stack alignment
-the calling conventions require; code entered with a misaligned stack, which
-unaligned reloads tolerated, would fault.
+memory operands. The aligned legacy SSE fold relies on the caller honoring
+the convention's stack alignment. Plenty's own functions use `tail`; `main`,
+runtime entry points, thread adapters, generators and FFI callbacks use the
+host C convention. `plenty_actor_enter` realigns before its call and
+compiled programs do not switch stacks.
 
 ## Value bounds and loop conditions
 
