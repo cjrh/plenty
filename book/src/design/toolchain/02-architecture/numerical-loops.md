@@ -1,7 +1,8 @@
 # Small numerical loop state
 
 Optimized builds can keep the cells of a small numerical list, including fields
-of `@copy` records, in scalar SSA variables across a counted outer loop. The
+of `@copy` records and the columns of a [`clist`](collections.md), in scalar
+SSA variables across a counted outer loop. The
 compiler expands bounded inner `range` loops and replaces constant-index reads
 and writes with those variables. It loads state on entry and writes modified
 cells back on exit. The original n-body benchmark benefits without a source
@@ -14,7 +15,8 @@ planning and last-use moves. Its replacement operations enter the
 
 ## Hints and guards
 
-A literal list capacity between two and eight supplies a speculative size hint
+A literal list capacity between two and eight, or such a literal passed to
+`clist[T].with_capacity`, supplies a speculative size hint
 for that exact numerical list type within the compilation unit. Conflicting
 literal capacities disable that type's hint. A capacity is **not** evidence of
 initialized length, and no function name or benchmark-specific size is built
@@ -56,8 +58,14 @@ start of the fallback instead.
 ## Eligibility and limits
 
 Only `f32`/`f64` cells and fields of copyable numerical records are promoted.
+A `clist` qualifies when every field of its row class is `f32` or `f64`; a
+cell is then one row of one column (issue #930). Its rows are values stored
+in the columns, so no instance is shared between two rows or with another
+variable, and the cells of one clist are distinct memory.
 There may be one borrowed list root and distinct owned list roots; local
-reference aliases and multiple borrowed roots are rejected. Inside the loop,
+reference aliases and multiple borrowed roots are rejected. Two owned
+lists are different allocations, and a borrowed parameter cannot refer to a
+list the function owns, so no two promoted roots share a cell. Inside the loop,
 recognized work consists of scalar floating arithmetic and square root,
 constant-proven integer calculations, wrapping range bookkeeping, and accesses
 to constant nonnegative indices. The outer range count must be dynamic at this
@@ -87,6 +95,8 @@ Each function gets at most one version, bounded by 128 expanded inner iterations
 Candidate functions with more than 220 existing parameter/local slots are skipped.
 The pass accepts indices below 64. The dominating length guards prove entry
 loads and exit stores in bounds, so those accesses need no duplicate checks.
+A clist with a row has an allocation, so its guarded accesses also skip the
+test for an unallocated clist.
 It also preserves scalar assignments that can be
 observed after the loop.
 

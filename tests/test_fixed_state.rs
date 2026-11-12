@@ -43,6 +43,74 @@ fn guarded_state_matches_fallback_for_sizes_steps_and_bounds_failures() {
     }
 }
 
+/// The clist fixture runs the same kernel over columns. A negative `extra`
+/// leaves the clist without an allocation.
+#[test]
+fn guarded_clist_state_matches_fallback_for_sizes_steps_and_bounds_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    let source =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fixed-state-clist.plenty");
+    let slow = dir.path().join("slow");
+    let fast = dir.path().join("fast");
+    compile(&source, &slow, false);
+    compile(&source, &fast, true);
+    for steps in [-1, 0, 1, 2, 17] {
+        for extra in [-1, 0, 1, 3] {
+            for size in [0, 2, 3, 6] {
+                let args = [steps.to_string(), extra.to_string(), size.to_string()];
+                let a = Command::new(&slow).args(&args).output().unwrap();
+                let b = Command::new(&fast).args(&args).output().unwrap();
+                assert_eq!(a.status, b.status, "{args:?}");
+                assert_eq!(a.stdout, b.stdout, "{args:?}");
+                assert_eq!(a.stderr, b.stderr, "{args:?}");
+                let rows = if extra < 0 { 0 } else { 3 + extra };
+                assert_eq!(b.status.success(), steps <= 0 || size >= rows, "{args:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn clist_nbody_matches_the_unoptimized_build_and_the_list_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let rows = "    for i in range(len(bodies)):\n        print(f\"{bodies[i].x:.17e} {bodies[i].y:.17e} {bodies[i].z:.17e} {bodies[i].vx:.17e} {bodies[i].vy:.17e} {bodies[i].vz:.17e} {bodies[i].mass:.17e}\"?)?\n    Ok(())";
+    let tail = "    print(f\"{energy(&bodies)?:.9f}\"?)?\n    Ok(())";
+    let mut built = Vec::new();
+    for (name, original) in [
+        (
+            "clist",
+            include_str!("../benchmarks/game/n-body/plenty/nbody_clist.plenty"),
+        ),
+        (
+            "list",
+            include_str!("../benchmarks/game/n-body/plenty/nbody.plenty"),
+        ),
+    ] {
+        assert!(original.contains(tail));
+        let source = original.replace(tail, &tail.replace("    Ok(())", rows));
+        let path = dir.path().join(format!("{name}.plenty"));
+        std::fs::write(&path, source).unwrap();
+        for optimize in [false, true] {
+            let output = dir.path().join(format!("{name}-{optimize}"));
+            compile(&path, &output, optimize);
+            built.push(output);
+        }
+    }
+    for steps in [-1, 0, 1, 2, 10, 1000, 10000] {
+        let outputs: Vec<_> = built
+            .iter()
+            .map(|b| {
+                support::assert_success(Command::new(b).arg(steps.to_string()).output().unwrap())
+                    .stdout
+            })
+            .collect();
+        assert_eq!(String::from_utf8_lossy(&outputs[0]).lines().count(), 7);
+        for other in &outputs[1..] {
+            assert_eq!(&outputs[0], other, "steps {steps}");
+        }
+    }
+}
+
 #[test]
 fn original_nbody_preserves_all_fields_after_repeated_steps() {
     let dir = tempfile::tempdir().unwrap();

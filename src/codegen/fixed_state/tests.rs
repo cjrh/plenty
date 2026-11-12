@@ -301,3 +301,98 @@ fn vector_view_accesses_outside_the_guarded_rows_decline_promotion() {
         assert_eq!(before, after, "{to}");
     }
 }
+
+#[test]
+fn clist_columns_are_promoted_like_list_rows() {
+    let source = include_str!("../../../benchmarks/game/n-body/plenty/nbody_clist.plenty");
+    let (before, after) = transformed(source, "advance", true);
+    assert_eq!(after - before, 75);
+    let (before, after) = transformed(source, "advance", false);
+    assert_eq!(before, after);
+    let text = include_str!("../../../tests/fixtures/fixed-state-clist.plenty");
+    let (before, after) = transformed(text, "update", true);
+    assert_eq!(after - before, 9);
+}
+
+#[test]
+fn promoted_clist_loop_reads_and_writes_each_cell_once() {
+    let text = include_str!("../../../tests/fixtures/fixed-state-clist.plenty");
+    let mut heap = Heap::default();
+    let mut ops = crate::frontend::compile(text, &mut heap).unwrap().ops;
+    prepare(&mut ops, true);
+    fn count(ops: &[Op], assumed: &mut usize, checked: &mut usize) {
+        for op in ops {
+            match op {
+                Op::Assumed(inner) => {
+                    assert!(matches!(
+                        **inner,
+                        Op::Collection(
+                            C::Clist(ClistOp::Get(..) | ClistOp::Set(..)) | C::ElementRef(..)
+                        )
+                    ));
+                    *assumed += 1;
+                }
+                Op::Collection(C::Clist(
+                    ClistOp::Get(..)
+                    | ClistOp::Set(..)
+                    | ClistOp::GetView(..)
+                    | ClistOp::SetView(..),
+                )) => *checked += 1,
+                Op::Loop { body, .. } => count(body, assumed, checked),
+                _ => {}
+            }
+        }
+    }
+    let mut body = &function(&ops, "update").body[..];
+    if let [Op::CheckedFunction { body: inner, .. }] = body {
+        body = inner;
+    }
+    let fast = body
+        .iter()
+        .find_map(|op| match op {
+            Op::If {
+                then, otherwise, ..
+            } if otherwise.iter().any(|op| matches!(op, Op::Loop { .. })) => Some(then),
+            _ => None,
+        })
+        .unwrap();
+    let (mut assumed, mut checked) = (0, 0);
+    count(fast, &mut assumed, &mut checked);
+    // Six clist cells and three scratch cells loaded, all nine written back;
+    // the fast path keeps no checked clist access.
+    assert_eq!((assumed, checked), (18, 0));
+}
+
+#[test]
+fn clist_rows_outside_the_rule_decline_promotion() {
+    let text = include_str!("../../../tests/fixtures/fixed-state-clist.plenty");
+    for (from, to) in [
+        // An integer column is not numerical state.
+        ("    y: f64\n", "    y: f64\n    tag: i64\n"),
+        // A resize inside the region.
+        (
+            "            values[i].y -= values[i].x\n",
+            "            values[i].y -= values[i].x\n        values.clear()\n",
+        ),
+        // A negative index is normalized at run time.
+        ("values[i].x + values[i].y", "values[i].x + values[-1].y"),
+    ] {
+        assert!(text.contains(from));
+        let text = text
+            .replace(from, to)
+            .replace("Point(1.25, -0.0)", "POINT")
+            .replace("Point(-2.5, 3.75)", "POINT")
+            .replace("Point(0.125, -7.0)", "POINT")
+            .replace("Point(1.0, 2.0)", "POINT")
+            .replace(
+                "POINT",
+                if to.contains("tag") {
+                    "Point(1.0, 2.0, 3)"
+                } else {
+                    "Point(1.0, 2.0)"
+                },
+            );
+        let (before, after) = transformed(&text, "update", true);
+        assert_eq!(before, after, "{to}");
+    }
+}

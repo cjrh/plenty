@@ -182,6 +182,46 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().iadd(base, offset)
     }
 
+    /// `Get` or `Set` of a row the compiler proved present: the index is
+    /// nonnegative and below the row count, so the clist has an allocation
+    /// and neither the owner nor the index is tested.
+    fn lower_assumed_clist_access(
+        &mut self,
+        op: &ClistOp,
+        owner: NativeValue,
+        args: &[NativeValue],
+        output: Ty,
+    ) -> Result<()> {
+        let (ClistOp::Get(_, field) | ClistOp::Set(_, field)) = op else {
+            return Err(format!("AOT: `Assumed` cannot hold {op:?}").into());
+        };
+        let Ty::Class(row) = clist::row(op.owner()) else {
+            unreachable!()
+        };
+        let fields = &row.get().fields;
+        let prefix = fields[..*field].iter().map(|(_, t)| clist::width(t)).sum();
+        let ty = &fields[*field].1;
+        let capacity = self.bcx.ins().load(
+            types::I64,
+            MemFlagsData::trusted(),
+            owner,
+            clist_layout::CAPACITY,
+        );
+        let address = self.clist_field_address(owner, capacity, prefix, args[1], ty);
+        let result = if let ClistOp::Get(..) = op {
+            self.bcx
+                .ins()
+                .load(clif_type(ty.clone()), MemFlagsData::trusted(), address, 0)
+        } else {
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), args[2], address, 0);
+            self.bcx.ins().iconst(clif_type(Ty::Unit), 0)
+        };
+        self.stack.push((result, output));
+        Ok(())
+    }
+
     pub(super) fn lower_clist_access(&mut self, op: &ClistOp) -> Result<()> {
         let (inputs, output) = op.signature();
         let mut args = Vec::with_capacity(inputs.len());
@@ -190,6 +230,9 @@ impl Lowerer<'_, '_> {
         }
         args.reverse();
         let owner = self.reference_word(args[0]);
+        if self.assumed_index {
+            return self.lower_assumed_clist_access(op, owner, &args, output);
+        }
         let present = self.bcx.create_block();
         let missing = self.bcx.create_block();
         let done = self.bcx.create_block();
