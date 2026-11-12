@@ -1020,3 +1020,32 @@ interleaved runs: 442 to 469 ms before, 438 to 470 ms after (medians 448 and
 
 A method whose final expression is a call is not inlined (issue #958), so
 fasta's generator returns the local it stored.
+
+## CPU levels (issue #962, stage 1)
+
+[CPU levels](../design/toolchain/01-building/linking.md#cpu-levels) let an
+executable use x86-64-v2 or x86-64-v3 instructions after a startup check.
+Output is identical at every level for every program measured.
+
+AMD Zen 4, one pinned core, nine interleaved rounds over five million steps
+(n-body) or the argument shown, medians, after
+[paired divisions and square roots](#paired-divisions-and-square-roots):
+
+| Program | Instructions, x86-64 → v3 | Cycles, x86-64 → v3 |
+|---|---:|---:|
+| n-body, per step | 652 → 552 | 220.7 → 216.8 (-1.8%) |
+| n-body, `std.simd` magnitudes, per step | 621 → 540 | 214.9 → 200.2 (-6.8%) |
+| n-body, list of classes | -4.1% | -1.2% |
+| mandelbrot (4000) | -23% | 0% |
+| spectral-norm (2000) | -5.9% | -0.7% |
+| fannkuch-redux (10) | 0% | 0% |
+
+The v3 gain is three-operand VEX removing register copies: n-body's step has
+112 register copies at x86-64 and 15 at v3, and 187 → 171 stack loads and
+73 → 71 stores. Before paired statements, the same change saved 6.7% of
+n-body's cycles (236 to 220); paired statements already removed most of that
+time, and copies are cheap on Zen 4, which eliminates many at rename. Mandelbrot is latency-bound. Six padded n-body variants shift
+`advance` in 16-byte steps; their minimum cycles per step are 219.5 to 221.3
+at x86-64 and 216.0 to 217.3 at v3, so the gain is not a placement effect.
+x86-64-v2 emits the same instructions as x86-64 in every user function of
+these programs.

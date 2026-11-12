@@ -44,6 +44,11 @@ for shorter edit-run cycles in large projects; it preserves all language checks.
 `--release` remains a compatibility alias for the optimized default. See
 [profiles](packages.md#profiles).
 
+`--cpu LEVEL` selects the [CPU level](linking.md#cpu-levels) of an executable:
+`x86-64` (default), `x86-64-v2` or `x86-64-v3`. Above `x86-64` the executable
+checks the CPU at startup and exits with an error on one without the level.
+Shared and static libraries reject levels above `x86-64`.
+
 `--test-hooks` with `FILE` or `--compile` enables
 [failure injection](../../stdlib/test.md#failure-injection) in an ordinary
 executable. It does not arm failures automatically. Default builds have no hooks;

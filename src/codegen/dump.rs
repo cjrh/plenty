@@ -198,7 +198,7 @@ impl Plan {
                 continue;
             }
             let symbol = declaration.linkage_name(id);
-            let kind = if symbol == "plenty_main" {
+            let kind = if symbol == "plenty_main" || symbol == "__plenty_main" {
                 "entry"
             } else {
                 "adapter"

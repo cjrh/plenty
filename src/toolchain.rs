@@ -122,6 +122,9 @@ pub struct CompileOptions {
     /// Optimize generated code for speed. Enabled by default; disabling it
     /// selects the fast-compile profile.
     pub optimize: bool,
+    /// The CPU level of the generated code (`--cpu`). Above the baseline the
+    /// executable checks the running CPU first. Part of every cache identity.
+    pub cpu: crate::CpuLevel,
     /// Where compiled functions are cached between compilations.
     pub cache: crate::cache::CacheMode,
     /// Reuse a whole program's object from the cache when none of its
@@ -166,6 +169,7 @@ impl Default for CompileOptions {
             dataframe_engine: None,
             linalg_engine: None,
             optimize: true,
+            cpu: crate::CpuLevel::Baseline,
             cache: crate::cache::CacheMode::Environment,
             program_cache: true,
             executable_cache: false,
