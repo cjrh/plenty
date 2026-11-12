@@ -863,3 +863,5 @@ mod test_fs_create_dirs;
 
 #[path = "test_fixed_state.rs"]
 mod test_fixed_state;
+#[path = "test_packed_statements.rs"]
+mod test_packed_statements;

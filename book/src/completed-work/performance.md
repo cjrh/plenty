@@ -256,6 +256,58 @@ initial state and eighty randomized cases; fallback and allocation-failure
 checks retain their original behavior. Broader aggregate eligibility, automatic
 SIMD packing and backend register use remain issue #930 in the [backlog](../backlog.md).
 
+### Paired divisions and square roots
+
+The lowerer now computes [adjacent statements of one shape](../design/toolchain/02-architecture/numerical-loops.md#paired-statements)
+in two `f64x2` lanes when they divide or take a square root. In n-body's
+expanded step this pairs the ten magnitudes: five `sqrtpd` and five `divpd`
+replace ten `sqrtsd` and ten `divsd`. Output is identical.
+
+Per step, one pinned core, three interleaved rounds of `perf stat -r 5` over
+five million steps, load average 2.5 to 2.8 (`experiments/nbody-spills/`):
+
+| Build | Instructions | Cycles | ms per 5M steps |
+|---|---:|---:|---:|
+| Plenty before (`02f2e245`) | 647 | 236.4 | 256 |
+| Plenty with paired statements | 652 | 220.0 | 236 |
+| gcc 16.2 `-O3`, vectorization off | 549 | 221.5 | 239 |
+| clang 22.1 `-O3`, vectorization off | 495 | 215.0 | 233 |
+| Rust (LLVM vectorizes pairs) | 451 | 158.0 | 171 |
+
+The gain is in cycles, not instructions: the divider and square-root unit
+handle two lanes at the cost of one. Across eight binaries whose `advance`
+starts at different addresses, the previous compiler takes 236.0 to 238.5
+cycles per step and this one 220.5 to 225.1, so the change is not a placement
+effect. The `std.simd` source variant (214 cycles) and the list-of-class variant
+(377 cycles) compile to the same code as before, as do all other programs
+under `benchmarks/game` and `examples`.
+
+Every instruction beyond C's is data movement; the loop has no checks or
+address computation. Per step:
+
+| Category | Before | Now | gcc | clang | Rust |
+|---|---:|---:|---:|---:|---:|
+| FP arithmetic, register operands | 280 | 240 | 229 | 215 | 138 |
+| FP arithmetic, stack operand | 0 | 0 | 51 | 65 | 33 |
+| Stack loads | 170 | 187 | 58 | 47 | 53 |
+| Stack stores | 75 | 73 | 24 | 51 | 66 |
+| Register copies | 107 | 112 | 184 | 97 | 92 |
+| Lane rearrangements | 0 | 20 | 0 | 0 | 62 |
+| Zeroing, other loads, control | 15 | 20 | 3 | 20 | 7 |
+| Total | 647 | 652 | 549 | 495 | 451 |
+
+Cranelift never uses a spilled value as a memory operand and the step
+keeps more values live than the 16 vector registers hold. Two fork prototypes that let
+regalloc2 leave read-only scalar operands in their spill slots removed 55
+instructions and cost 17% more cycles: regalloc2 then keeps a value used only
+by such operands in memory for its whole life. Rewriting the allocated code
+of a hand-written kernel instead, folding a reload into the next instruction
+when the reloaded register is not read again, gave 612 instructions and 220
+cycles against 645 and 231; also retargeting reloads that feed a copy gave 569
+and 213. That post-allocation fold in the Cranelift fork, clist eligibility,
+and keeping pair data in vectors (a hand-written IR with `x`/`y` pairs runs at
+187 cycles) remain issue #930.
+
 ## Value bounds and loop conditions
 
 Instruction counts (`instructions:u`, x86-64, `--release`) against `28cb7214`,
