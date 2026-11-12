@@ -223,7 +223,17 @@ fn binary(opcode: Opcode, index: usize, x: u64, y: u64, bits: u32) -> Option<u64
         Opcode::Sshr => return Some((signed(x, bits) >> (y % u64::from(bits))) as u64),
         Opcode::Iadd | Opcode::UaddOverflow => ux + uy,
         Opcode::Isub | Opcode::UsubOverflow => ux - uy,
-        Opcode::Imul | Opcode::UmulOverflow => ux * uy,
+        // The product of two 64-bit unsigned operands can exceed `i128`.
+        Opcode::Imul => return Some(x.wrapping_mul(y)),
+        Opcode::UmulOverflow => {
+            let product = u128::from(x) * u128::from(y);
+            let wrapped = truncate(product as u64, bits);
+            return match index {
+                0 => Some(wrapped),
+                1 => Some(u64::from(product != u128::from(wrapped))),
+                _ => None,
+            };
+        }
         Opcode::SaddOverflow => sx + sy,
         Opcode::SsubOverflow => sx - sy,
         Opcode::SmulOverflow => sx * sy,
@@ -232,9 +242,7 @@ fn binary(opcode: Opcode, index: usize, x: u64, y: u64, bits: u32) -> Option<u64
     let wrapped = truncate(exact as u64, bits);
     Some(match (opcode, index) {
         (_, 0) => wrapped,
-        (Opcode::UaddOverflow | Opcode::UsubOverflow | Opcode::UmulOverflow, 1) => {
-            u64::from(exact != i128::from(wrapped))
-        }
+        (Opcode::UaddOverflow | Opcode::UsubOverflow, 1) => u64::from(exact != i128::from(wrapped)),
         (Opcode::SaddOverflow | Opcode::SsubOverflow | Opcode::SmulOverflow, 1) => {
             u64::from(exact != i128::from(signed(wrapped, bits)))
         }
@@ -392,6 +400,15 @@ mod tests {
         assert_eq!(flag(SmulOverflow, types::I64, i64::MAX, 1), Some(0));
         assert_eq!(flag(UmulOverflow, types::I64, 1 << 32, 1 << 32), Some(1));
         assert_eq!(flag(UmulOverflow, types::I64, -1, 1), Some(0));
+        // Products of two operands above `i64::MAX` exceed `i128`.
+        assert_eq!(flag(UmulOverflow, types::I64, -1, -1), Some(1));
+        assert_eq!(
+            known(|b, _| {
+                let x = b.ins().iconst(types::I64, -3);
+                b.ins().imul(x, x)
+            }),
+            Some(9)
+        );
         assert_eq!(flag(UaddOverflow, types::I64, -1, 1), Some(1));
         assert_eq!(flag(SaddOverflow, types::I64, i64::MAX, 1), Some(1));
         // The flag is i8; the operands keep their own width.

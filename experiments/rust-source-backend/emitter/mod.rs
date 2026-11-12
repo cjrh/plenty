@@ -541,6 +541,18 @@ impl Function<'_> {
                     };
                     self.temp(stack, a.ty, format!("{}.{method}({})", a.name, b.name))?;
                 }
+                // A proved operation cannot overflow, so the wrapping form
+                // computes the same value without a check.
+                Op::Proved(inner, _) if matches!(**inner, Op::Add | Op::Sub | Op::Mul) => {
+                    let b = self.pop(stack)?;
+                    let a = self.pop(stack)?;
+                    let method = match **inner {
+                        Op::Add => "wrapping_add",
+                        Op::Sub => "wrapping_sub",
+                        _ => "wrapping_mul",
+                    };
+                    self.temp(stack, a.ty, format!("{}.{method}({})", a.name, b.name))?;
+                }
                 Op::Eq | Op::Ne | Op::Lt | Op::Gt | Op::Le | Op::Ge => {
                     let b = self.pop(stack)?;
                     let a = self.pop(stack)?;

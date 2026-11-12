@@ -122,8 +122,12 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   `Bounded`/`NonNegative`/`Positive`, `len(x)`, `x % c`, `x & c`, integer
   casts and immutable locals bound to those have known ranges, combined by
   `+ - * // % & << >>` and unary `-`. So `i64(a_u8) * 3 + 1` needs no
-  `OverflowError`, while parameters, `mut` locals, loop variables, fields and
-  call results have the full range of their type. A `checked:` block's error type
+  `OverflowError`. `for i in range(a, b)` gives `i` the range `a..b - 1`, and
+  a dominating `<`, `<=`, `>`, `>=` or `==` (an `if`/`elif`/`else` suite,
+  a `while` body, the right side of `and`/`or`, or the code after an `if`
+  that returns) narrows an immutable local or parameter; `!=`, `mut` locals,
+  fields, elements and call results are never narrowed and have the full
+  range of their type. A `checked:` block's error type
   ignores these proofs, so a block stays valid when its arithmetic is proved. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
   to recover.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a

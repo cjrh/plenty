@@ -1011,6 +1011,7 @@ impl Lower<'_> {
             self.parameters + self.locals.len(),
         ));
         let mut test = Vec::new();
+        self.forget_condition(condition);
         let ty = self.expr(condition, &mut test);
         let mut lowered = Vec::new();
         let result = ty.and_then(|ty| {
@@ -1020,7 +1021,12 @@ impl Lower<'_> {
             let saved = self.names.clone();
             self.loop_steps.push(Vec::new());
             self.loop_scopes.push(self.locals.len());
+            // The body runs only while the condition holds.
+            let outer = self.narrowed.clone();
+            let facts = self.condition_facts(condition, true);
+            self.narrow(&facts);
             let result = self.block(body, &mut lowered, &Tail::Discard);
+            self.narrowed = outer;
             self.loop_steps.pop();
             self.loop_scopes.pop();
             self.names = saved;
@@ -1227,6 +1233,16 @@ struct Lower<'a> {
     interval: Option<(usize, Ty, crate::interval::Interval)>,
     /// The interval of each immutable integer local, by slot.
     slot_intervals: HashMap<u8, crate::interval::Interval>,
+    /// The intervals that dominating comparisons narrow immutable integer
+    /// locals to in the region being lowered, by slot; see
+    /// [`Lower::condition_facts`].
+    narrowed: HashMap<u8, crate::interval::Interval>,
+    /// The operand type and intervals of each integer comparison, by the
+    /// address of its token, for [`Lower::condition_facts`].
+    comparisons: HashMap<usize, (Ty, crate::interval::Interval, crate::interval::Interval)>,
+    /// The addresses of the tokens of the built-in `and` and `or`
+    /// operations lowered, for [`Lower::condition_facts`].
+    connectives: HashSet<usize>,
     /// The interval of each `.get()` resolved to an integer domain's method
     /// while the enclosing method calls are lowered, with the address of
     /// the receiver's token and the integer type.
@@ -1414,6 +1430,7 @@ impl Lower<'_> {
             return Err(right.at.error(STR_REPETITION));
         }
         self.same(Some(b), Some(ty.clone()), &right.at)?;
+        self.note_comparison(op, &ty, operands);
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
         let output = self.numeric_operation(op, ty, right, operands, at, ops)?;
@@ -2220,6 +2237,7 @@ impl Lower<'_> {
             left: left_interval,
             right: self.operand_interval(right, &b),
         };
+        self.note_comparison(op, &a, operands);
         loans.extend(other_loans);
         self.binary_values(e, (a, b), operands, rhs, loans, ops)
     }
@@ -3897,7 +3915,20 @@ impl Lower<'_> {
         }
         Ok(BlockResult::Exits)
     }
+    /// The statements of a suite. What an `if` that exits early proves
+    /// narrows the rest of the suite only; see [`Lower::condition_facts`].
     fn block_inner(
+        &mut self,
+        body: &[Stmt],
+        ops: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
+        let saved = self.narrowed.clone();
+        let result = self.block_statements(body, ops, tail);
+        self.narrowed = saved;
+        result
+    }
+    fn block_statements(
         &mut self,
         body: &[Stmt],
         ops: &mut Vec<Op>,
@@ -4324,13 +4355,17 @@ impl Lower<'_> {
                     let hinted = self.hinted_tail(tail, &stmt.at);
                     let tail = hinted.as_deref().unwrap_or(tail);
                     let condition_start = ops.len();
+                    self.forget_condition(condition);
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
                     self.building(&condition.at, condition_start, ops, false);
                     self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
+                    let mut narrowing = self.if_narrowing(condition);
                     let mut then = Vec::new();
-                    let yes_result = self.branch_block(yes, &stmt.at, &mut then, tail)?;
+                    let yes_result = self.branch_block(yes, &stmt.at, &mut then, tail);
+                    self.suite_narrowed(&mut narrowing, yes_result.as_ref().ok());
+                    let yes_result = yes_result?;
                     // Without an expected type, later branches take the first
                     // continuing branch's type, as the inline conditional's
                     // second value does.
@@ -4345,30 +4380,39 @@ impl Lower<'_> {
                         let temporary_start = self.expression_temps.len();
                         self.mark(&elif.at, &mut test);
                         let condition_start = test.len();
-                        let cond = self.expr(&elif.condition, &mut test)?;
-                        self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
+                        self.elif_condition_narrowing(&narrowing, &elif.condition);
+                        let cond = self.expr(&elif.condition, &mut test);
+                        self.elif_narrowing(&mut narrowing, &elif.condition);
+                        self.same(cond?, Some(Ty::Bool), &elif.condition.at)?;
                         self.building(&elif.condition.at, condition_start, &mut test, false);
                         self.finish_temporaries(temporary_start, &mut test);
+                        self.enter_suite_narrowing(&narrowing);
                         let result = self.case_block(
                             &stmt.at,
                             &elif.body,
                             &elif.at,
                             &mut arm,
                             inferred.as_ref().unwrap_or(tail),
-                        )?;
+                        );
+                        self.suite_narrowed(&mut narrowing, result.as_ref().ok());
+                        let result = result?;
                         first_value(tail, &result, &mut inferred);
                         results.push(result);
                         arms.push((test, arm));
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
-                    let mut result = self.case_block(
+                    self.else_narrowing(&mut narrowing);
+                    let result = self.case_block(
                         &stmt.at,
                         no,
                         &stmt.at,
                         &mut otherwise,
                         inferred.as_ref().unwrap_or(tail),
-                    )?;
+                    );
+                    self.suite_narrowed(&mut narrowing, result.as_ref().ok());
+                    self.after_if_narrowing(&narrowing);
+                    let mut result = result?;
                     self.names = saved;
                     ops.push(self.if_statement_op(
                         !last,
@@ -5356,6 +5400,9 @@ fn lower_body(
                 spare_operands: Vec::new(),
                 interval: None,
                 slot_intervals: HashMap::default(),
+                narrowed: HashMap::default(),
+                comparisons: HashMap::default(),
+                connectives: HashSet::default(),
                 accessors: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
