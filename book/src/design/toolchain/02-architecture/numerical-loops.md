@@ -119,8 +119,10 @@ following pair. The lowerer packs `2n` statements, `n` at most 8, when:
   and `sqrt`, stored to an `f64` local;
 - statement `i` and statement `n + i` differ only in the locals they name;
 - the first `n` contain a division or square root, the operations that cost
-  enough to repay building and splitting a vector, or every pair of locals
-  they read is a [row](#rows);
+  enough to repay building and splitting a vector. Without one, they must
+  contain an arithmetic operation and read at least one pair of distinct
+  locals in corresponding positions, and every such pair must be a
+  [row](#rows);
 - the second `n` read nothing the first `n` write, so computing them side by
   side reads the same values.
 

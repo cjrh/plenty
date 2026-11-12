@@ -1,0 +1,116 @@
+# Loops whose expanded statements reach each way a packed statement reads and
+# writes a row. `tests/test_packed_statements.rs` checks the code and compares
+# the output with the unoptimized build. Every field of every cell is
+# distinct, so a swapped lane or a reversed operand changes a printed value.
+
+@copy
+class Cell:
+    x: f64
+    y: f64
+    p: f64
+    q: f64
+    r: f64
+    s: f64
+    w: f64
+    u: f64
+
+# `p` and `q` read the `x`/`y` row with its lanes exchanged.
+def reversed(v: &mut list[Cell], steps: i64) -> ():
+    count = len(v)
+    for _ in range(steps):
+        for i in range(count):
+            v[i].x = v[i].x * 0.5 + v[i].r
+            v[i].y = v[i].y * 0.5 + v[i].s
+            v[i].p = v[i].y / v[i].r
+            v[i].q = v[i].x / v[i].s
+
+# One lane of a division is a row's local and the other is in no row.
+def mixed(v: &mut list[Cell], steps: i64) -> ():
+    count = len(v)
+    for _ in range(steps):
+        for i in range(count):
+            v[i].x = v[i].x * 0.5 + v[i].r
+            v[i].y = v[i].y * 0.5 + v[i].s
+            v[i].p = v[i].x / v[i].u
+            v[i].w = v[i].w / v[i].y
+
+# Both lanes of a division read the same local of a row.
+def shared(v: &mut list[Cell], steps: i64) -> ():
+    count = len(v)
+    for _ in range(steps):
+        for i in range(count):
+            v[i].x = v[i].x * 0.5 + v[i].r
+            v[i].y = v[i].y * 0.5 + v[i].s
+            v[i].p = v[i].y / v[i].r
+            v[i].q = v[i].y / v[i].s
+
+# A statement alone writes `x`: one lane of a row changes and the loop never
+# writes the other.
+def single(v: &mut list[Cell], steps: i64) -> ():
+    count = len(v)
+    for _ in range(steps):
+        for i in range(count):
+            v[i].p = v[i].x * v[i].r - v[i].x * 0.125 + v[i].r
+            v[i].q = v[i].y * v[i].s - v[i].y * 0.125 + v[i].s
+            v[i].x = v[i].x + v[i].w * 0.0625
+
+# `a` and `b` are a row of locals the function also reads and writes in `if`
+# and `match` arms and on both sides of an early exit.
+def branches(v: &mut list[Cell], steps: i64, flag: i64, text: &str) -> Result[f64, ParseError]:
+    count = len(v)
+    mut a = 0.5
+    mut b = -0.375
+    if flag > 0:
+        a = a + 1.0
+    else:
+        b = b - 2.0
+    scale = f64.parse(text)?
+    match flag:
+        case 0:
+            a = a * scale
+        case 1:
+            b = b * scale
+        case _:
+            a = b - a
+    for _ in range(steps):
+        for i in range(count):
+            v[i].x = (v[i].x * 0.5 + a) * 0.75 - v[i].r * 0.25
+            v[i].y = (v[i].y * 0.5 + b) * 0.75 - v[i].s * 0.25
+    if flag > 1:
+        b = a - b * 3.0
+    Ok(a - b * 0.5)
+
+def show(cells: &list[Cell]) -> Result[(), AllocError | IoError]:
+    for i in range(len(cells)):
+        print(f"{cells[i].x:.17e} {cells[i].y:.17e} {cells[i].p:.17e} {cells[i].q:.17e}"?)?
+        print(f"{cells[i].r:.17e} {cells[i].s:.17e} {cells[i].w:.17e} {cells[i].u:.17e}"?)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    mut cells = list[Cell].with_capacity(5)?
+    cells.append(Cell(1.25, -3.5, 0.0, 0.0, 0.75, 1.5, 9.0, -7.0))?
+    cells.append(Cell(-2.5, 6.0, 0.0, 0.0, -0.625, 2.25, -11.0, 5.0))?
+    cells.append(Cell(0.125, -0.0, 0.0, 0.0, 3.0, -4.5, 13.0, 0.3))?
+    cells.append(Cell(1.0e200, -1.0e-200, 0.0, 0.0, 0.0, 1.0e-300, 2.0, -0.0))?
+    cells.append(Cell(7.5, 8.25, 0.0, 0.0, -9.5, 10.75, -0.5, 17.0))?
+    reversed(&mut cells, steps)
+    show(&cells)?
+    mixed(&mut cells, steps)
+    show(&cells)?
+    shared(&mut cells, steps)
+    show(&cells)?
+    single(&mut cells, steps)
+    show(&cells)?
+    for flag in range(3):
+        value = branches(&mut cells, steps, flag, "1.75")?
+        print(f"{value:.17e}"?)?
+        show(&cells)?
+    match branches(&mut cells, steps, 0, "x"):
+        case Ok(_):
+            print("parsed")?
+        case Err(_):
+            print("exit")?
+    show(&cells)?
+    Ok(())

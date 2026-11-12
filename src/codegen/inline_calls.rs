@@ -343,7 +343,8 @@ impl Lowerer<'_, '_> {
         let width = self.module.simd_width();
         let portable_simd =
             portable_simd::State::new(body, &locals, inputs, self.bcx, optimizes, width);
-        let pairs = packed::Pairs::new(body, &locals, inputs, self.bcx, optimizes);
+        let packs = self.module.packs_statements();
+        let pairs = packed::Pairs::new(body, &locals, inputs, self.bcx, packs);
         let mut addressed = addressed_locals(body, &locals);
         for (index, addressed) in addressed.iter_mut().enumerate() {
             if portable_simd.promoted(index as u8) {

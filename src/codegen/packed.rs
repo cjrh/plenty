@@ -312,11 +312,20 @@ impl<F: Fn(u8) -> bool, C: Fn(u8) -> bool> Survey<'_, F, C> {
     fn scan(&mut self, ops: &[Op], depth: u32, body: bool) {
         let weight = LOOP_WEIGHT.pow(depth.min(MAX_DEPTH));
         let mut statement = true;
+        // After `Op::Leaving` the lowering gathers a scope's cleanup up to
+        // its exit and lowers it there, one operation at a time.
+        let mut gathering = false;
         let mut index = 0;
         while let Some(op) = ops.get(index) {
             let starts = std::mem::replace(&mut statement, matches!(op, Op::StoreLocal(_)));
+            match op {
+                Op::Leaving => gathering = true,
+                Op::Return | Op::Break | Op::Continue => gathering = false,
+                _ => {}
+            }
             if body
                 && starts
+                && !gathering
                 && matches!(op, Op::LoadLocal(local) if (self.float)(*local))
                 && let Some(plan) = find(
                     &ops[index..],
@@ -448,6 +457,7 @@ pub(super) struct Pairs {
 impl Pairs {
     /// Choose the rows of `body` among the locals after its `inputs`, and
     /// declare a variable for each. A row starts as zero, as its locals do.
+    /// `enabled` is [`symbols::Symbols::packs_statements`].
     pub(super) fn new(
         body: &[Op],
         locals: &[(Variable, Ty)],
@@ -462,10 +472,7 @@ impl Pairs {
         };
         // A parameter keeps its own variable, defined at entry.
         let candidate = |local: u8| local as usize >= inputs && float(local);
-        if !enabled
-            || !cfg!(target_arch = "x86_64")
-            || (inputs..locals.len()).filter(|i| float(*i as u8)).count() < 2
-        {
+        if !enabled || (inputs..locals.len()).filter(|i| float(*i as u8)).count() < 2 {
             return Self::default();
         }
         let rows = rows(body, float, candidate);
@@ -529,9 +536,11 @@ impl Lowerer<'_, '_> {
                 .get(local as usize)
                 .is_some_and(|(_, ty)| *ty == Ty::F64)
         };
+        // A gathered cleanup is lowered at its exit, which [`Survey::scan`]
+        // mirrors. No in-place move is pending where a statement starts: the
+        // `StoreLocal` or loop test before it has settled them.
         if !float(*local)
-            || !cfg!(target_arch = "x86_64")
-            || !self.module.optimizes()
+            || !self.module.packs_statements()
             || self.gathering()
             || !self.moves.pending.is_empty()
         {

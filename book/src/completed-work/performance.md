@@ -422,15 +422,44 @@ cycles to that).
 The fixed-state fixture (`tests/fixtures/fixed-state.plenty`, three points)
 pairs its first two points: 15 instructions per step from 20 at x86-64 and 10
 from 13 at x86-64-v3. Its step is one dependency chain, 9.0 cycles before and
-after with normal values. The fixture's own values decay to subnormals, where
-the step takes 18.1 cycles from 21.9 at x86-64 and 13.6 from 12.05 at
-x86-64-v3: a 13% loss in that one case. Of 32 programs (`examples`, `examples/cpu_codegen_audit`,
+after with normal values and with zeros. Of 32 programs (`examples`, `examples/cpu_codegen_audit`,
 `benchmarks/game`, `experiments/kernels/kernels.plenty` and the fixture), the
 objects of all but the two n-body sources and the fixture are byte-identical
 to the previous compiler's at x86-64, x86-64-v2 and x86-64-v3, and every
-`--fast-compile` object is identical. `advance` grows from 12,879 to 13,225
+`--fast-compile` object is identical. `advance` shrinks from 13,225 to 12,879
 bytes; compiling `nbody.plenty` and `examples/plot.plenty` takes 0.3% fewer
 and 0.07% more instructions.
+
+Subnormal operands change that fixture's step in both directions. The packed
+instructions compute the lanes the scalar instructions computed, on the same
+operands: a row holds two real locals, both loaded at entry, and no lane is
+padding. No microcode assist is involved (`ex_ret_ucode_ops` stays zero); a
+Zen 4 floating-point operation with a subnormal operand or result is slower,
+and a packed one is slow when either lane is, delaying the other lane's
+dependency chain as well. With a kernel that keeps its values (`* 1.0` in
+place of `* 0.5`) and each point zero (z), subnormal (d) or normal (n), cycles
+per step:
+
+| Points 0, 1, 2 | x86-64 before | x86-64 now | x86-64-v3 before | x86-64-v3 now |
+|---|---:|---:|---:|---:|
+| z z z | 9.02 | 9.02 | 9.01 | 9.02 |
+| n n n | 9.01 | 9.01 | 9.01 | 9.02 |
+| d d d | 12.66 | 17.79 | 11.60 | 13.68 |
+| d z z | 12.83 | 18.27 | 11.45 | 13.67 |
+| d n n | 12.83 | 15.84 | 11.47 | 13.59 |
+| z d d | 22.37 | 18.02 | 12.24 | 13.56 |
+| z d n | 17.45 | 18.13 | 16.62 | 13.68 |
+| n d n | 16.94 | 15.57 | 16.20 | 13.49 |
+| n n d | 18.64 | 15.58 | 11.91 | 12.51 |
+| z n d | 18.21 | 15.35 | 10.22 | 12.68 |
+
+Scalar code spans 12.7 to 22.4 cycles at x86-64 and 10.2 to 16.6 at
+x86-64-v3 by pattern; packed code spans 15.4 to 18.3 and 12.5 to 13.7. The
+change is between 4.4 cycles saved and 5.4 lost at x86-64, and between 2.9
+saved and 2.5 lost at x86-64-v3. The fixture's own values decay to the
+`z d d` pattern: 18.1 cycles from 21.9 at x86-64 and 13.6 from 12.05 at
+x86-64-v3. The row choice does not consider this: it cannot know a value's
+range, and declining rows would give up the gain for normal values.
 
 What remains in the step is data movement: 20 rows and the scalar `z` state
 exceed the 16 vector registers, so rows are reloaded and stored around most

@@ -235,3 +235,28 @@ fn scalar_uses_outweigh_a_row() {
     outside.extend([load(0), store(4), body_loop(body)]);
     assert_eq!(rows(&outside, float, all), [(1, 2), (3, 4)]);
 }
+
+#[test]
+fn branches_and_gathered_cleanups_stay_scalar() {
+    let mut pair = difference(1, 3, 5).to_vec();
+    pair.extend(difference(2, 4, 6));
+    // Only a loop body's own statements pack: those of an `if` arm are
+    // scalar uses of the locals they read.
+    let arm = Op::If {
+        then: pair.clone().into(),
+        elifs: Vec::new().into(),
+        otherwise: Vec::new().into(),
+    };
+    assert!(rows(&[body_loop(vec![arm.clone()])], float, all).is_empty());
+    let mut both = pair.clone();
+    both.push(arm);
+    assert!(rows(&[body_loop(both)], float, all).is_empty());
+    // A scope's cleanup is lowered at its exit, one operation at a time.
+    let mut gathered = vec![Op::Leaving];
+    gathered.extend(pair.clone());
+    gathered.push(Op::Break);
+    assert!(rows(&[body_loop(gathered)], float, all).is_empty());
+    let mut after = vec![Op::Leaving, Op::Break, int(1), store(20)];
+    after.extend(pair);
+    assert_eq!(rows(&[body_loop(after)], float, all), [(1, 2), (3, 4)]);
+}
