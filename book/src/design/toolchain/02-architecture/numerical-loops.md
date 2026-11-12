@@ -17,8 +17,12 @@ planning and last-use moves. Its replacement operations enter the
 
 A literal list capacity between two and eight, or such a literal passed to
 `clist[T].with_capacity`, supplies a speculative size hint
-for that exact numerical list type within the compilation unit. Conflicting
-literal capacities disable that type's hint. A capacity is **not** evidence of
+for that exact numerical list type within the compilation unit. A numerical
+list type is a list of `f32` or `f64`, a list of a `@copy` class whose fields
+are all `f32` or `f64`, or a clist whose row fields are all `f32` or `f64`; a
+literal capacity of any other type is ignored. Conflicting
+literal capacities disable that type's hint. A function is considered only
+when one of its parameters or locals has a hinted type. A capacity is **not** evidence of
 initialized length, and no function name or benchmark-specific size is built
 into the pass.
 
@@ -57,9 +61,13 @@ start of the fallback instead.
 
 ## Eligibility and limits
 
-Only `f32`/`f64` cells and fields of copyable numerical records are promoted.
-A `clist` qualifies when every field of its row class is `f32` or `f64`; a
-cell is then one row of one column (issue #930). Its rows are values stored
+Only `f32`/`f64` cells are promoted: an element of a float list, a float field
+of a `@copy` record in a list, or one row of a float column of a `clist`
+(issue #930). The other fields of the record or row class do not matter to
+this: the float columns of a row that also has integer or `bool` columns are
+cells once the function has a hinted list, although such a row type supplies
+no hint itself. A column or field of another type is never a cell, and a loop
+that reads or writes one is left as written. Clist rows are values stored
 in the columns, so no instance is shared between two rows or with another
 variable, and the cells of one clist are distinct memory.
 There may be one borrowed list root and distinct owned list roots; local

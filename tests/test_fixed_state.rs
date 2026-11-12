@@ -70,6 +70,182 @@ fn guarded_clist_state_matches_fallback_for_sizes_steps_and_bounds_failures() {
     }
 }
 
+/// Runs both builds of `source` with each argument list and requires the
+/// same status, output and diagnostics. Returns the optimized runs.
+fn agree(source: &str, runs: &[Vec<i64>]) -> Vec<std::process::Output> {
+    let (_dir, [slow, fast]) = both_profiles(source);
+    runs.iter()
+        .map(|run| {
+            let args: Vec<String> = run.iter().map(i64::to_string).collect();
+            let a = Command::new(&slow).args(&args).output().unwrap();
+            let b = Command::new(&fast).args(&args).output().unwrap();
+            assert_eq!(a.status, b.status, "{args:?}");
+            assert_eq!(a.stdout, b.stdout, "{args:?}");
+            assert_eq!(a.stderr, b.stderr, "{args:?}");
+            b
+        })
+        .collect()
+}
+
+fn grid<const N: usize>(axes: [&[i64]; N]) -> Vec<Vec<i64>> {
+    let mut runs = vec![vec![]];
+    for axis in axes {
+        runs = runs
+            .iter()
+            .flat_map(|run| axis.iter().map(|v| [&run[..], &[*v]].concat()))
+            .collect();
+    }
+    runs
+}
+
+/// A borrowed clist and an owned one of `nb` rows; with no row the owned
+/// clist has no allocation. Only three rows in each pass the guard.
+#[test]
+fn two_clist_roots_match_the_fallback_when_the_owned_one_is_unallocated() {
+    let runs = grid([&[-1, 0, 1, 5], &[0, 2, 3, 4], &[0, 2, 3, 5]]);
+    let outputs = agree(
+        include_str!("fixtures/fixed-state-clist-pair.plenty"),
+        &runs,
+    );
+    for (run, output) in runs.iter().zip(outputs) {
+        let (steps, na, nb) = (run[0], run[1], run[2]);
+        assert_eq!(
+            output.status.success(),
+            steps <= 0 || na == 0 || nb >= na,
+            "{run:?}"
+        );
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("clist index out of bounds"), "{run:?}");
+        }
+    }
+}
+
+/// Promoted `f64` and `f32` cells keep every bit: signalling and quiet NaN
+/// payloads, a negative NaN, infinities and `-0.0` are loaded into locals,
+/// permuted with sign changes and stored back.
+#[test]
+fn promoted_clist_cells_keep_nan_payloads_and_signed_zero() {
+    let runs = grid([&[0, 1, 2, 3, 6, 7]]);
+    let outputs = agree(
+        include_str!("fixtures/fixed-state-clist-bits.plenty"),
+        &runs,
+    );
+    let mut x = [
+        0x7ff0_0000_0000_0001_u64,
+        0x7ff8_dead_0000_beef,
+        0xfff0_0000_0000_0005,
+    ];
+    let mut y = [0x8000_0000_u32, 0x7f80_0001, 0xffc0_ffee];
+    let mut steps = 0;
+    for (run, output) in runs.iter().zip(outputs) {
+        // Each step runs the three-row body three times.
+        for _ in 0..3 * (run[0] - steps) {
+            x = [x[1] ^ (1 << 63), x[2], x[0]];
+            y = [y[2], y[0], y[1] ^ (1 << 31)];
+        }
+        steps = run[0];
+        let expected: String = (0..3)
+            .map(|i| format!("{:016x}{:08x}", x[i], y[i]))
+            .collect();
+        let text = String::from_utf8(support::assert_success(output).stdout).unwrap();
+        assert_eq!(text.trim(), expected, "steps {steps}");
+    }
+}
+
+/// Rows of `bool, f32, u8, f64`: the float columns are cells and the other
+/// columns keep their values.
+#[test]
+fn mixed_width_clist_rows_match_the_fallback() {
+    let runs = grid([&[-1, 0, 1, 4], &[0, 2, 3, 5]]);
+    let outputs = agree(
+        include_str!("fixtures/fixed-state-clist-mixed.plenty"),
+        &runs,
+    );
+    for (run, output) in runs.iter().zip(outputs) {
+        let (steps, rows) = (run[0], run[1]);
+        assert_eq!(output.status.success(), steps <= 0 || rows >= 3, "{run:?}");
+        if !output.status.success() {
+            continue;
+        }
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(text.lines().count() as i64, rows, "{run:?}");
+        for (k, line) in text.lines().enumerate() {
+            let fields: Vec<&str> = line.split(' ').collect();
+            let flag = if k % 2 == 0 { "True" } else { "False" };
+            assert_eq!((fields[0], fields[2]), (flag, &*k.to_string()), "{run:?}");
+        }
+    }
+}
+
+/// `xs[i] -= ps[j].x * dt` holds a deferred list cell across the store of
+/// the clist read's index temporary.
+#[test]
+fn a_deferred_list_cell_held_across_a_local_store_matches_the_fallback() {
+    let runs = grid([&[-1, 0, 1, 3, 11], &[0, 2, 3, 4]]);
+    let outputs = agree(include_str!("fixtures/fixed-state-deferred.plenty"), &runs);
+    for (run, output) in runs.iter().zip(outputs) {
+        assert_eq!(
+            output.status.success(),
+            run[0] <= 0 || run[1] <= 3,
+            "{run:?}"
+        );
+    }
+}
+
+#[test]
+fn compound_assignments_across_two_list_roots_match_the_fallback() {
+    let runs = grid([&[-1, 0, 1, 2, 7]]);
+    for output in agree(include_str!("fixtures/fixed-state-list-pair.plenty"), &runs) {
+        support::assert_success(output);
+    }
+}
+
+/// A clist passed by value and moved into a mutable local is an owned root.
+#[test]
+fn a_clist_received_by_value_matches_the_fallback() {
+    let runs = grid([&[-1, 0, 1, 5], &[0, 2, 3, 4]]);
+    for (run, output) in runs.iter().zip(agree(
+        include_str!("fixtures/fixed-state-clist-owned.plenty"),
+        &runs,
+    )) {
+        let text = String::from_utf8(support::assert_success(output).stdout).unwrap();
+        assert_eq!(text.lines().count() as i64, run[1], "{run:?}");
+    }
+}
+
+/// Each operation that can change a clist's row count or move its columns
+/// leaves the loop unpromoted (`clist_resizes_and_runtime_indices_decline_promotion`
+/// in `src/codegen/fixed_state/tests.rs`); the builds must still agree,
+/// including on the trap after rows are removed.
+#[test]
+fn clist_loops_that_resize_match_the_fallback() {
+    let text = include_str!("fixtures/fixed-state-clist-resize.plenty");
+    let anchor = "            values[i].y -= values[i].x\n";
+    assert!(text.contains(anchor));
+    let runs = grid([&[-1, 0, 1, 3], &[0, 2, 3, 4]]);
+    for (line, traps) in [
+        ("values.append(P(0.0, 0.0))?", false),
+        ("values.reserve(1)?", false),
+        ("drop(values.remove(0))", true),
+        ("values.clear()", true),
+        ("drop(values.copy_row(0))", false),
+        ("drop(values[0:1]?)", false),
+    ] {
+        let source = text.replace(anchor, &format!("{anchor}        {line}\n"));
+        let outputs = agree(&source, &runs);
+        let trapped = runs.iter().zip(&outputs).any(|(run, output)| {
+            run[0] == 3
+                && run[1] == 3
+                && String::from_utf8_lossy(&output.stderr).contains("clist index out of bounds")
+        });
+        assert_eq!(trapped, traps, "{line}");
+    }
+    for output in agree(text, &runs) {
+        support::assert_success(output);
+    }
+}
+
 #[test]
 fn clist_nbody_matches_the_unoptimized_build_and_the_list_source() {
     let dir = tempfile::tempdir().unwrap();

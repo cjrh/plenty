@@ -315,9 +315,10 @@ and keeping pair data in vectors (a hand-written IR with `x`/`y` pairs runs at
 was already promoted.) [Guarded numerical state](../design/toolchain/02-architecture/numerical-loops.md)
 did not recognize a clist, so each of the step's 245 field accesses kept its
 bounds check, reloaded the index, row count and column address from the
-stack, and read or wrote memory. The pass now takes a clist whose row fields
-are all `f32` or `f64` as a root, with one row of one column as a cell, and
-`clist[T].with_capacity` with a literal from two to eight as a size hint.
+stack, and read or wrote memory. The pass now takes a clist as a root, with
+one row of an `f32` or `f64` column as a cell, and, for a row whose fields
+are all floats, `clist[T].with_capacity` with a literal from two to eight as
+a size hint.
 Output is identical.
 
 Per step, user mode, one pinned core, three interleaved rounds of

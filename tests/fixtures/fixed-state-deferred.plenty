@@ -1,0 +1,30 @@
+class P:
+    x: f64
+    v: f64
+
+def update(xs: &mut list[f64], dt: f64, steps: i64) -> Result[(), AllocError | AppendError[P] | IoError]:
+    mut ps = clist[P].with_capacity(3)?
+    for k in range(3):
+        ps.append(P(0.1 + f64(k), 0.01))?
+    n = len(xs)
+    for _ in range(steps):
+        for i in range(n):
+            for j in range(n):
+                xs[i] -= ps[j].x * dt
+                ps[j].v = xs[i] * ps[i].x + ps[j].v
+                xs[j] *= ps[i].v - xs[i]
+    for i in range(len(&ps)):
+        print(f"{ps[i].x:.17e} {ps[i].v:.17e}"?)?
+    Ok(())
+
+def main() -> Result[(), AllocError | AppendError[P] | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    count = i64.parse(&argv[2])?
+    mut xs = list[f64].with_capacity(3)?
+    for k in range(count):
+        xs.append(0.5 * f64(k) - 0.75)?
+    update(&mut xs, 0.01, steps)?
+    for i in range(len(&xs)):
+        print(f"{xs[i]:.17e}"?)?
+    Ok(())

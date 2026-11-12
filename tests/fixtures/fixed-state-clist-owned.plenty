@@ -1,0 +1,24 @@
+class P:
+    x: f64
+    y: f64
+
+def update(values: clist[P], steps: i64) -> clist[P]:
+    mut state = values
+    count = len(&state)
+    for _ in range(steps):
+        for i in range(count):
+            state[i].x = state[i].x * 0.5 + state[i].y
+            state[i].y -= state[i].x
+    state
+
+def main() -> Result[(), AllocError | AppendError[P] | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    n = i64.parse(&argv[2])?
+    mut points = clist[P].with_capacity(3)?
+    for k in range(n):
+        points.append(P(1.25 + f64(k), -0.5))?
+    points = update(points, steps)
+    for i in range(len(points)):
+        print(f"{points[i].x:.17e} {points[i].y:.17e}"?)?
+    Ok(())

@@ -1,0 +1,24 @@
+class P:
+    x: f64
+    y: f64
+
+def update(values: &mut clist[P], steps: i64) -> Result[(), AllocError | AppendError[P]]:
+    count = len(values)
+    for _ in range(steps):
+        for i in range(count):
+            values[i].x = values[i].x * 0.5 + values[i].y
+            values[i].y -= values[i].x
+    Ok(())
+
+def main() -> Result[(), AllocError | AppendError[P] | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    n = i64.parse(&argv[2])?
+    mut points = clist[P].with_capacity(3)?
+    for k in range(n):
+        points.append(P(1.25 + f64(k), -0.5))?
+    update(&mut points, steps)?
+    print(len(points))?
+    for i in range(len(points)):
+        print(f"{points[i].x:.17e} {points[i].y:.17e}"?)?
+    Ok(())
