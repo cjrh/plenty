@@ -7,6 +7,7 @@ mod support;
 use std::path::Path;
 use std::process::{Command, Output};
 
+#[cfg(target_arch = "x86_64")]
 const LEVELS: [&str; 3] = ["x86-64", "x86-64-v2", "x86-64-v3"];
 
 /// Scalar and `std.simd` float arithmetic whose results change if any
@@ -148,6 +149,7 @@ fn setup(source: &str) -> tempfile::TempDir {
 }
 
 /// The object `plenty --emit-object` writes at `level`.
+#[cfg(target_arch = "x86_64")]
 fn object(dir: &Path, level: &str, configure: impl FnOnce(&mut Command)) -> Vec<u8> {
     let out = dir.join(format!("demo-{level}.o"));
     let mut command = plenty(dir);
@@ -157,6 +159,7 @@ fn object(dir: &Path, level: &str, configure: impl FnOnce(&mut Command)) -> Vec<
     std::fs::read(out).unwrap()
 }
 
+#[cfg(target_arch = "x86_64")]
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
@@ -232,6 +235,7 @@ fn print_target_names_a_non_baseline_level() {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 #[test]
 fn libraries_reject_levels_above_the_baseline() {
     let source = "@export(c)\ndef twice(x: i64) -> i64:\n    x * 2\n";
