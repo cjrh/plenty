@@ -126,8 +126,8 @@ mod tests {
         let code = fixture.code.as_ptr() as usize;
         let at = |i: usize| code + i;
         fixture.table.sites = offset(&raw const fixture.table.sites, sites as usize);
-        for i in 0..3 {
-            fixture.addresses[i] = offset(&raw const fixture.addresses[i], at(i));
+        for (i, slot) in fixture.addresses.iter_mut().enumerate() {
+            *slot = offset(&raw const *slot, at(i));
         }
         let table = (&raw const *fixture).cast::<Table>();
         // SAFETY: the fixture is a header followed by its arrays.
