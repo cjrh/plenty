@@ -1,0 +1,29 @@
+class P:
+    flag: bool
+    y: f32
+    k: u8
+    x: f64
+
+def update(values: &mut clist[P], steps: i64) -> Result[(), AllocError | AppendError[f64]]:
+    mut scratch = list[f64].with_capacity(3)?
+    for _ in range(3):
+        scratch.append(0.0)?
+    count = len(&scratch)
+    for _ in range(steps):
+        for i in range(count):
+            scratch[i] = values[i].x + 1.0
+            values[i].x = scratch[i] * 0.5
+            values[i].y = values[i].y * 1.5f32
+    Ok(())
+
+def main() -> Result[(), AllocError | AppendError[P] | AppendError[f64] | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    n = i64.parse(&argv[2])?
+    mut points = clist[P].with_capacity(5)?
+    for k in range(n):
+        points.append(P(k % 2 == 0, 0.1f32 * f32(k), u8.wrapping_from(k), f64(k) - 0.3))?
+    update(&mut points, steps)?
+    for i in range(len(points)):
+        print(f"{points[i].flag} {points[i].y:.9e} {points[i].k} {points[i].x:.17e}"?)?
+    Ok(())

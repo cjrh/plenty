@@ -1,0 +1,35 @@
+import std.bytes
+import std.encoding
+from std.encoding import EncodingError, Endian
+
+class P:
+    x: f64
+    y: f32
+
+def update(a: &mut clist[P], steps: i64) -> ():
+    count = len(a)
+    for _ in range(steps):
+        for i in range(count):
+            t = a[0].x
+            a[0].x = -a[1].x
+            a[1].x = a[2].x
+            a[2].x = t
+            u = a[2].y
+            a[2].y = -a[1].y
+            a[1].y = a[0].y
+            a[0].y = u
+
+def main() -> Result[(), AllocError | AppendError[P] | IoError | ParseError | OverflowError[i64] | std.bytes.BytesError | EncodingError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    raw = std.encoding.hex_from_text("7ff00000000000017ff8dead0000beeffff0000000000005800000007f800001ffc0ffee00000000")?
+    mut points = clist[P].with_capacity(3)?
+    for k in range(3):
+        points.append(P(std.encoding.unpack_f64(&raw, k * 8, Endian.Big), std.encoding.unpack_f32(&raw, 24 + k * 4, Endian.Big)))?
+    update(&mut points, steps)
+    mut out = std.bytes.with_capacity(64)?
+    for i in range(len(points)):
+        std.encoding.append_f64(&mut out, points[i].x, Endian.Big)?
+        std.encoding.append_f32(&mut out, points[i].y, Endian.Big)?
+    print(std.encoding.hex_text(&out)?)?
+    Ok(())

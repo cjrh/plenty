@@ -595,9 +595,14 @@ impl CollectionOp {
 
     /// Indexing that [`crate::op::Op::Assumed`] may hold once the compiler
     /// proves the index nonnegative and in range. Only the fixed-state pass
-    /// produces one, for list element references behind its length guard.
+    /// produces one, for list element references and clist field accesses
+    /// behind its length guard.
     pub(crate) fn assumable_index(&self) -> bool {
-        matches!(self, Self::ElementRef(Ty::List(_), _))
+        use crate::clist::ClistOp;
+        matches!(
+            self,
+            Self::ElementRef(Ty::List(_), _) | Self::Clist(ClistOp::Get(..) | ClistOp::Set(..))
+        )
     }
 
     pub fn key_set_relation(left: Ty, right: Ty, opcode: i64) -> Self {
