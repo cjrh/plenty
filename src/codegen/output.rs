@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::{Function, Signature, UserFuncName};
+#[cfg(any(target_arch = "x86_64", test))]
 use cranelift_codegen::isa::x64::UNSUPPORTED_256_BIT;
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::{CodegenError, Context, MachReloc};
@@ -641,7 +642,7 @@ impl Worker {
         );
         if wide
             && let Err(message) = &code
-            && message.starts_with(UNSUPPORTED_256_BIT)
+            && unsupported_256_bit(message)
         {
             self.rejected_wide = Some(id);
             return false;
@@ -680,6 +681,20 @@ fn insert_unsupported_wide(func: &mut Function) {
     cursor.ins().stack_store(types::I64, negated, slot, 0);
 }
 
+// Production builds include only the native backend; unit tests enable both
+// x86 and ARM so they can exercise non-native code generation too.
+fn unsupported_256_bit(message: &str) -> bool {
+    #[cfg(any(target_arch = "x86_64", test))]
+    {
+        message.starts_with(UNSUPPORTED_256_BIT)
+    }
+    #[cfg(not(any(target_arch = "x86_64", test)))]
+    {
+        let _ = message;
+        false
+    }
+}
+
 /// Describe a Cranelift failure to compile one function. Plenty does not use
 /// Cranelift's inliner, so `ImplLimitExceeded` comes from frame layout: since
 /// 0.137 a frame over 1 GiB is rejected. Large inline temporaries each get
@@ -691,9 +706,7 @@ pub(crate) fn describe_error(error: &CodegenError) -> String {
             .into(),
         // The fork's rejection of a function's 256-bit form, which it reports
         // instead of miscompiling one. `Worker::define` matches the prefix.
-        CodegenError::Unsupported(message) if message.starts_with(UNSUPPORTED_256_BIT) => {
-            message.clone()
-        }
+        CodegenError::Unsupported(message) if unsupported_256_bit(message) => message.clone(),
         error => format!("{error:?}"),
     }
 }
