@@ -291,6 +291,435 @@ fn compiled_operators_match_the_reference_semantics() {
     runs(&source, &expected);
 }
 
+/// The stdout of `source` compiled and run with `flags`.
+fn stdout_with(source: &str, flags: &[&str]) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.plenty"), source).unwrap();
+    let output = Command::new(support::plenty_bin())
+        .current_dir::<&Path>(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args(flags)
+        .arg("main.plenty")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{flags:?}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// The `--dump ops` section of each function in `source`, by name.
+fn operations(source: &str) -> std::collections::HashMap<String, String> {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.plenty"), source).unwrap();
+    let output = Command::new(support::plenty_bin())
+        .current_dir::<&Path>(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "ops", "main.plenty", "-o", "out"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let dump = std::fs::read_to_string(dir.path().join("out/ops.txt")).unwrap();
+    dump.split("==== ")
+        .filter_map(|section| {
+            let (head, body) = section.split_once('\n')?;
+            Some((head.split(' ').next()?.to_string(), body.to_string()))
+        })
+        .collect()
+}
+
+/// Values of `lo..=hi` at and next to both ends, around zero and in the
+/// middle.
+fn edge_values(lo: i128, hi: i128) -> Vec<i128> {
+    let mut values = vec![lo, lo + 1, lo + (hi - lo) / 2, hi - 1, hi, -1, 0, 1];
+    values.retain(|value| (lo..=hi).contains(value));
+    values.sort_unstable();
+    values.dedup();
+    values
+}
+
+/// Proved operations compute the reference result at the ends of their
+/// operands' intervals, in default and `--release` builds. Each function
+/// returns a plain integer, so the checker proved every operator in it; the
+/// operation dump confirms that the operator under test was emitted as a
+/// proved operation, and that its recorded interval contains every result.
+/// Most cases have a result interval that reaches a limit of the type.
+#[test]
+fn proved_operations_are_exact_at_the_interval_bounds() {
+    use plenty::interval::{Exact, Operator, exact};
+    type Range = (i128, i128);
+    type Reference = Box<dyn Fn(i128) -> i128>;
+    struct Case {
+        name: String,
+        ty: &'static str,
+        /// The text the operation dump must contain, or empty for an
+        /// operator that needs no proof.
+        marker: &'static str,
+        results: Vec<i128>,
+    }
+    let mut source = String::new();
+    let mut main = String::new();
+    let mut expected = String::new();
+    let mut cases: Vec<Case> = Vec::new();
+    let literal = |ty: &str, min: i128, value: i128| {
+        if value == min && min < 0 {
+            format!("{ty}.MIN")
+        } else {
+            format!("{value}{ty}")
+        }
+    };
+    // A loop nest over `values` of each operand that converts each to its
+    // `Bounded` type at run time, so no operand is a compile-time constant,
+    // and prints the result of `name`.
+    let emit = |source: &mut String,
+                main: &mut String,
+                name: &str,
+                operands: &[(&str, Range, i128, &[i128])]| {
+        let mut depth = 1;
+        let mut body = String::new();
+        let mut arguments = Vec::new();
+        for (index, (ty, (lo, hi), min, values)) in operands.iter().enumerate() {
+            let list: Vec<String> = values.iter().map(|&v| literal(ty, *min, v)).collect();
+            source.push_str(&format!(
+                "type {name}_T{index} = Bounded[{ty}, {lo}, {hi}]\n"
+            ));
+            body.push_str(&format!(
+                "{pad}for v{index} in [{}]?:\n{pad}    match {name}_T{index}.try_from(v{index}):\n{pad}        case Err(_):\n{pad}            print(\"{name} out of bounds\")?\n{pad}        case Ok(b{index}):\n",
+                list.join(", "),
+                pad = "    ".repeat(depth),
+            ));
+            arguments.push(format!("b{index}"));
+            depth += 3;
+        }
+        source.push_str(&format!(
+            "def run_{name}() -> Result[(), AllocError | IoError]:\n{body}{}print({name}({}))?\n    Ok(())\n",
+            "    ".repeat(depth),
+            arguments.join(", ")
+        ));
+        main.push_str(&format!("    run_{name}()?\n"));
+    };
+
+    for (ty, bits, signed) in WIDTHS {
+        let (min, max) = limits(bits, signed);
+        let full = (min, max);
+        let width = i128::from(bits);
+        let half = max / 2;
+        let binary: Vec<(&str, Operator, &str, Range, Range)> = if signed {
+            let low = min / 2;
+            let root = (max as f64).sqrt() as i128;
+            vec![
+                ("+", Operator::Add, "Proved(Add,", (min, 0), (0, max)),
+                (
+                    "+",
+                    Operator::Add,
+                    "Proved(Add,",
+                    (low, half),
+                    (low, half + 1),
+                ),
+                (
+                    "-",
+                    Operator::Sub,
+                    "Proved(Sub,",
+                    (low, half),
+                    (low, half + 1),
+                ),
+                ("-", Operator::Sub, "Proved(Sub,", (min, -1), (min, 0)),
+                ("*", Operator::Mul, "Proved(Mul,", (-1, 1), (min + 1, max)),
+                ("*", Operator::Mul, "Proved(Mul,", (1, 2), (low, half)),
+                (
+                    "*",
+                    Operator::Mul,
+                    "Proved(Mul,",
+                    (-root, root),
+                    (-root, root),
+                ),
+                ("*", Operator::Mul, "Proved(Mul,", full, (0, 1)),
+                (
+                    "//",
+                    Operator::FloorDiv,
+                    "FloorDiv(Positive)",
+                    full,
+                    (1, max),
+                ),
+                (
+                    "//",
+                    Operator::FloorDiv,
+                    "FloorDiv(NonZeroFits)",
+                    (min + 1, max),
+                    (min, -1),
+                ),
+                (
+                    "//",
+                    Operator::FloorDiv,
+                    "FloorDiv(BelowMinusOne)",
+                    full,
+                    (min, -2),
+                ),
+                ("%", Operator::Modulo, "Modulo(Positive)", full, (1, max)),
+                ("%", Operator::Modulo, "Modulo(NonZero)", full, (min, -1)),
+                ("&", Operator::And, "", full, full),
+                (
+                    "<<",
+                    Operator::ShiftLeft,
+                    "Proved(Integer(ShiftLeft),",
+                    (-1, 0),
+                    (0, width - 1),
+                ),
+                (
+                    "<<",
+                    Operator::ShiftLeft,
+                    "Proved(Integer(ShiftLeft),",
+                    (low / 2, half / 2),
+                    (0, 2),
+                ),
+                (
+                    "<<",
+                    Operator::ShiftLeft,
+                    "Proved(Integer(ShiftLeft),",
+                    (0, 1),
+                    (0, width - 2),
+                ),
+                (
+                    ">>",
+                    Operator::ShiftRight,
+                    "Proved(Integer(ShiftRight),",
+                    full,
+                    (0, width - 1),
+                ),
+            ]
+        } else {
+            let root = 1i128 << (bits / 2);
+            vec![
+                ("+", Operator::Add, "Proved(Add,", (0, half), (0, half + 1)),
+                ("-", Operator::Sub, "Proved(Sub,", (half, max), (0, half)),
+                (
+                    "*",
+                    Operator::Mul,
+                    "Proved(Mul,",
+                    (0, root - 1),
+                    (0, root + 1),
+                ),
+                ("*", Operator::Mul, "Proved(Mul,", (0, 1), full),
+                (
+                    "//",
+                    Operator::FloorDiv,
+                    "FloorDiv(Positive)",
+                    full,
+                    (1, max),
+                ),
+                ("%", Operator::Modulo, "Modulo(Positive)", full, (1, max)),
+                ("&", Operator::And, "", full, full),
+                (
+                    "<<",
+                    Operator::ShiftLeft,
+                    "Proved(Integer(ShiftLeft),",
+                    (0, 1),
+                    (0, width - 1),
+                ),
+                (
+                    "<<",
+                    Operator::ShiftLeft,
+                    "Proved(Integer(ShiftLeft),",
+                    (0, max >> 3),
+                    (0, 3),
+                ),
+                (
+                    ">>",
+                    Operator::ShiftRight,
+                    "Proved(Integer(ShiftRight),",
+                    full,
+                    (0, width - 1),
+                ),
+            ]
+        };
+        for (index, (symbol, operator, marker, a, b)) in binary.into_iter().enumerate() {
+            let name = format!("binary{index}_{ty}");
+            source += &format!(
+                "def {name}(a: {name}_T0, b: {name}_T1) -> {ty}:\n    a.get() {symbol} b.get()\n"
+            );
+            let (left, right) = (edge_values(a.0, a.1), edge_values(b.0, b.1));
+            let mut results = Vec::new();
+            for &x in &left {
+                for &y in &right {
+                    let Exact::Value(value) = exact(operator, signed, bits, x, y) else {
+                        panic!("{ty}: {x} {symbol} {y} has no value");
+                    };
+                    results.push(value);
+                }
+            }
+            emit(
+                &mut source,
+                &mut main,
+                &name,
+                &[(ty, a, min, &left), (ty, b, min, &right)],
+            );
+            cases.push(Case {
+                name,
+                ty,
+                marker,
+                results,
+            });
+        }
+        if signed {
+            let name = format!("negate_{ty}");
+            source += &format!("def {name}(a: {name}_T0) -> {ty}:\n    -a.get()\n");
+            let values = edge_values(min + 1, max);
+            emit(
+                &mut source,
+                &mut main,
+                &name,
+                &[(ty, (min + 1, max), min, &values)],
+            );
+            let results = values.iter().map(|value| -value).collect();
+            cases.push(Case {
+                name,
+                ty,
+                marker: "Proved(Sub,",
+                results,
+            });
+        }
+        // Operands bounded by a remainder or a mask of an unbounded value.
+        let mut any = edge_values(min, max);
+        any.extend(6..=10);
+        let derived: [(&str, String, &str, Reference); 4] = [
+            (
+                "mask_add",
+                format!("(a & 7) + ({ty}.MAX - 7)"),
+                "Proved(Add,",
+                Box::new(move |a| (a & 7) + max - 7),
+            ),
+            (
+                "remainder_mul",
+                format!("(a % 2) * {ty}.MAX"),
+                "Proved(Mul,",
+                Box::new(move |a| a.rem_euclid(2) * max),
+            ),
+            (
+                "remainder_sub",
+                format!("({ty}.MIN + 9) - a % 10"),
+                "Proved(Sub,",
+                Box::new(move |a| min + 9 - a.rem_euclid(10)),
+            ),
+            (
+                "remainder_div",
+                "(a % 7) // (a % 3 + 1)".to_string(),
+                "FloorDiv(Positive)",
+                Box::new(|a| a.rem_euclid(7) / (a.rem_euclid(3) + 1)),
+            ),
+        ];
+        for (kind, body, marker, reference) in derived {
+            let name = format!("{kind}_{ty}");
+            source += &format!("def {name}(a: {ty}) -> {ty}:\n    {body}\n");
+            let list: Vec<String> = any.iter().map(|&v| literal(ty, min, v)).collect();
+            source += &format!(
+                "def run_{name}() -> Result[(), AllocError | IoError]:\n    for v in [{}]?:\n        print({name}(v))?\n    Ok(())\n",
+                list.join(", ")
+            );
+            main += &format!("    run_{name}()?\n");
+            let results = any.iter().map(|&a| reference(a)).collect();
+            cases.push(Case {
+                name,
+                ty,
+                marker,
+                results,
+            });
+        }
+        // A cast from each other type, of every value both types have.
+        for (from, from_bits, from_signed) in WIDTHS {
+            if from == ty {
+                continue;
+            }
+            let (from_min, from_max) = limits(from_bits, from_signed);
+            let shared = (min.max(from_min), max.min(from_max));
+            let name = format!("cast_{from}_{ty}");
+            source += &format!("def {name}(a: {name}_T0) -> {ty}:\n    {ty}(a.get())\n");
+            let values = edge_values(shared.0, shared.1);
+            emit(
+                &mut source,
+                &mut main,
+                &name,
+                &[(from, shared, from_min, &values)],
+            );
+            cases.push(Case {
+                name,
+                ty,
+                marker: "Proved(CheckedCast(",
+                results: values,
+            });
+        }
+    }
+    for case in &cases {
+        for result in &case.results {
+            expected += &format!("{result}\n");
+        }
+    }
+    source += &format!("def main() -> Result[(), AllocError | IoError]:\n{main}    Ok(())\n");
+
+    let operations = operations(&source);
+    for case in &cases {
+        let body = &operations[&case.name];
+        assert!(body.contains(case.marker), "{}:\n{body}", case.name);
+        assert!(
+            !body.contains("Checked") || case.marker.starts_with("Proved(CheckedCast("),
+            "{}:\n{body}",
+            case.name
+        );
+        let (_, bits, signed) = WIDTHS.into_iter().find(|width| width.0 == case.ty).unwrap();
+        let (min, max) = limits(bits, signed);
+        // The interval recorded for the operator under test.
+        if case.marker.starts_with("Proved(") {
+            let proof = body
+                .lines()
+                .rev()
+                .find(|line| line.starts_with(case.marker))
+                .unwrap();
+            let (lo, hi) = proof
+                .split_once("Interval { lo: ")
+                .and_then(|(_, interval)| interval.split_once(", hi: "))
+                .unwrap();
+            let lo: i128 = lo.parse().unwrap();
+            let hi: i128 = hi.trim_end_matches(" })").parse().unwrap();
+            assert!(min <= lo && hi <= max, "{}: {proof}", case.name);
+            for result in &case.results {
+                assert!(
+                    (lo..=hi).contains(result),
+                    "{}: {result} {proof}",
+                    case.name
+                );
+            }
+        }
+    }
+    for flags in [&[][..], &["--release"]] {
+        let actual = stdout_with(&source, flags);
+        if actual != expected {
+            let line = actual
+                .lines()
+                .zip(expected.lines())
+                .position(|(a, b)| a != b)
+                .unwrap_or(actual.lines().count().min(expected.lines().count()));
+            let mut seen = 0;
+            let case = cases
+                .iter()
+                .find(|case| {
+                    seen += case.results.len();
+                    line < seen
+                })
+                .map_or("past the end", |case| case.name.as_str());
+            panic!(
+                "{flags:?}: line {line} ({case}): got {:?}, expected {:?}",
+                actual.lines().nth(line),
+                expected.lines().nth(line)
+            );
+        }
+    }
+}
+
 /// `Bounded.from` accepts exactly the interval `lo..hi` for `expression`: the
 /// same bounds are accepted, and each bound moved inward by one is rejected
 /// with the interval named.
