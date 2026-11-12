@@ -173,11 +173,11 @@ Dominated index-increment overflow elimination is [delivered](completed-work/per
 remaining general-case n-body checks, spills and address work are tracked in issue #930.
 The [structural n-body study](completed-work/performance.md#n-body-structural-feasibility-issues-929-and-930)
 led to [guarded numerical state and bounded loop expansion](completed-work/performance.md#guarded-numerical-state-issue-930)
-for the original n-body source, and to [paired divisions and square roots](completed-work/performance.md#paired-divisions-and-square-roots).
+for the original n-body source, to [paired divisions and square roots](completed-work/performance.md#paired-divisions-and-square-roots),
+and to [clist columns as numerical state](completed-work/performance.md#clist-columns-as-numerical-state).
 Remaining issue #930 scope: folding spill reloads into memory operands after
 register allocation (Cranelift fork; a regalloc2 constraint measured slower),
-packing of source-level statements and of pair data kept in vector form, and
-broader aggregate eligibility (the list-of-class n-body is not promoted); broader
+and packing of source-level statements and of pair data kept in vector form; broader
 SIMD continuity through calls and header caching for list transfers remain
 issue #929 (B83/B23). Native constructors, tuple unpacking, packed list
 transfers, indexed view accesses and guarded state for loops containing those
