@@ -261,11 +261,11 @@ becomes an infinity, whose estimate is zero, and a small one may become zero
 or subnormal. Scale such inputs before narrowing.
 
 On Zen 4, replacing `sqrt` and `div` with the refined estimate in the n-body
-magnitude step lowers a C program's cycles by 10% (GCC) to 23% (Clang) and the
-Plenty program's by 2% to 3%; `experiments/nbody-rsqrt/` has the sources and
-figures. Measure before adopting it: the refined sequence executes more
-instructions, and gains only where square root and division occupancy limits
-the loop.
+magnitude step lowers a C program's cycles by 10% (GCC) to 23% (Clang). The
+Plenty program gains 1.4% at the default level and loses 1.6% at
+`x86-64-v3`; `experiments/nbody-rsqrt/` has the sources and figures. Measure
+before adopting it: the refined sequence executes more instructions, and gains
+only where square root and division occupancy limits the loop.
 
 ## Rust relationship and initial limits
 
