@@ -348,6 +348,9 @@ compiler takes 373.8 to 407.6 cycles per step and this one 224.2 to 233.9.
 Of the other programs under `benchmarks/game` and `examples`, all 36 that
 compile alone produce the same binary as before.
 
+With `--cpu x86-64-v3` the clist step takes 549 instructions and 214.0
+cycles, and the list step 552 and 215.5.
+
 gcc and clang reach 192 to 197 cycles on the array of structs by packing
 `x`/`y` and `vx`/`vy` pairs into vectors, which is the pair-data work still
 open in issue #930.
