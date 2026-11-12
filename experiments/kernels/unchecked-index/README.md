@@ -1,5 +1,8 @@
 # Assumed indexing (issue #764)
 
+> The `--unchecked assume` build mode used in this record was removed. The
+> measurements are historical; commands that pass `--unchecked` no longer run.
+
 `kernels.plenty` isolates an indirect gather through two slice views. The caller
 provides nonnegative indices within each view. `kernels.c` has the same
 preconditions and scalar work, with no `restrict` qualification. This is an

@@ -286,7 +286,7 @@ impl Lower<'_> {
             self.mark(&base.at, ops);
         }
         if !(ty.is_int() && self.checked_arith(crate::numeric::Checked::Pow, &ty, &base.at, ops)?) {
-            self.push_trapping(Op::Numeric(operation), &ty, ops);
+            ops.push(Op::Numeric(operation));
         }
 
         Self::end_reads(loans, ops);

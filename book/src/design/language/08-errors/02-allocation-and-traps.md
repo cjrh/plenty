@@ -41,7 +41,7 @@ absence where supported. Integer overflow and division by zero return `Err`
 from the [function's declared Result](../03-types/numbers.md#function-arithmetic-contracts)
 by default, or from a local [`checked:` block](../03-types/numbers.md#checked-blocks).
 Only an explicit [`unchecked:` suite](../03-types/numbers.md#unchecked-blocks)
-reaches arithmetic traps from source operators, where they currently enforce
+reaches arithmetic traps from source operators, where they enforce
 its no-failure precondition. Explicitly trapping primitives
 such as [atomic fetch operations](../../stdlib/atomic.md) retain their contracts.
 Traps terminate

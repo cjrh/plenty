@@ -29,8 +29,7 @@ out-of-memory exhaustion.
 fast-compile and optimized modes. `src/lib.rs` manually expresses selected matching
 semantics. The runner compares their stdout and success/failure category, and
 checks that overflow is reported; explicit `unchecked:` suites preserve the
-infallible scalar ABI and fatal arithmetic of the Rust comparison (default
-`--unchecked trap` mode); it does not assert identical trap formatting
+infallible scalar ABI and fatal arithmetic of the Rust comparison; it does not assert identical trap formatting
 or failure status numbers. See [RESULTS.md](RESULTS.md) for recorded evidence.
 
 `tests/rust_host.rs` is a separate Rust test crate consuming the candidate

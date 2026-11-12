@@ -873,8 +873,8 @@ def main() -> ():
 
 #[test]
 fn a_value_that_could_have_failed_has_the_full_range() {
-    // `unchecked:` assumes the addition does not overflow; it does not make
-    // its result an interval.
+    // `unchecked:` traps if the addition overflows; the result of an addition
+    // that can fail still has the full range.
     rejected(
         "def f(s: Bounded[i64, 0, 9]) -> Bounded[i64, 0, 10]:
     unchecked:

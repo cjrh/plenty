@@ -45,7 +45,7 @@ def main():
     parser.add_argument('output', type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    for filename, label in [('nbody.plenty', 'checked'), ('nbody_unchecked.plenty', 'unchecked')]:
+    for filename, label in [('nbody.plenty', 'checked')]:
         source = (ROOT / 'benchmarks/game/n-body/plenty' / filename).read_text()
         start = source.index('def advance(')
         end = source.index('\n\ntype AppError', start)

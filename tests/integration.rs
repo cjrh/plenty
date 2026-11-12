@@ -30,8 +30,8 @@ mod test_checked_defaults;
 mod test_checked_shifts;
 #[path = "test_constant_proofs.rs"]
 mod test_constant_proofs;
-#[path = "test_unchecked_modes.rs"]
-mod test_unchecked_modes;
+#[path = "test_unchecked_blocks.rs"]
+mod test_unchecked_blocks;
 
 #[path = "test_record_walks.rs"]
 mod test_record_walks;

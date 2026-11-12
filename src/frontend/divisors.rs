@@ -166,7 +166,7 @@ impl Lower<'_> {
             } else {
                 Op::Modulo(proof)
             };
-            self.push_trapping(operation, ty, ops);
+            ops.push(operation);
         }
         Ok(())
     }
@@ -207,7 +207,7 @@ impl Lower<'_> {
                 return Ok(());
             }
         }
-        self.push_trapping(Op::Integer(kind), ty, ops);
+        ops.push(Op::Integer(kind));
         Ok(())
     }
 

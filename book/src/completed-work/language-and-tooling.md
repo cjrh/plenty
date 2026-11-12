@@ -711,6 +711,11 @@ always traps; caches key on the mode. Issue #764 extends assumed suites to list,
 slice-view and `Bytes` index reads, writes and borrows: indices must be
 nonnegative and in range, and both bounds checks and negative normalization
 are omitted. Trapping scopes, other indexing and `std` keep their contracts.
+The `--unchecked` option and assumed suites were later removed, a breaking
+command-line change: `--unchecked` is now an unknown option in `plenty`,
+`plentyc` and `plenty script`. Every `unchecked:` suite traps on a violation.
+The `unchecked trap:` spelling was removed in the same breaking change; it is
+now a syntax error that suggests `unchecked:`.
 The private
 callback channel is removed. Initial std migration covers math helpers, bytes
 and time: integer reductions preserve typed overflow payloads, separate float

@@ -16,7 +16,6 @@ Options precede FILE; everything after FILE is passed unchanged to the program.\
   --check              Type-check without running\n\
   --compile -o OUT     Write a native executable without running\n\
   --fast-compile       Skip optimization for faster compilation\n\
-  --unchecked MODE     `trap` (default) or `assume` for plain `unchecked:` blocks\n\
   --cpu LEVEL          x86-64 (default), x86-64-v2 or x86-64-v3; overrides [build] cpu\n\
   --offline            Use only cached dependency sources\n\
   --locked             Refuse to create or change the dependency lock\n\
@@ -175,15 +174,6 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
             "--compile" => options.compile = true,
             "--release" => {}
             "--fast-compile" => options.build.optimize = false,
-            "--unchecked" => {
-                let mode = args
-                    .next()
-                    .ok_or("--unchecked requires `trap` or `assume`")?;
-                let mode = mode
-                    .to_str()
-                    .ok_or("--unchecked takes `trap` or `assume`")?;
-                options.build.unchecked = crate::UncheckedMode::parse(mode)?;
-            }
             "--cpu" => {
                 let level = args.next().and_then(|level| level.into_string().ok());
                 let level = level.ok_or_else(|| {

@@ -41,7 +41,6 @@ pub fn emit_file(path: &Path, options: &Options) -> Result<Emission> {
         false,
         &mut heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )?;
     crate::op::check(&program.ops)?;
     let check_time = start.elapsed();

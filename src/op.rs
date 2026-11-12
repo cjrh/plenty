@@ -1291,13 +1291,11 @@ pub enum Op {
         ty: Ty,
         cleanup: Arc<[Op]>,
     },
-    /// An integer or indexing operation from an `unchecked:` suite whose build assumes
-    /// its preconditions (`--unchecked assume`): the inner `Add`, `Sub`,
-    /// `Mul`, `FloorDiv`, `Modulo`, `Numeric(Pow)`, shift or `CheckedCast`
-    /// without its overflow, zero-divisor, shift-count or range check. A
-    /// violated precondition is undefined behavior, not wrapping. Eligible
-    /// `Collection` indices omit bounds checks and negative normalization;
-    /// see `CollectionOp::assumable_index`.
+    /// An operation whose preconditions the compiler has proved: the inner
+    /// `Add`, `Sub`, `Mul`, shift or `CheckedCast` without its overflow,
+    /// shift-count or range check, or a list element reference without bounds
+    /// checks or negative normalization (see `CollectionOp::assumable_index`).
+    /// Source code cannot request one.
     Assumed(Box<Op>),
     /// An integer operation the checker proved cannot fail, with the
     /// interval of its result: the inner `Add`, `Sub`, `Mul`, shift or

@@ -13,10 +13,8 @@
 Import warnings concern bindings, not executable reachability. An unused import
 still loads and checks its module; retain intentional validation imports.
 
-Profiles change code generation only; every check behaves the same. The separate
-`--unchecked trap|assume` option controls plain `unchecked:` arithmetic suites;
-keep the default `trap` unless their preconditions have been established. There
-is no manifest key for it. See [unchecked arithmetic](errors.md#unchecked-arithmetic). Linking
+Profiles change code generation only; every check behaves the same. See
+[unchecked arithmetic](errors.md#unchecked-arithmetic). Linking
 needs a C compiler driver, `cc`, on `PATH`.
 
 Executable Unix scripts use `#!/usr/bin/env -S plenty script`. All arguments

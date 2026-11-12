@@ -44,15 +44,6 @@ for shorter edit-run cycles in large projects; it preserves all language checks.
 `--release` remains a compatibility alias for the optimized default. See
 [profiles](packages.md#profiles).
 
-`--unchecked MODE` selects what plain
-[`unchecked:` suites](../../language/03-types/numbers.md#unchecked-blocks)
-outside `std` do with their arithmetic and indexing preconditions: `trap`, the default,
-checks them; `assume` omits the checks, so a violation is undefined behavior.
-Assumed list, slice-view and `Bytes` indices must be nonnegative and in range;
-bounds checks and negative-index normalization are omitted.
-It applies to compiling modes, including `plenty build`, `run`, `test` and
-scripts; checking modes reject it.
-
 `--test-hooks` with `FILE` or `--compile` enables
 [failure injection](../../stdlib/test.md#failure-injection) in an ordinary
 executable. It does not arm failures automatically. Default builds have no hooks;

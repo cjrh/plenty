@@ -222,7 +222,6 @@ pub(super) fn prepare(
         sum_bounds: HashMap::default(),
         source_root: None,
         standard_sources: HashSet::default(),
-        unchecked: crate::UncheckedMode::Trap,
         source_facts: None,
         retention,
         warnings: Vec::new(),
@@ -349,8 +348,6 @@ pub(super) struct Engine {
     pub(super) sum_bounds: HashMap<String, Vec<(Ty, String)>>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
-    /// The build's mode for plain `unchecked:` suites outside `std`.
-    pub(super) unchecked: crate::UncheckedMode,
     /// The last source `source_facts` described, and the result. Functions
     /// arrive module by module, so this spares a path copy and a path hash
     /// per function.
