@@ -181,12 +181,6 @@ a missing index [traps](../language/08-errors/02-allocation-and-traps.md) with
 exit status one and `index out of bounds: index I, length N` at the source
 position. Use `get` and `set` when an out-of-range index is an expected outcome.
 
-Inside a plain `unchecked:` suite under `--unchecked assume`, index syntax
-requires `0 <= i < len(buffer)` and omits bounds checks and negative-index
-normalization. Violations are undefined behavior. Default builds,
-`unchecked trap:` and buffer methods retain their checks; see
-[unchecked blocks](../language/03-types/numbers.md#unchecked-blocks).
-
 Writes need a `mut` binding, a mutable field, or `&mut Bytes`, and evaluate as
 [indexed assignment](../language/04-expressions/assignment.md) does: the right
 side, then the index, then the exclusive loan. `buffer[i] += 1u8` evaluates the

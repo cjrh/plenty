@@ -622,9 +622,16 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
     // The six-instruction 65-bit sequence is gone from the bounded division.
     let asm = dump(&source, "asm");
     let body = support::asm_body(&asm, "nq1000");
-    let (_, division) = body.rsplit_once("  mulq ").unwrap();
+    let (multiply, shift) = if cfg!(target_arch = "aarch64") {
+        ("  umulh ", "lsr")
+    } else {
+        ("  mulq ", "shr")
+    };
+    let (_, division) = body
+        .rsplit_once(multiply)
+        .unwrap_or_else(|| panic!("missing {multiply} in {body}"));
     assert!(
-        division.contains("shr") && !division.contains("sub") && !division.contains("add"),
+        division.contains(shift) && !division.contains("sub") && !division.contains("add"),
         "{body}"
     );
 }

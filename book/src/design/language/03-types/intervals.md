@@ -84,7 +84,7 @@ and `b.lo..b.hi`.
 
 A divisor interval that spans zero uses both remainder rows. The result of an
 operation that can fail is `T.MIN..T.MAX`, whether the failure is returned,
-handled by `checked:`, or assumed away in `unchecked:`. `%` follows
+handled by `checked:`, or a trap in `unchecked:`. `%` follows
 [floored division](numbers.md): the remainder has the divisor's sign.
 
 Interval bounds are computed in a wider integer than any `T`, and a bound that

@@ -34,11 +34,10 @@ def main():
              '--emit=llvm-ir,asm,link', source / 'reference/nbody.rs', '-o', work / name])
     for name, filename, flags in [
         ('plenty', 'nbody.plenty', []),
-        ('plenty-unchecked', 'nbody_unchecked.plenty', ['--unchecked', 'assume']),
         ('plenty-clist', 'nbody_clist.plenty', []),
     ]:
         run([compiler, '--compile', '--no-strip', *flags, source / 'plenty' / filename, '-o', work / name], env=env)
-    for name in ['rust-native', 'rust-baseline', 'rust-native-scalar', 'rust-baseline-scalar', 'plenty', 'plenty-unchecked', 'plenty-clist']:
+    for name in ['rust-native', 'rust-baseline', 'rust-native-scalar', 'rust-baseline-scalar', 'plenty', 'plenty-clist']:
         counts = []
         for repeat in range(3):
             counter = work / f'{name}-{repeat}.perf'
@@ -67,14 +66,6 @@ def main():
                  ROOT / f'experiments/nbody-codegen/{kernel}.c', '-o', obj])
             with (work / f'{kernel}-{opt}.asm').open('w') as output:
                 run(['objdump', '-d', '--no-show-raw-insn', obj], stdout=output)
-    velocity = (ROOT / 'experiments/nbody-codegen/velocity.plenty').read_text()
-    start = velocity.index('    mut k = 0')
-    end = velocity.index('    Ok(())', start)
-    unchecked = velocity[:start] + '    unchecked:\n' + ''.join(
-        '    ' + line + '\n' for line in velocity[start:end].splitlines()) + velocity[end:]
-    (work / 'velocity-unchecked.plenty').write_text(unchecked)
-    run([compiler, '--unchecked', 'assume', '--dump', 'clif-opt,asm', '--dump-filter', 'velocity',
-         work / 'velocity-unchecked.plenty', '-o', work / 'velocity-unchecked'], env=env)
     with (work / 'magnitude-clif.txt').open('w') as output:
         run([ROOT / 'target/release/plenty-kernel-harness',
              ROOT / 'experiments/nbody-codegen/magnitude.clif'], stdout=output)

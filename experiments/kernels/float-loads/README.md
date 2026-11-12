@@ -1,5 +1,8 @@
 # Typed float loads (issue #812)
 
+> The `--unchecked assume` build mode used in this record was removed. The
+> measurements are historical; commands that pass `--unchecked` no longer run.
+
 Scalar `f32`/`f64` reads from list rows, views, references and class fields
 used to load an integer word and `bitcast` it, which x86-64 lowers to an
 integer `mov` plus a GPR-to-XMM `movq`/`movd`. They now load the float type

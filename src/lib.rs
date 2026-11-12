@@ -127,9 +127,7 @@ pub use library_metadata::{
     LibraryInterface, extract_library_interface, read_library_interfaces, verify_library_interface,
 };
 pub use target::{native_cpu_baseline, native_target, validate_target};
-pub use toolchain::{
-    CompileOptions, RuntimeArtifacts, UncheckedMode, emit_runtime, find_libfuzzer,
-};
+pub use toolchain::{CompileOptions, RuntimeArtifacts, emit_runtime, find_libfuzzer};
 
 /// Parse and type-check a standalone modern Plenty binary without executing
 /// it or generating native code. Requires a parameterless `main` returning
@@ -197,14 +195,7 @@ pub fn check_file_with_options(
     options: &CheckOptions,
 ) -> Result<Vec<Warning>, Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let mut program = frontend::compile_file(
-        path,
-        root,
-        require_main,
-        &mut heap,
-        *options,
-        crate::UncheckedMode::Trap,
-    )?;
+    let mut program = frontend::compile_file(path, root, require_main, &mut heap, *options)?;
     let checked = op::check(&program.ops);
     let warnings = std::mem::take(&mut program.warnings);
     teardown((program, heap), options);

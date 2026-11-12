@@ -4022,7 +4022,7 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(CollectionOp::TextIndex.signature().1);
         }
-        ops.push(self.index_op(CollectionOp::Get(ty)));
+        ops.push(Op::Collection(CollectionOp::Get(ty)));
         Self::end_reads(loans, ops);
         Ok(value)
     }
@@ -6893,7 +6893,7 @@ impl Lower<'_> {
             }
             None => CollectionOp::ListScalarGetRef(list),
         };
-        ops.push(self.index_op(operation));
+        ops.push(Op::Collection(operation));
     }
 
     /// Writes a scalar row with the exclusive list reference, index and value on
@@ -6906,7 +6906,7 @@ impl Lower<'_> {
             }
             None => CollectionOp::ListScalarSetRef(list),
         };
-        ops.push(self.index_op(operation));
+        ops.push(Op::Collection(operation));
         ops.push(Op::Drop);
     }
 }

@@ -285,14 +285,10 @@ def main() -> Result[(), AllocError]:
 
 #[test]
 fn value_blocks_without_branches_keep_their_message() {
-    for suite in ["unchecked", "unchecked trap"] {
-        reject(
-            &format!(
-                "def main() -> Result[(), AllocError]:\n    value = {suite}:\n        Nothing\n    Ok(())\n"
-            ),
-            "cannot infer `Nothing`; provide an Option annotation, parameter, or return type",
-        );
-    }
+    reject(
+        "def main() -> Result[(), AllocError]:\n    value = unchecked:\n        Nothing\n    Ok(())\n",
+        "cannot infer `Nothing`; provide an Option annotation, parameter, or return type",
+    );
     // A branch-free block inside an arm reports its own value.
     reject(
         r#"

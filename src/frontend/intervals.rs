@@ -70,8 +70,8 @@ impl Lower<'_> {
     }
 
     /// Record the result of an operation that cannot fail. One that can
-    /// fail records nothing: in an `unchecked:` suite its result is not the
-    /// exact one.
+    /// fail records nothing, so its result keeps the full range, also in an
+    /// `unchecked:` suite, where the failure traps.
     pub(super) fn note_outcome(&mut self, at: usize, ty: &Ty, outcome: Option<Outcome>) {
         if let Some(outcome) = outcome.filter(|outcome| outcome.proved()) {
             self.note_interval(at, ty, outcome.value);

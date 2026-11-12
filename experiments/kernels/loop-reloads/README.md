@@ -1,5 +1,8 @@
 # Values reloaded on every pass of a loop (issue #939)
 
+> The `--unchecked assume` build mode used in this record was removed. The
+> measurements are historical; commands that pass `--unchecked` no longer run.
+
 A value live across a call before a loop can end up in a stack slot outside
 the loop and in a register at its uses inside. regalloc2 then loaded it
 before the first use and handed it back to the slot at the back edge, once

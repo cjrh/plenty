@@ -28,7 +28,6 @@ fn runtime_interface(
         false,
         &mut heap,
         crate::CheckOptions::default(),
-        crate::UncheckedMode::Trap,
     )?;
     crate::op::check(&program.ops)?;
     let interface = Interface::new(
@@ -135,7 +134,6 @@ pub fn compile_file_to_library(
         false,
         &mut heap,
         crate::CheckOptions::default(),
-        options.compile.unchecked,
     )?;
     crate::op::check(&program.ops)?;
     if options.unloadable {
