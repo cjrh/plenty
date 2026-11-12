@@ -90,7 +90,35 @@ loads and exit stores in bounds, so those accesses need no duplicate checks.
 It also preserves scalar assignments that can be
 observed after the loop.
 
+## Paired statements
+
+On x86-64, optimized builds compute adjacent statements of one shape in the two
+lanes of an `f64x2` value. The expansion above leaves such statements in a row:
+n-body's magnitude for one pair of bodies, then the same expression for the
+following pair. The lowerer packs `2n` statements, `n` at most 8, when:
+
+- each is an expression over `f64` locals, `f64` constants, `+`, `-`, `*`, `/`
+  and `sqrt`, stored to an `f64` local;
+- statement `i` and statement `n + i` differ only in the locals they name;
+- the first `n` contain a division or square root, the operations that cost
+  enough to repay building and splitting a vector;
+- the second `n` read nothing the first `n` write, so computing them side by
+  side reads the same values.
+
+Each lane of a vector `fadd`, `fsub`, `fmul`, `fdiv` or `sqrt` is the IEEE 754
+operation of the scalar instruction, and the operations of a lane keep their
+order. Every stored value therefore has the bits the scalar statements store,
+including infinities, NaNs and subnormals. None of these operations can fail,
+so no trap or error moves. Integer constant assignments between the statements,
+which the expansion uses for its loop counters, run after the lanes in their
+original order: they read nothing and write no `f64` local.
+
+Only expanded code packs today. Statements written in source carry error-site
+and access markers between them, which the matcher does not cross. Addition,
+subtraction and multiplication alone are left scalar, because lane inserts and
+extracts cost more than they save. Vectors wider than two lanes are not formed.
+
 This is a deliberately narrow optimization. It does not imply general aggregate
-scalar replacement, automatic SIMD packing, or expansion of arbitrary loops.
+scalar replacement, general automatic vectorization, or expansion of arbitrary loops.
 Measurements and remaining scope are linked from the
 [performance record](../../../completed-work/performance.md#guarded-numerical-state-issue-930).

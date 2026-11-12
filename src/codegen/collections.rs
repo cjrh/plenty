@@ -2379,12 +2379,27 @@ impl Lowerer<'_, '_> {
         }
         self.loop_targets.push((latch, exit));
         self.enter_loop_exits(latch, exit);
+        // Operations already lowered as vector lanes, and whether a
+        // statement starts here.
+        let mut packed = 0;
+        let mut statement = true;
         for (index, op) in body.iter().enumerate() {
             if let Some((_, below)) = relation.take_if(|&mut (prefix, _)| prefix == index) {
                 self.leave_relation(below);
             }
             if self.terminated {
                 break;
+            }
+            if packed > 0 {
+                packed -= 1;
+                continue;
+            }
+            if std::mem::replace(&mut statement, matches!(op, Op::StoreLocal(_)))
+                && let Some(covered) = self.lower_packed(&body[index..])?
+            {
+                packed = covered - 1;
+                statement = true;
+                continue;
             }
             if proven(index) && !self.gathering() {
                 self.lower_proven_step(op)?;

@@ -1,0 +1,59 @@
+diff --git i/src/ion/process.rs w/src/ion/process.rs
+index 1464eb8..014ad48 100644
+--- i/src/ion/process.rs
++++ w/src/ion/process.rs
+@@ -1014,6 +1014,25 @@ impl<'a, F: Function> Env<'a, F> {
+             }
+         };
+ 
++        // A bundle whose uses all accept a stack slot, and include one
++        // an instruction reads (an early `Any` use), is cheaper in a
++        // register: try for one by its weight, and spill it only when
++        // it would have to be split below a single use.
++        let memory_uses = matches!(req, Requirement::Any)
++            && self.ctx.spillsets[self.ctx.bundles[bundle].spillset].spill_bundle != bundle
++            && self.ctx.bundles[bundle].ranges.iter().any(|entry| {
++                self.ctx.ranges[entry.index].uses.iter().any(|u| {
++                    u.operand.constraint() == OperandConstraint::Any
++                        && u.operand.kind() == OperandKind::Use
++                        && u.operand.pos() == crate::OperandPos::Early
++                })
++            });
++        let req = if memory_uses {
++            Requirement::Register
++        } else {
++            req
++        };
++
+         // If no requirement at all (because no uses), and *if* a
+         // spill bundle is already present, then move the LRs over to
+         // the spill bundle right away.
+@@ -1206,6 +1225,28 @@ impl<'a, F: Function> Env<'a, F> {
+             let our_spill_weight = self.bundle_spill_weight(bundle);
+             trace!(" -> our spill weight: {}", our_spill_weight);
+ 
++            if memory_uses
++                && self.minimal_bundle(bundle)
++                && (attempts >= 2
++                    || lowest_cost_evict_conflict_cost.is_none()
++                    || lowest_cost_evict_conflict_cost.unwrap() >= our_spill_weight)
++            {
++                if let Some(spill) =
++                    self.get_or_create_spill_bundle(bundle, /* create_if_absent = */ false)
++                {
++                    let empty_vec = LiveRangeList::new_in(self.ctx.bump());
++                    let mut list =
++                        core::mem::replace(&mut self.ctx.bundles[bundle].ranges, empty_vec);
++                    for entry in &list {
++                        self.ctx.ranges[entry.index].bundle = spill;
++                    }
++                    self.ctx.bundles[spill].ranges.extend(list.drain(..));
++                } else {
++                    self.ctx.spilled_bundles.push(bundle);
++                }
++                break 'outer;
++            }
++
+             // We detect the "too-many-live-registers" case here and
+             // return an error cleanly, rather than panicking, because
+             // the regalloc.rs fuzzer depends on the register
