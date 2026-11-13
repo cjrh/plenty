@@ -177,7 +177,7 @@ for the original n-body source, to [paired divisions and square roots](completed
 to [clist columns as numerical state](completed-work/performance.md#clist-columns-as-numerical-state)
 to [rows of pair data kept in vectors](completed-work/performance.md#rows-of-pair-data-in-vectors)
 and to [spill reloads folded after register allocation](completed-work/performance.md#spill-reloads-folded-after-register-allocation-issue-930)
-(Cranelift fork, local PR blocked on a fork push).
+(Cranelift fork, local PR #1232).
 Remaining issue #930 scope: reloads into operands an instruction modifies and
 reloads whose register stays live past its block, packing of source-level
 statements, and a vector home for a third field such as n-body's `z`; broader
