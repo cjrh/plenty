@@ -308,6 +308,15 @@ with a positive constant, `x & c` with a nonnegative constant, or a `Bounded`
 value whose interval lies inside the target. Every other argument is a compile
 error naming `try_from`; there is no unchecked conversion.
 
+Issue #970 added two interval sources. The variable of a `for` loop over a
+`range(...)` call lies between the start and the stop, for a positive or
+negative literal or constant step. An integer comparison narrows an immutable
+local, parameter or integer loop variable in the suites, `while` body, `and`
+and `or` operands, and early-exit continuations where it holds; `!=`, `mut`
+locals, fields, elements and calls never narrow. The k-nucleotide benchmarks
+dropped their `unchecked:` suite. See [range loops](../design/language/03-types/intervals.md#range-loops)
+and [comparisons](../design/language/03-types/intervals.md#comparisons).
+
 This slice uses `Bounded` as the first consumer rather than requiring arrays.
 [Remaining B83/B96 scope](../backlog.md) stays in the backlog.
 

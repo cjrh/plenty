@@ -177,8 +177,16 @@ def main() -> Result[(), IoError]:
         let diagnostic = check_diagnostic(&source);
         assert!(diagnostic.contains(message), "{diagnostic}");
     }
+    // A dominating comparison narrows the count (intervals.md#comparisons);
+    // one that admits the width does not prove the shift.
+    assert_eq!(
+        run_stdout(
+            "def good(a: u8, n: u8) -> u8:\n    if n < 8u8:\n        return a << n\n    0u8\ndef main() -> Result[(), IoError]:\n    print(good(1u8, 7u8), good(1u8, 8u8))?\n    Ok(())\n",
+        ),
+        "128 0\n"
+    );
     let diagnostic = check_diagnostic(
-        "def bad(a: u8, n: u8) -> u8:\n    if n < 8u8:\n        return a << n\n    0u8\ndef main() -> ():\n    pass\n",
+        "def bad(a: u8, n: u8) -> u8:\n    if n <= 8u8:\n        return a << n\n    0u8\ndef main() -> ():\n    pass\n",
     );
     assert!(diagnostic.contains("ShiftCountError[u8]"), "{diagnostic}");
 }

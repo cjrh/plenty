@@ -358,6 +358,10 @@ ranges come from fixed rules, not from guesses:
 - A variable bound once has the range of the expression it was bound to. A
   `mut` variable, a parameter and a call's result can be any value of the
   type.
+- The variable of `for i in range(start, stop)` is between `start` and
+  `stop - 1`.
+- Inside `if n < 10:`, `n` is below 10 when `n` is a parameter or a variable
+  bound once. A `mut` variable is never narrowed, because it can change.
 - `x % 10` is in `0..9`, `x & 15` in `0..15`, and `i64(byte)` of a `u8` in
   `0..255`. `len(items)` is never negative.
 - `+`, `-`, `*`, `//`, `%` and shifts combine the ranges of their operands.
@@ -384,8 +388,30 @@ with `u8` operands, `a + b` can exceed 255 and needs `OverflowError[u8]`:
 the rule looks at ranges, never at what the values happen to be when the
 program runs.
 
-A comparison does not narrow a range: after `if n < 10:`, `n * 2` still
-requires its error. To carry a range in a parameter or field, give it a
+A comparison narrows a range only where it holds. Check the input once, at
+the top of the function, and the rest of the body uses the proved range:
+
+```plenty
+const MAX_SIDE: i64 = 1000000
+
+def area(width: i64, height: i64) -> i64:
+    if width < 0 or width > MAX_SIDE or height < 0 or height > MAX_SIDE:
+        return 0
+    width * height
+
+def main() -> Result[(), IoError]:
+    print(area(3, 4), area(-1, 4))?
+    Ok(())
+```
+```output
+12 0
+```
+
+After the early `return`, both sides are in `0..1000000`, so the product
+fits `i64`. Returning `0` for a bad side is a teaching simplification; an
+application would usually return a `RangeError` the caller can see. `!=`
+narrows nothing, and neither does a condition inside an `if` expression.
+To carry a range across a call, in a parameter or field, give it a
 [bounded type](../09-generics/value-parameters.md). A `checked:` block keeps
 its error type when a range proves its arithmetic, so the block and the
 `match` on its result stay valid. The

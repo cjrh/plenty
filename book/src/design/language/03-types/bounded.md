@@ -67,7 +67,8 @@ argument expression alone, by the
 | `x & c` or `c & x`, with `c` a literal or module constant of at least zero | `0..c` |
 | `b.get() + 1`, with `b` a `Bounded[T, 0, 9]` | `1..10` |
 | A `Bounded[T, a, b]` value of the same `T` | `a..b` |
-| A parameter, `mut` local, field or call result of type `T` | `T.MIN..T.MAX` |
+| A parameter inside `if 0 <= n and n <= 9:` | `0..9`, by [comparisons](intervals.md#comparisons) |
+| A `mut` local, field or call result of type `T`, or a parameter no comparison narrows | `T.MIN..T.MAX` |
 
 An interval outside `lo..hi` is a compile error that names it. A `%` or `&`
 implemented by a class's operator method proves nothing. There is no unchecked

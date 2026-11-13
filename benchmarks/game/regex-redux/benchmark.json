@@ -49,7 +49,13 @@
       "variant": "idiomatic",
       "file": "plenty/regexredux.plenty",
       "threads": 1
+    },
+    {
+      "variant": "parallel",
+      "file": "plenty/regexredux_parallel.plenty",
+      "threads": 9,
+      "note": "9 pool workers, one per pattern; the main thread performs substitutions while workers count. Immutable sequence handles share the input without copying its bytes."
     }
   ],
-  "notes": "The site links the regex crate from /opt/src/rust-libs; reference/Cargo.toml pins regex 1.12.3, the version in the workspace lockfile. The reference counts the 9 variants on 9 threads; the Plenty program uses std.regex on one thread."
+  "notes": "The site links the regex crate from /opt/src/rust-libs; reference/Cargo.toml pins regex 1.12.3, the version in the workspace lockfile. The reference counts the 9 variants on 9 threads; the idiomatic Plenty program uses std.regex on one thread, and the parallel variant counts on 9 pool workers while the main thread performs substitutions."
 }

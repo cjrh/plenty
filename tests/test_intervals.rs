@@ -821,8 +821,9 @@ def main() -> ():
     for body in [
         "mut last = x % 10\n    last * 2",
         "mut last = x % 10\n    last = x\n    last * 2",
-        // A loop variable, a pattern binding and a field have the full range.
-        "for i in range(3):\n        return i * 2\n    0",
+        // A loop over a range value, a pattern binding and a field have the
+        // full range; a direct `range` loop is in `a_range_loop_counter_*`.
+        "r = range(3)\n    for i in r:\n        return i * 2\n    0",
         "pair = (x % 10, 1)\n    (first, _) = pair\n    first * 2",
     ] {
         rejected(
@@ -830,10 +831,10 @@ def main() -> ():
             "arithmetic can fail with OverflowError[i64]",
         );
     }
-    // A parameter keeps the full range after a comparison.
+    // `!=` narrows nothing; other comparisons are in `a_comparison_*`.
     rejected(
         "def f(x: i64) -> i64:
-    if x >= 0 and x < 10:
+    if x != 0 and x != 10:
         return x * 2
     0
 def main() -> ():
@@ -1563,4 +1564,310 @@ def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
     assert!(branches >= 4, "{branches}");
     // Only the addition of the unbounded operand.
     assert_eq!(checks(&clif(source, "partly")).0, 1);
+}
+
+/// The function `f`, whose parameters `x: i64`, `y: i64`, `u: u8`,
+/// `s: Bounded[i64, -5, 7]` and `k: NonZero[i64]` reach `body`, which
+/// returns the value of type `ty` that it marks `BOUNDED` from inside
+/// `Bounded[ty, lo, hi].from(...)`; `LOWEST` returns `lo`.
+fn region(ty: &str, body: &str, lo: i128, hi: i128) -> String {
+    let returns = body.rsplit('\n').next().unwrap().starts_with("    return");
+    let fallback = if returns { "" } else { "\n    return LOWEST" };
+    let body = format!("{body}{fallback}")
+        .replace("BOUNDED", &format!("Bounded[{ty}, {lo}, {hi}].from"))
+        .replace(
+            "LOWEST",
+            &format!("Bounded[{ty}, {lo}, {hi}].from({ty}({lo}))"),
+        );
+    format!(
+        "def f(x: i64, y: i64, u: u8, s: Bounded[i64, -5, 7], k: NonZero[i64]) -> Bounded[{ty}, {lo}, {hi}]:
+    {body}
+def main() -> ():
+    pass
+"
+    )
+}
+
+/// `body` proves exactly `lo..hi` for the value it marks.
+fn region_is(ty: &str, body: &str, lo: i128, hi: i128) {
+    accepted(&region(ty, body, lo, hi));
+    let named = format!("this value is in {lo}..{hi}, which is not inside");
+    if lo < hi {
+        rejected(&region(ty, body, lo + 1, hi), &named);
+        rejected(&region(ty, body, lo, hi - 1), &named);
+    }
+}
+
+#[test]
+fn a_range_loop_counter_lies_between_its_start_and_stop() {
+    let max = i128::from(i64::MAX);
+    let min = i128::from(i64::MIN);
+    for (header, lo, hi) in [
+        ("range(10)", 0, 9),
+        ("range(3, 10)", 3, 9),
+        ("range(s.get(), 10)", -5, 9),
+        ("range(-5, s.get())", -5, 6),
+        ("range(x)", 0, max - 1),
+        ("range(x, 0)", min, -1),
+        // A literal or constant step keeps the interval, and a negative one
+        // mirrors it; `reversed` gives the same elements.
+        ("range(0, 10, 3)", 0, 9),
+        ("range(10, 0, -1)", 1, 10),
+        ("range(10, s.get(), -2)", -4, 10),
+        ("reversed(range(3, 10))", 3, 9),
+    ] {
+        region_is(
+            "i64",
+            &format!("for i in {header}:\n        return BOUNDED(i)"),
+            lo,
+            hi,
+        );
+    }
+    region_is(
+        "i64",
+        "for i in range(10):\n        for j in range(i):\n            return BOUNDED(j)",
+        0,
+        8,
+    );
+    region_is(
+        "u8",
+        "for i in range(u, 200u8):\n        return BOUNDED(i)",
+        0,
+        199,
+    );
+    // A step that is not a literal or constant, a loop over a range value
+    // and an empty range give the full range.
+    let full = "this value is in -9223372036854775808..9223372036854775807";
+    for body in [
+        "for i in range(0, 10, k):\n        return BOUNDED(i)",
+        "r = range(10)\n    for i in r:\n        return BOUNDED(i)",
+        "for i in range(10, 0):\n        return BOUNDED(i)",
+    ] {
+        rejected(&region("i64", body, 0, 9), full);
+    }
+    // An inner loop of the same name has its own interval.
+    rejected(
+        &region(
+            "i64",
+            "for i in range(10):\n        for i in range(x, y):\n            return BOUNDED(i)",
+            0,
+            9,
+        ),
+        "this value is in -9223372036854775808..9223372036854775806",
+    );
+}
+
+#[test]
+fn a_range_loop_counter_has_no_check_where_its_interval_proves_the_operation() {
+    let source = "\
+def squares(n: Bounded[i64, 0, 3000000]) -> i64:
+    mut total = 0
+    for i in range(n.get()):
+        total = total ^ (i * i + 1)
+    total
+
+def doubled(n: i64) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for i in range(n - 2, n):
+        total = total ^ (i * 2)
+    Ok(total)
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(squares(5), doubled(10)?, doubled(i64.MAX).is_err())?
+    Ok(())
+";
+    runs(source, "29 2 True\n");
+    assert_eq!(checks(&clif(source, "squares")).0, 0);
+    // `n - 2`, and `i * 2`, which a stop of any i64 does not bound, keep
+    // their checks, and the multiplication fails at run time.
+    assert_eq!(checks(&clif(source, "doubled")).0, 2);
+}
+
+#[test]
+fn a_comparison_narrows_an_immutable_local_where_it_holds() {
+    let max = i128::from(i64::MAX);
+    let min = i128::from(i64::MIN);
+    for (body, lo, hi) in [
+        ("if x >= 0 and x < 10:\n        return BOUNDED(x)", 0, 9),
+        // Either operand order.
+        ("if 0 <= x and 10 > x:\n        return BOUNDED(x)", 0, 9),
+        ("if x == 7:\n        return BOUNDED(x)", 7, 7),
+        ("if x == s.get():\n        return BOUNDED(x)", -5, 7),
+        (
+            "if s.get() < x and x <= 20:\n        return BOUNDED(x)",
+            -4,
+            20,
+        ),
+        ("if x > i64.MAX - 1:\n        return BOUNDED(x)", max, max),
+        // A comparison between two locals bounds both.
+        (
+            "if y >= 0 and y < 50 and x < y and x >= 0:\n        return BOUNDED(x)",
+            0,
+            48,
+        ),
+        (
+            "if x >= 0 and x < 50 and y > x and y < 100:\n        return BOUNDED(y)",
+            1,
+            99,
+        ),
+        // `not`, and the else suite of `or` by its negation.
+        ("if not (x < 0 or x > 9):\n        return BOUNDED(x)", 0, 9),
+        (
+            "if x < 0 or x > 9:\n        pass\n    else:\n        return BOUNDED(x)",
+            0,
+            9,
+        ),
+        // An elif holds after the earlier conditions fail.
+        (
+            "if x < 0:\n        pass\n    elif x < 10:\n        return BOUNDED(x)",
+            0,
+            9,
+        ),
+        // A while body.
+        ("while x > 0 and x < 5:\n        return BOUNDED(x)", 1, 4),
+        // Each suite that exits early narrows the rest of its suite.
+        (
+            "if x < 0:\n        return LOWEST\n    if x > 9:\n        return LOWEST\n    return BOUNDED(x)",
+            0,
+            9,
+        ),
+        (
+            "if x < 0 or x > 9:\n        return LOWEST\n    return BOUNDED(x)",
+            0,
+            9,
+        ),
+        (
+            "if x > 9:\n        return LOWEST\n    elif x < 0:\n        return LOWEST\n    return BOUNDED(x)",
+            0,
+            9,
+        ),
+        (
+            "for i in range(10):\n        if x < i:\n            continue\n        return BOUNDED(x)",
+            0,
+            max,
+        ),
+        // Only the then suite continues.
+        (
+            "if x >= 0 and x < 3:\n        pass\n    else:\n        return LOWEST\n    return BOUNDED(x)",
+            0,
+            2,
+        ),
+        // A loop counter and a parameter: `range` and the comparison meet.
+        (
+            "for i in range(100):\n        if i > 4:\n            return BOUNDED(i)",
+            5,
+            99,
+        ),
+        // A bound beyond the type's range proves nothing more.
+        ("if x < i64.MIN + 1:\n        return BOUNDED(x)", min, min),
+    ] {
+        region_is("i64", body, lo, hi);
+    }
+    region_is("u8", "if u > 250u8:\n        return BOUNDED(u)", 251, 255);
+    region_is("u8", "if u <= 3u8:\n        return BOUNDED(u)", 0, 3);
+    // A suite that cannot run keeps the interval.
+    region_is("u8", "if u < 0u8:\n        return BOUNDED(u)", 0, 255);
+    // The right operand of `and` runs only when the left one holds, and
+    // that of `or` only when it fails.
+    accepted(&infallible(
+        "i64",
+        "if a > -100 and a < 100 and a * a < 50:\n        return 1\n    0",
+    ));
+    accepted(&infallible(
+        "i64",
+        "if a < -100 or a > 100 or a * a < 50:\n        return 1\n    0",
+    ));
+}
+
+#[test]
+fn a_comparison_narrows_nothing_else() {
+    let full = "this value is in -9223372036854775808..9223372036854775807";
+    for body in [
+        // `!=`, and either side of a true `or` or a false `and`.
+        "if x != 7:\n        return BOUNDED(x)",
+        "if x == 0 or x == 9:\n        return BOUNDED(x)",
+        "if x >= 0 and x <= 9:\n        pass\n    else:\n        return BOUNDED(x)",
+        // A suite that continues narrows nothing after the `if`.
+        "if x >= 0 and x <= 9:\n        pass\n    return BOUNDED(x)",
+        // An early exit nested in a suite that continues.
+        "if y > 0:\n        if x > 9 or x < 0:\n            return LOWEST\n    return BOUNDED(x)",
+        // After a loop, by the failed `while` condition.
+        "while x < 0 or x > 9:\n        break\n    return BOUNDED(x)",
+        // A mutable local and an element, which may differ on
+        // their next read.
+        "mut m = x\n    if m >= 0 and m <= 9:\n        return BOUNDED(m)",
+        "pair = (x, y)\n    if pair[0] >= 0 and pair[0] <= 9:\n        return BOUNDED(pair[0])",
+        // An if-expression's condition.
+        "z = x if x >= 0 and x <= 9 else 0\n    return BOUNDED(x)",
+    ] {
+        let error = check_diagnostic(&region("i64", body, 0, 9));
+        assert!(
+            error.contains(full) || error.contains("can fail") || error.contains("not inside"),
+            "{body}\n{error}"
+        );
+    }
+    rejected(
+        &infallible(
+            "i64",
+            "if a < 0 or a > 9:\n        return a * 1000000000000000000\n    0",
+        ),
+        "arithmetic can fail with OverflowError[i64]",
+    );
+}
+
+#[test]
+fn a_narrowed_operation_has_no_check_and_a_checked_block_keeps_its_type() {
+    let source = "\
+def scale(x: i64) -> i64:
+    if x < 0 or x > 1000000:
+        return 0
+    x * x * 1000
+
+def kept(x: i64) -> Result[i64, OverflowError[i64]]:
+    if x != 0:
+        return Ok(x * 1000)
+    Ok(0)
+
+def block(x: i64) -> Result[i64, OverflowError[i64]]:
+    if x >= 0 and x < 10:
+        r = checked:
+            x * 2
+        return Ok(r?)
+    Ok(0)
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(scale(-1), scale(0), scale(1000000), scale(1000001))?
+    print(kept(7)?, kept(i64.MAX).is_err(), block(9)?, block(10)?)?
+    Ok(())
+";
+    runs(source, "0 0 1000000000000000 0\n7000 True 18 0\n");
+    assert_eq!(checks(&clif(source, "scale")).0, 0);
+    assert_eq!(checks(&clif(source, "kept")).0, 1);
+    // The `checked:` block still has its error type, but its proved
+    // multiplication has no check.
+    assert_eq!(checks(&clif(source, "block")).0, 0);
+}
+
+#[test]
+fn an_unnarrowed_operation_still_traps_at_run_time() {
+    // `n < 10` holds only in the early-return suite; after it, `n` has its
+    // full range, so `unchecked:` keeps its trap. Inside the loop, the
+    // narrowed `i * 2` runs without one.
+    let source = "\
+def f(n: i64) -> i64:
+    mut total = 0
+    for i in range(4):
+        if i < 3:
+            total = i * 2
+    if n < 10:
+        return total
+    unchecked:
+        n * 2
+
+def main() -> Result[(), IoError]:
+    print(f(5))?
+    print(f(i64.MAX))?
+    Ok(())
+";
+    support::assert_file_traps(source, "overflow");
 }
