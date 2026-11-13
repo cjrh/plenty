@@ -370,11 +370,13 @@ fn program_object(
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} cpu {} test hooks {} {} coverage {} executable pruning {}",
+                "optimize {} cpu {} test hooks {} {} reloads {:?} {} coverage {} executable pruning {}",
                 build.optimize,
                 build.cpu.name(),
                 build.test_hooks,
                 output::reject_wide_for_tests(),
+                reload_rewrites(),
+                std::env::var_os("PLENTY_REGALLOC_CHECKER").is_some(),
                 build.coverage,
                 build.prune_user
             );
@@ -1107,6 +1109,30 @@ pub(crate) fn baseline_isa(
 }
 
 /// The ISA for `triple` at CPU level `cpu`, never inspecting the running CPU.
+/// Which of Cranelift's two rewrites of spill reloads run after register
+/// allocation: reading a spill slot as a memory operand, and forwarding a
+/// value a register still holds (issue #930). Both run unless
+/// `PLENTY_RELOAD_FOLD`, an undocumented switch for comparing generated code,
+/// is `off`, `operands` or `forwarding`; the last two keep one rewrite.
+/// `PLENTY_REGALLOC_CHECKER` likewise turns on regalloc2's checker and the
+/// check of these rewrites, which debug builds of the compiler always run.
+/// Both variables are part of every cache key: the function cache hashes the
+/// flags and the program cache names the rewrites.
+pub(crate) fn reload_rewrites() -> (bool, bool) {
+    static SET: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| {
+        match std::env::var_os("PLENTY_RELOAD_FOLD")
+            .as_deref()
+            .and_then(|value| value.to_str())
+        {
+            Some("off") => (false, false),
+            Some("operands") => (true, false),
+            Some("forwarding") => (false, true),
+            _ => (true, true),
+        }
+    })
+}
+
 pub(crate) fn level_isa(
     triple: &str,
     cpu: crate::CpuLevel,
@@ -1139,6 +1165,19 @@ pub(crate) fn level_isa(
     // reports the resulting fault as a stack overflow.
     flags.set("enable_probestack", "true")?;
     flags.set("probestack_strategy", "inline")?;
+    // Both rewrites default to off in the fork, so each embedder opts in.
+    // They need 16-byte-aligned spill slots for the SSE forms, which the
+    // `tail` convention of Plenty functions and the host C convention of the
+    // runtime boundary both give (issue #930).
+    let (fold, forward) = reload_rewrites();
+    flags.set("regalloc_fold_reloads", if fold { "true" } else { "false" })?;
+    flags.set(
+        "regalloc_forward_spills",
+        if forward { "true" } else { "false" },
+    )?;
+    if std::env::var_os("PLENTY_REGALLOC_CHECKER").is_some() {
+        flags.set("regalloc_checker", "true")?;
+    }
     // The verifier checks the IR this compiler builds, not the user's program,
     // and costs about a fifth of emission (issue #55). Debug builds, which run
     // the tests, keep it.

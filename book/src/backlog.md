@@ -175,11 +175,12 @@ The [structural n-body study](completed-work/performance.md#n-body-structural-fe
 led to [guarded numerical state and bounded loop expansion](completed-work/performance.md#guarded-numerical-state-issue-930)
 for the original n-body source, to [paired divisions and square roots](completed-work/performance.md#paired-divisions-and-square-roots),
 to [clist columns as numerical state](completed-work/performance.md#clist-columns-as-numerical-state)
-and to [rows of pair data kept in vectors](completed-work/performance.md#rows-of-pair-data-in-vectors).
-Remaining issue #930 scope: folding spill reloads into memory operands after
-register allocation (Cranelift fork; a regalloc2 constraint measured slower),
-packing of source-level statements, and a vector home for a third field such
-as n-body's `z`; broader
+to [rows of pair data kept in vectors](completed-work/performance.md#rows-of-pair-data-in-vectors)
+and to [spill reloads folded after register allocation](completed-work/performance.md#spill-reloads-folded-after-register-allocation-issue-930)
+(Cranelift fork, local PR blocked on a fork push).
+Remaining issue #930 scope: reloads into operands an instruction modifies and
+reloads whose register stays live past its block, packing of source-level
+statements, and a vector home for a third field such as n-body's `z`; broader
 SIMD continuity through calls and header caching for list transfers remain
 issue #929 (B83/B23). Native constructors, tuple unpacking, packed list
 transfers, indexed view accesses and guarded state for loops containing those
@@ -255,12 +256,14 @@ are recorded there.
   stage 1; [measurements](completed-work/performance.md#cpu-levels-issue-962-stage-1)),
   as is `std.simd.f64x4` lowered as two 128-bit halves at every level (stage 3;
   [measurements](completed-work/performance.md#f64x4-as-two-f64x2-halves-issue-962-stage-3));
+  rows of pair data in `f64x2` registers for expanded numerical state (stage 2,
+  issue #930; [measurements](completed-work/performance.md#rows-of-pair-data-in-vectors));
   and 256-bit `ymm` registers for `f64x4` at x86-64-v3 through the Cranelift
-  fork (stage 4, local PR blocked on a fork push;
+  fork (stage 4;
   [measurements](completed-work/performance.md#f64x4-in-ymm-registers-issue-962-stage-4));
   remaining: a CPU check for shared and static libraries, which reject levels
   above x86-64 until one is designed, and 128-bit float spills for scalars in
-  functions that hold a 256-bit value.
+  functions that hold a 256-bit value (issue #969).
   Strict byte-method dispatcher removal (issue #741), loop-cached byte
   access (issue #843), caller sites in inlined byte access (issue #842) and
   one-word reference reads (issue #844) are recorded in the
