@@ -625,12 +625,44 @@ instructions per step.
 
 regalloc2's checker runs before this pass, so the pass has its own:
 `check_reload_folds` simulates each block's original and rewritten edits
-symbolically and requires every operand to read the same value. It runs
-whenever `regalloc_checker` is set and in every build with debug assertions,
-which includes the compiler the test suite uses; `PLENTY_REGALLOC_CHECKER=1`
-enables it in a release compiler. It trusts each instruction's operand and
-clobber declarations, does not decode the rewritten instruction's bytes, and
-works within a block, as the pass does.
+symbolically and requires every operand to read the same value. It trusts
+each instruction's operand and clobber declarations, does not decode the
+rewritten instruction's bytes, and works within a block, as the pass does.
+
+It runs when `regalloc_checker` is set and whenever `cranelift-codegen` is
+built with debug assertions. Cargo's `dev` profile and this repository's `ci`
+profile, which inherits it, keep debug assertions for dependencies, so the
+compiler inside the test binaries of `just test`, of the pull request and
+nightly workflows and of the release workflow's test job checks every
+function it compiles. A function taken from the compiled-function cache is
+not compiled and so not checked; the cache key includes the fork revisions,
+and CI's test jobs are the only writers of the cache they restore.
+`PLENTY_CACHE=off` checks everything. Release compilers run without the
+check unless `PLENTY_REGALLOC_CHECKER=1` is set, which also enables
+regalloc2's checker. In CI they compile only the smoke-test programs.
+
+The decisions and the check are in `machinst/reload_fold.rs` of the fork and
+have unit tests that need no backend: a slot rewritten between a reload and
+its reader, an edit that reads the reloaded register after the reader, a
+definition allocated to a stack slot, a written holding register, and
+thirteen seeded wrong decisions that the check must reject. Tests of the x64
+backend cover forwarding across a call under each calling convention's
+clobber set, the conventions whose frame offsets are not known to be aligned,
+and legacy packed operands on such a slot. Each of twelve faults seeded in
+the pass makes at least one of these tests fail.
+
+The pass depends on every instruction declaring each allocatable register it
+writes. The audit of the x64 backend is recorded in that module's comment.
+One write was covered only by the call's clobber set: the temporary (`r11`)
+through which a call copies a stack-returned value to a spill slot. Every
+convention clobbers `r11` except an ordinary call to a `preserve_all`
+callee, which the verifier does not let return values. The pass now treats
+that register as unknown after every call regardless. Plenty's objects did
+not change.
+
+Cranelift leaves a function with debug value labels as the allocator produced
+it. Plenty sets source locations and never value labels, so its debug-info
+builds get the same code.
 
 A randomized driver in the fork (`cranelift/filetests/examples/reload_fold_fuzz.rs`,
 generator `cranelift-fuzzgen` with mutation of accepted inputs; not libFuzzer,
@@ -651,12 +683,19 @@ finish within 20 seconds print the same output on and off. The other four
 print timings or a port and differ between two runs of one build. Three
 servers do not exit and were not compared.
 
-Compilation, measured before the settings and the check were added:
-`compile_bench 1000 10 --workload aot` medians are 565 to 585 ms before and
-562 to 564 ms after over three interleaved runs, within noise. The compiler
-executes 0.15% more instructions for `nbody.plenty`, 0.22% more for
-`examples/plot.plenty` and 0.21% more for `regexredux.plenty`, and 0.13% to
-0.23% more with `--fast-compile`.
+Compilation, with a release compiler, the function cache off and one pinned
+core: `compile_bench 1000 10 --workload aot`, minimum of seven interleaved
+runs, is 1,680.0 ms with the rewrites off and 1,688.8 ms with both on (0.5%;
+the seven runs of one configuration spread 3.3% to 3.7%). The compiler
+executes 0.25% more instructions for `nbody.plenty`, 0.40% more for
+`regexredux.plenty` and 0.38% more for `examples/plot.plenty`, and 0.24% to
+0.43% more with `--fast-compile`.
+
+The check, enabled alone in a compiler patched for the measurement, adds 5.4%
+to the `compile_bench` minimum and 3.5% to 7.1% to the instruction counts of
+those three programs (4.6% to 9.5% with `--fast-compile`).
+`PLENTY_REGALLOC_CHECKER=1`, which adds regalloc2's checker, costs 23% on
+`compile_bench` and 29% to 119% in instructions.
 
 Not handled: a reload into an operand the instruction modifies, a reload
 whose register is still live at the end of its block, and general-purpose
