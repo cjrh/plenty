@@ -61,6 +61,19 @@ workers use the main worktree's database as described below. Do not introduce
 another task-status file. Planned work/priorities remain in `book/src/backlog.md`;
 issue ownership, discussion, and PR review state live in the database.
 
+## Subagent models
+
+Delegate these kinds of work to a subagent on the named model:
+
+| Work | Model | Brief and result |
+|---|---|---|
+| Changes to Cranelift or regalloc2 internals in the forks (`../wasmtime`, `../regalloc2`) | Fable | Follow the [fork procedure](book/src/development/workflow.md#cranelift-and-regalloc2-forks) |
+| Documentation lookups: this book, Cranelift or crate docs, upstream sources online | Sonnet | Return a concluded summary of what was found, with sources, not raw page dumps |
+| Rewriting documentation sections | Haiku | Send the exact changes required (files, sections, content); the subagent applies them |
+
+The requesting agent keeps responsibility for checking the result, including
+the docs CI commands after documentation edits.
+
 ## Where things are
 
 | Path | Contents |
