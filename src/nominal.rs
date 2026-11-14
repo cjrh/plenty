@@ -237,6 +237,7 @@ impl Ty {
                 Some(Self::Enum(t.clone()))
             }
             Self::List(t) => t.promoted().map(|t| Self::List(Arc::new(t))),
+            Self::Array(t, n) => t.promoted().map(|t| Self::Array(Arc::new(t), *n)),
             Self::Clist(t) => t.promoted().map(|t| Self::Clist(Arc::new(t))),
             Self::Set(t) => t.promoted().map(|t| Self::Set(Arc::new(t))),
             Self::Box(t) => t.promoted().map(|t| Self::Box(Arc::new(t))),
@@ -303,6 +304,7 @@ impl Ty {
             Self::Class(t) => Self::Class(t.weaken()),
             Self::Enum(t) => Self::Enum(t.weaken()),
             Self::List(t) => Self::List(Arc::new(t.weaken())),
+            Self::Array(t, n) => Self::Array(Arc::new(t.weaken()), *n),
             Self::Clist(t) => Self::Clist(Arc::new(t.weaken())),
             Self::Channel(t, sender) => Self::Channel(Arc::new(t.weaken()), *sender),
             Self::Future(t) => Self::Future(Arc::new(t.weaken())),
@@ -339,6 +341,7 @@ impl Clone for Ty {
             Self::Class(t) => Self::Class(t.clone()),
             Self::Enum(t) => Self::Enum(t.clone()),
             Self::List(t) => Self::List(Self::clone_child(t)),
+            Self::Array(t, n) => Self::Array(Self::clone_child(t), *n),
             Self::Clist(t) => Self::Clist(Self::clone_child(t)),
             Self::Set(t) => Self::Set(Self::clone_child(t)),
             Self::KeyView(t) => Self::KeyView(Self::clone_child(t)),

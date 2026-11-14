@@ -84,6 +84,10 @@ impl Type {
         self.kind == b'R' || self.inline_range
     }
 
+    pub(crate) fn logical_payload_bytes(&self) -> usize {
+        self.array
+            .map_or_else(|| self.payload_bytes(), |layout| layout.len * layout.stride)
+    }
     pub(crate) fn slot_words(&self) -> usize {
         1 + self.payload_bytes() / 16
     }
@@ -97,7 +101,7 @@ impl Type {
     /// in the compiler: a class (after newtype layers, whose descriptors
     /// carry their field's layout) that keeps a record.
     pub(crate) fn flat_field(&self) -> bool {
-        self.kind == b'C' && self.inline_bytes != 0
+        self.kind == b'a' || self.kind == b'C' && self.inline_bytes != 0
     }
 
     /// Words a class field of this type takes in a class record.
@@ -134,7 +138,7 @@ impl Payload<'_> {
     fn bytes(&self) -> usize {
         match self {
             Self::Object(ty) => ty.payload_bytes(),
-            Self::Record(record) => record.words() * 16,
+            Self::Record(record) => record.bytes(),
         }
     }
     /// Repair internal addresses after the payload's bytes moved to `destination`.
@@ -170,6 +174,11 @@ impl Payload<'_> {
 /// For affine payloads the caller must relinquish the source ownership.
 pub(crate) unsafe fn copy_payload(value: u128, ty: &Type, destination: *mut Range) -> u128 {
     if let Some(active) = ty.active_payload(value) {
+        // Zero-width arrays may use the null value word. Even a zero-length
+        // Rust pointer copy requires nonnull pointers; there is nothing to move.
+        if active.bytes() == 0 {
+            return value;
+        }
         unsafe {
             std::ptr::copy(
                 value as u64 as *const u8,
@@ -207,6 +216,7 @@ pub(crate) fn flat_record(ty: &Type) -> bool {
         |field: &Type| field.payload_bytes() == 0 || field.flat_field() && flat_record(field);
     match ty.kind {
         b'C' => ty.variants.iter().all(|v| plain(v.fields[0])),
+        b'a' => plain(ty.key.unwrap()),
         b'B' => {
             ty.variants.len() == 1
                 && ty.variants[0].fields.len() >= 2

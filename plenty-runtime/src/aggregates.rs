@@ -100,6 +100,13 @@ pub(crate) struct Type {
     /// keeps no descriptor word, so the entry its header holds is the only
     /// record of its content type (issue #814).
     pub(crate) destroy: Option<unsafe extern "C" fn(*mut Header)>,
+    /// Homogeneous owner-local array layout; never a heap header.
+    pub(crate) array: Option<&'static ArrayLayout>,
+}
+#[repr(C)]
+pub(crate) struct ArrayLayout {
+    pub(crate) len: usize,
+    pub(crate) stride: usize,
 }
 /// Immutable finite-domain metadata emitted by `codegen::metadata::finite`.
 #[repr(C)]
@@ -126,9 +133,11 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 136);
+    assert!(size_of::<Type>() == 144);
     assert!(std::mem::offset_of!(Type, finite) == 120);
     assert!(std::mem::offset_of!(Type, destroy) == 128);
+    assert!(std::mem::offset_of!(Type, array) == 136);
+    assert!(size_of::<ArrayLayout>() == 16);
     assert!(size_of::<Finite>() == 32);
     assert!(std::mem::offset_of!(Type, quantity) == 104);
     assert!(std::mem::offset_of!(Type, debug) == 88);
@@ -174,6 +183,7 @@ impl Type {
                     | b'D'
                     | b'E'
                     | b'C'
+                    | b'a'
                     | b'G'
                     | b'F'
                     | b'A'
@@ -228,13 +238,24 @@ impl Type {
     pub(crate) fn record(&self, value: u128) -> Option<Record<'_>> {
         let fields = match self.kind {
             b'C' => Fields::Class(self.variants),
+            b'a' => Fields::Array(
+                self.key.expect("array element"),
+                self.array.expect("array layout"),
+            ),
             b'B' => match self.variants[self.tag(value)].fields {
                 fields @ [_, _, ..] => Fields::Variant(fields),
                 _ => return None,
             },
             _ => return None,
         };
-        let base = value as u64 as *mut u128;
+        // Zero-width arrays still have their declared number of elements.
+        // Their descriptor walk never dereferences storage, but Rust pointer
+        // arithmetic and zero-length slices require a nonnull aligned base.
+        let base = if self.kind == b'a' && self.logical_payload_bytes() == 0 {
+            std::ptr::NonNull::<u128>::dangling().as_ptr()
+        } else {
+            value as u64 as *mut u128
+        };
         let state = self.kind == b'C' && self.drop.is_some();
         (!base.is_null()).then_some(Record {
             fields,
@@ -294,11 +315,12 @@ pub(crate) enum Fields<'a> {
     /// Class descriptors name each field as a one-field variant.
     Class(&'a [Variant]),
     Variant(&'a [&'static Type]),
+    Array(&'static Type, &'a ArrayLayout),
 }
 /// Typed field slots inside their owner's storage. Each slot reserves its
 /// type's complete inline payload. A field of a class, tuple or multi-field
-/// variant whose type is a class with a record is flat instead: its record's bytes sit at the field's offset, with no value
-/// word (see [`Type::flat_field`]). A class with `__del__` keeps one state
+/// variant whose type is an array or class record is flat instead: its bytes
+/// sit at the field's offset, with no value word (see [`Type::flat_field`]). A class with `__del__` keeps one state
 /// word before its fields: bit 0 marks a completed initializer, and the
 /// remaining bits count observers, which borrow the instance through a
 /// retained copy of its value word and must not run its destructor.
@@ -314,16 +336,27 @@ impl Record<'_> {
         match self.fields {
             Fields::Class(fields) => fields.len(),
             Fields::Variant(fields) => fields.len(),
+            Fields::Array(_, layout) => layout.len,
         }
     }
     pub(crate) fn ty(&self, index: usize) -> &'static Type {
         match self.fields {
             Fields::Class(fields) => fields[index].fields[0],
             Fields::Variant(fields) => fields[index],
+            Fields::Array(element, _) => element,
         }
     }
     /// Storage size in 16-byte words, including any state word.
+    pub(crate) fn bytes(&self) -> usize {
+        match self.fields {
+            Fields::Array(_, layout) => layout.len * layout.stride,
+            _ => self.words() * 16,
+        }
+    }
     pub(crate) fn words(&self) -> usize {
+        if let Fields::Array(_, layout) = self.fields {
+            return (layout.len * layout.stride).div_ceil(16);
+        }
         usize::from(self.state)
             + (0..self.len())
                 .map(|i| self.width(self.ty(i)))
@@ -350,14 +383,23 @@ impl Record<'_> {
         (0..self.len()).scan(usize::from(self.state), move |offset, index| {
             let ty = self.ty(index);
             // SAFETY: the owner reserved `words()` words at `base`.
-            let at = unsafe { self.base.add(*offset) };
+            let at = unsafe {
+                if let Fields::Array(_, layout) = self.fields {
+                    self.base.cast::<u8>().add(index * layout.stride).cast()
+                } else {
+                    self.base.add(*offset)
+                }
+            };
             let flat = self.flat(ty);
             *offset += if flat {
                 ty.field_words()
             } else {
                 ty.slot_words()
             };
-            Some((Field { at, flat }, ty))
+            let scalar = matches!(self.fields, Fields::Array(..))
+                .then_some(ty)
+                .filter(|t| crate::entries::scalar_bytes(t).is_some());
+            Some((Field { at, flat, scalar }, ty))
         })
     }
     /// The record's storage, as its slot would address it: a flat record has
@@ -406,6 +448,7 @@ pub(crate) struct Field {
     /// The slot, or the first byte of a flat field's record.
     pub(crate) at: *mut u128,
     pub(crate) flat: bool,
+    pub(crate) scalar: Option<&'static Type>,
 }
 impl Field {
     /// The record of a flat field of class type `ty`, without the checks
@@ -413,14 +456,20 @@ impl Field {
     pub(crate) fn record(self, ty: &'static Type) -> Record<'static> {
         debug_assert!(self.flat && ty.flat_field());
         Record {
-            fields: Fields::Class(ty.variants),
+            fields: if ty.kind == b'a' {
+                Fields::Array(ty.key.expect("array element"), ty.array.unwrap())
+            } else {
+                Fields::Class(ty.variants)
+            },
             base: self.at,
             state: ty.drop.is_some(),
         }
     }
     /// The field's value: a flat record's value is its address.
     pub(crate) unsafe fn read(self) -> u128 {
-        if self.flat {
+        if let Some(ty) = self.scalar {
+            unsafe { crate::entries::read_scalar(self.at.cast(), ty) }
+        } else if self.flat {
             self.at as u64 as u128
         } else {
             unsafe { self.at.read() }
@@ -431,7 +480,9 @@ impl Field {
     /// bytes own nothing.
     pub(crate) unsafe fn write(self, value: u128, ty: &Type) {
         unsafe {
-            if !self.flat {
+            if let Some(ty) = self.scalar {
+                crate::entries::write_scalar(self.at.cast(), value, ty);
+            } else if !self.flat {
                 self.at.write(value);
             } else if value == 0 {
                 self.clear(ty);
@@ -444,8 +495,10 @@ impl Field {
     /// bytes are all zero (moved out, or already released).
     pub(crate) unsafe fn is_clear(self, ty: &Type) -> bool {
         unsafe {
-            if self.flat {
-                std::slice::from_raw_parts(self.at, ty.payload_bytes() / 16)
+            if self.scalar.is_some() {
+                self.read() == 0
+            } else if self.flat {
+                std::slice::from_raw_parts(self.at.cast::<u8>(), ty.logical_payload_bytes())
                     .iter()
                     .all(|word| *word == 0)
             } else {
@@ -456,8 +509,12 @@ impl Field {
     /// Leave the field empty.
     pub(crate) unsafe fn clear(self, ty: &Type) {
         unsafe {
-            if self.flat {
-                self.at.write_bytes(0, ty.payload_bytes() / 16);
+            if let Some(ty) = self.scalar {
+                crate::entries::write_scalar(self.at.cast(), 0, ty);
+            } else if self.flat {
+                self.at
+                    .cast::<u8>()
+                    .write_bytes(0, ty.logical_payload_bytes());
             } else {
                 self.at.write(0);
             }
@@ -484,6 +541,7 @@ impl Boxed {
             Field {
                 at: std::ptr::addr_of!((*boxed).slot).cast::<u128>().cast_mut(),
                 flat: content.flat_field(),
+                scalar: None,
             }
         }
     }
@@ -504,6 +562,7 @@ impl AdaptedBox {
             Field {
                 at: std::ptr::addr_of!((*boxed).slot).cast::<u128>().cast_mut(),
                 flat: false,
+                scalar: None,
             }
         }
     }
@@ -654,7 +713,7 @@ pub(crate) unsafe fn retain(value: u128, ty: &Type) {
             if let Some(t) = ty.payload(value) {
                 retain(ty.unpack(value), t);
             }
-        } else if ty.kind == b'C' {
+        } else if matches!(ty.kind, b'C' | b'a') {
         } else if ty.managed() {
             plenty_retain(value as *mut Header);
         }
@@ -776,6 +835,12 @@ unsafe fn release_next_fields(record: Record<'_>) -> Option<*mut Header> {
 /// nothing, so a finished one is skipped without descending into it.
 unsafe fn release_next_field(field: Field, ty: &'static Type) -> Option<*mut Header> {
     unsafe {
+        // Dense scalar elements have no owners and reserve only their declared
+        // width, so the generic 128-bit slot release must not touch them.
+        if field.scalar.is_some() {
+            field.clear(ty);
+            return None;
+        }
         if !field.flat {
             return release_next(field.at, ty);
         }
@@ -1974,7 +2039,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             b'2' | b'6' => a as u16 == b as u16,
             b'3' | b'7' => a as u32 == b as u32,
             b'4' | b'8' => a as u64 == b as u64,
-            b'B' | b'C' => {
+            b'B' | b'C' | b'a' => {
                 if ty.kind == b'B' && ty.tag(a) != ty.tag(b) {
                     return false;
                 }
@@ -1983,6 +2048,7 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
                         .slots()
                         .zip(right.slots())
                         .all(|((a, ty), (b, _))| equal(a.read(), b.read(), ty)),
+                    (None, None) if ty.kind != b'B' => true,
                     (None, None) => ty
                         .payload(a)
                         .is_none_or(|t| equal(ty.unpack(a), ty.unpack(b), t)),
@@ -2608,7 +2674,7 @@ unsafe fn try_copy_shared(value: &mut u128, ty: &Type) -> Result<(), AllocError>
         }
         let object = *value as usize as *mut Header;
         let owned = ty.managed()
-            && ty.kind != b'C'
+            && !matches!(ty.kind, b'C' | b'a')
             && !object.is_null()
             && object as usize & 1 == 0
             && crate::actor_heap::foreign(object.cast())
@@ -2844,6 +2910,18 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
                 } else if tuple {
                     out.extend_from_slice(b"()");
                 }
+            }
+            b'a' => {
+                out.extend_from_slice(b"array[");
+                if let Some(record) = ty.record(value) {
+                    for (i, (field, element)) in record.slots().enumerate() {
+                        if i != 0 {
+                            out.extend_from_slice(b", ");
+                        }
+                        render(field.read(), element, out);
+                    }
+                }
+                out.push(b']');
             }
             b'C' => {
                 out.extend_from_slice(ty.name.as_bytes());

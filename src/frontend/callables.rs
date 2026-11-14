@@ -365,6 +365,20 @@ impl Lower<'_> {
                 Some(crate::bytes::byte_view())
             }
             Expression::Method(base, name, args, _) => {
+                if matches!(name.as_str(), "filled" | "from_fn") && args.len() == 1 {
+                    let array = match &ungroup(base).kind {
+                        Expression::Type(reference) => {
+                            reference.resolve(self.aliases).ok().flatten()
+                        }
+                        Expression::Name(name) if !self.names.contains_key(name) => {
+                            self.aliases.get(name).cloned().flatten()
+                        }
+                        _ => None,
+                    };
+                    if matches!(array, Some(Ty::Array(..))) {
+                        return array;
+                    }
+                }
                 if name == "unwrap"
                     && args.is_empty()
                     && let Some(Ty::Enum(sum)) = self.expression_type_hint(base)

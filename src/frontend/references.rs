@@ -136,7 +136,7 @@ pub(super) fn dict_index_augment(op: &str) -> String {
 
 /// The loan path step for a list element at a nonnegative integer literal.
 fn literal_index(collection: &Ty, index: &Expr) -> Option<usize> {
-    let Ty::List(_) = collection else {
+    let (Ty::List(_) | Ty::Array(..)) = collection else {
         return None;
     };
     let Expression::Number(n) = &ungroup(index).kind else {
@@ -1504,7 +1504,7 @@ impl Lower<'_> {
                     // Tuple indices are compile-time projections, not consumed
                     // runtime keys. borrow_with_indices validates the literal.
                     Some(Ty::Enum(t)) if !mutating && t.tuple() => return Ok(()),
-                    Some(Ty::List(_) | Ty::View(..)) => Ty::I64,
+                    Some(Ty::List(_) | Ty::Array(..) | Ty::View(..)) => Ty::I64,
                     Some(Ty::Dict(key, _)) => (*key).clone(),
                     Some(Ty::Enum(t)) if t.tuple() => {
                         return Err(e.at.error("tuples have no indexed assignment; assign through a component reference: `item = &mut pair[0]`, then `*item = value`"));
@@ -1616,7 +1616,7 @@ impl Lower<'_> {
                 return Ok((Ty::Ref(element.clone(), mutable), loan));
             }
             let key = match &collection {
-                Ty::List(_) => Ty::I64,
+                Ty::List(_) | Ty::Array(..) => Ty::I64,
                 Ty::Dict(_, _) if mutable => return Err(e.at.error(DICT_INDEX_BORROW)),
                 Ty::Dict(key, _) => (**key).clone(),
                 _ => {
@@ -1633,7 +1633,14 @@ impl Lower<'_> {
                 }
                 _ => None,
             };
-            let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
+            let (_, loan) = if matches!(collection, Ty::Array(..))
+                && !mutable
+                && self.place_type(base).is_none()
+            {
+                self.shared_argument(base, Some(collection.clone()), ops)?
+            } else {
+                self.borrow_with_indices(base, mutable, indices, ops)?
+            };
             // Only distinct literal list indices are proven disjoint. Other
             // element loans, and descendant projections, keep the whole
             // collection's footprint. Dictionary keys never refine a loan.
@@ -2144,9 +2151,13 @@ impl Lower<'_> {
             };
             return self.observe_inner(&element, expected, ops);
         }
-        // A literal list index reads through an element loan, which
-        // stays disjoint from loans of other literal indices.
-        if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
+        // Arrays and tuples use element references rather than heap collection
+        // reads. Literal list indices also keep disjoint element loans.
+        if matches!(
+            self.place_type(base)
+                .or_else(|| self.expression_type_hint(base)),
+            Some(Ty::Array(..))
+        ) || matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
             || self
                 .place_type(base)
                 .and_then(|ty| literal_index(&ty, index))

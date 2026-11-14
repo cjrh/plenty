@@ -6,6 +6,15 @@ Moves and copies relocate private addresses into the destination; addresses neve
 extend the lifetime of departed frames. Immutable metadata describes field layout,
 ownership, relocation, equality, and formatting. Concrete layout facts are cached.
 
+Fixed arrays add homogeneous descriptor traversal: an element descriptor and
+constant count/stride describe their headerless payload. Primitive strides use
+native widths; a nested array's stride is its exact logical payload width,
+separate from the outer ABI's 16-byte storage reservation. Copying and clearing
+packed nested arrays use that exact byte count; scalar runtime fields decode
+only their declared width. Existing class/enum layouts keep their field widths.
+Zero-width arrays retain their declared count during traversal, even though
+they reserve no payload bytes. See [arrays](../../language/03-types/arrays.md).
+
 Runtime record traversal advances a running slot offset, including each field's
 inline payload and any class cleanup state word. A complete pass takes one width
 lookup per field, without allocating an offset table. Hashing, equality, ordering,

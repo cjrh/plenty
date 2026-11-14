@@ -25,6 +25,7 @@ static ENUM: Type = Type {
     quantity: None,
     finite: None,
     destroy: None,
+    array: None,
 };
 static SET: Type = Type {
     kind: b'S',

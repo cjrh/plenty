@@ -1718,7 +1718,7 @@ impl Parser {
                     Expression::Type(Box::new(self.ty()?))
                 } else if matches!(
                     &**s,
-                    "list" | "dict" | "set" | "range" | "channel" | "clist"
+                    "list" | "dict" | "set" | "range" | "channel" | "clist" | "array"
                 ) && self.peek().is("[")
                 {
                     self.pos -= 1;

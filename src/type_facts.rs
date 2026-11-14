@@ -33,6 +33,7 @@ impl Ty {
             self,
             Self::Class(_)
                 | Self::Enum(_)
+                | Self::Array(..)
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(..)
@@ -136,6 +137,7 @@ impl Ty {
             let part = match ty {
                 Self::Class(_)
                 | Self::Enum(_)
+                | Self::Array(..)
                 | Self::List(_)
                 | Self::Set(_)
                 | Self::Dict(..)
@@ -256,6 +258,7 @@ impl Ty {
                         vec![]
                     }
                 },
+                Self::Array(t, _) => vec![(**t).clone()],
                 Self::List(t) | Self::Set(t) | Self::Box(t) => {
                     facts.affine = true;
                     vec![(**t).clone()]

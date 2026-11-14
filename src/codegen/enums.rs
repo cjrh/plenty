@@ -163,7 +163,7 @@ impl Lowerer<'_, '_> {
 
     /// Fresh stack storage for a record. Zeroed slots own nothing, so a
     /// partially initialized class can be released safely.
-    fn record_storage(&mut self, bytes: usize) -> cranelift_codegen::ir::Value {
+    pub(super) fn record_storage(&mut self, bytes: usize) -> cranelift_codegen::ir::Value {
         if bytes == 0 {
             return self.bcx.ins().iconst(PTR_TY, 0);
         }
@@ -202,7 +202,7 @@ impl Lowerer<'_, '_> {
     /// slot word, or a flat record of zero bytes, which owns nothing.
     fn clear_field(&mut self, place: cranelift_codegen::ir::Value, ty: &Ty) {
         if ty.flat_field() {
-            self.zero_bytes(place, ty.inline_bytes() as u64);
+            self.zero_bytes(place, ty.payload_bytes() as u64);
             return;
         }
         let zero = self.bcx.ins().iconst(types::I64, 0);

@@ -1261,9 +1261,10 @@ impl Lower<'_> {
                     at: e.at.clone(),
                     kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
                 }),
-                Ty::List(element) | Ty::Dict(_, element) | Ty::View(element, _) => {
-                    Some((*element).clone())
-                }
+                Ty::List(element)
+                | Ty::Array(element, _)
+                | Ty::Dict(_, element)
+                | Ty::View(element, _) => Some((*element).clone()),
                 Ty::Enum(t) if t.tuple() => {
                     let fields = &t.get().variants[0].fields;
                     let i = slices::tuple_position(index, fields.len()).ok()?;

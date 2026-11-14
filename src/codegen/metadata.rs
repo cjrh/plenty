@@ -104,7 +104,7 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 136];
+    let mut bytes = vec![0; 144];
     let finite = finite::emit(module, ty)?;
     // The formatting adapters belong to the type as written: a newtype's
     // methods are its own, not its field's.
@@ -185,6 +185,13 @@ fn define_type(
         links.push((104, blob(module, data, &[])?));
     }
     match ty {
+        Ty::Array(t, n) => {
+            links.push((8, reserve(module, runtime, t, pending)?));
+            let mut layout = vec![0; 16];
+            word(&mut layout, 0, *n);
+            word(&mut layout, 8, t.array_stride());
+            links.push((136, blob(module, layout, &[])?));
+        }
         Ty::View(t, _) if **t == Ty::Text => {}
         Ty::List(t)
         | Ty::Clist(t)
@@ -348,6 +355,7 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::FsMetadata => b'M',
         Ty::ByteStorage => b'U',
         Ty::List(_) => b'L',
+        Ty::Array(..) => b'a',
         Ty::Clist(_) => b'Q',
         Ty::Set(_) => b'S',
         Ty::Dict(..) => b'D',

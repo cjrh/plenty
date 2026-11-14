@@ -374,7 +374,7 @@ impl Ty {
     /// Whether a value keeps owner-local bytes after its 16-byte slot word.
     pub fn has_inline_storage(&self) -> bool {
         match self {
-            Self::Range(_) | Self::Generator(_) | Self::Closure(_) => true,
+            Self::Range(_) | Self::Generator(_) | Self::Closure(_) | Self::Array(..) => true,
             Self::Class(t) => match t.get().newtype_field() {
                 Some(field) => field.has_inline_storage(),
                 None => t.get().state_bytes() != 0 || !t.get().fields.is_empty(),
@@ -393,6 +393,7 @@ impl Ty {
     /// inline data: copying its storage needs no relocation.
     pub fn flat_record(&self) -> bool {
         match self {
+            Self::Array(t, _) => !t.has_inline_storage() || t.flat_field() && t.flat_record(),
             Self::Class(t) => match t.get().newtype_field() {
                 Some(field) => field.flat_record(),
                 // A flat class field adds no address of its own.
@@ -412,8 +413,27 @@ impl Ty {
             _ => false,
         }
     }
+    /// Distance between homogeneous elements, without an aggregate header.
+    pub fn array_stride(&self) -> usize {
+        match self {
+            Self::Array(t, n) => t.array_stride() * n,
+            Self::I8 | Self::U8 | Self::Bool => 1,
+            Self::I16 | Self::U16 => 2,
+            Self::I32 | Self::U32 | Self::F32 => 4,
+            Self::I64 | Self::U64 | Self::F64 => 8,
+            _ => self.field_bytes(),
+        }
+    }
+    /// Bytes logically occupied by a payload; ABI storage may have tail padding.
+    pub fn payload_bytes(&self) -> usize {
+        match self {
+            Self::Array(t, n) => t.array_stride() * n,
+            _ => self.inline_bytes(),
+        }
+    }
     pub fn inline_bytes(&self) -> usize {
         match self {
+            Self::Array(t, n) => (t.array_stride() * n).div_ceil(16) * 16,
             Self::Closure(t) => t.bytes(),
             Self::Range(_) => 32,
             // A joined type built at a conditional is a fresh instance whose
@@ -474,6 +494,24 @@ pub fn layout(ty: &Ty, active: &mut Vec<String>) -> Result<usize, String> {
 /// The layout of `ty` nested inside the nominal types in `active`.
 pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
     match ty {
+        Ty::Array(t, n) => {
+            let element = measure(t, active)?;
+            let stride = if matches!(&**t, Ty::Array(..)) || t.is_numeric() || **t == Ty::Bool {
+                t.array_stride()
+            } else {
+                element.bytes + if t.flat_field() { 0 } else { 16 }
+            };
+            let bytes = stride
+                .checked_mul(*n)
+                .and_then(|n| n.checked_add(15))
+                .map(|n| n / 16 * 16)
+                .filter(|n| *n <= INLINE_LIMIT)
+                .ok_or("array exceeds the inline storage limit of 65536 bytes")?;
+            Ok(Measured {
+                bytes,
+                reach: element.reach,
+            })
+        }
         Ty::Closure(t) => {
             if t.name.is_empty() {
                 return Err("cannot infer a concrete closure environment".into());
@@ -725,6 +763,24 @@ pub fn validate_ops(ops: &[crate::op::Op]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn array_layout_distinguishes_payload_stride_and_abi_storage() {
+        for (element, count, payload, storage) in [
+            (Ty::U8, 3, 3, 16),
+            (Ty::I64, 3, 24, 32),
+            (Ty::Array(Arc::new(Ty::U8), 3), 2, 6, 16),
+            (Ty::Array(Arc::new(Ty::U8), 3), 0, 0, 0),
+        ] {
+            let array = Ty::Array(Arc::new(element), count);
+            assert_eq!(layout(&array, &mut vec![]).unwrap(), storage);
+            assert_eq!(array.payload_bytes(), payload);
+            assert_eq!(array.field_bytes(), storage);
+            assert_eq!(array.slot_bytes(), storage + 16);
+        }
+        let oversized = Ty::Array(Arc::new(Ty::U8), usize::MAX);
+        assert!(layout(&Ty::Array(Arc::new(oversized), 0), &mut vec![]).is_err());
+    }
 
     /// Generators `g0` to `g70`, each holding two of the next, so a frame
     /// doubles in size at each level.

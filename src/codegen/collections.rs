@@ -838,6 +838,31 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
+        if let CollectionOp::ArrayNew(ty) = operation {
+            let storage = self.record_storage(ty.inline_bytes());
+            let value = self.bcx.ins().uextend(types::I128, storage);
+            self.stack.push((value, ty.clone()));
+            return Ok(());
+        }
+        if let CollectionOp::ElementRef(ty @ Ty::Array(element, count), mutable) = operation {
+            let (index, _) = self.pop_typed(Ty::I64)?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), *mutable))?;
+            let (slot, _) = self.split_reference(receiver);
+            let rows = self.referenced_record(slot);
+            let length = self.bcx.ins().iconst(types::I64, *count as i64);
+            let address = self.checked_row(rows, length, index, element.array_stride() as i64)?;
+            // Flat aggregate references address a virtual value slot immediately before their bytes.
+            let address = if element.flat_field() {
+                self.bcx.ins().iadd_imm_s(address, -16)
+            } else {
+                address
+            };
+            let reference = self.bcx.ins().uextend(types::I128, address);
+            self.stack
+                .push((reference, Ty::Ref(element.clone(), *mutable)));
+            return Ok(());
+        }
+
         if let CollectionOp::Clist(op) = operation {
             return self.lower_clist(op);
         }

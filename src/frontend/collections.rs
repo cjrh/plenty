@@ -1995,6 +1995,12 @@ impl Lower<'_> {
         else {
             unreachable!()
         };
+        if let Some(ty @ Ty::Array(..)) = expected.as_ref() {
+            if kind != "list" || !clauses.is_empty() || entries.is_empty() {
+                return Err(e.at.error("array context requires a nonempty list literal; use array[T, 0].filled(value) for an empty array"));
+            }
+            return self.array_literal(ty.clone(), entries, &e.at, ops);
+        }
         if kind == "generator" {
             return self.generator_expression(&entries[0].0, clauses, &e.at, ops);
         }
@@ -2675,8 +2681,8 @@ impl Lower<'_> {
             let (reference, loan) = self.borrow(base, true, ops)?;
             match reference {
                 Ty::Ref(ty, _) => {
-                    // Lists and lent generators iterate through their reference.
-                    if !matches!(*ty, Ty::List(_) | Ty::Generator(_)) {
+                    // Lists, arrays, and lent generators iterate through their reference.
+                    if !matches!(*ty, Ty::List(_) | Ty::Array(..) | Ty::Generator(_)) {
                         ops.push(Op::ReadRef((*ty).clone()));
                     }
                     ((*ty).clone(), vec![loan])
@@ -2692,7 +2698,7 @@ impl Lower<'_> {
             let (reference, loan) = self.shared_argument(base, None, ops)?;
             match reference {
                 Ty::Ref(ty, writable) => {
-                    if matches!(*ty, Ty::List(_)) {
+                    if matches!(*ty, Ty::List(_) | Ty::Array(..)) {
                         if writable {
                             ops.push(Op::Reborrow(Ty::Ref(ty.clone(), false)));
                         }
@@ -2709,7 +2715,7 @@ impl Lower<'_> {
             if let Ty::Ref(inner, writable) = ty {
                 borrowed = true;
                 mutable = writable;
-                if !matches!(*inner, Ty::List(_))
+                if !matches!(*inner, Ty::List(_) | Ty::Array(..))
                     && !(writable && matches!(*inner, Ty::Generator(_)))
                 {
                     ops.push(Op::ReadRef((*inner).clone()));
@@ -2748,7 +2754,7 @@ impl Lower<'_> {
         if reverse
             && !matches!(
                 ty,
-                Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) | Ty::View(..)
+                Ty::List(_) | Ty::Array(..) | Ty::Str | Ty::ByteStr | Ty::Range(_) | Ty::View(..)
             )
             && !bytes
         {
@@ -2790,10 +2796,15 @@ impl Lower<'_> {
         let references = borrowed
             && matches!(
                 ty,
-                Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::KeyView(_) | Ty::View(..)
+                Ty::List(_)
+                    | Ty::Array(..)
+                    | Ty::Dict(..)
+                    | Ty::Set(_)
+                    | Ty::KeyView(_)
+                    | Ty::View(..)
             )
             && ty != text_view();
-        if mutable && !matches!(ty, Ty::List(_) | Ty::View(..)) {
+        if mutable && !matches!(ty, Ty::List(_) | Ty::Array(..) | Ty::View(..)) {
             return Err(iterable.at.error(
                 "mutable iteration requires a list; use items for mutable dictionary values",
             ));
@@ -2801,7 +2812,14 @@ impl Lower<'_> {
         if borrowed && !references && element.as_ref().is_some_and(Ty::affine) {
             return Err(iterable.at.error("borrowed iteration of owned elements is not supported; iterate an owned collection or copy it"));
         }
-        let mut plan = if let Some((args, element)) = counted {
+        if matches!(ty, Ty::Array(..)) && !borrowed {
+            return Err(iterable
+                .at
+                .error("array iteration borrows its source; use &array or &mut array"));
+        }
+        let mut plan = if references && matches!(ty, Ty::Array(..)) {
+            self.borrowed_array_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
+        } else if let Some((args, element)) = counted {
             self.counted_range_iteration(args, element, reverse, &iterable.at, ops)?
         } else if let Ty::View(..) = ty {
             self.view_iteration(ty.clone(), reverse, &iterable.at, ops)?
@@ -2823,13 +2841,14 @@ impl Lower<'_> {
             // an unknown index, so distinct fields borrowed through one
             // element are disjoint (issue #593). Other sources' elements
             // cover the whole source.
-            let element = (self.loans[loan].precise && matches!(ty, Ty::List(_) | Ty::View(..)))
-                .then(|| {
-                    let (root, exclusive) = (self.loans[loan].root, self.loans[loan].mutable);
-                    let element = self.new_loan(root, exclusive, Some(loan), ops);
-                    self.refine_loan(element, crate::ownership::ANY_ELEMENT, ops);
-                    element
-                });
+            let element = (self.loans[loan].precise
+                && matches!(ty, Ty::List(_) | Ty::Array(..) | Ty::View(..)))
+            .then(|| {
+                let (root, exclusive) = (self.loans[loan].root, self.loans[loan].mutable);
+                let element = self.new_loan(root, exclusive, Some(loan), ops);
+                self.refine_loan(element, crate::ownership::ANY_ELEMENT, ops);
+                element
+            });
             self.loans[loan].precise = false;
             for op in ops.iter_mut() {
                 if let Op::Loan(fact) = op
@@ -2947,10 +2966,11 @@ impl Lower<'_> {
             };
             self.observe_expected(argument, hint, ops)?
         };
-        if ty.element() != Some(Ty::Str)
-            && !(range
-                && (ty == text_view()
-                    || matches!(&ty, Ty::View(element, _) if **element == Ty::Str)))
+        if matches!(ty, Ty::Array(..))
+            || ty.element() != Some(Ty::Str)
+                && !(range
+                    && (ty == text_view()
+                        || matches!(&ty, Ty::View(element, _) if **element == Ty::Str)))
         {
             return Err(argument.at.error(format!(
                 "join requires an iterable of str (a list, set, dictionary keys, str, or generator), got {ty}"
@@ -3292,6 +3312,9 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if matches!(ty, Ty::Array(..)) {
+            return Err(at.error("array iteration requires a borrow; use &array or &mut array"));
+        }
         if let Some(class) = byte_buffers::byte_buffer(&ty) {
             return self.byte_iteration(class, ty, reverse, at, ops);
         }
@@ -3933,15 +3956,20 @@ impl Lower<'_> {
             }
             return self.index(&element, ops);
         }
-        if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple()) {
+        if matches!(
+            self.place_type(base)
+                .or_else(|| self.expression_type_hint(base)),
+            Some(Ty::Array(..))
+        ) || matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
+        {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(value, _) = reference else {
                 unreachable!()
             };
             if value.affine() {
-                return Err(index
-                    .at
-                    .error("cannot move out of a tuple index; unpack the tuple instead"));
+                return Err(index.at.error(if matches!(self.place_type(base).or_else(|| self.expression_type_hint(base)),Some(Ty::Array(..))) {
+                    "cannot move out of an array index; borrow the element or copy it explicitly"
+                } else { "cannot move out of a tuple index; unpack the tuple instead" }));
             }
             ops.push(Op::ReadRef((*value).clone()));
             Self::end_reads(vec![loan], ops);
@@ -4359,6 +4387,16 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
+        let array_type = match &ungroup(base).kind {
+            Expression::Type(reference) => reference.resolve(self.aliases)?,
+            Expression::Name(name) if !self.names.contains_key(name) => {
+                self.aliases.get(name).cloned().flatten()
+            }
+            _ => None,
+        };
+        if let Some(ty @ Ty::Array(..)) = array_type {
+            return self.array_factory(ty, name, args, &base.at, ops).map(Some);
+        }
         if self.has_par(base) || (name == "par" && self.is_pipeline(base)) {
             return self.parallel_pipeline(base, name, args, ops).map(Some);
         }
@@ -6275,6 +6313,13 @@ impl Lower<'_> {
             }
             _ => &args[0],
         };
+        if let Some(Ty::Array(_, count)) = self.place_type(arg) {
+            let (_, loan) = self.borrow(arg, false, ops)?;
+            ops.push(Op::Drop);
+            ops.push(Op::PushInt(Value::I64(count as i64)));
+            Self::end_reads(vec![loan], ops);
+            return Ok(Length::Collection);
+        }
         if let Some(length) = self.literal_byte_count(arg) {
             ops.push(Op::PushInt(Value::I64(length)));
             return Ok(Length::Collection);
@@ -6349,6 +6394,11 @@ impl Lower<'_> {
             self.names.remove(&name);
             Self::end_reads(vec![loan], ops);
             return Ok(Length::Method);
+        }
+        if let Ty::Array(_, count) = &ty {
+            ops.extend([Op::Drop, Op::PushInt(Value::I64(*count as i64))]);
+            Self::end_reads(vec![loan], ops);
+            return Ok(Length::Collection);
         }
         if matches!(reference, Ty::Ref(..)) {
             ops.push(Op::ReadRef(ty.clone()));
@@ -6457,6 +6507,9 @@ impl Lower<'_> {
                 crate::clist::ClistOp::New(ty.clone()),
             )));
             return Ok(ty);
+        }
+        if matches!(ty, Ty::Array(..)) {
+            return Err(at.error("construct arrays with filled(value), from_fn(factory), try_from_fn(factory), or a contextual literal"));
         }
         if let Ty::Class(class) = &ty {
             if Ty::Class(class.clone()).layout_depth() >= 64 {
@@ -7068,4 +7121,292 @@ enum Hinted<'e> {
     Expected(&'e Expr, Type),
     /// An arithmetic operator lowered at this numeric type.
     Arithmetic(Ty),
+}
+
+impl Lower<'_> {
+    fn array_literal(
+        &mut self,
+        ty: Ty,
+        entries: &[(Expr, Option<Expr>)],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let Ty::Array(element, count) = &ty else {
+            unreachable!()
+        };
+        if entries.len() != *count {
+            return Err(at.error(format!(
+                "array requires {count} elements, got {}",
+                entries.len()
+            )));
+        }
+        let owner = self.slot(ty.clone(), at)?;
+        ops.extend([
+            Op::Collection(CollectionOp::ArrayNew(ty.clone())),
+            Op::StoreLocal(owner),
+        ]);
+        self.expression_temps.push(owner);
+        for (i, (entry, _)) in entries.iter().enumerate() {
+            let actual = self.expr_expected(entry, Some((**element).clone()), ops)?;
+            self.same(actual, Some((**element).clone()), &entry.at)?;
+            ops.extend([
+                Op::BorrowLocal(owner, true),
+                Op::PushInt(crate::value::Value::I64(i as i64)),
+                Op::Collection(CollectionOp::ElementRef(ty.clone(), true)),
+                Op::FillRef((**element).clone()),
+            ]);
+        }
+        ops.push(Op::MoveLocal(owner));
+        Ok(ty)
+    }
+}
+
+impl Lower<'_> {
+    fn array_factory(
+        &mut self,
+        ty: Ty,
+        name: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let Ty::Array(element, count) = &ty else {
+            unreachable!()
+        };
+        if !matches!(name, "filled" | "from_fn" | "try_from_fn") {
+            return Err(at.error(
+                "array constructors are filled(value), from_fn(factory), and try_from_fn(factory)",
+            ));
+        }
+        let [arg] = args else {
+            return Err(at.error(format!("array.{name} requires one argument")));
+        };
+        let (argument, argument_ty) = if name == "filled" {
+            if element.affine() {
+                return Err(arg.at.error(
+                    "array.filled requires a copyable element type; use from_fn for owned elements",
+                ));
+            }
+            let actual = self.expr_expected(arg, Some((**element).clone()), ops)?;
+            self.same(actual, Some((**element).clone()), &arg.at)?;
+            (None, (**element).clone())
+        } else {
+            let argument_ty = self.value(arg, ops)?;
+            let mut callback = &argument_ty;
+            while let Ty::Ref(inner, _) = callback {
+                callback = inner;
+            }
+            if matches!(callback,Ty::Closure(c) if c.once)
+                || matches!(callback, Ty::BoxedCallable(_, crate::op::BoxedMode::Once))
+            {
+                return Err(arg.at.error("array factories require a reusable callback"));
+            }
+            (Some(arg.clone()), argument_ty)
+        };
+        let argument_slot = self.slot(argument_ty.clone(), at)?;
+        ops.push(Op::StoreLocal(argument_slot));
+        self.expression_temps.push(argument_slot);
+        let argument_name = format!("<array factory {argument_slot}>");
+        self.bind(
+            argument_name.clone(),
+            Local {
+                slot: argument_slot,
+                ty: argument_ty,
+                mutable: true,
+            },
+        );
+        let index = self.slot(Ty::I64, at)?;
+        let index_name = format!("<array index {index}>");
+        self.bind(
+            index_name.clone(),
+            Local {
+                slot: index,
+                ty: Ty::I64,
+                mutable: true,
+            },
+        );
+        ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+        let owner = self.slot(ty.clone(), at)?;
+        ops.extend([
+            Op::Collection(CollectionOp::ArrayNew(ty.clone())),
+            Op::StoreLocal(owner),
+        ]);
+        self.expression_temps.push(owner);
+        let mut body = vec![];
+        let mut failed = None;
+        let mut output_ty = ty.clone();
+        if argument.is_some() {
+            let actual = self.call_value(
+                &Expr {
+                    at: at.clone(),
+                    kind: Expression::Name(argument_name.clone()),
+                },
+                &[Expr {
+                    at: at.clone(),
+                    kind: Expression::Name(index_name.clone()),
+                }],
+                &mut body,
+            )?;
+            if name == "try_from_fn" {
+                let Some(Ty::Enum(result)) = actual else {
+                    return Err(arg
+                        .at
+                        .error("array.try_from_fn requires a callback returning Result[T, E]"));
+                };
+                if !result.is_result() {
+                    return Err(arg
+                        .at
+                        .error("array.try_from_fn requires a callback returning Result[T, E]"));
+                }
+                let fields = &result.get().variants;
+                self.same(
+                    Some(fields[0].fields[0].clone()),
+                    Some((**element).clone()),
+                    at,
+                )?;
+                let error = fields[1].fields[0].clone();
+                output_ty = crate::sum::result(ty.clone(), error.clone());
+                let Ty::Enum(option) = crate::sum::option(error.clone()) else {
+                    unreachable!()
+                };
+                let failure = self.slot(Ty::Enum(option.clone()), at)?;
+                let pending = self.slot(Ty::Enum(result.clone()), at)?;
+                self.expression_temps.extend([failure, pending]);
+                ops.extend([
+                    Op::Enum(crate::sum::EnumOp::New(option.clone(), 0)),
+                    Op::StoreLocal(failure),
+                ]);
+                body.extend([
+                    Op::StoreLocal(pending),
+                    Op::LoadLocal(pending),
+                    Op::Enum(crate::sum::EnumOp::Tag(result.clone())),
+                    Op::PushInt(Value::I64(1)),
+                    Op::Eq,
+                    branch(
+                        vec![
+                            Op::MoveLocal(pending),
+                            Op::Enum(crate::sum::EnumOp::Take(result.clone(), 1, 0)),
+                            Op::Enum(crate::sum::EnumOp::New(option.clone(), 1)),
+                            Op::StoreLocal(failure),
+                            Op::Break,
+                        ],
+                        vec![],
+                    ),
+                    Op::MoveLocal(pending),
+                    Op::Enum(crate::sum::EnumOp::Take(result.clone(), 0, 0)),
+                ]);
+                failed = Some((failure, option));
+            } else {
+                let actual = self.stored(actual, &mut body);
+                self.same(Some(actual), Some((**element).clone()), at)?;
+            }
+        } else {
+            body.push(Op::LoadLocal(argument_slot));
+        }
+        body.extend([
+            Op::BorrowLocal(owner, true),
+            Op::LoadLocal(index),
+            Op::Collection(CollectionOp::ElementRef(ty.clone(), true)),
+            Op::FillRef((**element).clone()),
+            Op::LoadLocal(index),
+            Op::PushInt(Value::I64(1)),
+            Op::Add,
+            Op::StoreLocal(index),
+        ]);
+        ops.push(Op::Loop {
+            condition: vec![
+                Op::LoadLocal(index),
+                Op::PushInt(Value::I64(*count as i64)),
+                Op::Lt,
+            ]
+            .into(),
+            body: body.into(),
+        });
+        if let Some((failure, option)) = failed {
+            let Ty::Enum(output) = &output_ty else {
+                unreachable!()
+            };
+            ops.extend([
+                Op::LoadLocal(failure),
+                Op::Enum(crate::sum::EnumOp::Tag(option.clone())),
+                Op::PushInt(Value::I64(1)),
+                Op::Eq,
+                branch(
+                    vec![
+                        Op::DropLocal(owner),
+                        Op::MoveLocal(failure),
+                        Op::Enum(crate::sum::EnumOp::Take(option, 1, 0)),
+                        Op::Enum(crate::sum::EnumOp::New(output.clone(), 1)),
+                    ],
+                    vec![
+                        Op::DropLocal(failure),
+                        Op::MoveLocal(owner),
+                        Op::Enum(crate::sum::EnumOp::New(output.clone(), 0)),
+                    ],
+                ),
+            ]);
+        } else {
+            ops.push(Op::MoveLocal(owner));
+        }
+        self.names.remove(&argument_name);
+        self.names.remove(&index_name);
+        Ok(Some(output_ty))
+    }
+}
+
+impl Lower<'_> {
+    fn borrowed_array_iteration(
+        &mut self,
+        ty: Ty,
+        mutable: bool,
+        reverse: bool,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let Ty::Array(element, count) = &ty else {
+            unreachable!()
+        };
+        let source = self.slot(Ty::Ref(Arc::new(ty.clone()), mutable), at)?;
+        let index = self.slot(Ty::I64, at)?;
+        let target = self.slot(Ty::Ref(element.clone(), mutable), at)?;
+        ops.extend([
+            Op::StoreLocal(source),
+            Op::PushInt(Value::I64(if reverse { *count as i64 } else { 0 })),
+            Op::StoreLocal(index),
+        ]);
+        let mut body = vec![];
+        let increment = vec![
+            Op::LoadLocal(index),
+            Op::PushInt(Value::I64(1)),
+            Op::Integer(if reverse {
+                IntegerOp::WrappingSub
+            } else {
+                IntegerOp::WrappingAdd
+            }),
+            Op::StoreLocal(index),
+        ];
+        if reverse {
+            body.extend(increment.iter().cloned());
+        }
+        body.extend([
+            Op::LoadLocal(source),
+            Op::LoadLocal(index),
+            Op::Collection(CollectionOp::ElementRef(ty.clone(), mutable)),
+            Op::StoreLocal(target),
+        ]);
+        Ok(Iteration {
+            counter: (!reverse).then_some(index),
+            exact_len: Some(vec![Op::PushInt(Value::I64(*count as i64))]),
+            cleanup: vec![],
+            absent: vec![],
+            condition: vec![
+                Op::LoadLocal(index),
+                Op::PushInt(Value::I64(if reverse { 0 } else { *count as i64 })),
+                if reverse { Op::Gt } else { Op::Lt },
+            ],
+            body,
+            step: if reverse { vec![] } else { increment },
+            target,
+        })
+    }
 }

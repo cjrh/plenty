@@ -45,7 +45,7 @@ pub(crate) unsafe fn read_scalar(base: *const u8, ty: &Type) -> u128 {
     }
 }
 
-unsafe fn write_scalar(base: *mut u8, value: u128, ty: &Type) {
+pub(crate) unsafe fn write_scalar(base: *mut u8, value: u128, ty: &Type) {
     unsafe {
         match scalar_bytes(ty).expect("scalar list element") {
             1 => base.write(value as u8),

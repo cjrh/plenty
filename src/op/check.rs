@@ -497,6 +497,15 @@ fn step(
         }
         Op::Collection(operation) => {
             match operation {
+                crate::collection::CollectionOp::ArrayNew(Ty::Array(element, count)) => {
+                    if *count > i64::MAX as usize || element.storage_barrier().is_some() {
+                        return Err("invalid array length or stored element type".into());
+                    }
+                    crate::generator::layout(&Ty::Array(element.clone(), *count), &mut vec![])?;
+                }
+                crate::collection::CollectionOp::ArrayNew(_) => {
+                    return Err("array construction requires an array type".into());
+                }
                 crate::collection::CollectionOp::ListLenRef(ty)
                 | crate::collection::CollectionOp::ListRowsRef(ty)
                 | crate::collection::CollectionOp::ListRowBytesRef(ty)
@@ -1575,6 +1584,32 @@ fn fmt_types(tys: &[Ty]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn array_construction_rejects_invalid_storage_and_layout() {
+        use crate::collection::CollectionOp;
+        for (ty, valid) in [
+            (Ty::Array(Arc::new(Ty::U8), 3), true),
+            (
+                Ty::Array(Arc::new(Ty::Ref(Arc::new(Ty::I64), false)), 0),
+                false,
+            ),
+            (Ty::Array(Arc::new(Ty::I64), usize::MAX), false),
+            (Ty::I64, false),
+        ] {
+            let mut stack = vec![];
+            let result = step(
+                &Op::Collection(CollectionOp::ArrayNew(ty)),
+                &mut stack,
+                &[],
+                &Sigs::default(),
+                None,
+                None,
+                None,
+            );
+            assert_eq!(result.is_ok(), valid);
+        }
+    }
 
     #[test]
     fn window_spans_require_shared_view_descriptors() {

@@ -263,6 +263,29 @@ impl TypeRef {
                 Ty::Callable(Arc::new(signature))
             }));
         }
+        if name == "array" {
+            let params = vec![
+                ("T".into(), None),
+                (
+                    "N".into(),
+                    Some(value_generics::parameter_type(&Ty::I64, &self.at)),
+                ),
+            ];
+            let arguments =
+                value_generics::resolve_arguments(&params, &self.args, aliases, &self.at)?;
+            let [
+                value_generics::Argument::Type(element),
+                value_generics::Argument::Value(count),
+            ] = arguments.as_slice()
+            else {
+                unreachable!()
+            };
+            let count = usize::try_from(count.value)
+                .map_err(|_| self.at.error("array length must be nonnegative"))?;
+            let array = Ty::Array(Arc::new(element.clone()), count);
+            aliases.check_array_layout(&array, &self.at)?;
+            return Ok(Some(array));
+        }
         if name == "tuple" {
             if self.args.is_empty() {
                 return Err(self.at.error("use () for the empty tuple"));
@@ -736,6 +759,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "dict"
                 | "KeyView"
                 | "clist"
+                | "array"
                 | "AppendError"
                 | "DictInitError"
                 | "OverflowError"

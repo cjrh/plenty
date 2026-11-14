@@ -677,6 +677,22 @@ impl FromIterator<(String, TypeRef)> for Substitution {
 
 /// Reify concrete types without parsing their display names or losing nominal identity.
 pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
+    if let Ty::Array(element, count) = ty {
+        return TypeRef {
+            at: at.clone(),
+            concrete: Some(Box::new(ty.clone())),
+            metadata: None,
+            name: Some("array".into()),
+            args: vec![
+                type_ref(element, at),
+                Argument::Value(value_generics::Constant {
+                    ty: Ty::I64,
+                    value: *count as i128,
+                })
+                .reference(at),
+            ],
+        };
+    }
     let (name, children): (Option<String>, Vec<&Ty>) = match ty {
         Ty::Unit => (None, vec![]),
         Ty::Dimension(_)
@@ -915,8 +931,8 @@ fn hinted_parameter(
     }
     let mut replacements = Substitution::default();
     for (name, _) in &template.type_params {
-        if let Some(Argument::Type(ty)) = hint.get(name) {
-            replacements.insert(name.clone(), type_ref(ty, &pattern.at));
+        if let Some(argument) = hint.get(name) {
+            replacements.insert(name.clone(), argument.reference(&pattern.at));
         }
     }
     let mut concrete = pattern.clone();
@@ -1061,7 +1077,21 @@ fn infer_inner(
         *inferred = candidates.pop().unwrap();
         return Ok(());
     }
-    if let Some((name, arguments)) = aliases.data.arguments(actual)
+    let builtin_arguments = if let Ty::Array(element, count) = actual {
+        Some((
+            "array".into(),
+            vec![
+                Argument::Type((**element).clone()),
+                Argument::Value(value_generics::Constant {
+                    ty: Ty::I64,
+                    value: *count as i128,
+                }),
+            ],
+        ))
+    } else {
+        None
+    };
+    if let Some((name, arguments)) = builtin_arguments.or_else(|| aliases.data.arguments(actual))
         && pattern.name.as_ref() == Some(&name)
         && pattern.args.len() == arguments.len()
     {
@@ -1664,8 +1694,28 @@ impl Lower<'_> {
                         "a slice view is passed to a `&[T]` or `&strview` parameter, not to a `&T` type parameter; pass a reference to the whole value, such as `&buffer`",
                     ));
                 }
-                let (ty, loan) =
-                    self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
+                let mutable = pattern.name.as_deref() == Some("&mut");
+                let base = match &ungroup(arg).kind {
+                    Expression::Unary(op, base) if op == if mutable { "&mut" } else { "&" } => {
+                        &**base
+                    }
+                    _ => arg,
+                };
+                let shaped = if mutable && std::ptr::eq(base, arg) {
+                    None
+                } else {
+                    self.array_argument_literal(base, &pattern.args[0], &template, &context, ops)?
+                };
+                let (ty, loan) = if let Some(ty) = shaped {
+                    let slot = self.slot(ty.clone(), &arg.at)?;
+                    ops.push(Op::StoreLocal(slot));
+                    self.expression_temps.push(slot);
+                    let loan = self.new_loan(slot, mutable, None, ops);
+                    ops.push(Op::BorrowLocal(slot, mutable));
+                    (Ty::Ref(Arc::new(ty), mutable), loan)
+                } else {
+                    self.call_borrow(arg, mutable, None, ops)?
+                };
                 loans.push(loan);
                 ty
             } else {
@@ -1674,6 +1724,10 @@ impl Lower<'_> {
                 {
                     let ty = self.expr_expected(arg, Some(context), ops)?;
                     self.stored(ty, ops)
+                } else if let Some(ty) =
+                    self.array_argument_literal(arg, pattern, &template, &context, ops)?
+                {
+                    ty
                 } else {
                     self.value(arg, ops)?
                 };
@@ -2825,6 +2879,132 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         }
     }
     Ok(())
+}
+
+impl Lower<'_> {
+    fn array_argument_literal(
+        &mut self,
+        e: &Expr,
+        pattern: &TypeRef,
+        template: &Function,
+        context: &HashMap<String, Argument>,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if let Expression::Tuple(values) = &ungroup(e).kind {
+            if pattern.name.as_deref() != Some("tuple") || pattern.args.len() != values.len() {
+                return Ok(None);
+            }
+            let mut types = vec![];
+            for (value, field) in values.iter().zip(&pattern.args) {
+                let expected = if mentions_parameter(field, template) {
+                    hinted_parameter(field, template, context, self.aliases)?
+                } else {
+                    field.resolve(self.aliases)?
+                };
+                let ty = if let Some(expected) = expected {
+                    self.expr_expected(value, Some(expected), ops)?
+                        .unwrap_or(Ty::Unit)
+                } else if let Some(ty) =
+                    self.array_argument_literal(value, field, template, context, ops)?
+                {
+                    ty
+                } else {
+                    self.value(value, ops)?
+                };
+                if let Some(barrier) = ty.storage_barrier() {
+                    return Err(value.at.error(barrier.message("tuples")));
+                }
+                types.push(ty);
+            }
+            if Ty::identity_names_exceed_limit(&types)
+                || types.iter().any(|t| t.layout_depth() >= 64)
+            {
+                return Err(e
+                    .at
+                    .error("tuple exceeds the implementation type nesting limit"));
+            }
+            let Ty::Enum(tuple) = crate::sum::tuple(types) else {
+                unreachable!()
+            };
+            ops.push(Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)));
+            return Ok(Some(Ty::Enum(tuple)));
+        }
+        let Expression::Collection {
+            kind,
+            entries,
+            clauses,
+        } = &ungroup(e).kind
+        else {
+            return Ok(None);
+        };
+        if pattern.name.as_deref() != Some("array")
+            || pattern.args.len() != 2
+            || kind != "list"
+            || entries.is_empty()
+            || !clauses.is_empty()
+        {
+            return Ok(None);
+        }
+        let expected = if mentions_parameter(&pattern.args[0], template) {
+            hinted_parameter(&pattern.args[0], template, context, self.aliases)?
+        } else {
+            pattern.args[0].resolve(self.aliases)?
+        };
+        let mut element = expected.clone();
+        let mut slots = vec![];
+        for (entry, _) in entries {
+            let actual = if let Some(ty) = expected.clone() {
+                self.expr_expected(entry, Some(ty), ops)?
+                    .unwrap_or(Ty::Unit)
+            } else if let Some(ty) =
+                self.array_argument_literal(entry, &pattern.args[0], template, context, ops)?
+            {
+                ty
+            } else {
+                self.value(entry, ops)?
+            };
+            if let Some(element) = &element {
+                self.same(Some(actual.clone()), Some(element.clone()), &entry.at)?;
+            } else {
+                element = Some(actual.clone());
+            }
+            let slot = self.slot(actual, &entry.at)?;
+            ops.push(Op::StoreLocal(slot));
+            self.expression_temps.push(slot);
+            slots.push(slot);
+        }
+        let element = element.unwrap();
+        if let Some(barrier) = element.storage_barrier() {
+            return Err(e.at.error(barrier.message("arrays")));
+        }
+        if element.layout_depth() >= 64 {
+            return Err(e
+                .at
+                .error("type nesting exceeds the implementation limit of 64"));
+        }
+        let ty = Ty::Array(Arc::new(element.clone()), entries.len());
+        crate::generator::layout(&ty, &mut vec![]).map_err(|m| e.at.error(m))?;
+        let owner = self.slot(ty.clone(), &e.at)?;
+        ops.extend([
+            Op::Collection(crate::collection::CollectionOp::ArrayNew(ty.clone())),
+            Op::StoreLocal(owner),
+        ]);
+        self.expression_temps.push(owner);
+        for (i, slot) in slots.into_iter().enumerate() {
+            ops.extend([
+                Op::MoveLocal(slot),
+                Op::BorrowLocal(owner, true),
+                Op::PushInt(Value::I64(i as i64)),
+                Op::Collection(crate::collection::CollectionOp::ElementRef(
+                    ty.clone(),
+                    true,
+                )),
+                Op::FillRef(element.clone()),
+            ]);
+        }
+        ops.push(Op::MoveLocal(owner));
+        Ok(Some(ty))
+    }
 }
 
 #[cfg(test)]

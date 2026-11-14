@@ -20,6 +20,7 @@ static INTEGER: Type = Type {
     quantity: None,
     finite: None,
     destroy: None,
+    array: None,
 };
 static ID: Type = Type {
     kind: b'B',

@@ -883,3 +883,6 @@ mod test_multiversion_resources;
 
 #[path = "test_window_iteration.rs"]
 mod test_window_iteration;
+
+#[path = "test_arrays.rs"]
+mod test_arrays;
