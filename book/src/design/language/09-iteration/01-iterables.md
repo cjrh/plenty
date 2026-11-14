@@ -97,3 +97,6 @@ and body expressions keep their own contracts. There is no arbitrary user
 iterator protocol, special-method dispatch, or async iteration.
 [Generator expressions](03-generators.md#generator-expressions) construct
 lazy owned frames and follow the generator iteration rules.
+
+[Shared windows and chunks](07-windows.md) yield borrowed groups without
+constructing a stored iterator or copying their elements.

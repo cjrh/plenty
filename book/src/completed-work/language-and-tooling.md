@@ -1666,3 +1666,19 @@ implementation planned. Its checked scalar emitter, hand-lowered probes and
 measurements remain a historical experiment; no production backend was
 adopted. Experiment sources and the developer spike are retained. B20 keeps
 the GCC assessment, and Rust dependency integration remains B17.
+
+## Shared windows and chunks (issue #950)
+
+Builtin list, byte and text owners/views support allocation-free shared
+[window and chunk loop sources](../design/language/09-iteration/07-windows.md),
+also usable in eager comprehensions. Positive widths yield
+overlapping full windows or disjoint chunks with a short final piece;
+nonpositive widths yield nothing. Text widths count Unicode scalars. Loans
+protect the source through backedges and every retained window's last use.
+The cursor proves each descriptor's range, removing per-window slicing checks.
+
+The kernel comparison in `experiments/windows/README.md` records C/Rust
+comparisons, about 2.8% fewer moving-sum instructions and 5.2% fewer serial
+k-nucleotide instructions, with noisy CPU measurements reported separately.
+User iterator protocols, stored view classes and mutable windows remain outside
+this delivered scope; broader borrowing and iteration remain B11/B12.

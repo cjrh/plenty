@@ -10,3 +10,5 @@ values incrementally, and collect them when you need a stored result.
 
 [Chain iteration steps with `iter`](pipelines.md) to count, test, skip, pair,
 and collect items without writing the loop.
+
+[Scan adjacent groups](windows.md) with overlapping windows or disjoint chunks.

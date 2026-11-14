@@ -1222,6 +1222,7 @@ fn allowed_op(op: &Op) -> bool {
                 | C::ListLenRef(_)
                 | C::ViewLen(_)
                 | C::ViewRow(..)
+                | C::ViewSpan(_)
                 | C::ViewItem(..)
                 | C::ElementRefView(..)
                 // Inline checks, loads and stores through a cached column.

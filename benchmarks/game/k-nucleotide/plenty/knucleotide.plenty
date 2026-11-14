@@ -54,8 +54,8 @@ def third_sequence(input: &std.bytes.Bytes) -> Result[std.bytes.Bytes, AllocErro
 
 def count_frames(sequence: &std.bytes.Bytes, length: i64) -> Result[Counts, AllocError | OverflowError[i64] | DataError]:
     mut counts: Counts = {}?
-    for i in range(sequence.len() - length + 1):
-        *counts.get_or_insert_bytes(&sequence[i:i + length], 0)? += 1
+    for window in sequence.windows(length):
+        *counts.get_or_insert_bytes(window, 0)? += 1
     Ok(counts)
 
 

@@ -880,3 +880,6 @@ mod test_packed_statements;
 mod test_multiversion_resolution;
 #[path = "test_multiversion_resources.rs"]
 mod test_multiversion_resources;
+
+#[path = "test_window_iteration.rs"]
+mod test_window_iteration;

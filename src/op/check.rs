@@ -514,6 +514,11 @@ fn step(
                 crate::collection::CollectionOp::ViewNew(..) => {
                     return Err("a slice view requires a list, byte, or view owner".into());
                 }
+                crate::collection::CollectionOp::ViewSpan(ty)
+                    if !matches!(ty, Ty::View(_, false)) =>
+                {
+                    return Err("a proven window span requires a shared slice view".into());
+                }
                 crate::collection::CollectionOp::ViewLen(ty)
                 | crate::collection::CollectionOp::ViewRow(ty, _)
                 | crate::collection::CollectionOp::ViewItem(ty, _)
@@ -1570,6 +1575,31 @@ fn fmt_types(tys: &[Ty]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_spans_require_shared_view_descriptors() {
+        use crate::collection::CollectionOp;
+        for (ty, valid) in [
+            (Ty::View(Arc::new(Ty::I64), false), true),
+            (Ty::View(Arc::new(Ty::Text), false), true),
+            (Ty::View(Arc::new(Ty::I64), true), false),
+            (Ty::List(Arc::new(Ty::I64)), false),
+            (Ty::I64, false),
+        ] {
+            let operation = CollectionOp::ViewSpan(ty);
+            let (mut stack, _) = operation.signature();
+            let result = step(
+                &Op::Collection(operation),
+                &mut stack,
+                &[],
+                &Sigs::default(),
+                None,
+                None,
+                None,
+            );
+            assert_eq!(result.is_ok(), valid);
+        }
+    }
 
     fn checked_block_step(body: Vec<Op>, result: Ty, stack: &mut Vec<Ty>) -> Result<Flow> {
         step(
