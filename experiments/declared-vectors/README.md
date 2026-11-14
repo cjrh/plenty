@@ -5,11 +5,15 @@ after inline-array prerequisite PR #1262. It does **not** adopt a public
 `std.vector`, change production lowering, replace a benchmark, or promise that
 an ordinary class containing an array already has native SIMD representation.
 
-The wide native candidate reduces n-body instructions but does not beat the
+The original wide native candidate reduces n-body instructions but does not beat the
 existing Plenty program's median cycles on this host. The measured whole-program
 gate has therefore **not passed**. A public API or collection layout should not
 be adopted from this experiment. Issue #967 remains open for the reviewed design
 and evidence decision; this directory delivers its bounded investigation only.
+
+The [paired-magnitude continuation](paired.md) subsequently improves native
+whole-program cycles by 6.23–6.61% across eight candidate placements on the
+measured AVX2 host. That bounded result adopts no public API or layout.
 
 ## Scope and contracts
 

@@ -93,14 +93,16 @@ class IR(old.IR):
         self.lines += ['    jump block4', 'block4:', '    return', '}']
         return '\n'.join(self.lines) + '\n'
 
-    def nbody(self):
+    def nbody(self, paired=False):
         self.index = 2
-        self.lines = [f'function %advance_{self.shape}(i64, i64) system_v {{', 'block0(v0: i64, v1: i64):']
+        suffix = '_pairs' if paired else ''
+        self.lines = [f'function %advance_{self.shape}{suffix}(i64, i64) system_v {{', 'block0(v0: i64, v1: i64):']
         zero = self.emit('iconst.i64 0')
         positive = self.emit(f'icmp sgt v1, {zero}')
         self.lines += [f'    brif {positive}, block1, block4', 'block1:']
         dt = self.emit('f64const ' + (0.01).hex())
         dtv = self.multiplier(dt)
+        paired_dt = self.emit(f'splat.f64x2 {dt}') if paired else None
         state, masses = [], []
         for body in range(5):
             for field in (0, 3):
@@ -113,16 +115,33 @@ class IR(old.IR):
         width = len(self.types)
         positions = [params[2 * width * i:(2 * i + 1) * width] for i in range(5)]
         velocities = [params[(2 * i + 1) * width:(2 * i + 2) * width] for i in range(5)]
-        for i, j in old.PAIRS:
+        def distance(i, j):
             difference = self.op('fsub', positions[i], positions[j])
             square = self.logical(self.op('fmul', difference, difference))
             squared = self.binary('fadd', self.binary('fadd', square[0], square[1]), square[2])
-            root = self.emit(f'sqrt {squared}')
-            magnitude = self.binary('fdiv', dt, self.binary('fmul', squared, root))
-            mi = self.multiplier(self.binary('fmul', masses[i], magnitude))
-            mj = self.multiplier(self.binary('fmul', masses[j], magnitude))
-            velocities[i] = self.op('fsub', velocities[i], self.op('fmul', difference, mj))
-            velocities[j] = self.op('fadd', velocities[j], self.op('fmul', difference, mi))
+            return difference, squared
+
+        batch_size = 2 if paired else 1
+        for offset in range(0, len(old.PAIRS), batch_size):
+            pairs = old.PAIRS[offset:offset + batch_size]
+            distances = [distance(i, j) for i, j in pairs]
+            if paired:
+                # Both lanes are real pair magnitudes. Per-pair dot association
+                # and the subsequent velocity-update order remain scalar.
+                squared = self.emit(f'splat.f64x2 {distances[0][1]}')
+                squared = self.emit(f'insertlane {squared}, {distances[1][1]}, 1')
+                root = self.emit(f'sqrt {squared}')
+                magnitude = self.binary('fdiv', paired_dt, self.binary('fmul', squared, root))
+                magnitudes = [self.emit(f'extractlane {magnitude}, {lane}') for lane in range(2)]
+            else:
+                squared = distances[0][1]
+                root = self.emit(f'sqrt {squared}')
+                magnitudes = [self.binary('fdiv', dt, self.binary('fmul', squared, root))]
+            for (i, j), (difference, _), magnitude in zip(pairs, distances, magnitudes):
+                mi = self.multiplier(self.binary('fmul', masses[i], magnitude))
+                mj = self.multiplier(self.binary('fmul', masses[j], magnitude))
+                velocities[i] = self.op('fsub', velocities[i], self.op('fmul', difference, mj))
+                velocities[j] = self.op('fadd', velocities[j], self.op('fmul', difference, mi))
         for i in range(5):
             positions[i] = self.op('fadd', positions[i], self.op('fmul', velocities[i], dtv))
         final = [value for i in range(5) for group in (positions[i], velocities[i]) for value in group]
@@ -141,11 +160,14 @@ class IR(old.IR):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--paired', action='store_true', help='also emit adjacent-magnitude n-body controls')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     for shape in ['scalar', 'halves', 'wide']:
         (args.output / (shape + '.clif')).write_text(IR(shape).recurrence())
         (args.output / ('nbody-' + shape + '.clif')).write_text(IR(shape).nbody())
+        if args.paired:
+            (args.output / ('nbody-' + shape + '-pairs.clif')).write_text(IR(shape).nbody(paired=True))
 
 
 if __name__ == '__main__':

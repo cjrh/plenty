@@ -1,0 +1,3647 @@
+{
+  "revision": "463ef429b22d9b748b77728fb6127172dfb2e4d9",
+  "steps": 1000000,
+  "cpu": 3,
+  "host": "Linux-7.3.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "preparation_sha256": "26681c49a9e86c3eaf9bfe1eb27f504e0379e9c651606eb89aa737df43c142e1",
+  "samples": [
+    {
+      "name": "baseline-scalar",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494040,
+      "perf_invocation_seconds": 0.03282860299805179
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 639495205,
+      "perf_invocation_seconds": 0.06450520500948187
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494385,
+      "perf_invocation_seconds": 0.0199330149916932
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 641494317,
+      "perf_invocation_seconds": 0.06393556999682914
+    },
+    {
+      "name": "baseline-halves",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494038,
+      "perf_invocation_seconds": 0.019464819997665472
+    },
+    {
+      "name": "baseline-halves",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 560494508,
+      "perf_invocation_seconds": 0.06163718699826859
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494091,
+      "perf_invocation_seconds": 0.019562402987503447
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 550494458,
+      "perf_invocation_seconds": 0.060574923001695424
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494084,
+      "perf_invocation_seconds": 0.020209751994116232
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 490494302,
+      "perf_invocation_seconds": 0.06392485099786427
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494308,
+      "perf_invocation_seconds": 0.020266546998755075
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 486494397,
+      "perf_invocation_seconds": 0.05975999099609908
+    },
+    {
+      "name": "avx2-halves",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494027,
+      "perf_invocation_seconds": 0.020132356992689893
+    },
+    {
+      "name": "avx2-halves",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 425494372,
+      "perf_invocation_seconds": 0.05966731799708214
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494083,
+      "perf_invocation_seconds": 0.019889752991730347
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 413494416,
+      "perf_invocation_seconds": 0.05568865600798745
+    },
+    {
+      "name": "avx2-wide",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494022,
+      "perf_invocation_seconds": 0.01978620000591036
+    },
+    {
+      "name": "avx2-wide",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 299494775,
+      "perf_invocation_seconds": 0.05604007199872285
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494072,
+      "perf_invocation_seconds": 0.01911790198937524
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 293494417,
+      "perf_invocation_seconds": 0.05380386499746237
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 721743,
+      "perf_invocation_seconds": 0.020250468005542643
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 473722597,
+      "perf_invocation_seconds": 0.056551957997726277
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 695078,
+      "perf_invocation_seconds": 0.02002573800564278
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 516694319,
+      "perf_invocation_seconds": 0.059904270005063154
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494021,
+      "perf_invocation_seconds": 0.01993455800402444
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 734494392,
+      "perf_invocation_seconds": 0.06213562899210956
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 494334,
+      "perf_invocation_seconds": 0.020778684003744274
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 563494179,
+      "perf_invocation_seconds": 0.07076274399878457
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 719871,
+      "perf_invocation_seconds": 0.01947345600638073
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 395720318,
+      "perf_invocation_seconds": 0.05586681899148971
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 694208,
+      "perf_invocation_seconds": 0.019933704999857582
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 384694541,
+      "perf_invocation_seconds": 0.05986716000188608
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 492539,
+      "perf_invocation_seconds": 0.019804384995950386
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 615492756,
+      "perf_invocation_seconds": 0.061289738994673826
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 0,
+      "value": 492829,
+      "perf_invocation_seconds": 0.020182178996037692
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "instructions:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 422492795,
+      "perf_invocation_seconds": 0.06512305999058299
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494085,
+      "perf_invocation_seconds": 0.019744140998227522
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 639494369,
+      "perf_invocation_seconds": 0.06476455999654718
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 492831,
+      "perf_invocation_seconds": 0.01981543500733096
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 422492808,
+      "perf_invocation_seconds": 0.06435032600711565
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 492630,
+      "perf_invocation_seconds": 0.02003367300494574
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 615492894,
+      "perf_invocation_seconds": 0.06622665098984726
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 694413,
+      "perf_invocation_seconds": 0.020709884993266314
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 384694541,
+      "perf_invocation_seconds": 0.05935223000415135
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 719623,
+      "perf_invocation_seconds": 0.020313214001362212
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 395720602,
+      "perf_invocation_seconds": 0.056029071987723
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494004,
+      "perf_invocation_seconds": 0.01999140299449209
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 563494259,
+      "perf_invocation_seconds": 0.06445947001338936
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494076,
+      "perf_invocation_seconds": 0.01926333300070837
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 734494243,
+      "perf_invocation_seconds": 0.06659673199465033
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 694040,
+      "perf_invocation_seconds": 0.020237614007783122
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 516694664,
+      "perf_invocation_seconds": 0.060577558004297316
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 722029,
+      "perf_invocation_seconds": 0.020921350995195098
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 473722643,
+      "perf_invocation_seconds": 0.0667637340084184
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494122,
+      "perf_invocation_seconds": 0.019902907995856367
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 293494429,
+      "perf_invocation_seconds": 0.05315364000853151
+    },
+    {
+      "name": "avx2-wide",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494476,
+      "perf_invocation_seconds": 0.019614108998212032
+    },
+    {
+      "name": "avx2-wide",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 299495398,
+      "perf_invocation_seconds": 0.056675999992876314
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 493991,
+      "perf_invocation_seconds": 0.020207016001222655
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 413494430,
+      "perf_invocation_seconds": 0.056638982001459226
+    },
+    {
+      "name": "avx2-halves",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494073,
+      "perf_invocation_seconds": 0.01916269499633927
+    },
+    {
+      "name": "avx2-halves",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 425494555,
+      "perf_invocation_seconds": 0.05861142599314917
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494367,
+      "perf_invocation_seconds": 0.019694468996021897
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 486494626,
+      "perf_invocation_seconds": 0.059751635999418795
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494051,
+      "perf_invocation_seconds": 0.020156020997092128
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 490494604,
+      "perf_invocation_seconds": 0.06424560099549126
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494141,
+      "perf_invocation_seconds": 0.019733833003556356
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 550494492,
+      "perf_invocation_seconds": 0.062242056999821216
+    },
+    {
+      "name": "baseline-halves",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494348,
+      "perf_invocation_seconds": 0.020646607998060063
+    },
+    {
+      "name": "baseline-halves",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 560494432,
+      "perf_invocation_seconds": 0.06132322100165766
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 0,
+      "value": 494115,
+      "perf_invocation_seconds": 0.020470479008508846
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "instructions:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 641494392,
+      "perf_invocation_seconds": 0.06448213101248257
+    },
+    {
+      "name": "baseline-halves",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494070,
+      "perf_invocation_seconds": 0.020066204000613652
+    },
+    {
+      "name": "baseline-halves",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 560494428,
+      "perf_invocation_seconds": 0.06286732498847414
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494031,
+      "perf_invocation_seconds": 0.0196613769949181
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 550494475,
+      "perf_invocation_seconds": 0.061321517001488246
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494018,
+      "perf_invocation_seconds": 0.022348016005707905
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 490494349,
+      "perf_invocation_seconds": 0.0663057689962443
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494082,
+      "perf_invocation_seconds": 0.02013623301172629
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 486494346,
+      "perf_invocation_seconds": 0.060094505999586545
+    },
+    {
+      "name": "avx2-halves",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494019,
+      "perf_invocation_seconds": 0.02002609899500385
+    },
+    {
+      "name": "avx2-halves",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 425494432,
+      "perf_invocation_seconds": 0.059229370002867654
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494055,
+      "perf_invocation_seconds": 0.01998875899880659
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 413494421,
+      "perf_invocation_seconds": 0.05528981098905206
+    },
+    {
+      "name": "avx2-wide",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494030,
+      "perf_invocation_seconds": 0.02007384700118564
+    },
+    {
+      "name": "avx2-wide",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 299494398,
+      "perf_invocation_seconds": 0.055705185994156636
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494163,
+      "perf_invocation_seconds": 0.019254147002357058
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 293494695,
+      "perf_invocation_seconds": 0.0537629280006513
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 721865,
+      "perf_invocation_seconds": 0.02000462899741251
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 473722560,
+      "perf_invocation_seconds": 0.05614447800326161
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 694126,
+      "perf_invocation_seconds": 0.020380098998430185
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 516694604,
+      "perf_invocation_seconds": 0.060136473999591544
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494339,
+      "perf_invocation_seconds": 0.020279030999518
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 734494765,
+      "perf_invocation_seconds": 0.06161631899885833
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494184,
+      "perf_invocation_seconds": 0.01974029499979224
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 563494259,
+      "perf_invocation_seconds": 0.06386220299464185
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 719854,
+      "perf_invocation_seconds": 0.020699997010524385
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 395720308,
+      "perf_invocation_seconds": 0.056554192007752135
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 694660,
+      "perf_invocation_seconds": 0.020218848003423773
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 384694489,
+      "perf_invocation_seconds": 0.05931816498923581
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 492528,
+      "perf_invocation_seconds": 0.020619117000023834
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 615492887,
+      "perf_invocation_seconds": 0.06105934799415991
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 492807,
+      "perf_invocation_seconds": 0.019475328997941688
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 422493109,
+      "perf_invocation_seconds": 0.0636271450057393
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494060,
+      "perf_invocation_seconds": 0.019578122009988874
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 639494577,
+      "perf_invocation_seconds": 0.06395539799996186
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 0,
+      "value": 494013,
+      "perf_invocation_seconds": 0.019092474001809023
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "instructions:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 641494314,
+      "perf_invocation_seconds": 0.06449650900322013
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 620829,
+      "perf_invocation_seconds": 0.019875407000654377
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 223063077,
+      "perf_invocation_seconds": 0.06409938700380735
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 663273,
+      "perf_invocation_seconds": 0.01968748599756509
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 222134412,
+      "perf_invocation_seconds": 0.06370333698578179
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 685263,
+      "perf_invocation_seconds": 0.01963528800115455
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 209738881,
+      "perf_invocation_seconds": 0.06142161499883514
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 642407,
+      "perf_invocation_seconds": 0.01922964099503588
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 205939749,
+      "perf_invocation_seconds": 0.061753324000164866
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 632625,
+      "perf_invocation_seconds": 0.02013839800201822
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 219850657,
+      "perf_invocation_seconds": 0.06417548900935799
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 643471,
+      "perf_invocation_seconds": 0.019669092012918554
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 198775328,
+      "perf_invocation_seconds": 0.05902823399810586
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 617274,
+      "perf_invocation_seconds": 0.020666634998633526
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 195999756,
+      "perf_invocation_seconds": 0.059261300004436634
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 631178,
+      "perf_invocation_seconds": 0.01955876599822659
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 180359580,
+      "perf_invocation_seconds": 0.05545537901343778
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 653811,
+      "perf_invocation_seconds": 0.019110608991468325
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 181029806,
+      "perf_invocation_seconds": 0.05562092900800053
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 669830,
+      "perf_invocation_seconds": 0.01975254800345283
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 167622985,
+      "perf_invocation_seconds": 0.05285406099574175
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 876621,
+      "perf_invocation_seconds": 0.019235542000387795
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 180017240,
+      "perf_invocation_seconds": 0.05525895299797412
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 875296,
+      "perf_invocation_seconds": 0.019599192004534416
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 202878352,
+      "perf_invocation_seconds": 0.060788531991420314
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 635114,
+      "perf_invocation_seconds": 0.019710938999196514
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 206159937,
+      "perf_invocation_seconds": 0.0615292349975789
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 646661,
+      "perf_invocation_seconds": 0.01950545600266196
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 221272105,
+      "perf_invocation_seconds": 0.06408721499610692
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 811865,
+      "perf_invocation_seconds": 0.02087555501202587
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 178723649,
+      "perf_invocation_seconds": 0.05593551600759383
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 840294,
+      "perf_invocation_seconds": 0.01916874700691551
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 194977336,
+      "perf_invocation_seconds": 0.05866827099816874
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 611308,
+      "perf_invocation_seconds": 0.0200150579912588
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 203956891,
+      "perf_invocation_seconds": 0.061684596992563456
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 0,
+      "value": 614922,
+      "perf_invocation_seconds": 0.020010979991639033
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 0,
+      "steps": 1000000,
+      "value": 222224476,
+      "perf_invocation_seconds": 0.06366564599738922
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 689361,
+      "perf_invocation_seconds": 0.019675272997119464
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 223010329,
+      "perf_invocation_seconds": 0.064189794997219
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 603923,
+      "perf_invocation_seconds": 0.020334184999228455
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 221019135,
+      "perf_invocation_seconds": 0.06338647499796934
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 628965,
+      "perf_invocation_seconds": 0.01959997200174257
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 204471431,
+      "perf_invocation_seconds": 0.06158067200158257
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 808569,
+      "perf_invocation_seconds": 0.019619138998677954
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 195688686,
+      "perf_invocation_seconds": 0.05856446699181106
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 813462,
+      "perf_invocation_seconds": 0.02045114300563
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 178922272,
+      "perf_invocation_seconds": 0.05554734100587666
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 676626,
+      "perf_invocation_seconds": 0.019502340001054108
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 220677411,
+      "perf_invocation_seconds": 0.06535781799175311
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 628260,
+      "perf_invocation_seconds": 0.020885814010398462
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 205256809,
+      "perf_invocation_seconds": 0.07578975400247145
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 826130,
+      "perf_invocation_seconds": 0.020816063988604583
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 202450169,
+      "perf_invocation_seconds": 0.06046339399472345
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 881855,
+      "perf_invocation_seconds": 0.020663028000853956
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 179838792,
+      "perf_invocation_seconds": 0.05550053399929311
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 634297,
+      "perf_invocation_seconds": 0.019138720992486924
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 167659904,
+      "perf_invocation_seconds": 0.05628352701023687
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 646732,
+      "perf_invocation_seconds": 0.020341037001344375
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 180988150,
+      "perf_invocation_seconds": 0.056979347005835734
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 631176,
+      "perf_invocation_seconds": 0.01996518399391789
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 179975781,
+      "perf_invocation_seconds": 0.05569005900179036
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 697504,
+      "perf_invocation_seconds": 0.01881645800312981
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 194587967,
+      "perf_invocation_seconds": 0.058822539998800494
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 642936,
+      "perf_invocation_seconds": 0.020456212005228736
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 202327829,
+      "perf_invocation_seconds": 0.05994880299840588
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 716965,
+      "perf_invocation_seconds": 0.01999669399810955
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 218691608,
+      "perf_invocation_seconds": 0.06362571200588718
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 676132,
+      "perf_invocation_seconds": 0.020112921003601514
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 205936213,
+      "perf_invocation_seconds": 0.06088638499204535
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 662252,
+      "perf_invocation_seconds": 0.019768657992244698
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 208988523,
+      "perf_invocation_seconds": 0.06157383900426794
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 0,
+      "value": 641890,
+      "perf_invocation_seconds": 0.020107850010390393
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 1,
+      "steps": 1000000,
+      "value": 219393977,
+      "perf_invocation_seconds": 0.06339639400539454
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 721540,
+      "perf_invocation_seconds": 0.01933671100414358
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 209467803,
+      "perf_invocation_seconds": 0.061796574998879805
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 757691,
+      "perf_invocation_seconds": 0.02078442499623634
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 206132138,
+      "perf_invocation_seconds": 0.06107551799505018
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 771845,
+      "perf_invocation_seconds": 0.01941691100364551
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 218813726,
+      "perf_invocation_seconds": 0.06374032600433566
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 644137,
+      "perf_invocation_seconds": 0.019398616990656592
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 202350704,
+      "perf_invocation_seconds": 0.061055661004502326
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 671390,
+      "perf_invocation_seconds": 0.019534150007530116
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 194503482,
+      "perf_invocation_seconds": 0.057938668003771454
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 614350,
+      "perf_invocation_seconds": 0.018806490988936275
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 180486431,
+      "perf_invocation_seconds": 0.0562695300031919
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 637001,
+      "perf_invocation_seconds": 0.01924531999975443
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 180525048,
+      "perf_invocation_seconds": 0.05453275599575136
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 619789,
+      "perf_invocation_seconds": 0.019301685999380425
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 167661591,
+      "perf_invocation_seconds": 0.05321129799995106
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 861542,
+      "perf_invocation_seconds": 0.01900499100156594
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 179953752,
+      "perf_invocation_seconds": 0.05484220398648176
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 823102,
+      "perf_invocation_seconds": 0.01886589199420996
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 202783342,
+      "perf_invocation_seconds": 0.059595554004772566
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 647792,
+      "perf_invocation_seconds": 0.019304721005028114
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 205325958,
+      "perf_invocation_seconds": 0.060459938991698436
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 613586,
+      "perf_invocation_seconds": 0.01901842599909287
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 221626159,
+      "perf_invocation_seconds": 0.06322168800397776
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 804188,
+      "perf_invocation_seconds": 0.019129412990878336
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 179161125,
+      "perf_invocation_seconds": 0.055442926997784525
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 802601,
+      "perf_invocation_seconds": 0.019928245994378813
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 195268114,
+      "perf_invocation_seconds": 0.05997043500246946
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 631841,
+      "perf_invocation_seconds": 0.01911360399390105
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 204807799,
+      "perf_invocation_seconds": 0.060331779008265585
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 610449,
+      "perf_invocation_seconds": 0.019634205993497744
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 221212831,
+      "perf_invocation_seconds": 0.07626363998861052
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 640170,
+      "perf_invocation_seconds": 0.01955055000144057
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 224040885,
+      "perf_invocation_seconds": 0.06388463600887917
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 0,
+      "value": 638286,
+      "perf_invocation_seconds": 0.02009021800768096
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 2,
+      "steps": 1000000,
+      "value": 221607259,
+      "perf_invocation_seconds": 0.0638352730020415
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 638052,
+      "perf_invocation_seconds": 0.018985584989422932
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 209479794,
+      "perf_invocation_seconds": 0.06028068400337361
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 685351,
+      "perf_invocation_seconds": 0.018541265002568252
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 220282000,
+      "perf_invocation_seconds": 0.06691873300587758
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 664309,
+      "perf_invocation_seconds": 0.020260416000382975
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 221946812,
+      "perf_invocation_seconds": 0.06494600800215267
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 641394,
+      "perf_invocation_seconds": 0.019361127007869072
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 291431436,
+      "perf_invocation_seconds": 0.07798937300685793
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 640203,
+      "perf_invocation_seconds": 0.018989832999068312
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 204161539,
+      "perf_invocation_seconds": 0.06023057899437845
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 845750,
+      "perf_invocation_seconds": 0.019663581988424994
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 195093421,
+      "perf_invocation_seconds": 0.057817883003735915
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 874710,
+      "perf_invocation_seconds": 0.019718573996215127
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 180231414,
+      "perf_invocation_seconds": 0.05479856301099062
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 706178,
+      "perf_invocation_seconds": 0.019269334996351972
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 221565527,
+      "perf_invocation_seconds": 0.06425191200105473
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 680044,
+      "perf_invocation_seconds": 0.019011342999874614
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 206882855,
+      "perf_invocation_seconds": 0.061061751999659464
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 884981,
+      "perf_invocation_seconds": 0.019514632993377745
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 202801120,
+      "perf_invocation_seconds": 0.060410125995986164
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 862731,
+      "perf_invocation_seconds": 0.03173491999041289
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 179421382,
+      "perf_invocation_seconds": 0.0559659529972123
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 625955,
+      "perf_invocation_seconds": 0.019219642010284588
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 166803619,
+      "perf_invocation_seconds": 0.05212264499277808
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 652581,
+      "perf_invocation_seconds": 0.0193173139996361
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 181920396,
+      "perf_invocation_seconds": 0.05644284500158392
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 618501,
+      "perf_invocation_seconds": 0.02004309000039939
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 179607211,
+      "perf_invocation_seconds": 0.05608640899299644
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 615766,
+      "perf_invocation_seconds": 0.01960668500396423
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 195027693,
+      "perf_invocation_seconds": 0.059305180999217555
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 658067,
+      "perf_invocation_seconds": 0.01968647399917245
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 201818948,
+      "perf_invocation_seconds": 0.06051691499305889
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 613836,
+      "perf_invocation_seconds": 0.02004633600881789
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 219766396,
+      "perf_invocation_seconds": 0.06320048798806965
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 0,
+      "value": 654045,
+      "perf_invocation_seconds": 0.0200180739921052
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 3,
+      "steps": 1000000,
+      "value": 205418389,
+      "perf_invocation_seconds": 0.06114187199273147
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 634068,
+      "perf_invocation_seconds": 0.020371644000988454
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 219676292,
+      "perf_invocation_seconds": 0.06435357099690009
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 673358,
+      "perf_invocation_seconds": 0.019643584004370496
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 200815393,
+      "perf_invocation_seconds": 0.05990692500199657
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 658156,
+      "perf_invocation_seconds": 0.020188973008771427
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 194992688,
+      "perf_invocation_seconds": 0.058327815000666305
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 646191,
+      "perf_invocation_seconds": 0.020039223003550433
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 180328937,
+      "perf_invocation_seconds": 0.0557906160101993
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 670213,
+      "perf_invocation_seconds": 0.019382676007808186
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 181390092,
+      "perf_invocation_seconds": 0.0559546119911829
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 687045,
+      "perf_invocation_seconds": 0.020108431999688037
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 168037814,
+      "perf_invocation_seconds": 0.053682617988670245
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 836262,
+      "perf_invocation_seconds": 0.019757806992856786
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 179404495,
+      "perf_invocation_seconds": 0.054678739004884847
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 862280,
+      "perf_invocation_seconds": 0.020014286987134255
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 203262427,
+      "perf_invocation_seconds": 0.06033745899912901
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 665877,
+      "perf_invocation_seconds": 0.021056393001344986
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 205312689,
+      "perf_invocation_seconds": 0.06134012300753966
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 631310,
+      "perf_invocation_seconds": 0.019384529994567856
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 221863140,
+      "perf_invocation_seconds": 0.0642989390034927
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 865219,
+      "perf_invocation_seconds": 0.020049290993483737
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 179693635,
+      "perf_invocation_seconds": 0.05549359100405127
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 880271,
+      "perf_invocation_seconds": 0.02023564999399241
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 194636716,
+      "perf_invocation_seconds": 0.059530072001507506
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 600447,
+      "perf_invocation_seconds": 0.019643684005131945
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 204508676,
+      "perf_invocation_seconds": 0.061099563012248836
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 597932,
+      "perf_invocation_seconds": 0.02079437399515882
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 222045864,
+      "perf_invocation_seconds": 0.06555811098951381
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 676161,
+      "perf_invocation_seconds": 0.020714554993901402
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 220882940,
+      "perf_invocation_seconds": 0.06477414700202644
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 605757,
+      "perf_invocation_seconds": 0.020287247010855936
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 220029711,
+      "perf_invocation_seconds": 0.06399090400373098
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 669600,
+      "perf_invocation_seconds": 0.019333995995111763
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 209389675,
+      "perf_invocation_seconds": 0.06359397299820557
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 0,
+      "value": 649444,
+      "perf_invocation_seconds": 0.01973627699771896
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 4,
+      "steps": 1000000,
+      "value": 206575931,
+      "perf_invocation_seconds": 0.07004030401003547
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 640154,
+      "perf_invocation_seconds": 0.01940375599951949
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 217822957,
+      "perf_invocation_seconds": 0.062410241007455625
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 642052,
+      "perf_invocation_seconds": 0.02074464099132456
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 206260556,
+      "perf_invocation_seconds": 0.06199959399236832
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 677051,
+      "perf_invocation_seconds": 0.02070886400179006
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 208896156,
+      "perf_invocation_seconds": 0.061463231992092915
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 668729,
+      "perf_invocation_seconds": 0.019713092988240533
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 220075082,
+      "perf_invocation_seconds": 0.064067438011989
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 641600,
+      "perf_invocation_seconds": 0.019562573012080975
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 222532288,
+      "perf_invocation_seconds": 0.06404279099660926
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 621876,
+      "perf_invocation_seconds": 0.01954393699998036
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 220991033,
+      "perf_invocation_seconds": 0.06449004699243233
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 623083,
+      "perf_invocation_seconds": 0.01989540399517864
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 204915574,
+      "perf_invocation_seconds": 0.06098545998975169
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 840816,
+      "perf_invocation_seconds": 0.019857904000673443
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 195325315,
+      "perf_invocation_seconds": 0.05802507000043988
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 923069,
+      "perf_invocation_seconds": 0.019605833003879525
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 178985387,
+      "perf_invocation_seconds": 0.055644031992414966
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 642926,
+      "perf_invocation_seconds": 0.019719475996680558
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 221167746,
+      "perf_invocation_seconds": 0.06371516900253482
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 664827,
+      "perf_invocation_seconds": 0.019679431003169157
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 205856022,
+      "perf_invocation_seconds": 0.06137787300394848
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 827902,
+      "perf_invocation_seconds": 0.019762935990002006
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 203271122,
+      "perf_invocation_seconds": 0.06020345899742097
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 814574,
+      "perf_invocation_seconds": 0.020322672004112974
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 178942581,
+      "perf_invocation_seconds": 0.07152907599811442
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 636066,
+      "perf_invocation_seconds": 0.020137334999162704
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 169054533,
+      "perf_invocation_seconds": 0.05309517199930269
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 725749,
+      "perf_invocation_seconds": 0.019902056010323577
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 180675349,
+      "perf_invocation_seconds": 0.05576845500036143
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 670553,
+      "perf_invocation_seconds": 0.019869686002493836
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 179134791,
+      "perf_invocation_seconds": 0.05537220499536488
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 646257,
+      "perf_invocation_seconds": 0.01954532999661751
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 195818517,
+      "perf_invocation_seconds": 0.05917298399435822
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 0,
+      "value": 647769,
+      "perf_invocation_seconds": 0.019125405990052968
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 5,
+      "steps": 1000000,
+      "value": 199939882,
+      "perf_invocation_seconds": 0.06017871299991384
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 657841,
+      "perf_invocation_seconds": 0.02118370999232866
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 194941725,
+      "perf_invocation_seconds": 0.059246030999929644
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 761927,
+      "perf_invocation_seconds": 0.02008136200311128
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 179729831,
+      "perf_invocation_seconds": 0.05606571999669541
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 654514,
+      "perf_invocation_seconds": 0.01956416599568911
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 180992195,
+      "perf_invocation_seconds": 0.055939874990144745
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 646827,
+      "perf_invocation_seconds": 0.01977091199660208
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 167272026,
+      "perf_invocation_seconds": 0.05313825199846178
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 828093,
+      "perf_invocation_seconds": 0.020328272992628627
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 179454759,
+      "perf_invocation_seconds": 0.055953008006326854
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 861827,
+      "perf_invocation_seconds": 0.019615611992776394
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 202727840,
+      "perf_invocation_seconds": 0.06019746800302528
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 608585,
+      "perf_invocation_seconds": 0.019657760989503004
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 205331738,
+      "perf_invocation_seconds": 0.06104824699286837
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 679628,
+      "perf_invocation_seconds": 0.019133630994474515
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 223223564,
+      "perf_invocation_seconds": 0.06416830499074422
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 828694,
+      "perf_invocation_seconds": 0.02035058499313891
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 179117699,
+      "perf_invocation_seconds": 0.05595749799977057
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 821374,
+      "perf_invocation_seconds": 0.019347711000591516
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 195492257,
+      "perf_invocation_seconds": 0.058571169996866956
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 648845,
+      "perf_invocation_seconds": 0.02020041400101036
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 205186245,
+      "perf_invocation_seconds": 0.060810843991930597
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 727954,
+      "perf_invocation_seconds": 0.01959339999302756
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 221315308,
+      "perf_invocation_seconds": 0.06419494400324766
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 669110,
+      "perf_invocation_seconds": 0.019136536997393705
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 222913880,
+      "perf_invocation_seconds": 0.06409142199845519
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 623520,
+      "perf_invocation_seconds": 0.020236420998116955
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 220130152,
+      "perf_invocation_seconds": 0.06401103200914804
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 648312,
+      "perf_invocation_seconds": 0.019720676995348185
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 210392841,
+      "perf_invocation_seconds": 0.06180886800575536
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 621145,
+      "perf_invocation_seconds": 0.020436064995010383
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 206049849,
+      "perf_invocation_seconds": 0.060441182999056764
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 657615,
+      "perf_invocation_seconds": 0.020079748006537557
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 219454546,
+      "perf_invocation_seconds": 0.06438974999764469
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 0,
+      "value": 705123,
+      "perf_invocation_seconds": 0.019354693999048322
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 6,
+      "steps": 1000000,
+      "value": 199563537,
+      "perf_invocation_seconds": 0.06052965798880905
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 672815,
+      "perf_invocation_seconds": 0.019473295993520878
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 195040330,
+      "perf_invocation_seconds": 0.05844377199537121
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 732910,
+      "perf_invocation_seconds": 0.019275046011898667
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 200255847,
+      "perf_invocation_seconds": 0.05943887100147549
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 727836,
+      "perf_invocation_seconds": 0.01984885700221639
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 219840289,
+      "perf_invocation_seconds": 0.07236571799148805
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 636769,
+      "perf_invocation_seconds": 0.019413854999584146
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 205554827,
+      "perf_invocation_seconds": 0.06089660398720298
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 687826,
+      "perf_invocation_seconds": 0.019431407999945804
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 210400374,
+      "perf_invocation_seconds": 0.06175899499794468
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 659146,
+      "perf_invocation_seconds": 0.01968938000209164
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 217582120,
+      "perf_invocation_seconds": 0.06272255501244217
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 612811,
+      "perf_invocation_seconds": 0.019484256001305766
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 220927518,
+      "perf_invocation_seconds": 0.06406331999460235
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 647706,
+      "perf_invocation_seconds": 0.01930599400657229
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 247045675,
+      "perf_invocation_seconds": 0.06876838800963014
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 612974,
+      "perf_invocation_seconds": 0.01955624099355191
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 204619151,
+      "perf_invocation_seconds": 0.06147335100104101
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 779790,
+      "perf_invocation_seconds": 0.020021510004880838
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 195297917,
+      "perf_invocation_seconds": 0.058557594995363615
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 931827,
+      "perf_invocation_seconds": 0.020300160002079792
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 180434009,
+      "perf_invocation_seconds": 0.05526816000929102
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 669105,
+      "perf_invocation_seconds": 0.019367949993466027
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 222872334,
+      "perf_invocation_seconds": 0.0643680489883991
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 664146,
+      "perf_invocation_seconds": 0.019843446993036196
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 205987962,
+      "perf_invocation_seconds": 0.06227109199971892
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 857095,
+      "perf_invocation_seconds": 0.02031037000415381
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 202830404,
+      "perf_invocation_seconds": 0.06050159600272309
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 804967,
+      "perf_invocation_seconds": 0.0206230939948
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 180259669,
+      "perf_invocation_seconds": 0.05609924299642444
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 643496,
+      "perf_invocation_seconds": 0.020090058009373024
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 167188696,
+      "perf_invocation_seconds": 0.06795351600158028
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 679387,
+      "perf_invocation_seconds": 0.01985744299599901
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 180713575,
+      "perf_invocation_seconds": 0.0552456580044236
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 0,
+      "value": 625022,
+      "perf_invocation_seconds": 0.01969509999617003
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 7,
+      "steps": 1000000,
+      "value": 180112639,
+      "perf_invocation_seconds": 0.05556191901268903
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 637952,
+      "perf_invocation_seconds": 0.01937676600937266
+    },
+    {
+      "name": "avx2-wide",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 180680605,
+      "perf_invocation_seconds": 0.05586729900096543
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 656201,
+      "perf_invocation_seconds": 0.020382485003210604
+    },
+    {
+      "name": "avx2-wide-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 167949071,
+      "perf_invocation_seconds": 0.053509555000346154
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 887783,
+      "perf_invocation_seconds": 0.018981838002218865
+    },
+    {
+      "name": "x86-64-plenty-original",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 179144588,
+      "perf_invocation_seconds": 0.056236729011288844
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 912254,
+      "perf_invocation_seconds": 0.020918905996950343
+    },
+    {
+      "name": "x86-64-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 202729935,
+      "perf_invocation_seconds": 0.0606821539986413
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 685313,
+      "perf_invocation_seconds": 0.02010110899573192
+    },
+    {
+      "name": "x86-64-c-staged",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 205616831,
+      "perf_invocation_seconds": 0.06153769200318493
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 655676,
+      "perf_invocation_seconds": 0.02029919899359811
+    },
+    {
+      "name": "x86-64-c-fused",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 222039703,
+      "perf_invocation_seconds": 0.06727812399913091
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 923214,
+      "perf_invocation_seconds": 0.019802801005425863
+    },
+    {
+      "name": "x86-64-v3-plenty-original",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 179327178,
+      "perf_invocation_seconds": 0.05706140999973286
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 891752,
+      "perf_invocation_seconds": 0.01957812199543696
+    },
+    {
+      "name": "x86-64-v3-plenty-simd-xy",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 195504932,
+      "perf_invocation_seconds": 0.05767304199980572
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 635751,
+      "perf_invocation_seconds": 0.019787512996117584
+    },
+    {
+      "name": "x86-64-v3-c-staged",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 204842911,
+      "perf_invocation_seconds": 0.06169916300859768
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 651733,
+      "perf_invocation_seconds": 0.019869786003255285
+    },
+    {
+      "name": "x86-64-v3-c-fused",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 221556025,
+      "perf_invocation_seconds": 0.06486768199829385
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 796323,
+      "perf_invocation_seconds": 0.02160139099578373
+    },
+    {
+      "name": "baseline-scalar",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 218746852,
+      "perf_invocation_seconds": 0.06492177299514879
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 619467,
+      "perf_invocation_seconds": 0.0201285900111543
+    },
+    {
+      "name": "baseline-scalar-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 221224255,
+      "perf_invocation_seconds": 0.06466926199209411
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 614357,
+      "perf_invocation_seconds": 0.02011706799385138
+    },
+    {
+      "name": "baseline-halves",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 210963815,
+      "perf_invocation_seconds": 0.0607504010113189
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 630245,
+      "perf_invocation_seconds": 0.02022312700864859
+    },
+    {
+      "name": "baseline-halves-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 205924187,
+      "perf_invocation_seconds": 0.06095171699416824
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 671527,
+      "perf_invocation_seconds": 0.020095739004318602
+    },
+    {
+      "name": "avx2-scalar",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 220529845,
+      "perf_invocation_seconds": 0.06354693499451969
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 634201,
+      "perf_invocation_seconds": 0.01965187900350429
+    },
+    {
+      "name": "avx2-scalar-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 198578994,
+      "perf_invocation_seconds": 0.05922966999060009
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 721268,
+      "perf_invocation_seconds": 0.0193063040060224
+    },
+    {
+      "name": "avx2-halves",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 195009718,
+      "perf_invocation_seconds": 0.05882062599994242
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 0,
+      "value": 644323,
+      "perf_invocation_seconds": 0.020676012994954363
+    },
+    {
+      "name": "avx2-halves-pairs",
+      "event": "cycles:u",
+      "round": 8,
+      "steps": 1000000,
+      "value": 178608029,
+      "perf_invocation_seconds": 0.056145999988075346
+    }
+  ],
+  "medians": {
+    "baseline-scalar": {
+      "instructions:u": {
+        "0": 494060,
+        "1000000": 639494577
+      },
+      "cycles:u": {
+        "0": 664309,
+        "1000000": 222532288
+      }
+    },
+    "baseline-scalar-pairs": {
+      "instructions:u": {
+        "0": 494115,
+        "1000000": 641494317
+      },
+      "cycles:u": {
+        "0": 641890,
+        "1000000": 220130152
+      }
+    },
+    "baseline-halves": {
+      "instructions:u": {
+        "0": 494070,
+        "1000000": 560494432
+      },
+      "cycles:u": {
+        "0": 669600,
+        "1000000": 209479794
+      }
+    },
+    "baseline-halves-pairs": {
+      "instructions:u": {
+        "0": 494091,
+        "1000000": 550494475
+      },
+      "cycles:u": {
+        "0": 642407,
+        "1000000": 205939749
+      }
+    },
+    "avx2-scalar": {
+      "instructions:u": {
+        "0": 494051,
+        "1000000": 490494349
+      },
+      "cycles:u": {
+        "0": 657615,
+        "1000000": 219676292
+      }
+    },
+    "avx2-scalar-pairs": {
+      "instructions:u": {
+        "0": 494308,
+        "1000000": 486494397
+      },
+      "cycles:u": {
+        "0": 647769,
+        "1000000": 200255847
+      }
+    },
+    "avx2-halves": {
+      "instructions:u": {
+        "0": 494027,
+        "1000000": 425494432
+      },
+      "cycles:u": {
+        "0": 658156,
+        "1000000": 195009718
+      }
+    },
+    "avx2-halves-pairs": {
+      "instructions:u": {
+        "0": 494055,
+        "1000000": 413494421
+      },
+      "cycles:u": {
+        "0": 631178,
+        "1000000": 179975781
+      }
+    },
+    "avx2-wide": {
+      "instructions:u": {
+        "0": 494030,
+        "1000000": 299494775
+      },
+      "cycles:u": {
+        "0": 653811,
+        "1000000": 180988150
+      }
+    },
+    "avx2-wide-pairs": {
+      "instructions:u": {
+        "0": 494122,
+        "1000000": 293494429
+      },
+      "cycles:u": {
+        "0": 643496,
+        "1000000": 167659904
+      }
+    },
+    "x86-64-plenty-original": {
+      "instructions:u": {
+        "0": 721865,
+        "1000000": 473722597
+      },
+      "cycles:u": {
+        "0": 861542,
+        "1000000": 179454759
+      }
+    },
+    "x86-64-plenty-simd-xy": {
+      "instructions:u": {
+        "0": 694126,
+        "1000000": 516694604
+      },
+      "cycles:u": {
+        "0": 861827,
+        "1000000": 202801120
+      }
+    },
+    "x86-64-c-staged": {
+      "instructions:u": {
+        "0": 494076,
+        "1000000": 734494392
+      },
+      "cycles:u": {
+        "0": 664146,
+        "1000000": 205616831
+      }
+    },
+    "x86-64-c-fused": {
+      "instructions:u": {
+        "0": 494184,
+        "1000000": 563494259
+      },
+      "cycles:u": {
+        "0": 655676,
+        "1000000": 221626159
+      }
+    },
+    "x86-64-v3-plenty-original": {
+      "instructions:u": {
+        "0": 719854,
+        "1000000": 395720318
+      },
+      "cycles:u": {
+        "0": 865219,
+        "1000000": 179161125
+      }
+    },
+    "x86-64-v3-plenty-simd-xy": {
+      "instructions:u": {
+        "0": 694413,
+        "1000000": 384694541
+      },
+      "cycles:u": {
+        "0": 840294,
+        "1000000": 195297917
+      }
+    },
+    "x86-64-v3-c-staged": {
+      "instructions:u": {
+        "0": 492539,
+        "1000000": 615492887
+      },
+      "cycles:u": {
+        "0": 628965,
+        "1000000": 204619151
+      }
+    },
+    "x86-64-v3-c-fused": {
+      "instructions:u": {
+        "0": 492829,
+        "1000000": 422492808
+      },
+      "cycles:u": {
+        "0": 621876,
+        "1000000": 221556025
+      }
+    }
+  }
+}
