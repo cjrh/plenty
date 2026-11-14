@@ -160,7 +160,10 @@ To change a fork:
 
 3. Run the fork's own tests (`cargo test` in regalloc2, which includes its
    fuzz targets' smoke runs; the Cranelift filetests for a Cranelift change),
-   then Plenty's suite and the [emitted-code](emitted-code.md) measurements
+   and the [allocator integration check](fork-filetests.md) for either fork.
+   The ordinary Cranelift filetests use the registry allocator; the separate
+   check also runs them with Plenty's locked regalloc2, without blessing. Then
+   run Plenty's suite and the [emitted-code](emitted-code.md) measurements
    against the override.
 4. Commit to the fork's `fork` branch and push it. Pushing publishes; an agent
    needs the user's authorization.

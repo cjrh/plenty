@@ -46,3 +46,7 @@ skill-trial *args: compiler
 # Assemble the plentylang/skills repository from .agents/skills/plenty.
 skill-sync out:
     python3 -B scripts/sync_agent_skill.py "$1"
+
+# Fork integration: registry baseline versus Plenty's locked regalloc2 (offline).
+fork-filetests *args:
+    python3 -B scripts/check_fork_filetests.py "$@"

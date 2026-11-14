@@ -779,6 +779,7 @@
 # Development
 
 - [Development workflow](development/workflow.md)
+    - [Allocator fork filetests](development/fork-filetests.md)
     - [CI and repository configuration](development/ci-workflow.md)
     - [Reverse-proxy tests](development/proxy-tests.md)
     - [Documentation site deployment](development/documentation-deployment.md)

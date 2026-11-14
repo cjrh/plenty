@@ -5,6 +5,15 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Allocator fork filetests (issue #979)
+
+The [fork integration check](../development/fork-filetests.md) exports the exact
+Cranelift and regalloc2 revisions locked by Plenty, runs Cranelift's x64
+filetests with its registry allocator and Plenty's allocator separately, and
+retains commands, dependency trees, lockfiles and diagnostics. It never blesses
+expected output or modifies the fork checkouts. Cranelift keeps its registry
+dependency; allocator-dependent output differences require explicit review.
+
 ## Diverging `while True:` loops (issue #896)
 
 A `while` loop whose condition is the literal `True` and whose body has no
