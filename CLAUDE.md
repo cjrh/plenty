@@ -102,6 +102,7 @@ the docs CI commands after documentation edits.
 |---|---|
 | `cargo test --locked --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
 | `just test` | Full all-features workspace suite with saved compilation/execution timings; see [check reports](book/src/development/workflow.md#check-timing-reports) |
+| `just test --filter test_std_url::` | Focused integration run with saved timings and the full suite's feature graph/artifacts |
 | `cargo test --locked --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
 | `cargo test --locked --test integration test_tutorial::` | Check the tutorial lessons |
 | `PLENTY_CACHE=off cargo test ...` | Run without the compiled-function cache; `.cargo/config.toml` points it at `target/plenty-cache` for tests and `cargo run` |

@@ -98,6 +98,55 @@ class Execution(unittest.TestCase):
                 self.assertIn("ci", command)
             self.assertNotIn("--no-run", run.call_args.args[0])
 
+    def suite_commands(self, arguments, statuses=(0, 0)):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(sys, "argv", ["check_timings.py", "suite", *arguments,
+                                            "--output", tmp + "/run"]), \
+                    patch.object(timings.subprocess, "run", side_effect=[
+                        subprocess.CompletedProcess([], status) for status in statuses]) as run, \
+                    patch.object(timings, "git_revision", return_value="abc"), \
+                    patch.object(timings, "native_cache_environment", side_effect=lambda repo, env: dict(env)), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                result = timings.main()
+            data = json.loads((Path(tmp) / "run/timings.json").read_text())
+            return result, [call.args[0] for call in run.call_args_list], data
+
+    def test_focused_runs_keep_features_and_select_only_integration_target(self):
+        result, commands, data = self.suite_commands(["--filter", "test_std_url::"])
+        self.assertEqual(result, 0)
+        self.assertEqual(len(commands), 2)
+        self.assertIn("Integration filter", data["label"])
+        for command in commands:
+            self.assertIn("--workspace", command)
+            self.assertIn("--all-features", command)
+            self.assertEqual(command[command.index("--test") + 1], "integration")
+        self.assertEqual(commands[1][-1], "test_std_url::")
+        self.assertFalse(any("--doc" in command for command in commands))
+
+    def test_focused_execution_failure_keeps_its_status_and_report(self):
+        result, commands, data = self.suite_commands(["--filter", "test_std_url::"], statuses=(0, 17))
+        self.assertEqual(result, 17)
+        self.assertEqual(len(commands), 2)
+        self.assertEqual(data["rows"][-1]["name"], "Run focused tests")
+        self.assertEqual(data["rows"][-1]["status"], "failed (17)")
+
+    def test_build_and_execution_parallelism_are_independent(self):
+        result, commands, _ = self.suite_commands([
+            "--filter", "test_std_url::", "--build-jobs", "2", "--test-threads", "3"])
+        self.assertEqual(result, 0)
+        self.assertEqual(commands[0][commands[0].index("--jobs") + 1], "2")
+        self.assertEqual(commands[1][commands[1].index("--test-threads") + 1], "3")
+        self.assertEqual(commands[1][commands[1].index("--jobs") + 1], "2")
+
+    def test_invalid_filters_and_parallelism_fail_before_starting_cargo(self):
+        for arguments in (["--filter", ""], ["--filter=--ignored"],
+                          ["--build-jobs", "0"], ["--test-threads", "-1"]):
+            with patch.object(sys, "argv", ["check_timings.py", "suite", *arguments]), \
+                    patch.object(timings.subprocess, "run") as run, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                timings.main()
+            run.assert_not_called()
+
     def test_local_ci_continues_after_failure_and_keeps_logs_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

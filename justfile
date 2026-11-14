@@ -14,8 +14,8 @@ engine name:
     python3 -B scripts/release/package-engine.py "$1" --engine "target/release/libplenty_$1_v1.so" --out-dir target/release --local-install
 
 # Full workspace suite, including allocation-failure tests.
-test:
-    python3 -B scripts/check_timings.py suite
+test *args:
+    python3 -B scripts/check_timings.py suite "$@"
 
 # All published-site checks (requires the mdBook version in book/releases.json).
 docs:

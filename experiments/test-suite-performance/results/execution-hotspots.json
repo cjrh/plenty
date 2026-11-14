@@ -1,0 +1,109 @@
+{
+  "tests_run": 7493,
+  "sum_test_elapsed_seconds": 3897.722,
+  "top_one_percent_count": 75,
+  "top_one_percent_share": 0.3283558960849439,
+  "note": "Individual wall durations under 16-way contention; sum is not CPU time or suite latency.",
+  "slowest": [
+    {
+      "seconds": 133.469,
+      "binary": "plenty::integration",
+      "test": "test_relocate_moves::every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_output"
+    },
+    {
+      "seconds": 64.152,
+      "binary": "plenty::integration",
+      "test": "test_relocate_moves::every_move_in_a_package_with_shadowed_names_keeps_its_output"
+    },
+    {
+      "seconds": 62.002,
+      "binary": "plenty::integration",
+      "test": "test_generics::a_program_can_have_more_instances_than_one_template"
+    },
+    {
+      "seconds": 55.782,
+      "binary": "plenty::integration",
+      "test": "test_relocate_moves::every_move_in_a_package_with_nested_crlf_modules_keeps_its_output"
+    },
+    {
+      "seconds": 48.344,
+      "binary": "plenty::integration",
+      "test": "test_relocate_moves::every_move_in_a_workspace_library_keeps_its_dependents_output"
+    },
+    {
+      "seconds": 47.463,
+      "binary": "plenty",
+      "test": "interval::tests::outcomes_hold_for_every_value_of_the_eight_bit_types"
+    },
+    {
+      "seconds": 36.312,
+      "binary": "plenty::integration",
+      "test": "test_generators::expanding_generator_consumers_are_bounded"
+    },
+    {
+      "seconds": 34.842,
+      "binary": "plenty::integration",
+      "test": "test_executable_size::importing_a_module_links_no_native_code"
+    },
+    {
+      "seconds": 34.372,
+      "binary": "plenty::integration",
+      "test": "test_generics::branching_expansion_reaches_the_per_template_limit_within_the_depth_limit"
+    },
+    {
+      "seconds": 27.504,
+      "binary": "plenty::integration",
+      "test": "test_fixed_state::vector_view_accesses_match_scalar_code_for_sizes_and_tails"
+    },
+    {
+      "seconds": 20.252,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_11"
+    },
+    {
+      "seconds": 19.789,
+      "binary": "plenty::integration",
+      "test": "test_std_crypto_blake3::official_blake3_vectors_cover_all_three_modes_and_incremental_input"
+    },
+    {
+      "seconds": 19.706,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_07"
+    },
+    {
+      "seconds": 19.702,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_13"
+    },
+    {
+      "seconds": 18.817,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_08"
+    },
+    {
+      "seconds": 18.665,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_00"
+    },
+    {
+      "seconds": 18.526,
+      "binary": "plenty::integration",
+      "test": "test_std_io::wrappers_and_builtin_open_accept_the_same_literal_modes"
+    },
+    {
+      "seconds": 18.388,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_12"
+    },
+    {
+      "seconds": 18.33,
+      "binary": "plenty::integration",
+      "test": "test_std_textwrap::cpython_textwrap_reference_cases"
+    },
+    {
+      "seconds": 18.144,
+      "binary": "plenty::integration",
+      "test": "test_tutorial::every_tutorial_program_and_diagnostic_matches_the_language::shard_15"
+    }
+  ]
+}

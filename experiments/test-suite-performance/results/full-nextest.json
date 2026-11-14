@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "kind": "local",
+  "label": "Full suite (dev, nextest)",
+  "created_at": "2026-11-14T19:37:33.489416+00:00",
+  "revision": "86398e281ffe8bbf880955aaa14851256f69a799",
+  "host": "lavender",
+  "platform": "linux x86_64",
+  "elapsed_seconds": 261.9801728859893,
+  "rows": [
+    {
+      "name": "Compile tests",
+      "seconds": 0.17378121099318378,
+      "status": "ok",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--jobs",
+        "6",
+        "--no-run",
+        "--timings"
+      ]
+    },
+    {
+      "name": "Run tests (nextest)",
+      "seconds": 260.4045622769918,
+      "status": "ok",
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--profile",
+        "ci",
+        "--cargo-profile",
+        "dev",
+        "--build-jobs",
+        "6",
+        "--test-threads",
+        "16"
+      ]
+    },
+    {
+      "name": "Run doctests",
+      "seconds": 1.3513752040016698,
+      "status": "ok",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--jobs",
+        "6",
+        "--doc",
+        "--",
+        "--test-threads",
+        "16"
+      ]
+    }
+  ]
+}

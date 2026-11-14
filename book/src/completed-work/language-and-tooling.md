@@ -5,6 +5,17 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Shared integration fixture compilation (2026-11-14)
+
+Integration tests now compile their existing shared fixture helpers once,
+with compatibility imports preserving every feature test. Matched three-run
+probes reduce a small test-edit rebuild from 28.24 to 13.99 seconds and a small
+frontend-edit rebuild from 42.48 to 29.83 seconds on the measured development
+configuration. Test contents and the full-suite feature graph are unchanged.
+The [test workflow](../development/workflow.md#check-timing-reports) also
+supports saved focused reports and explicit build/execution parallelism.
+These are rebuild measurements; no warm execution speedup is claimed.
+
 ## Allocator fork filetests (issue #979)
 
 The [fork integration check](../development/fork-filetests.md) exports the exact

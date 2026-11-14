@@ -1,0 +1,13 @@
+{
+  "revision": "86398e281ffe8bbf880955aaa14851256f69a799",
+  "cache_seed": "/home/caleb/Documents/repos/plenty/.worktrees/test-suite-performance/target/plenty-cache",
+  "cache_files": 216,
+  "cache_bytes": 693116,
+  "jobs": 6,
+  "threads": 16,
+  "order": [
+    "cargo",
+    "nextest"
+  ],
+  "note": "Identical seed copies before either runner; full artifacts prebuilt outside measurements."
+}

@@ -103,12 +103,24 @@ def run_suite(args):
     base = ["cargo", "test", "--locked", "--workspace", "--all-features"]
     if args.profile != "dev":
         base += ["--profile", args.profile]
+    if args.build_jobs is not None:
+        base += ["--jobs", str(args.build_jobs)]
+    if args.filter is not None:
+        # Keep the full suite's feature graph while building only the selected
+        # integration target, so focused iteration reuses its artifacts.
+        base += ["--test", "integration"]
+    run = base + ([args.filter] if args.filter is not None else [])
+    if args.test_threads is not None:
+        run += ["--", "--test-threads", str(args.test_threads)]
+    commands = [("Compile tests", base + ["--no-run", "--timings"]),
+                ("Run tests and doctests" if args.filter is None else "Run focused tests", run)]
+    label = (f"Full suite ({args.profile})" if args.filter is None
+             else f"Integration filter {args.filter!r} ({args.profile})")
     started = time.monotonic()
     rows = []
     result = 0
     env = native_cache_environment(REPO, os.environ)
-    for name, command in [("Compile tests", base + ["--no-run", "--timings"]),
-                          ("Run tests and doctests", base)]:
+    for name, command in commands:
         print(f'== {name}: {" ".join(command)}', flush=True)
         before = time.monotonic()
         try:
@@ -120,7 +132,7 @@ def run_suite(args):
             result = 130
         rows.append({"name": name, "seconds": time.monotonic() - before,
                      "status": "ok" if result == 0 else f"failed ({result})", "command": command})
-        save(local_report(f"Full suite ({args.profile})", rows, time.monotonic() - started), output)
+        save(local_report(label, rows, time.monotonic() - started), output)
         if result:
             break
     return result if result >= 0 else 128 - result
@@ -169,6 +181,9 @@ def main():
     sub = parser.add_subparsers(dest="mode", required=True)
     run = sub.add_parser("suite", help="run and time the full all-features Cargo suite")
     run.add_argument("--profile", choices=["dev", "ci"], default="dev")
+    run.add_argument("--filter", help="run only matching integration tests, keeping full-suite features")
+    run.add_argument("--build-jobs", type=int, help="Cargo build jobs (independent of test threads)")
+    run.add_argument("--test-threads", type=int, help="parallel tests")
     run.add_argument("--output", type=Path)
     local = sub.add_parser("local", help="convert local_ci.sh's TSV into a saved report")
     local.add_argument("input", type=Path)
@@ -183,6 +198,10 @@ def main():
     report.add_argument("--baseline", type=Path)
     args = parser.parse_args()
     if args.mode == "suite":
+        if args.filter is not None and (not args.filter or args.filter.startswith("-")):
+            parser.error("--filter must be a nonempty test-name substring, not an option")
+        if any(value is not None and value <= 0 for value in (args.build_jobs, args.test_threads)):
+            parser.error("--build-jobs and --test-threads must be positive")
         return run_suite(args)
     if args.mode == "local":
         rows = []
