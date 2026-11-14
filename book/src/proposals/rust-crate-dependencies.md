@@ -24,8 +24,11 @@ The recommendation concerns implementation cost and maintenance, not a claimed
 universal performance winner.
 
 Keep native Rust ABI as an opt-in research route. The separate
-[Rust-source backend proposal](rust-source-backend.md) explores Rust-consumable
-libraries and native interoperability if this becomes a central goal.
+[Rust-source backend proposal](completed/rust-source-backend.md) explored
+Rust-consumable libraries and native interoperability; it was rejected at the
+user's direction on 2026-11-14, with no further implementation planned. That
+decision does not reject this Rust dependency integration proposal or its
+generated C-adapter recommendation.
 [Evidence and measurements](rust-crate-dependencies/evidence.md)
 describe all three; the [project/value contract](rust-crate-dependencies/contract.md)
 sets the intended user-facing boundary.

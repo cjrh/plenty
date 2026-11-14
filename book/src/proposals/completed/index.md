@@ -1,7 +1,8 @@
 # Completed proposals
 
 These proposals have shipped within their agreed scope, or completed the
-experiment or investigation identified in their entry. They preserve design rationale and alternatives; the [reference](../../design/index.md) and
+experiment or investigation identified in their entry, including explicitly
+rejected designs. They preserve design rationale and alternatives; the [reference](../../design/index.md) and
 [tutorial](../../tutorial/index.md) describe current behavior. Further extensions
 listed below do not make the completed scope pending again. The
 [backlog](../../backlog.md) remains the only work queue.
@@ -53,3 +54,12 @@ These records conclude an assessment, not delivery of every possible feature it 
 | [Owned structures and checked node identities](arenas.md), with the [arena prototype](arenas/prototype.md) | Existing-language patterns and prototype assessed; no `std.arena` API delivered | B73 identity/access qualification and B11 broader borrowing |
 | [Typestate and owned transitions](typestate-and-owned-transitions.md) | Existing owned transitions and their limits assessed; complemented by the [owned response experiment](typestate-response-experiment.md) | B72 state/ownership ergonomics; [linear obligations](../linear-obligations.md) remain proposed |
 | [Thread-local reference counts](thread-local-reference-counts.md) | Stage 1 measured and rejected without a cycle gain; local PR #944 closed unmerged, stage 2 not recommended | Revisit only with new platform/workload evidence; no non-atomic count mode shipped |
+
+## Rejected proposals
+
+These designs were closed without further implementation planned. Their
+experiments and design discussion remain historical records.
+
+| Proposal | Decision | Related work |
+| --- | --- | --- |
+| [Compiling Plenty to Rust source](rust-source-backend.md), with its semantic contract, probe evidence and checked-emitter measurements | Rejected at the user's direction on 2026-11-14; no further implementation planned | B20 retains the GCC assessment; [Rust dependency integration](../rust-crate-dependencies.md) remains B17 |
