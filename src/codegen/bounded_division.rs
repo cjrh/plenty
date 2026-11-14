@@ -211,17 +211,28 @@ impl Lowerer<'_, '_> {
 
     /// Whether `value` is a sum or difference with a constant operand, which
     /// the x86-64 backend would fold into an address computation that uses it.
-    fn adds_constant(&self, value: Value) -> bool {
+    ///
+    /// Adding zero is a copy that carries a proved cast's bound (issue #976)
+    /// and the optimizer removes it, so the value it copies is examined.
+    fn adds_constant(&self, mut value: Value) -> bool {
         let dfg = &self.bcx.func.dfg;
-        let ValueDef::Result(inst, _) = dfg.value_def(value) else {
-            return false;
-        };
-        match dfg.insts[inst] {
-            InstructionData::Binary {
-                opcode: Opcode::Iadd | Opcode::Isub,
+        loop {
+            let ValueDef::Result(inst, _) = dfg.value_def(value) else {
+                return false;
+            };
+            let InstructionData::Binary {
+                opcode: opcode @ (Opcode::Iadd | Opcode::Isub),
                 args,
-            } => args.iter().any(|arg| known::known_int(dfg, *arg).is_some()),
-            _ => false,
+            } = dfg.insts[inst]
+            else {
+                return false;
+            };
+            let constants = args.map(|arg| known::known_int(dfg, arg));
+            match (opcode, constants) {
+                (_, [None, Some(0)]) => value = args[0],
+                (Opcode::Iadd, [Some(0), None]) => value = args[1],
+                _ => return constants.iter().any(Option::is_some),
+            }
         }
     }
 }

@@ -676,8 +676,11 @@ Two mechanisms remove arithmetic checks. The checker's
 infallible in the language: such an operation arrives as `Op::Proved` (or a
 division with a `Divisor` proof) and is lowered as the plain instruction. Code
 generation does not recompute the interval, so it cannot disagree with the
-error contract. A proved operation's nonnegative signed interval also seeds
-the bounds below.
+error contract. A proved operation's nonnegative interval also seeds the
+bounds below, when it is within the signed range of the value's width. A
+cast between types of one width returns its operand, which is also used
+where an `if` has not narrowed it, so such a cast's bound is recorded on a
+copy of the value (issue #976).
 
 The operation validator (`src/op/check.rs`) checks a proof as far as the
 sequence shows its operands:
@@ -705,10 +708,14 @@ function for all 8-bit pairs and the edge values of the wider types.
 
 Separately, the lowerer records an upper bound for some nonnegative signed
 values (`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow
-check of arithmetic that the bounds keep in range, in trapping and
-`Result`-returning functions alike. These bounds see what the interval rules
-do not, such as loop counters and locals written in a loop. They remove
-instructions only: the operation's error stays in the function's contract.
+check of signed arithmetic that the bounds keep in range, in trapping and
+`Result`-returning functions alike. A bound describes a value's bits read as
+a signed integer, so an unsigned value has one only within the signed range
+of its width; there it serves
+[division by a constant](#division-by-a-constant). These bounds see what the
+interval rules do not, such as loop counters and locals written in a loop.
+They remove instructions only: the operation's error stays in the function's
+contract.
 
 - A view of numeric items holds at most `i64.MAX / item size` of them, so
   `len(xs)` of a `&[f64]` is at most `i64.MAX / 8`.
@@ -722,6 +729,9 @@ instructions only: the operation's error stays in the function's contract.
   constant cannot overflow.
 - A signed `%` by a positive divisor is nonnegative; by a positive constant
   `M` it is at most `M - 1`, so `x % 1000 * 3877 + 29573` has no check.
+  An unsigned `%` by a constant `M` is at most `M - 1` likewise
+  (issue #961), so `(x % 100000u32) // 7u32` has a one-word reciprocal; an
+  `M` above `2**(N - 1)` for an `N`-bit type records nothing.
 - A local the loop writes keeps a bound when every write in the loop's
   condition and body, nested blocks included, stores a `%` by a positive
   constant and the entry value is nonnegative and bounded: a read is at most

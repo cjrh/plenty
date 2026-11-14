@@ -216,9 +216,10 @@ chosen from the dividend's bound (issues #953 and #954), and the low product
 [division by a constant](design/toolchain/02-architecture/emission.md#division-by-a-constant).
 Remaining there: an add of the precomputed dividend in place of the subtract
 and its two register copies needs a change to Cranelift's x86-64 address
-folding; unsigned
-remainders record no bound; signed dividends that may be negative keep
-Cranelift's sequence.
+folding; signed
+dividends that may be negative keep Cranelift's sequence. An unsigned
+remainder by a constant records its bound (issue #961), but an unsigned local
+written in a loop carries none across passes.
 Not done: a plain integer field gets no bound (whole-program inference from
 its writes was rejected), `Bounded` intervals with a negative lower bound give
 codegen no bound, and the checker still requires `OverflowError` in the
