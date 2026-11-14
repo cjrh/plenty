@@ -2,7 +2,7 @@
 
 **Implemented in local PR #1254; accompanies the approved [view-class decision](../view-classes.md).**
 This records acceptance boundaries and source evidence, not an additional
-work queue. Issue #945 and B11 in the [backlog](../../backlog.md) track the work.
+work queue. Issue #945 and B11 in the [backlog](../../../backlog.md) track the work.
 
 ## Existing mechanisms and the new boundary
 
@@ -26,7 +26,7 @@ establish sound origin propagation. Audit every new producer and consumer.
 
 ## Representation decision
 
-Reuse [inline class layout](../../design/toolchain/02-architecture/values.md).
+Reuse [inline class layout](../../../design/toolchain/02-architecture/values.md).
 Ordinary one-field classes without cleanup use that field's representation.
 View classes always use their existing inline record storage, 128-bit value
 slot and private address relocation. Borrowed reference/view fields use their complete two-word
@@ -109,8 +109,10 @@ limits, narrow B11 to actual remaining scope and record the delivered subset.
 
 Issue #950 separately delivers builtin window/chunk loop lowering; it does
 not require the user iterator protocol.
-Issue #945 step 3 chooses a user `next` protocol and borrowed-item lifetime;
-this decision does not add it. SIMD view helpers can become classes only after
+Issue #945 step 3 separately delivers the
+[user `next` protocol](../../../design/language/09-iteration/08-user-iterators.md)
+under its strict borrowed-item lifetime; the step-2 decision did not add it.
+SIMD view helpers can become classes only after
 this representation is implemented and measured. Existing free helpers remain
 supported; no performance or check-elimination result is claimed by this
 change.
@@ -160,4 +162,4 @@ inputs remain independent origins even when a particular caller supplies
 same-source projections. The user accepted the explicit one-parent initializer
 as the step-2 contract in issue #945 comment #3037. No caller-alias equivalence
 proof is implemented or required by that accepted contract. The separate
-step-3 iterator protocol remains outstanding.
+step-3 iterator protocol is delivered separately under the strict receiver rule.

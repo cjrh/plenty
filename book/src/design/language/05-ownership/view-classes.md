@@ -92,6 +92,8 @@ it cannot capture the instance by value.
 
 View-class parameters and live view-class locals cannot enter suspended
 generator frames. Yielded view classes and pipeline adapter results are also
-unsupported. View classes do not supply a user iterator protocol. See the
-[approved design](../../../proposals/view-classes.md) for rationale and
+unsupported. View classes can supply the ordinary exclusive
+[`next` iterator protocol](../09-iteration/08-user-iterators.md), whose borrowed
+items keep the strict receiver lifetime. See the
+[approved design](../../../proposals/completed/view-classes.md) for rationale and
 alternatives.

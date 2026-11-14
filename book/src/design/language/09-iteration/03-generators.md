@@ -44,6 +44,11 @@ temporaries cannot be advanced. The borrow lasts only through the call;
 exhaustion is stable and produces `Nothing` on every later call. Resumption
 and its Option wrapper add no allocation beyond body operations.
 
+For a class with an ordinary exclusive `next` method, the same builtin uses
+the [user iterator protocol](08-user-iterators.md). Borrowed user items keep
+their receiver borrowed until last use; their lifetime differs from a
+generator's reference items that borrow its external sources.
+
 Loops, comprehensions, and iterable collection constructors consume frames.
 `break` destroys a loop's hidden frame without executing subsequent generator
 statements.

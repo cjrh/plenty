@@ -510,6 +510,8 @@ mod test_short_circuit_branches;
 mod test_slicing;
 #[path = "test_stable_sorting.rs"]
 mod test_stable_sorting;
+#[path = "test_user_iterators.rs"]
+mod test_user_iterators;
 
 #[path = "test_bounded_from.rs"]
 mod test_bounded_from;

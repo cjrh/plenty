@@ -2682,7 +2682,10 @@ impl Lower<'_> {
             match reference {
                 Ty::Ref(ty, _) => {
                     // Lists, arrays, and lent generators iterate through their reference.
-                    if !matches!(*ty, Ty::List(_) | Ty::Array(..) | Ty::Generator(_)) {
+                    if !matches!(
+                        *ty,
+                        Ty::List(_) | Ty::Array(..) | Ty::Generator(_) | Ty::Class(_)
+                    ) {
                         ops.push(Op::ReadRef((*ty).clone()));
                     }
                     ((*ty).clone(), vec![loan])
@@ -2698,7 +2701,7 @@ impl Lower<'_> {
             let (reference, loan) = self.shared_argument(base, None, ops)?;
             match reference {
                 Ty::Ref(ty, writable) => {
-                    if matches!(*ty, Ty::List(_) | Ty::Array(..)) {
+                    if matches!(*ty, Ty::List(_) | Ty::Array(..) | Ty::Class(_)) {
                         if writable {
                             ops.push(Op::Reborrow(Ty::Ref(ty.clone(), false)));
                         }
@@ -2715,7 +2718,7 @@ impl Lower<'_> {
             if let Ty::Ref(inner, writable) = ty {
                 borrowed = true;
                 mutable = writable;
-                if !matches!(*inner, Ty::List(_) | Ty::Array(..))
+                if !matches!(*inner, Ty::List(_) | Ty::Array(..) | Ty::Class(_))
                     && !(writable && matches!(*inner, Ty::Generator(_)))
                 {
                     ops.push(Op::ReadRef((*inner).clone()));
@@ -2728,6 +2731,16 @@ impl Lower<'_> {
                 (ty, loan.into_iter().collect())
             }
         };
+        if let Some(plan) = self.user_iteration(
+            names, iterable, &ty, borrowed, mutable, &loans, reverse, ops,
+        )? {
+            // The loop scope owns temporary source owners until its cleanup.
+            self.expression_temps.truncate(temporary_start);
+            return Ok(plan);
+        }
+        if borrowed && matches!(ty, Ty::Class(_)) {
+            ops.push(Op::ReadRef(ty.clone()));
+        }
         if let Ty::View(_, writable) = &ty {
             // Generic calls and unwrapped results may have no view type hint.
             // The lowered descriptor determines the same mode as view_source.

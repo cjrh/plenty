@@ -201,8 +201,12 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   explicit borrow, such as `whole: &strview = &s`.
   Views may be returned from the first reference or view parameter, including
   one `Option` or `Result` success wrapper. The result keeps the owner's loan;
-  local and temporary owners cannot escape. Nested wrappers carrying views,
-  view fields, and collection storage remain rejected. `std` operations that read bytes
+  local and temporary owners cannot escape. Nested wrappers carrying views
+  and collection storage remain rejected. Fixed reference/view fields are supported
+  in one-origin view classes; their methods retain strict receiver lifetimes.
+  A class with `next(self: &mut C) -> Option[T]` is a user iterator: loops
+  move/copy it or lend it with `&mut`; a live borrowed item blocks advancing again.
+  `std` operations that read bytes
   (`Bytes.extend`, stream `write`, `write_all`, crypto `update`) take one
   `&[u8]`, not `source, start, stop`: `w.write(&buf[a:b])`. A writer class
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.

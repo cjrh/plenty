@@ -12,6 +12,7 @@ no heap allocation.
 - [Shared windows and chunks](07-windows.md)
 - [Reverse traversal](05-reverse-and-reduce.md)
 - [Local iterator pipelines](06-pipelines.md)
+- [User iterators](08-user-iterators.md)
 
 [Loop control](../04-expressions/loops.md) defines binding scope, `break`,
 `continue`, and return checking. [Collections](../../facilities/01-builtins/collections.md)

@@ -12,6 +12,7 @@ designs and the policy for moving completed proposals.
 
 | Proposal | Reference | Further work |
 | --- | --- | --- |
+| [View classes with one borrowed origin](view-classes.md), with [ownership](view-classes/contract.md) and [qualification](view-classes/implementation.md) | [View classes](../../design/language/05-ownership/view-classes.md) and [streaming user iterators](../../design/language/09-iteration/08-user-iterators.md) | Issue #945 three-step delivery; broader stored references remain B11 and borrowed-item chain is issue #981 |
 | [Derived serialization for classes and enums](derived-serialization.md) | [`std.serial`](../../design/stdlib/serial.md), [derivation](../../design/stdlib/serial-derive.md), [typed JSON](../../design/stdlib/json-codecs.md), [typed TOML](../../design/stdlib/toml-codecs.md) | B77 / issue #781 delivered; reflection, macros and other formats are separate designs |
 | [User-defined dictionary keys and set members](user-type-hashing.md) | [Collections](../../design/facilities/01-builtins/collections.md), [`KeyType`](../../design/language/07-generics/index.md#keytype) | B74 structural-key policy delivered; optional hash caching/key projections remain separate candidates |
 | [Checked arithmetic by default](checked-by-default.md) | [Function arithmetic contracts](../../design/language/03-types/numbers.md#function-arithmetic-contracts), [bounded validation](../../completed-work/checked-default-validation.md) | B14: unchecked configuration/audit and further numeric/error conveniences; no universal performance or ABI claim |

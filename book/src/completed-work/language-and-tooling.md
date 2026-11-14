@@ -529,7 +529,7 @@ classes and enums, including standard `Deque`, `Bytes`, and heap containers
 borrowing and cleanup. Unsupported length and membership diagnostics name the
 actual operand type rather than claiming every iterable supports the operation.
 See the [collection contracts](../design/facilities/01-builtins/collections.md).
-User-container membership and iterator protocols remain **B49** in the
+User-container membership remains **B49** in the
 [backlog](../backlog.md); Python `__len__` and `__contains__` names remain reserved.
 
 ## B12: I/O and iteration
@@ -1691,8 +1691,35 @@ The cursor proves each descriptor's range, removing per-window slicing checks.
 The kernel comparison in `experiments/windows/README.md` records C/Rust
 comparisons, about 2.8% fewer moving-sum instructions and 5.2% fewer serial
 k-nucleotide instructions, with noisy CPU measurements reported separately.
-User iterator protocols, stored view classes and mutable windows remain outside
-this delivered scope; broader borrowing and iteration remain B11/B12.
+User iterator protocols and view classes are delivered separately by issue #945;
+mutable windows remain outside this delivered scope. Broader borrowing and
+iteration remain B11/B12.
+
+## User iterators (issue #945 step 3)
+
+Classes with an accessible `next(self: &mut Self) -> Option[T]` method are
+[user iterators](../design/language/09-iteration/08-user-iterators.md).
+Owning loops move or copy the source once; exclusive lending preserves
+progress after early exit. `next(source)` and `next(&mut source)` dispatch
+through ordinary method checking, as do direct calls. Generic view cursors
+can lend references, views or view-class items under the existing strict
+receiver lifetime: an earlier live item prevents another advance.
+
+Existing loop plans support eager comprehensions, enumeration, paired sources
+and local pipelines without a runtime iterator descriptor or allocation.
+Ordinary owned state can convert into a generator; existing view-class
+suspension, reference storage, transfer and erasure restrictions remain.
+Hidden owners have explicit lexical-end checks even without managed fields,
+and normal carried-loan registration preserves suspension and receiver/source
+stability through loops, backedges and borrowed-item pipeline consumers.
+
+The [cursor lesson](../tutorial/06-data/user-iterators.md) teaches a named
+exclusive loan and recommended owning collection construction. A relaxed
+shared-item lifetime, separate container factory protocol, arbitrary `flat_map`
+sources, parallel user sources and direct builtin collection conversion remain
+outside this delivery. `chain` requires owned user items; its strict borrowed-item
+origin gap is recorded as issue #981. The reference states those boundaries. This completes
+the three delivered steps in issue #945 without lifting broader B11/B12 limits.
 
 ## B83 inline arrays
 
