@@ -278,6 +278,8 @@ mod test_float_rounding;
 mod test_fs_permissions;
 mod test_host_threads;
 
+#[path = "test_accessor_tail_inline.rs"]
+mod test_accessor_tail_inline;
 #[path = "test_expected_results.rs"]
 mod test_expected_results;
 #[path = "test_expected_types.rs"]

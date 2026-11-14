@@ -1,0 +1,28 @@
+type Seed = Bounded[i64, 0, 139967]
+class Rng:
+    seed: Seed
+    def next(self: &mut Rng) -> i64:
+        self.seed = Seed.from((self.seed.get() * 3877 + 29573) % 139968)
+        self.seed.get()
+def fill(rng: &mut Rng, out: &mut [i64]) -> ():
+    for i in range(len(out)):
+        out[i] = rng.next()
+
+class Wrapped:
+    value: i64
+    def get(self: &Wrapped) -> i64:
+        self.value
+    def terminal(self: &Wrapped) -> i64:
+        self.get()
+def sum_accessor(value: &Wrapped, n: i64) -> i64:
+    mut total = 0
+    unchecked:
+        for _ in range(n):
+            total += value.terminal()
+    total
+
+def main() -> ():
+    mut rng = Rng(42)
+    mut out = [0, 0, 0, 0].unwrap()
+    fill(&mut rng, &mut out)
+    print(out, sum_accessor(&Wrapped(3), 5)).unwrap()

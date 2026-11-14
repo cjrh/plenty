@@ -1,0 +1,32 @@
+[
+  {
+    "build": "before",
+    "instructions": 128713226418,
+    "stdout": "profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized\naot_including_check_archive_link_median_ms=1549.889\n"
+  },
+  {
+    "build": "before",
+    "instructions": 128713916868,
+    "stdout": "profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized\naot_including_check_archive_link_median_ms=1670.361\n"
+  },
+  {
+    "build": "before",
+    "instructions": 128712364417,
+    "stdout": "profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized\naot_including_check_archive_link_median_ms=1943.504\n"
+  },
+  {
+    "build": "after",
+    "instructions": 128794755360,
+    "stdout": "profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized\naot_including_check_archive_link_median_ms=1475.751\n"
+  },
+  {
+    "build": "after",
+    "instructions": 128797337499,
+    "stdout": "profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized\naot_including_check_archive_link_median_ms=1497.511\n"
+  },
+  {
+    "build": "after",
+    "instructions": 128798698313,
+    "stdout": "profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized\naot_including_check_archive_link_median_ms=1534.132\n"
+  }
+]
