@@ -63,6 +63,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
 | Cooperative suspension and owned tasks | [Async/await exploration](async-await.md), [Go-style scoped tasks](stackful-tasks.md) | [Async ownership and cleanup](async-await/ownership.md), [async spike evidence](async-await/evidence.md), [stackful runtime choices](stackful-tasks/runtime.md), [stackful spike evidence](stackful-tasks/evidence.md), [linear execution responsibility](linear-integration.md) |
 | Iteration and adapter chains | [Fluent iterator pipelines](completed/fluent-iterators.md) | [Shipped generators](completed/generators.md), [parallel execution](memory-parallelism-and-simd.md) |
+| Declared geometric vectors | [Declared vectors for related floating components](declared-vectors.md) | [Numeric/layout contract](declared-vectors/contract.md), [evidence gates](declared-vectors/evidence.md), [inline arrays](value-generics.md) |
 | Portable vector operations and automatic SIMD | [Portable `std.simd`](std-simd.md) | [API contract](std-simd/api.md), [pipeline recognition](std-simd/automatic.md), [backend evidence](std-simd/evidence.md) |
 | Columnar record storage | [Columnar lists](columnar-list.md) | [Ownership and API](columnar-list/contract.md), [chunks and deletion](columnar-list/chunks.md), [layout evidence](columnar-list/evidence.md), [Plenty implementation spike](columnar-list/implementation-spike.md) |
 | Analytical dataframes | [Polars embedding](completed/polars-dataframes.md) | [Native interface and measured costs](completed/polars-dataframes/evidence.md) |
@@ -79,6 +80,8 @@ reference pages, concluded investigations, and rejected designs. Further
 extensions remain tracked in the backlog; a rejected proposal does not imply
 an implementation commitment.
 
+Issue #945 step 2 delivers [single-origin view classes](../design/language/05-ownership/view-classes.md) under the [approved contract](completed/view-classes.md), including explicit one-parent initializers for multiple shared fields. Step 3 adds [streaming user iterators](../design/language/09-iteration/08-user-iterators.md) under the same strict receiver lifetime. Broader borrowing remains B11/B12/B49 work.
+
 The 2026-11-08 classification review moved derived serialization (B77),
 structural keys (B74), checked-default arithmetic (B14), and the Polars
 foundation (B76), together with concluded arena, typestate and thread-local
@@ -89,12 +92,12 @@ records and local merge metadata; it did not rerun their feature suites.
 
 | Proposal | Shipped | Remaining |
 | --- | --- | --- |
-| [Value generic parameters](value-generics.md) | [Value parameters](../design/language/07-generics/values.md) and [`Bounded`](../design/language/03-types/bounded.md) | B83 arrays/assertions; B96 std adoption |
+| [Value generic parameters](value-generics.md) | [Value parameters](../design/language/07-generics/values.md), [`Bounded`](../design/language/03-types/bounded.md), and [inline arrays](../design/language/03-types/arrays.md) | B83 per-instance assertions; B96 std adoption |
 | [Recursive owned data](recursive-data.md) | [Recursive storage](../design/language/03-types/recursive-data.md) through `Box[T]` | B11, B33 |
 | [Typed ranges, generic calls, and expression-local inference](typed-ranges-and-expression-inference.md) | [Typed ranges](../design/facilities/01-builtins/ranges.md), contextual literals, explicit type arguments | B12, B16, B32 |
 | [C interop and dynamic libraries](ffi-and-dynamic-libraries.md) | [Imports, linking, exports, and resident loading](../design/facilities/04-interop/index.md) | B18, B27, B28 |
 | [Generated library contracts and C headers](ffi-export-contracts.md) | [Exports](../design/facilities/04-interop/exports.md), [contracts](../design/facilities/04-interop/contracts.md) | B27, B28 |
-| [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md), [initial SIMD](../completed-work/performance.md#b23-simd) | B13 allocator control; B23 SIMD extensions; B24 automatic parallelization; B83 fixed arrays |
+| [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md), [initial SIMD](../completed-work/performance.md#b23-simd), [inline arrays](../design/language/03-types/arrays.md) | B13 allocator control; B23 SIMD extensions; B24 automatic parallelization |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
 | [Units of measure](units-of-measure.md) | [Dimensions](../design/language/03-types/dimensions.md) and [`Quantity[T, D]`](../design/language/03-types/quantities.md), erased to their storage type (issue #701) | B97: plot axis labels; `std.units` and shared instance bodies shipped |
@@ -108,6 +111,7 @@ records and local merge metadata; it did not rerun their feature suites.
 
 | Proposal | Backlog |
 | --- | --- |
+| [Declared vectors for floating components](declared-vectors.md) — approved investigation for issue #967; arrays and bounded experiment delivered, vector adoption remains gated | B23/B83 |
 | [Stronger safety boundaries](trusted-safety-boundaries.md) — trusted modules, checked foreign owners, actor abandonment certification, transitive trust policy, and callback guarantees | B98; related B17, B22, B85 |
 | [One borrowed text type](unified-borrowed-text.md) — exploratory unification of `&str` and `&substr`; representation and generic-reference semantics remain adoption gates | B12; returned text relates to B11 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |

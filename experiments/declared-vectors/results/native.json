@@ -1,0 +1,2299 @@
+{
+  "revision": "6bb31653fdc59c56b968bafadc4f6530c6871498",
+  "steps": 1000000,
+  "core": 0,
+  "verification": [
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      "verified 121 IEEE cases, exception parity, unaligned guard pages, empty access"
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      "verified 121 IEEE cases, exception parity, unaligned guard pages, empty access"
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      "256 randomized finite-state cases bit-identical"
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      "256 randomized finite-state cases bit-identical"
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      "verified 121 IEEE cases, exception parity, unaligned guard pages, empty access"
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      "verified 121 IEEE cases, exception parity, unaligned guard pages, empty access"
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      "verified 121 IEEE cases, exception parity, unaligned guard pages, empty access"
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      "256 randomized finite-state cases bit-identical"
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      "256 randomized finite-state cases bit-identical"
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      "256 randomized finite-state cases bit-identical"
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      -1
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      -1
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      -1
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      -1
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      -1
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      0
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      0
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      0
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      0
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      0
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      1
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      1
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      1
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      1
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      1
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      2
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      2
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      2
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      2
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      2
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      3
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      3
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      3
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      3
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      3
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      1000
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      1000
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      1000
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      1000
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      1000
+    ],
+    [
+      "recurrence",
+      "native-baseline-scalar",
+      1000000
+    ],
+    [
+      "recurrence",
+      "native-baseline-halves",
+      1000000
+    ],
+    [
+      "recurrence",
+      "native-avx2-scalar",
+      1000000
+    ],
+    [
+      "recurrence",
+      "native-avx2-halves",
+      1000000
+    ],
+    [
+      "recurrence",
+      "native-avx2-wide",
+      1000000
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      -1
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      -1
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      -1
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      -1
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      -1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      -1
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      0
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      0
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      0
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      0
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      0
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      0
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      1
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      1
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      1
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      1
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      1
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      1
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      2
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      2
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      2
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      2
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      2
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      2
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      3
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      3
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      3
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      3
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      3
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      3
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      1000
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      1000
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      1000
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      1000
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      1000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      1000
+    ],
+    [
+      "nbody",
+      "native-baseline-scalar",
+      1000000
+    ],
+    [
+      "nbody",
+      "native-baseline-halves",
+      1000000
+    ],
+    [
+      "nbody",
+      "native-avx2-scalar",
+      1000000
+    ],
+    [
+      "nbody",
+      "native-avx2-halves",
+      1000000
+    ],
+    [
+      "nbody",
+      "native-avx2-wide",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-list-original",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-array-original",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-original",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-original",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-list-fused",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-array-fused",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-fused",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-fused",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-list-locals",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-array-locals",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-locals",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-locals",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-list-simd-xy",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-array-simd-xy",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-list-simd-xy",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-array-simd-xy",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-c-staged",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-c-fused",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-staged",
+      1000000
+    ],
+    [
+      "nbody",
+      "x86-64-v3-c-fused",
+      1000000
+    ]
+  ],
+  "loops": {
+    "recurrence-baseline-%recurrence_scalar": {
+      "total": 9,
+      "categories": {
+        "integer/control": 3,
+        "scalar FP arithmetic": 6
+      }
+    },
+    "recurrence-baseline-%recurrence_halves": {
+      "total": 7,
+      "categories": {
+        "integer/control": 3,
+        "packed FP arithmetic": 4
+      }
+    },
+    "nbody-baseline-%advance_scalar": {
+      "total": 639,
+      "categories": {
+        "integer/control": 4,
+        "stack moves": 222,
+        "register copies": 123,
+        "scalar FP arithmetic": 280,
+        "zeroing": 10
+      }
+    },
+    "nbody-baseline-%advance_halves": {
+      "total": 560,
+      "categories": {
+        "integer/control": 4,
+        "stack moves": 178,
+        "register copies": 128,
+        "packed FP arithmetic": 140,
+        "lane rearrangements": 30,
+        "scalar FP arithmetic": 70,
+        "zeroing": 10
+      }
+    },
+    "recurrence-avx2-%recurrence_scalar": {
+      "total": 9,
+      "categories": {
+        "integer/control": 3,
+        "scalar FP arithmetic": 6
+      }
+    },
+    "recurrence-avx2-%recurrence_halves": {
+      "total": 7,
+      "categories": {
+        "integer/control": 3,
+        "packed FP arithmetic": 4
+      }
+    },
+    "recurrence-avx2-%recurrence_wide": {
+      "total": 5,
+      "categories": {
+        "integer/control": 3,
+        "packed FP arithmetic": 2
+      }
+    },
+    "nbody-avx2-%advance_scalar": {
+      "total": 490,
+      "categories": {
+        "integer/control": 4,
+        "stack moves": 190,
+        "scalar FP arithmetic": 280,
+        "zeroing": 10,
+        "register copies": 6
+      }
+    },
+    "nbody-avx2-%advance_halves": {
+      "total": 425,
+      "categories": {
+        "integer/control": 4,
+        "stack moves": 138,
+        "packed FP arithmetic": 140,
+        "lane rearrangements": 30,
+        "scalar FP arithmetic": 70,
+        "zeroing": 10,
+        "register copies": 33
+      }
+    },
+    "nbody-avx2-%advance_wide": {
+      "total": 299,
+      "categories": {
+        "integer/control": 4,
+        "stack moves": 60,
+        "packed FP arithmetic": 70,
+        "lane rearrangements": 40,
+        "scalar FP arithmetic": 70,
+        "zeroing": 10,
+        "register copies": 5,
+        "other: broadcastsd": 40
+      }
+    }
+  },
+  "instructions": {
+    "recurrence-native-baseline-scalar": [
+      9499361,
+      9499282,
+      9499271
+    ],
+    "recurrence-native-baseline-halves": [
+      7499290,
+      7499296,
+      7499307
+    ],
+    "recurrence-native-avx2-scalar": [
+      9499261,
+      9499650,
+      9499259
+    ],
+    "recurrence-native-avx2-halves": [
+      7499544,
+      7499273,
+      7499273
+    ],
+    "recurrence-native-avx2-wide": [
+      5499261,
+      5499296,
+      5499271
+    ],
+    "nbody-native-baseline-scalar": [
+      639494420,
+      639494310,
+      639494325
+    ],
+    "nbody-native-baseline-halves": [
+      560494452,
+      560494473,
+      560494695
+    ],
+    "nbody-native-avx2-scalar": [
+      490494658,
+      490494579,
+      490494358
+    ],
+    "nbody-native-avx2-halves": [
+      425494624,
+      425494653,
+      425494362
+    ],
+    "nbody-native-avx2-wide": [
+      299494440,
+      299494390,
+      299494668
+    ],
+    "nbody-x86-64-list-original": [
+      473722583,
+      473722599,
+      473722581
+    ],
+    "nbody-x86-64-array-original": [
+      2507683323,
+      2507683224,
+      2507683606
+    ],
+    "nbody-x86-64-v3-list-original": [
+      395723254,
+      395722928,
+      395723297
+    ],
+    "nbody-x86-64-v3-array-original": [
+      2482683881,
+      2482683792,
+      2482683749
+    ],
+    "nbody-x86-64-list-fused": [
+      656694339,
+      656694116,
+      656694081
+    ],
+    "nbody-x86-64-array-fused": [
+      1237655499,
+      1237656171,
+      1237655251
+    ],
+    "nbody-x86-64-v3-list-fused": [
+      485694812,
+      485694505,
+      485694685
+    ],
+    "nbody-x86-64-v3-array-fused": [
+      1152655520,
+      1152655570,
+      1152655551
+    ],
+    "nbody-x86-64-list-locals": [
+      652694285,
+      652694222,
+      652694308
+    ],
+    "nbody-x86-64-array-locals": [
+      633655363,
+      633655310,
+      633655285
+    ],
+    "nbody-x86-64-v3-list-locals": [
+      468694642,
+      468694771,
+      468695235
+    ],
+    "nbody-x86-64-v3-array-locals": [
+      468656037,
+      468655717,
+      468655722
+    ],
+    "nbody-x86-64-list-simd-xy": [
+      516694387,
+      516694301,
+      516694385
+    ],
+    "nbody-x86-64-array-simd-xy": [
+      487655369,
+      487655612,
+      487655409
+    ],
+    "nbody-x86-64-v3-list-simd-xy": [
+      384694996,
+      384694737,
+      384694825
+    ],
+    "nbody-x86-64-v3-array-simd-xy": [
+      388655720,
+      388655785,
+      388656067
+    ],
+    "nbody-x86-64-c-staged": [
+      734494219,
+      734494291,
+      734494676
+    ],
+    "nbody-x86-64-c-fused": [
+      563494232,
+      563494276,
+      563494504
+    ],
+    "nbody-x86-64-v3-c-staged": [
+      615492751,
+      615493066,
+      615493109
+    ],
+    "nbody-x86-64-v3-c-fused": [
+      422493040,
+      422492794,
+      422493126
+    ]
+  },
+  "cycles": {
+    "recurrence-native-baseline-scalar": [
+      6657518,
+      6619267,
+      6731329,
+      6676718,
+      6632773,
+      6634920,
+      6636811,
+      6614572,
+      6635606
+    ],
+    "recurrence-native-baseline-halves": [
+      6618553,
+      6711966,
+      6608208,
+      6644320,
+      6607191,
+      6626788,
+      6601036,
+      6650657,
+      6648455
+    ],
+    "recurrence-native-avx2-scalar": [
+      6618564,
+      6688544,
+      6666274,
+      6656898,
+      6612691,
+      6620166,
+      6640797,
+      6640346,
+      6629911
+    ],
+    "recurrence-native-avx2-halves": [
+      6709882,
+      6712940,
+      6677798,
+      6698568,
+      6619620,
+      6616384,
+      6721218,
+      6673664,
+      6642288
+    ],
+    "recurrence-native-avx2-wide": [
+      6716236,
+      6681859,
+      6649123,
+      6638537,
+      6616307,
+      6605871,
+      6676019,
+      6726184,
+      6748734
+    ],
+    "nbody-native-baseline-scalar": [
+      221426460,
+      222863953,
+      222849870,
+      219983010,
+      227576061,
+      221045357,
+      221859518,
+      220328254,
+      223817700
+    ],
+    "nbody-native-baseline-halves": [
+      208383363,
+      208660437,
+      208262636,
+      208785491,
+      208159982,
+      208799372,
+      208240078,
+      208569110,
+      208267027
+    ],
+    "nbody-native-avx2-scalar": [
+      220603803,
+      220008066,
+      221368443,
+      218823542,
+      220653077,
+      224086050,
+      220840983,
+      218397426,
+      219737865
+    ],
+    "nbody-native-avx2-halves": [
+      194111861,
+      194621802,
+      195055602,
+      194693738,
+      194598682,
+      195663203,
+      195615323,
+      193303555,
+      195091246
+    ],
+    "nbody-native-avx2-wide": [
+      180797031,
+      182121577,
+      182219150,
+      181319023,
+      181840134,
+      181189722,
+      181715822,
+      182152934,
+      181999881
+    ],
+    "nbody-x86-64-list-original": [
+      179030682,
+      179179539,
+      179189868,
+      179260863,
+      179582985,
+      179708558,
+      179924225,
+      179364622,
+      180145242
+    ],
+    "nbody-x86-64-array-original": [
+      482672778,
+      482759496,
+      482840649,
+      483806528,
+      484907290,
+      483888310,
+      485117993,
+      481427288,
+      481876944
+    ],
+    "nbody-x86-64-v3-list-original": [
+      179471105,
+      178464955,
+      178644384,
+      179111657,
+      178273564,
+      179373741,
+      179878082,
+      178730451,
+      178938789
+    ],
+    "nbody-x86-64-v3-array-original": [
+      482913901,
+      483358458,
+      481969323,
+      483271488,
+      482500945,
+      482092098,
+      482954221,
+      482816819,
+      481268819
+    ],
+    "nbody-x86-64-list-fused": [
+      255167929,
+      254802393,
+      253880649,
+      256557421,
+      252642110,
+      251888009,
+      255213445,
+      254258900,
+      253545555
+    ],
+    "nbody-x86-64-array-fused": [
+      244517648,
+      243971239,
+      243690022,
+      243928465,
+      244024025,
+      243828541,
+      244652156,
+      244431676,
+      243901569
+    ],
+    "nbody-x86-64-v3-list-fused": [
+      222401917,
+      222643381,
+      222327601,
+      222394471,
+      223210911,
+      222037807,
+      225327189,
+      222352979,
+      222639641
+    ],
+    "nbody-x86-64-v3-array-fused": [
+      241602709,
+      242619444,
+      241744487,
+      242397769,
+      241671426,
+      242158290,
+      242014500,
+      241722378,
+      242421413
+    ],
+    "nbody-x86-64-list-locals": [
+      222952155,
+      222384212,
+      222266961,
+      222703826,
+      222648013,
+      223499377,
+      223835135,
+      222594820,
+      224810081
+    ],
+    "nbody-x86-64-array-locals": [
+      221672479,
+      223754968,
+      220980596,
+      221654206,
+      224765866,
+      221574166,
+      222213282,
+      221471368,
+      222480162
+    ],
+    "nbody-x86-64-v3-list-locals": [
+      207980410,
+      206782056,
+      207596585,
+      207360530,
+      205958318,
+      208368670,
+      207355870,
+      207613738,
+      206409861
+    ],
+    "nbody-x86-64-v3-array-locals": [
+      211492831,
+      209615299,
+      211227449,
+      210612515,
+      211131501,
+      210235218,
+      208571569,
+      211533419,
+      210561948
+    ],
+    "nbody-x86-64-list-simd-xy": [
+      201897386,
+      202429931,
+      202427318,
+      201720405,
+      202036088,
+      202353679,
+      202962837,
+      202317136,
+      202506833
+    ],
+    "nbody-x86-64-array-simd-xy": [
+      201278776,
+      200590339,
+      201729653,
+      200401537,
+      201293591,
+      200683699,
+      200164677,
+      200739201,
+      200844248
+    ],
+    "nbody-x86-64-v3-list-simd-xy": [
+      195195998,
+      195187888,
+      195195110,
+      195555740,
+      195425221,
+      195216342,
+      195979294,
+      194791842,
+      195257447
+    ],
+    "nbody-x86-64-v3-array-simd-xy": [
+      196746073,
+      196525354,
+      196841787,
+      196178349,
+      195950479,
+      196318001,
+      196377248,
+      195960489,
+      196160825
+    ],
+    "nbody-x86-64-c-staged": [
+      240518000,
+      205298074,
+      205295663,
+      205734321,
+      206959026,
+      206209421,
+      206263928,
+      205273536,
+      205329360
+    ],
+    "nbody-x86-64-c-fused": [
+      221501507,
+      222485750,
+      221793780,
+      220317487,
+      223254930,
+      223065425,
+      222392932,
+      221857030,
+      221761234
+    ],
+    "nbody-x86-64-v3-c-staged": [
+      203725749,
+      204082372,
+      205346092,
+      205220489,
+      379806357,
+      206747063,
+      206072586,
+      381028872,
+      344287043
+    ],
+    "nbody-x86-64-v3-c-fused": [
+      220186538,
+      220112769,
+      221769892,
+      220166474,
+      221436194,
+      221917058,
+      221698899,
+      220927747,
+      222159506
+    ]
+  },
+  "wall_seconds": {
+    "recurrence-native-baseline-scalar": [
+      0.021469477011123672,
+      0.02049971598898992,
+      0.021646658002282493,
+      0.020989581011235714,
+      0.021213058003922924,
+      0.020568423002259806,
+      0.021454850008012727,
+      0.0220053579978412,
+      0.021139892007340677
+    ],
+    "recurrence-native-baseline-halves": [
+      0.020823590995860286,
+      0.020942383009241894,
+      0.02103705999616068,
+      0.02032302599400282,
+      0.02120736800134182,
+      0.020578602998284623,
+      0.02048932599427644,
+      0.02119944299920462,
+      0.020369011006550863
+    ],
+    "recurrence-native-avx2-scalar": [
+      0.021286065006279387,
+      0.02057637899997644,
+      0.02134832099545747,
+      0.02236433899088297,
+      0.021138870011782274,
+      0.021224588999757543,
+      0.022088893994805403,
+      0.020306844991864637,
+      0.020923977994243614
+    ],
+    "recurrence-native-avx2-halves": [
+      0.020116269995924085,
+      0.021351375995436683,
+      0.020880276002571918,
+      0.020401322006364353,
+      0.0210562449938152,
+      0.021574403013801202,
+      0.021544417992117815,
+      0.021231512990198098,
+      0.02145335699606221
+    ],
+    "recurrence-native-avx2-wide": [
+      0.020310962994699366,
+      0.021464888006448746,
+      0.021282077999785542,
+      0.021725856000557542,
+      0.021077003999380395,
+      0.02148466599464882,
+      0.022359640002832748,
+      0.02131952700437978,
+      0.02153808499861043
+    ],
+    "nbody-native-baseline-scalar": [
+      0.07073511100315955,
+      0.0657322449987987,
+      0.06551001999469008,
+      0.06487944199761841,
+      0.06870412699936423,
+      0.06495630501012783,
+      0.06509613699745387,
+      0.06378570800006855,
+      0.06594942099764012
+    ],
+    "nbody-native-baseline-halves": [
+      0.06129064799461048,
+      0.061953896991326474,
+      0.06185362000542227,
+      0.06295177100400906,
+      0.06398764600453433,
+      0.06240145298943389,
+      0.06208037400210742,
+      0.061902299989014864,
+      0.06271558000298683
+    ],
+    "nbody-native-avx2-scalar": [
+      0.06393602999742143,
+      0.0646440320124384,
+      0.06451455999922473,
+      0.0640157489979174,
+      0.06427472199720796,
+      0.0676184089970775,
+      0.06411279000167269,
+      0.06439674001012463,
+      0.06362329500552732
+    ],
+    "nbody-native-avx2-halves": [
+      0.059490194005775265,
+      0.058859034994384274,
+      0.059340053005144,
+      0.05939855299948249,
+      0.060026025006663986,
+      0.0616667599970242,
+      0.05863501700514462,
+      0.05908602000272367,
+      0.05915426700084936
+    ],
+    "nbody-native-avx2-wide": [
+      0.05636572701041587,
+      0.05723515199497342,
+      0.056723154993960634,
+      0.0565198149997741,
+      0.05590161000145599,
+      0.05689009701018222,
+      0.0563705960084917,
+      0.05701531100203283,
+      0.056239040990476497
+    ],
+    "nbody-x86-64-list-original": [
+      0.05593946100270841,
+      0.0562976399960462,
+      0.05638344101316761,
+      0.05662849798682146,
+      0.05592629700549878,
+      0.05637937299616169,
+      0.05626912700245157,
+      0.0573203910025768,
+      0.05638548400020227
+    ],
+    "nbody-x86-64-array-original": [
+      0.11952870200912002,
+      0.11936923499160912,
+      0.1195588789996691,
+      0.11957804499252234,
+      0.12379112499183975,
+      0.12016343799768947,
+      0.12036329199327156,
+      0.11960168900259305,
+      0.1190470730070956
+    ],
+    "nbody-x86-64-v3-list-original": [
+      0.055685084997094236,
+      0.05568582699925173,
+      0.05615891100023873,
+      0.0558275719959056,
+      0.05701294599566609,
+      0.05649776400241535,
+      0.05618610099190846,
+      0.05585964200145099,
+      0.056530714995460585
+    ],
+    "nbody-x86-64-v3-array-original": [
+      0.11990258100559004,
+      0.11907630698988214,
+      0.11929496600350831,
+      0.12071283400291577,
+      0.11998742001014762,
+      0.11947257799329236,
+      0.12182540299545508,
+      0.11987130300258286,
+      0.12011351500404999
+    ],
+    "nbody-x86-64-list-fused": [
+      0.07166743199923076,
+      0.07177013398904819,
+      0.07098045900056604,
+      0.07229602700681426,
+      0.07096315700619016,
+      0.07218299500527792,
+      0.07083923601021525,
+      0.07177140700514428,
+      0.07105470799433533
+    ],
+    "nbody-x86-64-array-fused": [
+      0.06994624699291307,
+      0.07066217499959748,
+      0.0707695550081553,
+      0.07058456900995225,
+      0.06932671999675222,
+      0.0695884189917706,
+      0.07017942299717106,
+      0.06973977200686932,
+      0.07097572000930086
+    ],
+    "nbody-x86-64-v3-list-fused": [
+      0.06686078300117515,
+      0.06604357599280775,
+      0.06558974900690373,
+      0.0652114920085296,
+      0.06533788899832871,
+      0.06460898599470966,
+      0.06579170600161888,
+      0.06450960099755321,
+      0.06553072801034432
+    ],
+    "nbody-x86-64-v3-array-fused": [
+      0.07199574600963388,
+      0.06865663798816968,
+      0.0688449189910898,
+      0.06965393100108486,
+      0.06966824800474569,
+      0.06921094300923869,
+      0.06941486400319263,
+      0.06850987400684971,
+      0.0694382279907586
+    ],
+    "nbody-x86-64-list-locals": [
+      0.06914635199063923,
+      0.0649648319958942,
+      0.06429483999090735,
+      0.06652433499402832,
+      0.07770629398874007,
+      0.06498388700128999,
+      0.06743283200194128,
+      0.06637860200135037,
+      0.06575067900121212
+    ],
+    "nbody-x86-64-array-locals": [
+      0.06667090900009498,
+      0.065911840996705,
+      0.06494106700120028,
+      0.06502978199569043,
+      0.06667876300343778,
+      0.06469088900485076,
+      0.0675942939997185,
+      0.06572059400787111,
+      0.06530249300703872
+    ],
+    "nbody-x86-64-v3-list-locals": [
+      0.06895848200656474,
+      0.0616657079954166,
+      0.06241887400392443,
+      0.06560800199804362,
+      0.06164767399604898,
+      0.06170462099544238,
+      0.0657223169982899,
+      0.06238062400370836,
+      0.06150226299359929
+    ],
+    "nbody-x86-64-v3-array-locals": [
+      0.06237078500271309,
+      0.062110138998832554,
+      0.06301707300008275,
+      0.06384240499755833,
+      0.06277166400104761,
+      0.06238161600776948,
+      0.06370443700870965,
+      0.06283454199729022,
+      0.06269993000023533
+    ],
+    "nbody-x86-64-list-simd-xy": [
+      0.060974267005803995,
+      0.06051371600187849,
+      0.06078162700578105,
+      0.0603389000025345,
+      0.06054823100566864,
+      0.06091534601000603,
+      0.06101906999538187,
+      0.061816620000172406,
+      0.06075947600766085
+    ],
+    "nbody-x86-64-array-simd-xy": [
+      0.06068270200921688,
+      0.059962376006296836,
+      0.06110484000237193,
+      0.0599028449942125,
+      0.06084147799992934,
+      0.060550545997102745,
+      0.06023418399854563,
+      0.06021117200725712,
+      0.060633920002146624
+    ],
+    "nbody-x86-64-v3-list-simd-xy": [
+      0.059982813996612094,
+      0.058819209996727295,
+      0.05947496599401347,
+      0.059648831011145376,
+      0.06136202199559193,
+      0.059355942998081446,
+      0.05881811800645664,
+      0.0597041739965789,
+      0.05913657399651129
+    ],
+    "nbody-x86-64-v3-array-simd-xy": [
+      0.05970870300370734,
+      0.059443275997182354,
+      0.060784882996813394,
+      0.05945799300388899,
+      0.06266917200991884,
+      0.06870330500532873,
+      0.059339072002330795,
+      0.05886174000625033,
+      0.05924286200024653
+    ],
+    "nbody-x86-64-c-staged": [
+      0.06861018099880312,
+      0.06206348100386094,
+      0.062359654999454506,
+      0.0611268420034321,
+      0.06270074199710507,
+      0.06217395699059125,
+      0.06158766300359275,
+      0.061978441997780465,
+      0.06186941899068188
+    ],
+    "nbody-x86-64-c-fused": [
+      0.06518941999820527,
+      0.06415056000696495,
+      0.065064516995335,
+      0.07624500399106182,
+      0.06431896499998402,
+      0.06450950998987537,
+      0.06486197900085244,
+      0.06496544199762866,
+      0.06481399999756832
+    ],
+    "nbody-x86-64-v3-c-staged": [
+      0.06149062101030722,
+      0.06170109398954082,
+      0.060775354999350384,
+      0.061995363008463755,
+      0.09601771099551115,
+      0.06151992600644007,
+      0.06179113299003802,
+      0.09768951499427203,
+      0.09077616900322028
+    ],
+    "nbody-x86-64-v3-c-fused": [
+      0.06524278099823277,
+      0.06355551899468992,
+      0.06602218600164633,
+      0.06445895599608775,
+      0.06398885800444987,
+      0.06529955699807033,
+      0.06475885599502362,
+      0.06497912800114136,
+      0.06574370599992108
+    ]
+  },
+  "medians": {
+    "instructions": {
+      "recurrence-native-baseline-scalar": 9499282,
+      "recurrence-native-baseline-halves": 7499296,
+      "recurrence-native-avx2-scalar": 9499261,
+      "recurrence-native-avx2-halves": 7499273,
+      "recurrence-native-avx2-wide": 5499271,
+      "nbody-native-baseline-scalar": 639494325,
+      "nbody-native-baseline-halves": 560494473,
+      "nbody-native-avx2-scalar": 490494579,
+      "nbody-native-avx2-halves": 425494624,
+      "nbody-native-avx2-wide": 299494440,
+      "nbody-x86-64-list-original": 473722583,
+      "nbody-x86-64-array-original": 2507683323,
+      "nbody-x86-64-v3-list-original": 395723254,
+      "nbody-x86-64-v3-array-original": 2482683792,
+      "nbody-x86-64-list-fused": 656694116,
+      "nbody-x86-64-array-fused": 1237655499,
+      "nbody-x86-64-v3-list-fused": 485694685,
+      "nbody-x86-64-v3-array-fused": 1152655551,
+      "nbody-x86-64-list-locals": 652694285,
+      "nbody-x86-64-array-locals": 633655310,
+      "nbody-x86-64-v3-list-locals": 468694771,
+      "nbody-x86-64-v3-array-locals": 468655722,
+      "nbody-x86-64-list-simd-xy": 516694385,
+      "nbody-x86-64-array-simd-xy": 487655409,
+      "nbody-x86-64-v3-list-simd-xy": 384694825,
+      "nbody-x86-64-v3-array-simd-xy": 388655785,
+      "nbody-x86-64-c-staged": 734494291,
+      "nbody-x86-64-c-fused": 563494276,
+      "nbody-x86-64-v3-c-staged": 615493066,
+      "nbody-x86-64-v3-c-fused": 422493040
+    },
+    "cycles": {
+      "recurrence-native-baseline-scalar": 6635606,
+      "recurrence-native-baseline-halves": 6626788,
+      "recurrence-native-avx2-scalar": 6640346,
+      "recurrence-native-avx2-halves": 6677798,
+      "recurrence-native-avx2-wide": 6676019,
+      "nbody-native-baseline-scalar": 221859518,
+      "nbody-native-baseline-halves": 208383363,
+      "nbody-native-avx2-scalar": 220603803,
+      "nbody-native-avx2-halves": 194693738,
+      "nbody-native-avx2-wide": 181840134,
+      "nbody-x86-64-list-original": 179364622,
+      "nbody-x86-64-array-original": 482840649,
+      "nbody-x86-64-v3-list-original": 178938789,
+      "nbody-x86-64-v3-array-original": 482816819,
+      "nbody-x86-64-list-fused": 254258900,
+      "nbody-x86-64-array-fused": 243971239,
+      "nbody-x86-64-v3-list-fused": 222401917,
+      "nbody-x86-64-v3-array-fused": 242014500,
+      "nbody-x86-64-list-locals": 222703826,
+      "nbody-x86-64-array-locals": 221672479,
+      "nbody-x86-64-v3-list-locals": 207360530,
+      "nbody-x86-64-v3-array-locals": 210612515,
+      "nbody-x86-64-list-simd-xy": 202353679,
+      "nbody-x86-64-array-simd-xy": 200739201,
+      "nbody-x86-64-v3-list-simd-xy": 195216342,
+      "nbody-x86-64-v3-array-simd-xy": 196318001,
+      "nbody-x86-64-c-staged": 205734321,
+      "nbody-x86-64-c-fused": 221857030,
+      "nbody-x86-64-v3-c-staged": 206072586,
+      "nbody-x86-64-v3-c-fused": 221436194
+    },
+    "wall_seconds": {
+      "recurrence-native-baseline-scalar": 0.021213058003922924,
+      "recurrence-native-baseline-halves": 0.020823590995860286,
+      "recurrence-native-avx2-scalar": 0.021224588999757543,
+      "recurrence-native-avx2-halves": 0.021231512990198098,
+      "recurrence-native-avx2-wide": 0.021464888006448746,
+      "nbody-native-baseline-scalar": 0.06551001999469008,
+      "nbody-native-baseline-halves": 0.06208037400210742,
+      "nbody-native-avx2-scalar": 0.06427472199720796,
+      "nbody-native-avx2-halves": 0.059340053005144,
+      "nbody-native-avx2-wide": 0.0565198149997741,
+      "nbody-x86-64-list-original": 0.05637937299616169,
+      "nbody-x86-64-array-original": 0.11957804499252234,
+      "nbody-x86-64-v3-list-original": 0.05615891100023873,
+      "nbody-x86-64-v3-array-original": 0.11990258100559004,
+      "nbody-x86-64-list-fused": 0.07166743199923076,
+      "nbody-x86-64-array-fused": 0.07017942299717106,
+      "nbody-x86-64-v3-list-fused": 0.06553072801034432,
+      "nbody-x86-64-v3-array-fused": 0.06941486400319263,
+      "nbody-x86-64-list-locals": 0.06637860200135037,
+      "nbody-x86-64-array-locals": 0.06572059400787111,
+      "nbody-x86-64-v3-list-locals": 0.06238062400370836,
+      "nbody-x86-64-v3-array-locals": 0.06277166400104761,
+      "nbody-x86-64-list-simd-xy": 0.06078162700578105,
+      "nbody-x86-64-array-simd-xy": 0.060550545997102745,
+      "nbody-x86-64-v3-list-simd-xy": 0.05947496599401347,
+      "nbody-x86-64-v3-array-simd-xy": 0.05945799300388899,
+      "nbody-x86-64-c-staged": 0.06206348100386094,
+      "nbody-x86-64-c-fused": 0.06486197900085244,
+      "nbody-x86-64-v3-c-staged": 0.06179113299003802,
+      "nbody-x86-64-v3-c-fused": 0.06497912800114136
+    }
+  },
+  "zero_instruction_counts": {
+    "recurrence-native-baseline-scalar": [
+      494837,
+      494848,
+      495164
+    ],
+    "recurrence-native-baseline-halves": [
+      494782,
+      494846,
+      494778
+    ],
+    "recurrence-native-avx2-scalar": [
+      495058,
+      494793,
+      495112
+    ],
+    "recurrence-native-avx2-halves": [
+      494859,
+      494783,
+      494848
+    ],
+    "recurrence-native-avx2-wide": [
+      494896,
+      494852,
+      494864
+    ],
+    "nbody-native-baseline-scalar": [
+      494023,
+      494012,
+      494083
+    ],
+    "nbody-native-baseline-halves": [
+      494014,
+      494297,
+      494014
+    ],
+    "nbody-native-avx2-scalar": [
+      494012,
+      494072,
+      494474
+    ],
+    "nbody-native-avx2-halves": [
+      494102,
+      494157,
+      494024
+    ],
+    "nbody-native-avx2-wide": [
+      494343,
+      494025,
+      494387
+    ],
+    "nbody-x86-64-list-original": [
+      721699,
+      721756,
+      721701
+    ],
+    "nbody-x86-64-array-original": [
+      683297,
+      683101,
+      683059
+    ],
+    "nbody-x86-64-v3-list-original": [
+      722180,
+      722209,
+      722440
+    ],
+    "nbody-x86-64-v3-array-original": [
+      683372,
+      683510,
+      683312
+    ],
+    "nbody-x86-64-list-fused": [
+      693656,
+      693582,
+      693935
+    ],
+    "nbody-x86-64-array-fused": [
+      655038,
+      654946,
+      654966
+    ],
+    "nbody-x86-64-v3-list-fused": [
+      693992,
+      693963,
+      694067
+    ],
+    "nbody-x86-64-v3-array-fused": [
+      655369,
+      655596,
+      655400
+    ],
+    "nbody-x86-64-list-locals": [
+      694109,
+      694362,
+      694091
+    ],
+    "nbody-x86-64-array-locals": [
+      655423,
+      655142,
+      655427
+    ],
+    "nbody-x86-64-v3-list-locals": [
+      694451,
+      694773,
+      694450
+    ],
+    "nbody-x86-64-v3-array-locals": [
+      655585,
+      655516,
+      656499
+    ],
+    "nbody-x86-64-list-simd-xy": [
+      694424,
+      694193,
+      694182
+    ],
+    "nbody-x86-64-array-simd-xy": [
+      655203,
+      655110,
+      655311
+    ],
+    "nbody-x86-64-v3-list-simd-xy": [
+      694612,
+      694435,
+      694589
+    ],
+    "nbody-x86-64-v3-array-simd-xy": [
+      655550,
+      656054,
+      655623
+    ],
+    "nbody-x86-64-c-staged": [
+      494043,
+      494067,
+      494077
+    ],
+    "nbody-x86-64-c-fused": [
+      494022,
+      494026,
+      494383
+    ],
+    "nbody-x86-64-v3-c-staged": [
+      492572,
+      492625,
+      492636
+    ],
+    "nbody-x86-64-v3-c-fused": [
+      492593,
+      492611,
+      492538
+    ]
+  },
+  "incremental_instructions_per_step": {
+    "recurrence-native-baseline-scalar": 9.004434,
+    "recurrence-native-baseline-halves": 7.004514,
+    "recurrence-native-avx2-scalar": 9.004203,
+    "recurrence-native-avx2-halves": 7.004425,
+    "recurrence-native-avx2-wide": 5.004407,
+    "nbody-native-baseline-scalar": 639.000302,
+    "nbody-native-baseline-halves": 560.000459,
+    "nbody-native-avx2-scalar": 490.000507,
+    "nbody-native-avx2-halves": 425.000522,
+    "nbody-native-avx2-wide": 299.000097,
+    "nbody-x86-64-list-original": 473.000882,
+    "nbody-x86-64-array-original": 2507.000222,
+    "nbody-x86-64-v3-list-original": 395.001045,
+    "nbody-x86-64-v3-array-original": 2482.00042,
+    "nbody-x86-64-list-fused": 656.00046,
+    "nbody-x86-64-array-fused": 1237.000533,
+    "nbody-x86-64-v3-list-fused": 485.000693,
+    "nbody-x86-64-v3-array-fused": 1152.000151,
+    "nbody-x86-64-list-locals": 652.000176,
+    "nbody-x86-64-array-locals": 632.999887,
+    "nbody-x86-64-v3-list-locals": 468.00032,
+    "nbody-x86-64-v3-array-locals": 468.000137,
+    "nbody-x86-64-list-simd-xy": 516.000192,
+    "nbody-x86-64-array-simd-xy": 487.000206,
+    "nbody-x86-64-v3-list-simd-xy": 384.000236,
+    "nbody-x86-64-v3-array-simd-xy": 388.000162,
+    "nbody-x86-64-c-staged": 734.000224,
+    "nbody-x86-64-c-fused": 563.00025,
+    "nbody-x86-64-v3-c-staged": 615.000441,
+    "nbody-x86-64-v3-c-fused": 422.000447
+  }
+}

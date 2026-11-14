@@ -1,0 +1,19 @@
+def advance(x: f64, y: f64, z: f64, dx: f64, dy: f64, dz: f64, factor: f64, steps: i64) -> (f64, f64, f64):
+    mut a = x
+    mut b = y
+    mut c = z
+    for _ in range(steps):
+        a = a * factor + dx
+        b = b * factor + dy
+        c = c * factor + dz
+    (a, b, c)
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        10000
+    a, b, c = advance(1.0, 2.0, 3.0, 0.0001, -0.0002, 0.0003, 0.9999995, steps)
+    print(a, b, c)?
+    Ok(())
