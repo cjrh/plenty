@@ -1,0 +1,1232 @@
+{
+  "revision": "6bb31653fdc59c56b968bafadc4f6530c6871498",
+  "compiler_version": "plenty 0.8.28 (x86_64-unknown-linux-gnu)",
+  "gcc_version": "gcc (GCC) 16.2.1 20261029 (Red Hat 16.2.1-3)",
+  "host": "Linux-7.3.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "core": 0,
+  "steps": 1000000,
+  "verification": [
+    [
+      "x86-64-scalar",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-array",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-c",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      -1,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-scalar",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-array",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-c",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      0,
+      [
+        "0x1.0000000000000p+0",
+        "0x1.0000000000000p+1",
+        "0x1.8000000000000p+1"
+      ]
+    ],
+    [
+      "x86-64-scalar",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-array",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-c",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      1,
+      [
+        "0x1.000685553ef6cp+0",
+        "0x1.fff2d3c792d13p+0",
+        "0x1.8009c7ffde722p+1"
+      ]
+    ],
+    [
+      "x86-64-scalar",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-array",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-c",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      2,
+      [
+        "0x1.000d0aaa473a1p+0",
+        "0x1.ffe5a78f9422ap+0",
+        "0x1.80138fff6ad73p+1"
+      ]
+    ],
+    [
+      "x86-64-scalar",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-array",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-c",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      3,
+      [
+        "0x1.00138fff18ca0p+0",
+        "0x1.ffd87b5803f44p+0",
+        "0x1.801d57fea52f3p+1"
+      ]
+    ],
+    [
+      "x86-64-scalar",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-array",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-c",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      1000,
+      [
+        "0x1.197734253a84cp+0",
+        "0x1.cc8e8da7ee4dep+0",
+        "0x1.a632ce37d7e6ep+1"
+      ]
+    ],
+    [
+      "x86-64-scalar",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-ordinary-class",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-array",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-wrapped-array",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-simd",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-c",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-v3-scalar",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-v3-ordinary-class",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-v3-array",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-v3-wrapped-array",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-v3-simd",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ],
+    [
+      "x86-64-v3-c",
+      1000000,
+      [
+        "0x1.3d339fad62060p+6",
+        "-0x1.385972f87182ep+7",
+        "0x1.dbcd6f8406cabp+7"
+      ]
+    ]
+  ],
+  "loops": {
+    "x86-64-scalar": [
+      {
+        "function": "advance",
+        "start": "0x1b",
+        "end": "0x3a",
+        "static_loop_union": 9,
+        "categories": {
+          "integer/control": 3,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x1fc",
+        "end": "0x233",
+        "static_loop_union": 9,
+        "categories": {
+          "integer/control": 3,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "x86-64-ordinary-class": [
+      {
+        "function": "advance",
+        "start": "0x1e8",
+        "end": "0x55a",
+        "static_loop_union": 142,
+        "categories": {
+          "other memory moves": 55,
+          "stack moves": 50,
+          "integer/control": 26,
+          "register copies": 5,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x6f5",
+        "end": "0xa85",
+        "static_loop_union": 142,
+        "categories": {
+          "other memory moves": 55,
+          "stack moves": 50,
+          "integer/control": 26,
+          "register copies": 5,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "x86-64-array": [
+      {
+        "function": "advance",
+        "start": "0xd4",
+        "end": "0x120",
+        "static_loop_union": 18,
+        "categories": {
+          "other memory moves": 9,
+          "scalar FP arithmetic": 6,
+          "integer/control": 3
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x5ba",
+        "end": "0x61b",
+        "static_loop_union": 18,
+        "categories": {
+          "other memory moves": 9,
+          "scalar FP arithmetic": 6,
+          "integer/control": 3
+        }
+      }
+    ],
+    "x86-64-wrapped-array": [
+      {
+        "function": "advance",
+        "start": "0x325",
+        "end": "0xced",
+        "static_loop_union": 415,
+        "categories": {
+          "stack moves": 179,
+          "integer/control": 78,
+          "other memory moves": 151,
+          "register copies": 1,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "x86-64-simd": [
+      {
+        "function": "advance",
+        "start": "0xe5",
+        "end": "0x122",
+        "static_loop_union": 16,
+        "categories": {
+          "other memory moves": 5,
+          "integer/control": 3,
+          "packed FP arithmetic": 4,
+          "lane rearrangements": 2,
+          "register copies": 2
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x3c9",
+        "end": "0x406",
+        "static_loop_union": 16,
+        "categories": {
+          "other memory moves": 5,
+          "integer/control": 3,
+          "packed FP arithmetic": 4,
+          "lane rearrangements": 2,
+          "register copies": 2
+        }
+      }
+    ],
+    "x86-64-c": [
+      {
+        "function": "advance",
+        "start": "0x40",
+        "end": "0x57",
+        "static_loop_union": 7,
+        "categories": {
+          "packed FP arithmetic": 2,
+          "integer/control": 3,
+          "scalar FP arithmetic": 2
+        }
+      }
+    ],
+    "x86-64-v3-scalar": [
+      {
+        "function": "advance",
+        "start": "0x1b",
+        "end": "0x3a",
+        "static_loop_union": 9,
+        "categories": {
+          "integer/control": 3,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x1fc",
+        "end": "0x233",
+        "static_loop_union": 9,
+        "categories": {
+          "integer/control": 3,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "x86-64-v3-ordinary-class": [
+      {
+        "function": "advance",
+        "start": "0x1e8",
+        "end": "0x558",
+        "static_loop_union": 142,
+        "categories": {
+          "other memory moves": 55,
+          "stack moves": 50,
+          "integer/control": 26,
+          "register copies": 5,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x6f5",
+        "end": "0xa83",
+        "static_loop_union": 142,
+        "categories": {
+          "other memory moves": 55,
+          "stack moves": 50,
+          "integer/control": 26,
+          "register copies": 5,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "x86-64-v3-array": [
+      {
+        "function": "advance",
+        "start": "0xd4",
+        "end": "0x120",
+        "static_loop_union": 18,
+        "categories": {
+          "other memory moves": 9,
+          "scalar FP arithmetic": 6,
+          "integer/control": 3
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x5ba",
+        "end": "0x61b",
+        "static_loop_union": 18,
+        "categories": {
+          "other memory moves": 9,
+          "scalar FP arithmetic": 6,
+          "integer/control": 3
+        }
+      }
+    ],
+    "x86-64-v3-wrapped-array": [
+      {
+        "function": "advance",
+        "start": "0x325",
+        "end": "0xced",
+        "static_loop_union": 415,
+        "categories": {
+          "stack moves": 179,
+          "integer/control": 78,
+          "other memory moves": 151,
+          "register copies": 1,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "x86-64-v3-simd": [
+      {
+        "function": "advance",
+        "start": "0xf1",
+        "end": "0x12e",
+        "static_loop_union": 15,
+        "categories": {
+          "other memory moves": 5,
+          "integer/control": 3,
+          "packed FP arithmetic": 2,
+          "lane rearrangements": 3,
+          "register copies": 2
+        }
+      },
+      {
+        "function": "main",
+        "start": "0x3f4",
+        "end": "0x431",
+        "static_loop_union": 15,
+        "categories": {
+          "other memory moves": 5,
+          "integer/control": 3,
+          "packed FP arithmetic": 2,
+          "lane rearrangements": 3,
+          "register copies": 2
+        }
+      }
+    ],
+    "x86-64-v3-c": [
+      {
+        "function": "advance",
+        "start": "0x40",
+        "end": "0x57",
+        "static_loop_union": 7,
+        "categories": {
+          "packed FP arithmetic": 2,
+          "integer/control": 3,
+          "scalar FP arithmetic": 2
+        }
+      }
+    ]
+  },
+  "instruction_counts": {
+    "x86-64-scalar": [
+      9637499,
+      9637799,
+      9638397
+    ],
+    "x86-64-ordinary-class": [
+      136637795,
+      136637732,
+      136637776
+    ],
+    "x86-64-array": [
+      18637555,
+      18637581,
+      18637516
+    ],
+    "x86-64-wrapped-array": [
+      395638090,
+      395638085,
+      395638368
+    ],
+    "x86-64-simd": [
+      16637431,
+      16637473,
+      16637476
+    ],
+    "x86-64-c": [
+      7468359,
+      7468620,
+      7468656
+    ],
+    "x86-64-v3-scalar": [
+      9638135,
+      9637680,
+      9637758
+    ],
+    "x86-64-v3-ordinary-class": [
+      136637814,
+      136638034,
+      136637946
+    ],
+    "x86-64-v3-array": [
+      18637938,
+      18638183,
+      18638175
+    ],
+    "x86-64-v3-wrapped-array": [
+      395638269,
+      395638523,
+      395638311
+    ],
+    "x86-64-v3-simd": [
+      15638169,
+      15637833,
+      15637865
+    ],
+    "x86-64-v3-c": [
+      7468382,
+      7468963,
+      7468314
+    ]
+  },
+  "zero_instruction_counts": {
+    "x86-64-scalar": [
+      624292,
+      624242,
+      624545
+    ],
+    "x86-64-ordinary-class": [
+      624697,
+      624485,
+      624537
+    ],
+    "x86-64-array": [
+      624831,
+      624503,
+      624421
+    ],
+    "x86-64-wrapped-array": [
+      624864,
+      624854,
+      624863
+    ],
+    "x86-64-simd": [
+      624594,
+      624270,
+      624305
+    ],
+    "x86-64-c": [
+      463980,
+      464145,
+      463815
+    ],
+    "x86-64-v3-scalar": [
+      624695,
+      624630,
+      624970
+    ],
+    "x86-64-v3-ordinary-class": [
+      624992,
+      625061,
+      624792
+    ],
+    "x86-64-v3-array": [
+      624778,
+      624848,
+      624747
+    ],
+    "x86-64-v3-wrapped-array": [
+      625333,
+      625461,
+      625082
+    ],
+    "x86-64-v3-simd": [
+      624736,
+      624714,
+      624860
+    ],
+    "x86-64-v3-c": [
+      463879,
+      463879,
+      464089
+    ]
+  },
+  "compile_instruction_counts": {
+    "x86-64-scalar": [
+      114527198,
+      114541293,
+      114547057
+    ],
+    "x86-64-ordinary-class": [
+      123508678,
+      123487349,
+      123503958
+    ],
+    "x86-64-array": [
+      119812636,
+      119811162,
+      119814111
+    ],
+    "x86-64-wrapped-array": [
+      139002161,
+      139008085,
+      139003571
+    ],
+    "x86-64-simd": [
+      171049066,
+      171039886,
+      171048164
+    ],
+    "x86-64-v3-scalar": [
+      114776803,
+      114753443,
+      114753184
+    ],
+    "x86-64-v3-ordinary-class": [
+      123769403,
+      123749429,
+      123758899
+    ],
+    "x86-64-v3-array": [
+      120056245,
+      120048306,
+      120047757
+    ],
+    "x86-64-v3-wrapped-array": [
+      139287830,
+      139265072,
+      139283949
+    ],
+    "x86-64-v3-simd": [
+      171513078,
+      171498171,
+      171508365
+    ]
+  },
+  "instruction_medians": {
+    "x86-64-scalar": 9637799,
+    "x86-64-ordinary-class": 136637776,
+    "x86-64-array": 18637555,
+    "x86-64-wrapped-array": 395638090,
+    "x86-64-simd": 16637473,
+    "x86-64-c": 7468620,
+    "x86-64-v3-scalar": 9637758,
+    "x86-64-v3-ordinary-class": 136637946,
+    "x86-64-v3-array": 18638175,
+    "x86-64-v3-wrapped-array": 395638311,
+    "x86-64-v3-simd": 15637865,
+    "x86-64-v3-c": 7468382
+  },
+  "incremental_instructions_per_step": {
+    "x86-64-scalar": 9.013507,
+    "x86-64-ordinary-class": 136.013239,
+    "x86-64-array": 18.013052,
+    "x86-64-wrapped-array": 395.013227,
+    "x86-64-simd": 16.013168,
+    "x86-64-c": 7.00464,
+    "x86-64-v3-scalar": 9.013063,
+    "x86-64-v3-ordinary-class": 136.012954,
+    "x86-64-v3-array": 18.013397,
+    "x86-64-v3-wrapped-array": 395.012978,
+    "x86-64-v3-simd": 15.013129,
+    "x86-64-v3-c": 7.004503
+  }
+}

@@ -1667,3 +1667,33 @@ compilation uses 0.065% more instructions; real-program compile probes and raw
 sample ranges are retained in `experiments/kernels/accessor-tail/README.md`,
 with the Plenty/C kernels and CLIF substitution variants. This main-based
 implementation is independent of issue #972's native Bounded representation.
+
+## Declared-vector prototype (issue #967)
+
+The bounded experiment in `experiments/declared-vectors/` compares matched
+scalar, inline-array, ordinary and array-backed domain classes, existing SIMD,
+C, and executable native SSA substitutions after the inline-array prerequisite.
+No public `std.vector`, production lowering or benchmark replacement is delivered.
+
+The direct recurrence has 9 scalar-local instructions, 18 array instructions,
+16/15 existing SIMD instructions (baseline/v3), versus C's 7. Inlined domain
+classes still materialize aggregates: 136 instructions per iteration for three
+plain fields and 395 for an array-backed class. Native SSA substitutions reach
+7 for two halves and 5 for a wide AVX2 vector, while preserving ordered scalar
+semantics and constructing inactive operands before floating-point operations.
+The dependency chain has similar cycles despite fewer instructions.
+
+For the complete n-body state, native AVX2 wide uses 299 instructions per step
+against current Plenty's 395. Its median cycles over one million steps are
+181.84M versus 178.94M, with nonoverlapping sample ranges in this session. The whole-program
+speedup gate has **not passed**. Baseline halves also lose to the current
+program. Directly changing list storage to a fixed array regresses substantially;
+local-hoisted variants show that inline storage alone does not remove access
+and aggregate-copy costs. Production programs remain unchanged.
+
+The retained experiment records instruction attribution, raw samples, source
+compilation costs, full-state comparisons, randomized finite-state checks,
+signed-zero/subnormal/infinity/NaN cases, exception parity and guard-page width
+checks. It tests one explicit native ABI on one x86-64 host; general collection
+layout, Vec4 and public API qualification remain outside this delivery.
+[Outstanding SIMD scope](../backlog.md) remains in B23 and issue #967.

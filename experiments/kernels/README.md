@@ -39,7 +39,10 @@ these bytes to a C driver and checking complete output state. This facility is
 for kernels with explicit valid-memory preconditions, not arbitrary CLIF programs.
 The default ISA remains Plenty's baseline. `PLENTY_KERNEL_AVX=1` enables only AVX
 for a labelled target experiment and checks that the host supports it; it does
-not change the compiler's target or enable FMA.
+not change the compiler's target or enable FMA. `PLENTY_KERNEL_AVX2=1` additionally
+enables AVX2 and SSE4.1, checks both host features, and retains the same no-FMA
+policy. The [declared-vector experiment](../declared-vectors/README.md) uses this
+explicit target for four native double lanes.
 
 gcc 16.2.1 gives the same counts at `-O1` and `-O2`. At `-O2`, gcc turns
 `rotate_left` into `memmove` unless `-fno-tree-loop-distribute-patterns` is

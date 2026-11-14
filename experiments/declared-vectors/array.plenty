@@ -1,0 +1,19 @@
+def advance(value: array[f64, 3], delta: &array[f64, 3], factor: f64, steps: i64) -> array[f64, 3]:
+    mut current = value
+    for _ in range(steps):
+        current[0] = current[0] * factor + delta[0]
+        current[1] = current[1] * factor + delta[1]
+        current[2] = current[2] * factor + delta[2]
+    current
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        10000
+    initial: array[f64, 3] = [1.0, 2.0, 3.0]
+    delta: array[f64, 3] = [0.0001, -0.0002, 0.0003]
+    result = advance(initial, &delta, 0.9999995, steps)
+    print(result[0], result[1], result[2])?
+    Ok(())
