@@ -2720,10 +2720,10 @@ impl Lowerer<'_, '_> {
             }
             return None;
         }
-        let value = self.raw_word(value);
         if !ty.managed() {
             return None;
         }
+        let value = self.raw_word(value);
         let f = self
             .module
             .declare_func_in_func(self.runtime.retain, self.bcx.func);
@@ -2783,8 +2783,8 @@ impl Lowerer<'_, '_> {
             }
             return;
         }
-        let value = self.raw_word(value);
         if ty.managed() {
+            let value = self.raw_word(value);
             // User code names itself as the caller of std destructors. In
             // std the context is already right, and the runtime restores it
             // after destructors. A release that runs no compiled code cannot
@@ -2988,7 +2988,14 @@ impl Lowerer<'_, '_> {
             }
             Op::ReadRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
-                let value = self.read_unpacked_reference(reference, ty);
+                let value = if let Some(value) = self
+                    .read_vec3_scalar(reference, ty)
+                    .or_else(|| self.read_vec3_reference(reference, ty))
+                {
+                    value
+                } else {
+                    self.read_unpacked_reference(reference, ty)
+                };
                 let value = if ty.can_copy() {
                     self.snapshot_inline(value, ty)
                 } else {

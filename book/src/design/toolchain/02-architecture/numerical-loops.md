@@ -172,3 +172,21 @@ This is a deliberately narrow optimization. It does not imply general aggregate
 scalar replacement, general automatic vectorization, or expansion of arbitrary loops.
 Measurements and remaining scope are linked from the
 [performance record](../../../completed-work/performance.md#guarded-numerical-state-issue-930).
+
+## Declared Vec3 locals
+
+The bounded [`std.vector.Vec3`](../../stdlib/vector.md) prototype is independent
+of guarded list-state recognition. `src/codegen/portable_simd.rs` recognizes
+only the std class's exact three-f64 shape and trusted method signatures.
+Eligible local values use three logical lanes in two narrow parts or one v3
+wide register; mutable projections retain canonical class storage. Immutable
+borrows may use snapshots because the ownership checker prevents intervening
+mutation. Generic calls, returns and collections retain ordinary class ABI.
+
+Snapshot instruction groups are removed only when no instruction outside the
+group, including successor arguments and calls, observes them. Their reserved
+stack storage is removed only if no remaining stack-address instruction names
+the slot. Live snapshots preserve all three 16-byte fields and normal owner
+slots. Private padding uses neutral operands; dot keeps ordered scalar adds.
+This does not extend fixed-state recognition to nested vector columns or add
+an automatic adjacent-magnitude pairing pass.

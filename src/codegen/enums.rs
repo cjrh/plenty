@@ -297,13 +297,24 @@ impl Lowerer<'_, '_> {
             ClassOp::Field(t, i) => {
                 let (owner, _) = self.pop_typed(inputs[0].clone())?;
                 let offset = t.get().field_offset(*i) as i64;
-                let value = self.class_field(owner, offset, &output);
+                let value = if let Some(value) = self.vec3_field(owner, &Ty::Class(t.clone()), *i) {
+                    value
+                } else {
+                    self.class_field(owner, offset, &output)
+                };
                 self.retain(value, &output);
                 self.release(owner, &inputs[0]);
                 self.pack(value, &output)
             }
-            ClassOp::FieldRef(t, i, _) => {
+            ClassOp::FieldRef(t, i, mutable) => {
                 let (address, _) = self.pop_typed(inputs[0].clone())?;
+                if !mutable
+                    && let Some(reference) =
+                        self.vec3_field_reference(address, &Ty::Class(t.clone()), *i)
+                {
+                    self.stack.push((reference, output));
+                    return Ok(());
+                }
                 let address = self.raw_word(address);
                 let owner = self.referenced_record(address);
                 let mut offset = t.get().field_offset(*i) as i64;

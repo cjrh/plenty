@@ -1,15 +1,19 @@
 # Declared vectors for related floating-point components
 
-**Status: Approved investigation design; vectors are not implemented, 2026-11-14.**
+**Status: Approved investigation design; bounded source-level Vec3 prototype implemented.**
 Local issue #967 requests this comparison before adopting a vector type.
 The B83 [inline-array prerequisite](../design/language/03-types/arrays.md) has
 shipped in local PR #1262. The [bounded experiment](../completed-work/performance.md#declared-vector-prototype-issue-967),
 local PR #1263, recorded a negative native speedup result. The
 [paired-magnitude continuation](../completed-work/performance.md#paired-declared-vector-experiment-issue-967)
-subsequently improves the measured AVX2 native workload; public API and
-layout/collection qualification remain outstanding. Approval of this
+subsequently improves the measured AVX2 native workload. The authorized
+[source-level prototype](../completed-work/performance.md#source-level-vec3-prototype-issue-967)
+now implements the initial f64 [`Vec3`](../design/stdlib/vector.md) API with
+ordinary class storage and private native-local lowering. Compact layout,
+broader collection/workload adoption and cross-target qualification remain
+outstanding. Approval of this
 proposal accepts the investigation contract, not a public API, physical layout
-or production speedup. Current behavior remains the [scalar row heuristic](../design/toolchain/02-architecture/numerical-loops.md#rows)
+or production speedup. Unrelated scalar code retains the [scalar row heuristic](../design/toolchain/02-architecture/numerical-loops.md#rows)
 and explicit [`std.simd`](../design/stdlib/simd.md). B23/B83 in the
 [backlog](../backlog.md) retain the remaining scope.
 

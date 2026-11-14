@@ -54,6 +54,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         include_str!("../../stdlib/std/actor/http/server.plenty"),
     ),
     ("std.simd", include_str!("../../stdlib/std/simd.plenty")),
+    ("std.vector", include_str!("../../stdlib/std/vector.plenty")),
     (
         "std.fs.lock",
         include_str!("../../stdlib/std/fs/lock.plenty"),

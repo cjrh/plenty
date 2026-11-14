@@ -1,0 +1,1481 @@
+{
+  "preparation": {
+    "commit": "58e5a09b1cdc60f47bd82893b273aa0772f6da1b",
+    "compiler": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/release/plenty",
+    "compiler_sha256": "4b41a1003bc774d2f741669621f6aeaccf78693d19eb9e4a5473ca9f9285e025",
+    "sources": {
+      "experiments/declared-vectors/source.py": "5fd06c093070cb0a26df8a8bce6d858df5a25d8ef3e60e5a515157084965afcf",
+      "experiments/declared-vectors/source_measure.py": "3b98ac36ef379674a91263fc1c918120e7d71bd65837ca0e84d658ab954d1dcf",
+      "experiments/nbody-structural/generate.py": "fee47301fe33513505b7db92bd2a56cb1b2ce4701b20ee76d33ea259ec3e9a56",
+      "experiments/nbody-structural/driver.c": "64048fc19660685460daa10b5c9d9f499c728685bf5dec517d90cb79c04c428b",
+      "benchmarks/game/n-body/plenty/nbody.plenty": "e6ce38486a07684b67b9ba5ae283f0a34625b377be1ab46c3aa9411952e9ca97",
+      "stdlib/std/vector.plenty": "b351131fc98574e530d99944376dcc9259b73cae46e7b7ed16734ab94acf3264",
+      "src/codegen/portable_simd.rs": "4bd606d911034a55afe2084f141d34700e3517b06c8fd295362adafdce4db476",
+      "src/codegen.rs": "c2d65a30514d97dc37927706be815e054b08475c495dd169256fce0ca841dfde",
+      "src/codegen/enums.rs": "835f29e7bc70c7ff5be006e7718f7ac1036ec559333e025b374b55edbd892ae8",
+      "src/frontend/modules.rs": "2d1f27059b6066efe26b9032c62e6fd3bbc61510e41d03cd20c5df786607bbf4",
+      "Cargo.lock": "a5324cce499a329079d2db93cd6fafa347b6141efc806b08f52b04310148a017"
+    },
+    "binaries": {
+      "production-v3": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/production-v3",
+        "sha256": "500bae8a1fb803fb6944c96e7086adfd0ce0a4b428e5212cd5f520e48358a8cc"
+      },
+      "production-baseline": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/production-baseline",
+        "sha256": "05728c08ab8488edb9458f71b48b54bb081b460953aa13cf334df624d8432e38"
+      },
+      "scalar-v3": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/scalar-v3",
+        "sha256": "93cc0c57b11e5278bccb25a977256c989063792184052aece1f3993d8fad5dc1"
+      },
+      "ordinary-v3": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/ordinary-v3",
+        "sha256": "c1501867d7b8825716a891fd4c69d00b8f061783b9cfc7069eec462b4900f9c1"
+      },
+      "vec3-v3": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/vec3-v3",
+        "sha256": "70f60d9c06ad4d7996392b5375a889d71a69c5bee98fb3ab28049158c4074a55"
+      },
+      "vec3-unpaired-v3": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/vec3-unpaired-v3",
+        "sha256": "41732257b0e3e95d279886a733500dc3bea72d7f7865a73613ef5c4d8ec303d0"
+      },
+      "scalar-baseline": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/scalar-baseline",
+        "sha256": "d3613cc876e31f55ab2f9ffe0ae45fc56446c78928be10c20e45c67e403ee192"
+      },
+      "vec3-baseline": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/vec3-baseline",
+        "sha256": "e6c1eb79acaa4f85700fad80ace9dc79e0da6f80a1ddc97346ec36d8aa1f7d95"
+      },
+      "vec3-fast": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/vec3-fast",
+        "sha256": "b8505b2f05dddb0ed1e9e93696d4768442e97d074fed67f7310b2cc4dabf682c"
+      },
+      "c-v3": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/c-v3",
+        "sha256": "c35cc2af3f6949b8532ad62963c312e9adf16d371f8736f5eb57d7c713449afb"
+      },
+      "cost-local": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/cost-local",
+        "sha256": "d274f032d6e35f815ef9f9ea313176f7c5dac76e8bedb102ecc8b30ca89bbb6c"
+      },
+      "cost-owned": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/cost-owned",
+        "sha256": "55c4bec034b13fbf69d644178df90d98a403caa5ded55dc0b4aeb8111e03874d"
+      },
+      "cost-shared": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/cost-shared",
+        "sha256": "f6f98bd524952e7158b9fe1784401d4c58524adaf8223fa4272bc79f8881ff80"
+      },
+      "cost-array": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/vec3-source/final/cost-array",
+        "sha256": "6e81b960997b916e448a703a072a5b8fba3cb2cbdbb750d24ed5b19a6e58f8f2"
+      }
+    },
+    "loops": {
+      "production-v3": [
+        {
+          "function": "advance",
+          "start": 913,
+          "stop": 1488,
+          "instructions": 70
+        },
+        {
+          "function": "advance",
+          "start": 2017,
+          "stop": 2194,
+          "instructions": 35
+        },
+        {
+          "function": "advance",
+          "start": 2264,
+          "stop": 2401,
+          "instructions": 28
+        },
+        {
+          "function": "advance",
+          "start": 2675,
+          "stop": 2813,
+          "instructions": 28
+        },
+        {
+          "function": "advance",
+          "start": 2855,
+          "stop": 2929,
+          "instructions": 17
+        },
+        {
+          "function": "advance",
+          "start": 3287,
+          "stop": 3651,
+          "instructions": 65
+        },
+        {
+          "function": "advance",
+          "start": 3721,
+          "stop": 4013,
+          "instructions": 54
+        },
+        {
+          "function": "advance",
+          "start": 4155,
+          "stop": 4256,
+          "instructions": 21
+        },
+        {
+          "function": "advance",
+          "start": 4295,
+          "stop": 4387,
+          "instructions": 19
+        },
+        {
+          "function": "advance",
+          "start": 6211,
+          "stop": 8809,
+          "instructions": 395
+        }
+      ],
+      "production-baseline": [
+        {
+          "function": "advance",
+          "start": 913,
+          "stop": 1488,
+          "instructions": 70
+        },
+        {
+          "function": "advance",
+          "start": 2017,
+          "stop": 2194,
+          "instructions": 35
+        },
+        {
+          "function": "advance",
+          "start": 2264,
+          "stop": 2401,
+          "instructions": 28
+        },
+        {
+          "function": "advance",
+          "start": 2683,
+          "stop": 2825,
+          "instructions": 29
+        },
+        {
+          "function": "advance",
+          "start": 2867,
+          "stop": 2945,
+          "instructions": 18
+        },
+        {
+          "function": "advance",
+          "start": 3300,
+          "stop": 3680,
+          "instructions": 69
+        },
+        {
+          "function": "advance",
+          "start": 3760,
+          "stop": 4068,
+          "instructions": 58
+        },
+        {
+          "function": "advance",
+          "start": 4210,
+          "stop": 4323,
+          "instructions": 24
+        },
+        {
+          "function": "advance",
+          "start": 4362,
+          "stop": 4466,
+          "instructions": 22
+        },
+        {
+          "function": "advance",
+          "start": 6450,
+          "stop": 9545,
+          "instructions": 473
+        }
+      ],
+      "scalar-v3": [
+        {
+          "function": "advance",
+          "start": 643,
+          "stop": 3532,
+          "instructions": 468
+        }
+      ],
+      "ordinary-v3": [
+        {
+          "function": "advance",
+          "start": 4549,
+          "stop": 11578,
+          "instructions": 1122
+        }
+      ],
+      "vec3-v3": [
+        {
+          "function": "advance",
+          "start": 1914,
+          "stop": 3626,
+          "instructions": 307
+        }
+      ],
+      "vec3-unpaired-v3": [
+        {
+          "function": "advance",
+          "start": 1886,
+          "stop": 3586,
+          "instructions": 311
+        }
+      ],
+      "scalar-baseline": [
+        {
+          "function": "advance",
+          "start": 692,
+          "stop": 4663,
+          "instructions": 633
+        }
+      ],
+      "vec3-baseline": [
+        {
+          "function": "advance",
+          "start": 1993,
+          "stop": 5426,
+          "instructions": 538
+        }
+      ],
+      "vec3-fast": [
+        {
+          "function": "advance",
+          "start": 3901,
+          "stop": 21314,
+          "instructions": 3108
+        }
+      ]
+    },
+    "verification": [
+      [
+        "production-v3",
+        -1
+      ],
+      [
+        "production-baseline",
+        -1
+      ],
+      [
+        "scalar-v3",
+        -1
+      ],
+      [
+        "ordinary-v3",
+        -1
+      ],
+      [
+        "vec3-v3",
+        -1
+      ],
+      [
+        "vec3-unpaired-v3",
+        -1
+      ],
+      [
+        "scalar-baseline",
+        -1
+      ],
+      [
+        "vec3-baseline",
+        -1
+      ],
+      [
+        "vec3-fast",
+        -1
+      ],
+      [
+        "c-v3",
+        -1
+      ],
+      [
+        "production-v3",
+        0
+      ],
+      [
+        "production-baseline",
+        0
+      ],
+      [
+        "scalar-v3",
+        0
+      ],
+      [
+        "ordinary-v3",
+        0
+      ],
+      [
+        "vec3-v3",
+        0
+      ],
+      [
+        "vec3-unpaired-v3",
+        0
+      ],
+      [
+        "scalar-baseline",
+        0
+      ],
+      [
+        "vec3-baseline",
+        0
+      ],
+      [
+        "vec3-fast",
+        0
+      ],
+      [
+        "c-v3",
+        0
+      ],
+      [
+        "production-v3",
+        1
+      ],
+      [
+        "production-baseline",
+        1
+      ],
+      [
+        "scalar-v3",
+        1
+      ],
+      [
+        "ordinary-v3",
+        1
+      ],
+      [
+        "vec3-v3",
+        1
+      ],
+      [
+        "vec3-unpaired-v3",
+        1
+      ],
+      [
+        "scalar-baseline",
+        1
+      ],
+      [
+        "vec3-baseline",
+        1
+      ],
+      [
+        "vec3-fast",
+        1
+      ],
+      [
+        "c-v3",
+        1
+      ],
+      [
+        "production-v3",
+        2
+      ],
+      [
+        "production-baseline",
+        2
+      ],
+      [
+        "scalar-v3",
+        2
+      ],
+      [
+        "ordinary-v3",
+        2
+      ],
+      [
+        "vec3-v3",
+        2
+      ],
+      [
+        "vec3-unpaired-v3",
+        2
+      ],
+      [
+        "scalar-baseline",
+        2
+      ],
+      [
+        "vec3-baseline",
+        2
+      ],
+      [
+        "vec3-fast",
+        2
+      ],
+      [
+        "c-v3",
+        2
+      ],
+      [
+        "production-v3",
+        3
+      ],
+      [
+        "production-baseline",
+        3
+      ],
+      [
+        "scalar-v3",
+        3
+      ],
+      [
+        "ordinary-v3",
+        3
+      ],
+      [
+        "vec3-v3",
+        3
+      ],
+      [
+        "vec3-unpaired-v3",
+        3
+      ],
+      [
+        "scalar-baseline",
+        3
+      ],
+      [
+        "vec3-baseline",
+        3
+      ],
+      [
+        "vec3-fast",
+        3
+      ],
+      [
+        "c-v3",
+        3
+      ],
+      [
+        "production-v3",
+        10
+      ],
+      [
+        "production-baseline",
+        10
+      ],
+      [
+        "scalar-v3",
+        10
+      ],
+      [
+        "ordinary-v3",
+        10
+      ],
+      [
+        "vec3-v3",
+        10
+      ],
+      [
+        "vec3-unpaired-v3",
+        10
+      ],
+      [
+        "scalar-baseline",
+        10
+      ],
+      [
+        "vec3-baseline",
+        10
+      ],
+      [
+        "vec3-fast",
+        10
+      ],
+      [
+        "c-v3",
+        10
+      ],
+      [
+        "production-v3",
+        1000
+      ],
+      [
+        "production-baseline",
+        1000
+      ],
+      [
+        "scalar-v3",
+        1000
+      ],
+      [
+        "ordinary-v3",
+        1000
+      ],
+      [
+        "vec3-v3",
+        1000
+      ],
+      [
+        "vec3-unpaired-v3",
+        1000
+      ],
+      [
+        "scalar-baseline",
+        1000
+      ],
+      [
+        "vec3-baseline",
+        1000
+      ],
+      [
+        "vec3-fast",
+        1000
+      ],
+      [
+        "c-v3",
+        1000
+      ],
+      [
+        "production-v3",
+        10000
+      ],
+      [
+        "production-baseline",
+        10000
+      ],
+      [
+        "scalar-v3",
+        10000
+      ],
+      [
+        "ordinary-v3",
+        10000
+      ],
+      [
+        "vec3-v3",
+        10000
+      ],
+      [
+        "vec3-unpaired-v3",
+        10000
+      ],
+      [
+        "scalar-baseline",
+        10000
+      ],
+      [
+        "vec3-baseline",
+        10000
+      ],
+      [
+        "vec3-fast",
+        10000
+      ],
+      [
+        "c-v3",
+        10000
+      ],
+      [
+        "production-v3",
+        1000000
+      ],
+      [
+        "production-baseline",
+        1000000
+      ],
+      [
+        "scalar-v3",
+        1000000
+      ],
+      [
+        "ordinary-v3",
+        1000000
+      ],
+      [
+        "vec3-v3",
+        1000000
+      ],
+      [
+        "vec3-unpaired-v3",
+        1000000
+      ],
+      [
+        "scalar-baseline",
+        1000000
+      ],
+      [
+        "vec3-baseline",
+        1000000
+      ],
+      [
+        "vec3-fast",
+        1000000
+      ],
+      [
+        "c-v3",
+        1000000
+      ]
+    ],
+    "boundary_loops": {
+      "cost-local": [
+        {
+          "function": "advance",
+          "start": 154,
+          "stop": 225,
+          "instructions": 19
+        }
+      ],
+      "cost-owned": [
+        {
+          "function": "advance",
+          "start": 171,
+          "stop": 427,
+          "instructions": 59
+        }
+      ],
+      "cost-shared": [
+        {
+          "function": "advance",
+          "start": 240,
+          "stop": 544,
+          "instructions": 65
+        }
+      ],
+      "cost-array": [
+        {
+          "function": "advance",
+          "start": 810,
+          "stop": 1786,
+          "instructions": 175
+        }
+      ]
+    },
+    "boundary_verification": [
+      [
+        "cost-local",
+        -1
+      ],
+      [
+        "cost-owned",
+        -1
+      ],
+      [
+        "cost-shared",
+        -1
+      ],
+      [
+        "cost-array",
+        -1
+      ],
+      [
+        "cost-local",
+        0
+      ],
+      [
+        "cost-owned",
+        0
+      ],
+      [
+        "cost-shared",
+        0
+      ],
+      [
+        "cost-array",
+        0
+      ],
+      [
+        "cost-local",
+        1
+      ],
+      [
+        "cost-owned",
+        1
+      ],
+      [
+        "cost-shared",
+        1
+      ],
+      [
+        "cost-array",
+        1
+      ],
+      [
+        "cost-local",
+        2
+      ],
+      [
+        "cost-owned",
+        2
+      ],
+      [
+        "cost-shared",
+        2
+      ],
+      [
+        "cost-array",
+        2
+      ],
+      [
+        "cost-local",
+        3
+      ],
+      [
+        "cost-owned",
+        3
+      ],
+      [
+        "cost-shared",
+        3
+      ],
+      [
+        "cost-array",
+        3
+      ],
+      [
+        "cost-local",
+        10
+      ],
+      [
+        "cost-owned",
+        10
+      ],
+      [
+        "cost-shared",
+        10
+      ],
+      [
+        "cost-array",
+        10
+      ],
+      [
+        "cost-local",
+        1000
+      ],
+      [
+        "cost-owned",
+        1000
+      ],
+      [
+        "cost-shared",
+        1000
+      ],
+      [
+        "cost-array",
+        1000
+      ],
+      [
+        "cost-local",
+        10000
+      ],
+      [
+        "cost-owned",
+        10000
+      ],
+      [
+        "cost-shared",
+        10000
+      ],
+      [
+        "cost-array",
+        10000
+      ]
+    ],
+    "state_values": 35,
+    "energy_values": 2,
+    "storage": {
+      "vec3_payload": 48,
+      "vec3_owning_slot": 64,
+      "body_payload": 112,
+      "body_owning_slot": 128,
+      "five_body_array_logical_bytes": 560
+    }
+  },
+  "measurements": {
+    "steps": 1000000,
+    "core": "3",
+    "samples": {
+      "production-v3": [
+        {
+          "instructions:u": 395723926.0,
+          "cycles:u": 177945333.0,
+          "task-clock": 38.93
+        },
+        {
+          "instructions:u": 395722970.0,
+          "cycles:u": 178337114.0,
+          "task-clock": 38.39
+        },
+        {
+          "instructions:u": 395723344.0,
+          "cycles:u": 177846598.0,
+          "task-clock": 38.36
+        },
+        {
+          "instructions:u": 395722967.0,
+          "cycles:u": 178356503.0,
+          "task-clock": 38.16
+        },
+        {
+          "instructions:u": 395722970.0,
+          "cycles:u": 178205813.0,
+          "task-clock": 38.45
+        },
+        {
+          "instructions:u": 395723041.0,
+          "cycles:u": 177586206.0,
+          "task-clock": 39.01
+        },
+        {
+          "instructions:u": 395723009.0,
+          "cycles:u": 177825009.0,
+          "task-clock": 38.09
+        },
+        {
+          "instructions:u": 395723283.0,
+          "cycles:u": 177852194.0,
+          "task-clock": 38.44
+        },
+        {
+          "instructions:u": 395723056.0,
+          "cycles:u": 178094917.0,
+          "task-clock": 38.28
+        }
+      ],
+      "production-baseline": [
+        {
+          "instructions:u": 473722672.0,
+          "cycles:u": 179893458.0,
+          "task-clock": 39.28
+        },
+        {
+          "instructions:u": 473723590.0,
+          "cycles:u": 179072112.0,
+          "task-clock": 38.47
+        },
+        {
+          "instructions:u": 473722753.0,
+          "cycles:u": 180570624.0,
+          "task-clock": 39.5
+        },
+        {
+          "instructions:u": 473722645.0,
+          "cycles:u": 179334229.0,
+          "task-clock": 38.58
+        },
+        {
+          "instructions:u": 473722939.0,
+          "cycles:u": 179710158.0,
+          "task-clock": 40.07
+        },
+        {
+          "instructions:u": 473722587.0,
+          "cycles:u": 179865112.0,
+          "task-clock": 39.49
+        },
+        {
+          "instructions:u": 473722720.0,
+          "cycles:u": 179249282.0,
+          "task-clock": 38.61
+        },
+        {
+          "instructions:u": 473722942.0,
+          "cycles:u": 179760142.0,
+          "task-clock": 38.81
+        },
+        {
+          "instructions:u": 473722992.0,
+          "cycles:u": 179798978.0,
+          "task-clock": 38.71
+        }
+      ],
+      "scalar-v3": [
+        {
+          "instructions:u": 468655838.0,
+          "cycles:u": 214939934.0,
+          "task-clock": 47.9
+        },
+        {
+          "instructions:u": 468656090.0,
+          "cycles:u": 210939513.0,
+          "task-clock": 45.02
+        },
+        {
+          "instructions:u": 468656323.0,
+          "cycles:u": 211206801.0,
+          "task-clock": 45.15
+        },
+        {
+          "instructions:u": 468656201.0,
+          "cycles:u": 211286843.0,
+          "task-clock": 45.19
+        },
+        {
+          "instructions:u": 468655801.0,
+          "cycles:u": 212787963.0,
+          "task-clock": 45.38
+        },
+        {
+          "instructions:u": 468656414.0,
+          "cycles:u": 208554272.0,
+          "task-clock": 45.59
+        },
+        {
+          "instructions:u": 468656115.0,
+          "cycles:u": 211090393.0,
+          "task-clock": 45.03
+        },
+        {
+          "instructions:u": 468655742.0,
+          "cycles:u": 210397977.0,
+          "task-clock": 45.11
+        },
+        {
+          "instructions:u": 468656080.0,
+          "cycles:u": 210146891.0,
+          "task-clock": 44.9
+        }
+      ],
+      "ordinary-v3": [
+        {
+          "instructions:u": 5397659072.0,
+          "cycles:u": 3996286400.0,
+          "task-clock": 834.92
+        },
+        {
+          "instructions:u": 5397659610.0,
+          "cycles:u": 5598521095.0,
+          "task-clock": 1169.0
+        },
+        {
+          "instructions:u": 5397659102.0,
+          "cycles:u": 4004137022.0,
+          "task-clock": 836.4
+        },
+        {
+          "instructions:u": 5397659112.0,
+          "cycles:u": 3990157752.0,
+          "task-clock": 831.87
+        },
+        {
+          "instructions:u": 5397659201.0,
+          "cycles:u": 3992263137.0,
+          "task-clock": 841.02
+        },
+        {
+          "instructions:u": 5397659459.0,
+          "cycles:u": 3989626535.0,
+          "task-clock": 844.47
+        },
+        {
+          "instructions:u": 5397659179.0,
+          "cycles:u": 3991791081.0,
+          "task-clock": 830.93
+        },
+        {
+          "instructions:u": 5397659123.0,
+          "cycles:u": 4004370838.0,
+          "task-clock": 831.83
+        },
+        {
+          "instructions:u": 5397659153.0,
+          "cycles:u": 3989041626.0,
+          "task-clock": 830.01
+        }
+      ],
+      "vec3-v3": [
+        {
+          "instructions:u": 307657818.0,
+          "cycles:u": 177945164.0,
+          "task-clock": 38.34
+        },
+        {
+          "instructions:u": 307657509.0,
+          "cycles:u": 177727999.0,
+          "task-clock": 38.15
+        },
+        {
+          "instructions:u": 307657837.0,
+          "cycles:u": 178377004.0,
+          "task-clock": 38.07
+        },
+        {
+          "instructions:u": 307657531.0,
+          "cycles:u": 178963497.0,
+          "task-clock": 38.76
+        },
+        {
+          "instructions:u": 307657789.0,
+          "cycles:u": 178916866.0,
+          "task-clock": 38.23
+        },
+        {
+          "instructions:u": 307657784.0,
+          "cycles:u": 177870402.0,
+          "task-clock": 38.09
+        },
+        {
+          "instructions:u": 307657492.0,
+          "cycles:u": 177579519.0,
+          "task-clock": 37.69
+        },
+        {
+          "instructions:u": 307657521.0,
+          "cycles:u": 179090000.0,
+          "task-clock": 38.6
+        },
+        {
+          "instructions:u": 307657449.0,
+          "cycles:u": 179390871.0,
+          "task-clock": 38.21
+        }
+      ],
+      "vec3-unpaired-v3": [
+        {
+          "instructions:u": 311657703.0,
+          "cycles:u": 190225510.0,
+          "task-clock": 40.79
+        },
+        {
+          "instructions:u": 311657715.0,
+          "cycles:u": 189611070.0,
+          "task-clock": 40.6
+        },
+        {
+          "instructions:u": 311657763.0,
+          "cycles:u": 189624913.0,
+          "task-clock": 40.96
+        },
+        {
+          "instructions:u": 311657968.0,
+          "cycles:u": 189663455.0,
+          "task-clock": 40.62
+        },
+        {
+          "instructions:u": 311657831.0,
+          "cycles:u": 190364411.0,
+          "task-clock": 42.91
+        },
+        {
+          "instructions:u": 311658029.0,
+          "cycles:u": 189670364.0,
+          "task-clock": 41.58
+        },
+        {
+          "instructions:u": 311657914.0,
+          "cycles:u": 189619339.0,
+          "task-clock": 40.67
+        },
+        {
+          "instructions:u": 311657678.0,
+          "cycles:u": 189712958.0,
+          "task-clock": 40.35
+        },
+        {
+          "instructions:u": 311657621.0,
+          "cycles:u": 190387690.0,
+          "task-clock": 41.1
+        }
+      ],
+      "scalar-baseline": [
+        {
+          "instructions:u": 633655464.0,
+          "cycles:u": 222558093.0,
+          "task-clock": 47.76
+        },
+        {
+          "instructions:u": 633655483.0,
+          "cycles:u": 225118011.0,
+          "task-clock": 48.37
+        },
+        {
+          "instructions:u": 633655505.0,
+          "cycles:u": 221330576.0,
+          "task-clock": 47.53
+        },
+        {
+          "instructions:u": 633655471.0,
+          "cycles:u": 222925075.0,
+          "task-clock": 48.13
+        },
+        {
+          "instructions:u": 633655474.0,
+          "cycles:u": 223581395.0,
+          "task-clock": 48.3
+        },
+        {
+          "instructions:u": 633655430.0,
+          "cycles:u": 220284645.0,
+          "task-clock": 49.77
+        },
+        {
+          "instructions:u": 633655834.0,
+          "cycles:u": 222590319.0,
+          "task-clock": 48.11
+        },
+        {
+          "instructions:u": 633655424.0,
+          "cycles:u": 221211924.0,
+          "task-clock": 47.69
+        },
+        {
+          "instructions:u": 633655501.0,
+          "cycles:u": 224944006.0,
+          "task-clock": 48.54
+        }
+      ],
+      "vec3-baseline": [
+        {
+          "instructions:u": 538657241.0,
+          "cycles:u": 206409391.0,
+          "task-clock": 44.42
+        },
+        {
+          "instructions:u": 538657157.0,
+          "cycles:u": 206368670.0,
+          "task-clock": 44.31
+        },
+        {
+          "instructions:u": 538657288.0,
+          "cycles:u": 206691803.0,
+          "task-clock": 44.37
+        },
+        {
+          "instructions:u": 538657206.0,
+          "cycles:u": 206675805.0,
+          "task-clock": 44.5
+        },
+        {
+          "instructions:u": 538657543.0,
+          "cycles:u": 207774596.0,
+          "task-clock": 44.64
+        },
+        {
+          "instructions:u": 538657509.0,
+          "cycles:u": 206272705.0,
+          "task-clock": 45.15
+        },
+        {
+          "instructions:u": 538657248.0,
+          "cycles:u": 206586427.0,
+          "task-clock": 44.3
+        },
+        {
+          "instructions:u": 538657274.0,
+          "cycles:u": 206290274.0,
+          "task-clock": 44.26
+        },
+        {
+          "instructions:u": 538657182.0,
+          "cycles:u": 206087224.0,
+          "task-clock": 44.76
+        }
+      ],
+      "c-v3": [
+        {
+          "instructions:u": 359492846.0,
+          "cycles:u": 208372008.0,
+          "task-clock": 44.69
+        },
+        {
+          "instructions:u": 359493614.0,
+          "cycles:u": 208617727.0,
+          "task-clock": 44.75
+        },
+        {
+          "instructions:u": 359492766.0,
+          "cycles:u": 210460194.0,
+          "task-clock": 46.0
+        },
+        {
+          "instructions:u": 359493702.0,
+          "cycles:u": 208262646.0,
+          "task-clock": 44.44
+        },
+        {
+          "instructions:u": 359492704.0,
+          "cycles:u": 208496778.0,
+          "task-clock": 44.85
+        },
+        {
+          "instructions:u": 359492704.0,
+          "cycles:u": 208240363.0,
+          "task-clock": 45.3
+        },
+        {
+          "instructions:u": 359492728.0,
+          "cycles:u": 208263242.0,
+          "task-clock": 44.31
+        },
+        {
+          "instructions:u": 359493017.0,
+          "cycles:u": 208209988.0,
+          "task-clock": 44.29
+        },
+        {
+          "instructions:u": 359492694.0,
+          "cycles:u": 208300502.0,
+          "task-clock": 44.43
+        }
+      ],
+      "cost-local": [
+        {
+          "instructions:u": 19625244.0,
+          "cycles:u": 48881517.0,
+          "task-clock": 11.44
+        },
+        {
+          "instructions:u": 19625573.0,
+          "cycles:u": 48862764.0,
+          "task-clock": 11.48
+        },
+        {
+          "instructions:u": 19625238.0,
+          "cycles:u": 48818356.0,
+          "task-clock": 11.46
+        },
+        {
+          "instructions:u": 19625252.0,
+          "cycles:u": 48763674.0,
+          "task-clock": 11.53
+        },
+        {
+          "instructions:u": 19625439.0,
+          "cycles:u": 48879427.0,
+          "task-clock": 11.34
+        },
+        {
+          "instructions:u": 19625190.0,
+          "cycles:u": 48840727.0,
+          "task-clock": 11.53
+        },
+        {
+          "instructions:u": 19625240.0,
+          "cycles:u": 48803285.0,
+          "task-clock": 11.33
+        },
+        {
+          "instructions:u": 19625489.0,
+          "cycles:u": 48844606.0,
+          "task-clock": 11.44
+        },
+        {
+          "instructions:u": 19625184.0,
+          "cycles:u": 48814326.0,
+          "task-clock": 11.58
+        }
+      ],
+      "cost-owned": [
+        {
+          "instructions:u": 257625476.0,
+          "cycles:u": 223318586.0,
+          "task-clock": 49.08
+        },
+        {
+          "instructions:u": 257625292.0,
+          "cycles:u": 223290754.0,
+          "task-clock": 47.78
+        },
+        {
+          "instructions:u": 257625254.0,
+          "cycles:u": 223851764.0,
+          "task-clock": 47.7
+        },
+        {
+          "instructions:u": 257625568.0,
+          "cycles:u": 223958951.0,
+          "task-clock": 47.51
+        },
+        {
+          "instructions:u": 257625563.0,
+          "cycles:u": 223408121.0,
+          "task-clock": 47.63
+        },
+        {
+          "instructions:u": 257625232.0,
+          "cycles:u": 223387196.0,
+          "task-clock": 49.18
+        },
+        {
+          "instructions:u": 257625607.0,
+          "cycles:u": 223825896.0,
+          "task-clock": 47.91
+        },
+        {
+          "instructions:u": 257626146.0,
+          "cycles:u": 223408552.0,
+          "task-clock": 47.47
+        },
+        {
+          "instructions:u": 257625248.0,
+          "cycles:u": 223946309.0,
+          "task-clock": 47.55
+        }
+      ],
+      "cost-shared": [
+        {
+          "instructions:u": 243625316.0,
+          "cycles:u": 205304287.0,
+          "task-clock": 43.9
+        },
+        {
+          "instructions:u": 243625468.0,
+          "cycles:u": 207237933.0,
+          "task-clock": 44.04
+        },
+        {
+          "instructions:u": 243625275.0,
+          "cycles:u": 205546397.0,
+          "task-clock": 43.84
+        },
+        {
+          "instructions:u": 243625527.0,
+          "cycles:u": 206173244.0,
+          "task-clock": 43.76
+        },
+        {
+          "instructions:u": 243625324.0,
+          "cycles:u": 207155475.0,
+          "task-clock": 44.06
+        },
+        {
+          "instructions:u": 243625329.0,
+          "cycles:u": 206828599.0,
+          "task-clock": 44.92
+        },
+        {
+          "instructions:u": 243625283.0,
+          "cycles:u": 205451384.0,
+          "task-clock": 44.35
+        },
+        {
+          "instructions:u": 243625593.0,
+          "cycles:u": 205900805.0,
+          "task-clock": 44.01
+        },
+        {
+          "instructions:u": 243625312.0,
+          "cycles:u": 207021858.0,
+          "task-clock": 46.28
+        }
+      ],
+      "cost-array": [
+        {
+          "instructions:u": 161625395.0,
+          "cycles:u": 183624854.0,
+          "task-clock": 39.39
+        },
+        {
+          "instructions:u": 161625408.0,
+          "cycles:u": 183829414.0,
+          "task-clock": 39.29
+        },
+        {
+          "instructions:u": 161625393.0,
+          "cycles:u": 185463934.0,
+          "task-clock": 39.74
+        },
+        {
+          "instructions:u": 161625349.0,
+          "cycles:u": 183968523.0,
+          "task-clock": 39.32
+        },
+        {
+          "instructions:u": 161625348.0,
+          "cycles:u": 182869258.0,
+          "task-clock": 39.23
+        },
+        {
+          "instructions:u": 161625626.0,
+          "cycles:u": 182419296.0,
+          "task-clock": 40.45
+        },
+        {
+          "instructions:u": 161625484.0,
+          "cycles:u": 184979789.0,
+          "task-clock": 39.46
+        },
+        {
+          "instructions:u": 161625360.0,
+          "cycles:u": 189199404.0,
+          "task-clock": 42.9
+        },
+        {
+          "instructions:u": 161625674.0,
+          "cycles:u": 187974034.0,
+          "task-clock": 40.21
+        }
+      ]
+    },
+    "preparation_sha256": "8cfad1706f470fa94368bd2d573d54bb51271f871927a31b1f7f02f81bb7b206",
+    "measurement_driver_sha256": "3b98ac36ef379674a91263fc1c918120e7d71bd65837ca0e84d658ab954d1dcf",
+    "medians": {
+      "production-v3": {
+        "instructions:u": 395723041.0,
+        "cycles:u": 177945333.0,
+        "task-clock": 38.39
+      },
+      "production-baseline": {
+        "instructions:u": 473722753.0,
+        "cycles:u": 179760142.0,
+        "task-clock": 38.81
+      },
+      "scalar-v3": {
+        "instructions:u": 468656090.0,
+        "cycles:u": 211090393.0,
+        "task-clock": 45.15
+      },
+      "ordinary-v3": {
+        "instructions:u": 5397659153.0,
+        "cycles:u": 3992263137.0,
+        "task-clock": 834.92
+      },
+      "vec3-v3": {
+        "instructions:u": 307657531.0,
+        "cycles:u": 178377004.0,
+        "task-clock": 38.21
+      },
+      "vec3-unpaired-v3": {
+        "instructions:u": 311657763.0,
+        "cycles:u": 189670364.0,
+        "task-clock": 40.79
+      },
+      "scalar-baseline": {
+        "instructions:u": 633655474.0,
+        "cycles:u": 222590319.0,
+        "task-clock": 48.13
+      },
+      "vec3-baseline": {
+        "instructions:u": 538657248.0,
+        "cycles:u": 206409391.0,
+        "task-clock": 44.42
+      },
+      "c-v3": {
+        "instructions:u": 359492766.0,
+        "cycles:u": 208300502.0,
+        "task-clock": 44.69
+      },
+      "cost-local": {
+        "instructions:u": 19625244.0,
+        "cycles:u": 48840727.0,
+        "task-clock": 11.46
+      },
+      "cost-owned": {
+        "instructions:u": 257625476.0,
+        "cycles:u": 223408552.0,
+        "task-clock": 47.7
+      },
+      "cost-shared": {
+        "instructions:u": 243625324.0,
+        "cycles:u": 206173244.0,
+        "task-clock": 44.04
+      },
+      "cost-array": {
+        "instructions:u": 161625395.0,
+        "cycles:u": 183968523.0,
+        "task-clock": 39.46
+      }
+    }
+  }
+}

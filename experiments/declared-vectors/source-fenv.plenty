@@ -1,0 +1,10 @@
+from std.vector import Vec3
+
+# Scalar C signatures exercise the real source compiler and private class ABI.
+export def scale(x: f64, y: f64, z: f64, factor: f64) -> f64 = "vec_scale":
+    value = Vec3(x, y, z) * factor
+    (value.x + value.y) + value.z
+
+export def dot(x: f64, y: f64, z: f64) -> f64 = "vec_dot":
+    value = Vec3(x, y, z)
+    value.dot(Vec3(1.0, 1.0, 1.0))

@@ -28,6 +28,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.cli.fileinput`](cli-fileinput.md) | Buffered fallible UTF-8 lines across native paths or command-line files, with stdin fallback | `FileInputError` |
 | [`std.cli.progress`](cli-progress.md) | Terminal-only stderr bars and spinners with counts, rates, ETA and throttled redraws | `ProgressError` |
 | [`std.collections`](collections.md) | Owned binary heaps ordered by `<` or by a stored comparator | `AllocError` |
+| [`std.vector`](vector.md) | Three-component `f64` copy class with ordered arithmetic and native-local prototype lowering | None |
 | [`std.complex`](complex.md) | `Complex` numbers over `f64` with arithmetic operators, polar form, `exp`, `log`, `sqrt`, `pow`, and `a+bi` display | None |
 | [`std.compress`](compress.md) | Bounded gzip, zlib, DEFLATE and Brotli compression of buffers and `std.io` streams, and CRC-32 | `CompressError` |
 | [`std.concurrent`](concurrent.md) | Executors, futures and parallel operations | Pool/submission/future/parallel errors |

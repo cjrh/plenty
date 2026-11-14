@@ -697,6 +697,8 @@ mod test_std_units_catalogue;
 mod test_std_url;
 #[path = "test_std_uuid.rs"]
 mod test_std_uuid;
+#[path = "test_std_vector.rs"]
+mod test_std_vector;
 #[path = "test_stdlib_index.rs"]
 mod test_stdlib_index;
 #[path = "test_storage_diagnostics.rs"]

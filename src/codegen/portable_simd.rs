@@ -1,5 +1,6 @@
-//! Native lowering for the closed, trusted std.simd surface. Public values keep
-//! the ordinary inline-enum ABI; eligible locals stay in private vector SSA.
+//! Native lowering for trusted std.simd and std.vector.Vec3 operations.
+//! Public values keep their ordinary enum/class ABI; eligible locals stay
+//! in private vector SSA.
 //! The Plenty bodies remain the scalar implementation on every other target.
 use super::*;
 use cranelift_codegen::ir::{Inst, MemFlagsData, Value as NativeValue};
@@ -11,6 +12,7 @@ enum Shape {
     F32,
     F64x2,
     F64x4,
+    Vec3,
 }
 
 impl Shape {
@@ -32,7 +34,7 @@ impl Shape {
             Self::I32 => Ty::I32,
             Self::U32 => Ty::U32,
             Self::F32 => Ty::F32,
-            Self::F64x2 | Self::F64x4 => Ty::F64,
+            Self::F64x2 | Self::F64x4 | Self::Vec3 => Ty::F64,
         }
     }
 
@@ -41,15 +43,15 @@ impl Shape {
         match self {
             Self::I32 | Self::U32 => types::I32X4,
             Self::F32 => types::F32X4,
-            Self::F64x4 if width == Width::Wide => types::F64X4,
-            Self::F64x2 | Self::F64x4 => types::F64X2,
+            Self::F64x4 | Self::Vec3 if width == Width::Wide => types::F64X4,
+            Self::F64x2 | Self::F64x4 | Self::Vec3 => types::F64X2,
         }
     }
 
     /// Native parts of one logical vector, in lane order. Every operation
     /// applies to each part, except the halves and their concatenation.
     fn parts(self, width: Width) -> usize {
-        self.lanes() / self.part(width).lane_count() as usize
+        self.lanes().next_power_of_two() / self.part(width).lane_count() as usize
     }
 
     /// The mask part matching [`Self::part`]: an all-ones or zero integer
@@ -67,7 +69,11 @@ impl Shape {
     }
 
     fn lanes(self) -> usize {
-        if self == Self::F64x2 { 2 } else { 4 }
+        match self {
+            Self::F64x2 => 2,
+            Self::Vec3 => 3,
+            _ => 4,
+        }
     }
 }
 
@@ -130,6 +136,10 @@ impl<T: Copy> Parts<T> {
 
 #[derive(Clone, Copy)]
 enum Action {
+    Construct,
+    Scale,
+    Negate,
+    Dot,
     Add,
     Sub,
     Mul,
@@ -225,7 +235,7 @@ impl Operation {
 
     /// Whether the operation takes or returns an `f64x4`.
     fn f64x4(&self) -> bool {
-        self.shape == Shape::F64x4 || self.result() == Shape::F64x4
+        matches!(self.shape, Shape::F64x4 | Shape::Vec3) || self.result() == Shape::F64x4
     }
 }
 
@@ -294,11 +304,22 @@ pub(super) struct State {
     /// Option values built by reading a promoted local: no other value
     /// addresses their storage.
     fresh: crate::hash::HashSet<NativeValue>,
+    scalar_references: HashMap<NativeValue, NativeValue>,
     snapshots: Vec<Vec<Inst>>,
     width: Width,
 }
 
+fn vec3_type(ty: &Ty) -> bool {
+    matches!(ty, Ty::Class(t) if t.get().name == "std.vector.Vec3"
+        && t.get().copy && t.get().destructor.is_none()
+        && t.get().fields.len() == 3
+        && t.get().fields.iter().zip(["x", "y", "z"]).all(|((name, ty), expected)| name == expected && *ty == Ty::F64))
+}
+
 fn shape_of(ty: &Ty) -> Option<Shape> {
+    if vec3_type(ty) {
+        return Some(Shape::Vec3);
+    }
     let Ty::Enum(t) = ty else { return None };
     let name = t.name.strip_prefix("std.simd.")?;
     let shape = Shape::named(name)?;
@@ -489,6 +510,9 @@ pub(super) fn classify(
     if !cfg!(target_arch = "x86_64") || !optimize || !standard_library {
         return None;
     }
+    if let Some(method) = name.strip_prefix("__plenty_class_std.vector.Vec3.") {
+        return vec3_operation(method, sig);
+    }
     let (name, method) = if let Some(vector) = name.strip_prefix("std.simd.load_") {
         (vector, "load")
     } else if let Some(vector) = name.strip_prefix("std.simd.get_") {
@@ -654,6 +678,39 @@ pub(super) fn classify(
     }
     Some(Operation {
         shape,
+        action,
+        output: output.clone(),
+    })
+}
+
+/// Only this trusted nominal class and its exact scalar signatures qualify.
+fn vec3_operation(method: &str, sig: &FnSig) -> Option<Operation> {
+    let borrowed = |ty: &Ty| matches!(ty, Ty::Ref(t, false) if vec3_type(t));
+    let input = sig.inputs.iter().map(|(_, t)| t).collect::<Vec<_>>();
+    let [output] = sig.outputs.as_slice() else {
+        return None;
+    };
+    let action = match (method, input.as_slice()) {
+        ("new", [Ty::F64, Ty::F64, Ty::F64]) if vec3_type(output) => Action::Construct,
+        ("__add__" | "__sub__" | "mul", [a, b])
+            if borrowed(a) && borrowed(b) && vec3_type(output) =>
+        {
+            match method {
+                "__add__" => Action::Add,
+                "__sub__" => Action::Sub,
+                _ => Action::Mul,
+            }
+        }
+        ("__mul__" | "__rmul__", [a, Ty::F64]) if borrowed(a) && vec3_type(output) => Action::Scale,
+        ("__neg__", [a]) if borrowed(a) && vec3_type(output) => Action::Negate,
+        ("dot", [a, b]) if borrowed(a) && borrowed(b) && *output == Ty::F64 => Action::Dot,
+        ("to_tuple", [a]) if borrowed(a) && *output == crate::sum::tuple(vec![Ty::F64; 3]) => {
+            Action::ToTuple
+        }
+        _ => return None,
+    };
+    Some(Operation {
+        shape: Shape::Vec3,
         action,
         output: output.clone(),
     })
@@ -903,7 +960,14 @@ impl Lowerer<'_, '_> {
         lanes: &[NativeValue],
     ) -> Native {
         let per = ty.lane_count() as usize;
-        Parts::new(shape.lanes() / per, |part| {
+        let padded;
+        let lanes = if shape == Shape::Vec3 {
+            padded = [lanes[0], lanes[1], lanes[2], self.bcx.ins().f64const(0.0)];
+            &padded[..]
+        } else {
+            lanes
+        };
+        Parts::new(shape.parts(self.portable_simd.width), |part| {
             let lanes = &lanes[part * per..][..per];
             // Two 128-bit halves pair their lanes with one unpack each; a
             // 256-bit insert per lane would broadcast and blend.
@@ -992,12 +1056,29 @@ impl Lowerer<'_, '_> {
                 }
             }
         }
+        let mut unused_slots = crate::hash::HashSet::default();
         for (group, instructions) in groups.iter().enumerate() {
             if !live[group] {
                 for &inst in instructions {
+                    if let Some(slot) = self.bcx.func.dfg.insts[inst].stack_slot() {
+                        unused_slots.insert(slot);
+                    }
                     self.bcx.func.layout.remove_inst(inst);
                 }
             }
+        }
+        // Removed snapshots must not retain their reserved frame bytes. Only
+        // slots created inside a removed group qualify, and any remaining
+        // stack-address instruction keeps its slot's complete reservation.
+        for block in self.bcx.func.layout.blocks() {
+            for inst in self.bcx.func.layout.block_insts(block) {
+                if let Some(slot) = self.bcx.func.dfg.insts[inst].stack_slot() {
+                    unused_slots.remove(&slot);
+                }
+            }
+        }
+        for slot in unused_slots {
+            self.bcx.func.sized_stack_slots[slot].size = 0;
         }
     }
 
@@ -1089,7 +1170,7 @@ impl Lowerer<'_, '_> {
     fn zero_simd(&mut self, shape: Shape) -> Native {
         let zero = match shape {
             Shape::F32 => self.bcx.ins().f32const(0.0),
-            Shape::F64x2 | Shape::F64x4 => self.bcx.ins().f64const(0.0),
+            Shape::F64x2 | Shape::F64x4 | Shape::Vec3 => self.bcx.ins().f64const(0.0),
             Shape::I32 | Shape::U32 => self.bcx.ins().iconst(types::I32, 0),
         };
         let part = self.simd_part(shape);
@@ -1201,10 +1282,28 @@ impl Lowerer<'_, '_> {
             .func
             .layout
             .last_inst(self.bcx.current_block().unwrap());
-        let slot = self.inline_storage(16);
-        self.bcx
-            .ins()
-            .store(MemFlagsData::trusted(), value, slot, 0);
+        let ty = self.locals[index as usize].1.clone();
+        let slot = self.inline_storage(16 + if vec3_type(&ty) { ty.inline_bytes() } else { 0 });
+        if vec3_type(&ty) {
+            // Write the complete canonical class snapshot directly. Generic
+            // relocation includes null-owner branches; a fresh native value
+            // is always initialized and needs neither those branches nor
+            // pointer fixups, and its snapshot must remain one removable group.
+            let storage = self.bcx.ins().iadd_imm_s(slot, 16);
+            for lane in 0..3 {
+                let value = self.native_lane(vector, lane);
+                let field = self.bcx.ins().iadd_imm_s(storage, (lane * 16) as i64);
+                self.store_slot(field, value, &Ty::F64);
+            }
+            let owner = self.bcx.ins().uextend(types::I128, storage);
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), owner, slot, 0);
+        } else {
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), value, slot, 0);
+        }
         let reference = self.bcx.ins().uextend(types::I128, slot);
         self.portable_simd.values.insert(reference, vector);
         self.record_simd_snapshot(before);
@@ -1217,7 +1316,14 @@ impl Lowerer<'_, '_> {
         }
         // References may project through enclosing Option/Result payloads. The
         // payload word still addresses the same inline multi-field storage.
-        let storage = self.reference_word(reference);
+        let storage = if shape == Shape::Vec3 {
+            // Class references address the real or virtual owner slot just
+            // before its contiguous record, including flat nested fields.
+            let address = self.raw_word(reference);
+            self.referenced_record(address)
+        } else {
+            self.reference_word(reference)
+        };
         self.gather_simd_lanes(storage, shape, mask)
     }
 
@@ -1245,6 +1351,106 @@ impl Lowerer<'_, '_> {
             lanes.push(lane);
         }
         self.native_from_lanes(shape, vector_ty, &lanes)
+    }
+
+    fn negate_vec3(&mut self, vector: Native) -> Native {
+        let mut offset = 0;
+        vector.map(|part| {
+            let ty = self.bcx.func.dfg.value_type(part);
+            let bytes = ty.bytes() as usize;
+            let lanes = ty.lane_count() as usize;
+            let mut signs = [0; 32];
+            for lane in 0..(3_usize.saturating_sub(offset)).min(lanes) {
+                signs[lane * 8 + 7] = 0x80;
+            }
+            offset += lanes;
+            let constant = self.bcx.func.dfg.constants.insert(signs[..bytes].into());
+            let mask = self.bcx.ins().vconst(ty, constant);
+            self.bcx.ins().bxor(part, mask)
+        })
+    }
+
+    fn canonical_vec3(&mut self, vector: Native) -> Native {
+        // Mask only the private lane, after safe inactive operands have kept
+        // the FP operation itself non-exceptional. This also restores +0
+        // after subtraction under round-toward-negative.
+        let ty = self.bcx.func.dfg.value_type(vector.low);
+        let bytes = ty.bytes() as usize;
+        let mut mask = [0xff; 32];
+        mask[bytes - 8..bytes].fill(0);
+        let constant = self.bcx.func.dfg.constants.insert(mask[..bytes].into());
+        let mask = self.bcx.ins().vconst(ty, constant);
+        if let Some(high) = vector.high {
+            Parts {
+                low: vector.low,
+                high: Some(self.bcx.ins().band(high, mask)),
+            }
+        } else {
+            Parts {
+                low: self.bcx.ins().band(vector.low, mask),
+                high: None,
+            }
+        }
+    }
+
+    /// Shared class-field reads may use an immutable native snapshot. Mutable
+    /// projections keep the ordinary address path and exclude local promotion.
+    pub(super) fn vec3_field(
+        &mut self,
+        owner: NativeValue,
+        ty: &Ty,
+        index: usize,
+    ) -> Option<NativeValue> {
+        if !vec3_type(ty) {
+            return None;
+        }
+        let vector = *self.portable_simd.values.get(&owner)?;
+        Some(self.native_lane(vector, index))
+    }
+
+    pub(super) fn vec3_field_reference(
+        &mut self,
+        owner: NativeValue,
+        ty: &Ty,
+        index: usize,
+    ) -> Option<NativeValue> {
+        let value = self.vec3_field(owner, ty, index)?;
+        let before = self
+            .bcx
+            .func
+            .layout
+            .last_inst(self.bcx.current_block().unwrap());
+        let slot = self.inline_storage(16);
+        self.store_slot(slot, value, &Ty::F64);
+        let reference = self.bcx.ins().uextend(types::I128, slot);
+        self.portable_simd
+            .scalar_references
+            .insert(reference, value);
+        self.record_simd_snapshot(before);
+        Some(reference)
+    }
+
+    pub(super) fn read_vec3_scalar(&self, reference: NativeValue, ty: &Ty) -> Option<NativeValue> {
+        (*ty == Ty::F64)
+            .then(|| {
+                self.portable_simd
+                    .scalar_references
+                    .get(&reference)
+                    .copied()
+            })
+            .flatten()
+    }
+
+    pub(super) fn read_vec3_reference(
+        &mut self,
+        reference: NativeValue,
+        ty: &Ty,
+    ) -> Option<NativeValue> {
+        if !vec3_type(ty) {
+            return None;
+        }
+        let vector = *self.portable_simd.values.get(&reference)?;
+        Some(self.materialize_simd(vector, Shape::Vec3, ty))
     }
 
     /// Reads or writes all lanes as one packed vector: a scalar list stores
@@ -1333,6 +1539,13 @@ impl Lowerer<'_, '_> {
     }
 
     pub(super) fn lower_portable_simd(&mut self, op: &Operation, args: &[NativeValue]) {
+        if matches!(op.action, Action::Construct) {
+            let vector = self.native_from_lanes(op.shape, self.simd_part(op.shape), args);
+            let value = self.materialize_simd(vector, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
+
         if matches!(op.action, Action::Load | Action::Store) {
             return self.lower_simd_transfer(op, args);
         }
@@ -1361,6 +1574,46 @@ impl Lowerer<'_, '_> {
             return;
         }
         let left = self.simd_lanes(args[0], op.shape, false);
+        if matches!(op.action, Action::Scale | Action::Negate | Action::Dot) {
+            let result = match op.action {
+                Action::Scale => {
+                    // No 0*Inf/NaN in the private lane: prepare neutral input.
+                    let one = self.bcx.ins().f64const(1.0);
+                    let low = self.bcx.ins().splat(types::F64X2, args[1]);
+                    let high = self.bcx.ins().insertlane(low, one, 1);
+                    let multiplier = if self.portable_simd.width == Width::Wide {
+                        Parts {
+                            low: self.bcx.ins().x86_vinsertf128(types::F64X4, low, high),
+                            high: None,
+                        }
+                    } else {
+                        Parts {
+                            low,
+                            high: Some(high),
+                        }
+                    };
+                    left.zip(multiplier, |l, r| self.bcx.ins().fmul(l, r))
+                }
+                Action::Negate => self.negate_vec3(left),
+                Action::Dot => {
+                    let right = self.simd_lanes(args[1], op.shape, false);
+                    let products = left.zip(right, |l, r| self.bcx.ins().fmul(l, r));
+                    let x = self.native_lane(products, 0);
+                    let y = self.native_lane(products, 1);
+                    let z = self.native_lane(products, 2);
+                    let xy = self.bcx.ins().fadd(x, y);
+                    let sum = self.bcx.ins().fadd(xy, z);
+                    self.stack.push((sum, Ty::F64));
+                    return;
+                }
+                _ => unreachable!(),
+            };
+            // Scaling uses +0 * 1 in padding; negation flips only logical
+            // sign bits. Both preserve +0 without a post-operation mask.
+            let value = self.materialize_simd(result, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
         if matches!(op.action, Action::WrappingSum) {
             // Keep the existing modular lane-order fold, without materializing
             // an enum and calling its scalar body. In particular, a subsequent
@@ -1502,6 +1755,13 @@ impl Lowerer<'_, '_> {
         };
         let comparison = matches!(op.action, Action::Compare(..));
         if !comparison {
+            let result = if op.shape == Shape::Vec3 && matches!(op.action, Action::Sub) {
+                // +0 - +0 may be -0 under round-toward-negative. Addition
+                // and multiplication of the positive-zero padding remain +0.
+                self.canonical_vec3(result)
+            } else {
+                result
+            };
             let value = self.materialize_simd(result, op.result(), &op.output);
             self.stack.push((value, op.output.clone()));
             return;

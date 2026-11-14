@@ -1774,3 +1774,24 @@ work under issue #972. The original escape loop remains at 20 instructions; its 
 scope and issue #978's scalar-copy scope remain open. Issue #980 separately
 tracks the remaining matrix floating-load instruction. The benchmark rewrite
 under issue #972 awaits production adoption of the qualified scheduling change.
+
+## Source-level Vec3 prototype (issue #967)
+
+The bounded implementation adds [std.vector.Vec3](../design/stdlib/vector.md):
+a copy class with three f64 fields, scalar Plenty method bodies and eligible
+x86 native-local lowering. Ordinary class storage and call ABI are retained:
+48 payload bytes plus an owning slot where needed, rather than a new compact
+32-byte layout. Source-level n-body keeps explicit adjacent-magnitude pairing,
+ordered dot products and the original velocity-update sequence.
+
+The v3 hot loop takes 307 instructions versus 395 in the current benchmark;
+the default-CPU prototype takes 538 versus 473. Nine rotating runtime samples
+show AVX2 effectively tied (+0.24% median cycles, -0.47% task-clock), while
+the default CPU is 14.82% slower by cycles. The source-level adoption speed
+gate is not passed. Complete-state comparisons
+cover ten implementations/profiles and nine trip counts; boundary controls
+expose retained call and array materialization costs. The source experiment
+`experiments/declared-vectors/source.md` records attribution, measurements,
+reproduction and floating-environment limits. The existing benchmark remains
+unchanged. Compact layout, clist flattening, broader workload adoption, other
+vector types and cross-target qualification remain in issue #967 and B23.

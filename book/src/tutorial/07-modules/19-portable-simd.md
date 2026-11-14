@@ -5,6 +5,26 @@ Prefer ordinary pipelines for repeated column scans: the
 Plenty can accelerate them automatically. Use `std.simd` when the algorithm
 itself is clearer as a fixed set of lanes.
 
+For a spatial value with three named `f64` components, the initial
+[`std.vector.Vec3`](../../design/stdlib/vector.md) prototype avoids exposing a
+spare lane. Arithmetic follows ordinary scalar component rules:
+
+```plenty
+from std.vector import Vec3
+
+def main() -> ():
+    position = Vec3(1.0, 2.0, 3.0)
+    velocity = Vec3(0.5, -1.0, 2.0)
+    print((position + velocity * 2.0).to_tuple()).unwrap()
+```
+```output
+(2.0, 0.0, 7.0)
+```
+
+This currently keeps ordinary class storage and call costs. Use it for the
+named-component abstraction; measure a hot loop before assuming a speedup.
+Explicit `std.simd` vectors remain appropriate for independent packed lanes.
+
 This example compares four measurements with one threshold, then selects the
 threshold for lanes below it. The mask is a vector of logical booleans; `count`
 counts its true lanes, and `select` chooses between already-computed values.
