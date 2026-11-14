@@ -115,6 +115,12 @@ production compiler lowering. It preserves scalar ordered reductions and
 sqrt/div without integrating existing adjacent-magnitude pairing, so this
 result does not reject every possible native lowering.
 
+The [paired continuation](../../completed-work/performance.md#paired-declared-vector-experiment-issue-967)
+subsequently integrates that pairing and passes the bounded AVX2 native speed
+comparison on the measured host. This does not qualify a public API, collection
+layout, other hardware or source-level boundary costs. Results review remains
+required before adopting them.
+
 ## Acceptance and user guidance
 
 Accept a final type only after results explain its benefit and its costs.

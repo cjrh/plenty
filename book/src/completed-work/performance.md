@@ -1668,6 +1668,24 @@ sample ranges are retained in `experiments/kernels/accessor-tail/README.md`,
 with the Plenty/C kernels and CLIF substitution variants. This main-based
 implementation is independent of issue #972's native Bounded representation.
 
+## Paired declared-vector experiment (issue #967)
+
+The native continuation integrates existing adjacent-magnitude pairing with
+vector state, preserving scalar dot association and velocity-update order.
+On the measured Zen 4 host, AVX2 wide n-body drops from 299 to 293 instructions
+per step and improves median cycles by 6.23–6.61% against current v3 Plenty
+across eight candidate function placements. The unpaired form remains slower;
+baseline halves also remain slower than current baseline Plenty. Raw samples
+retain outliers and zero-step controls.
+
+Four-rounding-mode randomized/IEEE checks cover all state fields, final masked
+exception flags, immutable masses, unaligned guarded boundaries and nonpositive
+NULL trips. NaN payloads and trapping exception order are not promised.
+No production compiler, public vector API or collection layout changes here.
+Public boundary costs, list/clist layout, other targets and broader workload
+qualification remain in issue #967 and B23. See the retained experiment
+`experiments/declared-vectors/paired.md` for attribution, raw data and reproduction.
+
 ## Declared-vector prototype (issue #967)
 
 The bounded experiment in `experiments/declared-vectors/` compares matched

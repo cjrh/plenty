@@ -1,0 +1,9 @@
+{
+  "note": "Supplemental provenance; original preparation/measurement manifests are retained unchanged. Driver snapshots preserve both collectors.",
+  "sha256": {
+    "experiments/nbody-structural/ir.py": "87a248424406d866e77b26f0b7c4669e7fc5816bae5bff228a09208abaca52ee",
+    "experiments/nbody-structural/generate.py": "fee47301fe33513505b7db92bd2a56cb1b2ce4701b20ee76d33ea259ec3e9a56",
+    "target/declared-vectors-paired/initial-measure-driver.py": "0bb993b9bb5ae0b093676d8e44fab2722364053c1f1993cc0eefe6a0869e1157",
+    "target/declared-vectors-placement/measurement-driver.py": "e71a0d2fda48494ddc9a9a25d0726914a0ab3f5e4f2565605d5afe33790564e9"
+  }
+}
