@@ -272,3 +272,129 @@ fn inlined_standard_records_name_their_caller_by_distance() {
         [None, None, Some(-16), Some(-48), None]
     );
 }
+
+/// Exercise real checked call graphs, including std-marked fixture helpers.
+fn fixture_context_calls(source: &str) -> usize {
+    fixture_context_calls_with_optimization(source, true)
+}
+
+fn fixture_context_calls_with_optimization(source: &str, optimize: bool) -> usize {
+    let mut heap = Heap::default();
+    let mut program = crate::frontend::compile(source, &mut heap).unwrap();
+    for op in &mut program.ops {
+        if let Op::DefineFn(name, function) = op {
+            let origins = Arc::make_mut(&mut function.origins);
+            origins.standard_library = name.starts_with("standard_");
+            origins.trap_file = Some(if origins.standard_library {
+                "std/fixture.plenty".into()
+            } else {
+                "user.plenty".into()
+            });
+        }
+    }
+    let dump = dump_program(
+        program.ops,
+        &heap,
+        program.returns_status,
+        optimize,
+        crate::CompileOptions::default().cpu,
+        1,
+        &DumpOptions {
+            stages: vec![DumpStage::Clif],
+            standard_library: true,
+            filter: Some("user_entry".into()),
+        },
+    )
+    .unwrap();
+    dump.files
+        .iter()
+        .find(|(name, _)| name == "clif.txt")
+        .unwrap()
+        .1
+        .matches("plenty_caller_enter")
+        .count()
+}
+
+#[test]
+fn transitive_code_free_owned_values_need_no_caller_context() {
+    let source = r#"
+def standard_leaf(value: str) -> Result[str, i64]:
+    Ok(value)
+def standard_middle(value: str) -> Result[str, i64]:
+    standard_leaf(value)
+def user_entry(value: str) -> Result[str, i64]:
+    standard_middle(value)
+def main() -> ():
+    value = user_entry("hello")
+"#;
+    for optimize in [false, true] {
+        assert_eq!(fixture_context_calls_with_optimization(source, optimize), 0);
+    }
+}
+
+#[test]
+fn safe_recursive_components_qualify_but_a_trap_propagates_to_all_callers() {
+    let source = r#"
+def standard_a(value: i64, again: bool) -> i64:
+    if again:
+        return standard_b(value, False)
+    value
+def standard_b(value: i64, again: bool) -> i64:
+    standard_a(value, again)
+def user_entry(value: i64) -> i64:
+    standard_a(value, True)
+def main() -> ():
+    value = user_entry(7)
+"#;
+    for optimize in [false, true] {
+        assert_eq!(fixture_context_calls_with_optimization(source, optimize), 0);
+    }
+    let trapping = source.replace(
+        "    value\ndef standard_b",
+        "    unchecked:\n        value // 0\ndef standard_b",
+    );
+    assert!(fixture_context_calls(&trapping) > 0);
+}
+
+#[test]
+fn indirect_calls_and_destructor_capable_locals_keep_caller_context() {
+    let indirect = r#"
+def leaf() -> i64:
+    7
+def standard_apply(callback: Callable[[], i64]) -> i64:
+    callback()
+def user_entry() -> i64:
+    standard_apply(leaf)
+def main() -> ():
+    value = user_entry()
+"#;
+    assert!(fixture_context_calls(indirect) > 0);
+    let owned = r#"
+class Guard:
+    value: i64
+    def __del__(self) -> ():
+        print("drop").unwrap()
+def standard_owned(value: i64) -> i64:
+    guard = Guard(value)
+    guard.value
+def user_entry(value: i64) -> i64:
+    standard_owned(value)
+def main() -> ():
+    value = user_entry(7)
+"#;
+    assert!(fixture_context_calls(owned) > 0);
+}
+
+#[test]
+fn text_index_queries_keep_the_callers_trap_context() {
+    let source = r#"
+def standard_text(value: &str, index: i64) -> str:
+    value[index]
+def user_entry(value: &str, index: i64) -> str:
+    standard_text(value, index)
+def main() -> ():
+    value = user_entry("hello", 0)
+"#;
+    // An optimized inlined copy can use its own site records instead.
+    assert!(fixture_context_calls_with_optimization(source, false) > 0);
+}

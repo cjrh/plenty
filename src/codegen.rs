@@ -1962,11 +1962,12 @@ struct UserFn {
     /// standard-library caller need not save and restore it; see
     /// [`sites::mark_context_preserving`].
     preserves_caller: bool,
-    /// A std body that can neither trap nor run other code, so user calls
-    /// to it need no caller site; see [`sites::reads_no_caller`].
+    /// A body whose operations and transitive direct callees read no caller
+    /// context, so user calls to it need no caller site; see
+    /// [`sites::mark_context_preserving`].
     reads_no_caller: bool,
     /// A std body whose trap records can name an inlining user call site;
-    /// see [`sites::names_caller_in_sites`].
+    /// see [`sites::mark_context_preserving`].
     names_caller_in_sites: bool,
 }
 

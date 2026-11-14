@@ -371,7 +371,7 @@ impl Lowerer<'_, '_> {
     /// The record key of this user call site, when a callee lowered into
     /// this body can name it in its trap records instead of entering a
     /// caller scope: the callee is std code whose only reads of the caller
-    /// context are trap sites (`eligible`, [`names_caller_in_sites`]) and
+    /// context are trap sites (`eligible`, [`safe_caller_body`]) and
     /// the site is fixed at lowering time.
     pub(super) fn inline_caller(&self, eligible: bool) -> Option<Key> {
         if !eligible
@@ -420,6 +420,37 @@ pub(super) fn mark_context_preserving(
         .enumerate()
         .map(|(i, (name, _))| (name.as_str(), i))
         .collect();
+    // Prove no reads transitively before considering call-site elision.
+    // Start with every candidate: a recursive component qualifies only when
+    // every operation and every edge leaving it is safe.
+    let mut reads_nothing = vec![true; bodies.len()];
+    let mut readers = vec![Vec::new(); bodies.len()];
+    for (i, (name, body)) in bodies.iter().enumerate() {
+        let function = &fns[name];
+        let eligible = function.generator.is_none()
+            && function.source.is_some()
+            && reads_no_caller(body, &function.sig, &function.locals, &mut |callee| {
+                if let Some(&g) = index.get(callee) {
+                    readers[g].push(i);
+                    true
+                } else {
+                    false
+                }
+            });
+        reads_nothing[i] = eligible;
+    }
+    let mut pending: Vec<_> = (0..bodies.len()).filter(|&i| !reads_nothing[i]).collect();
+    while let Some(g) = pending.pop() {
+        for &f in &readers[g] {
+            if reads_nothing[f] {
+                reads_nothing[f] = false;
+                pending.push(f);
+            }
+        }
+    }
+    for ((name, _), reads_nothing) in bodies.iter().zip(reads_nothing) {
+        fns.get_mut(name).unwrap().reads_no_caller = reads_nothing;
+    }
     let mut preserving = vec![true; bodies.len()];
     // `callers[g]`: functions that preserve the context only if `g` does.
     let mut callers: Vec<Vec<usize>> = vec![Vec::new(); bodies.len()];
@@ -435,8 +466,9 @@ pub(super) fn mark_context_preserving(
                     return;
                 };
                 let decl = &fns[callee];
-                let sets_site =
-                    !caller.standard_library && (decl.standard_library || decl.source.is_none());
+                let sets_site = !caller.standard_library
+                    && (decl.standard_library || decl.source.is_none())
+                    && !decl.reads_no_caller;
                 match op {
                     Op::TailCall(_) if sets_site => changes = true,
                     // Restored by its caller: std restores unless the callee
@@ -463,27 +495,41 @@ pub(super) fn mark_context_preserving(
             }
         }
     }
-    for ((name, body), preserves) in bodies.iter().zip(preserving) {
-        let function = fns.get_mut(name).unwrap();
-        function.preserves_caller = preserves;
-        function.reads_no_caller = function.standard_library
-            && function.generator.is_none()
-            && reads_no_caller(body, &function.sig, &function.locals);
-        function.names_caller_in_sites = function.standard_library
-            && function.generator.is_none()
-            && !function.reads_no_caller
-            && names_caller_in_sites(body, &function.sig, &function.locals);
+    for ((name, _), preserves) in bodies.iter().zip(preserving) {
+        fns.get_mut(name).unwrap().preserves_caller = preserves;
+    }
+    let names_sites: Vec<_> = bodies
+        .iter()
+        .map(|(name, body)| {
+            let function = &fns[name];
+            function.standard_library
+                && function.generator.is_none()
+                && !function.reads_no_caller
+                && safe_caller_body(body, &function.sig, &function.locals, true, &mut |callee| {
+                    fns.get(callee).is_some_and(|callee| callee.reads_no_caller)
+                })
+        })
+        .collect();
+    for ((name, _), names_sites) in bodies.iter().zip(names_sites) {
+        fns.get_mut(name).unwrap().names_caller_in_sites = names_sites;
     }
 }
 
-/// Whether a std body reads the caller context only through its own trap
-/// sites: it makes no call, runs no other code, and releases nothing that
-/// does. An inlined copy can then name its user call site in those records
+/// Whether a body reads the caller context only through its own trap
+/// sites: its direct callees read no context, and it releases nothing that
+/// runs compiled code. An inlined copy can then name its user call site in
+/// those records
 /// rather than setting the context around the body (issue #842). Runtime
 /// helpers read the context only for a trap at a std site
 /// (`fail_kind_at` in the runtime) and for `__caller_location`, which is not
 /// among these operations.
-pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> bool {
+fn safe_caller_body(
+    body: &[Op],
+    sig: &FnSig,
+    locals: &[Ty],
+    allow_traps: bool,
+    callees: &mut impl FnMut(&str) -> bool,
+) -> bool {
     use crate::collection::CollectionOp as C;
     let runs_code = sig
         .inputs
@@ -496,8 +542,8 @@ pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> 
         return false;
     }
     let mut eligible = true;
-    // `walk_slices` also enters loop, try and checked bodies; the whitelist
-    // rejects those ops themselves.
+    // Inspect every nested arm and cleanup. Loops and unknown control-flow
+    // operations remain conservative even when their children look safe.
     walk_slices(body, &mut |ops| {
         for (index, op) in ops.iter().enumerate() {
             eligible &= match op {
@@ -511,6 +557,19 @@ pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> 
                     Some(Op::Collection(C::Bytes(primitive)))
                         if !primitive.signature().1.release_runs_code()
                 ),
+                Op::Call(callee) | Op::TailCall(callee) => callees(callee),
+                _ if allow_traps => primitive_reads_no_caller(op),
+                Op::Collection(C::Trap)
+                | Op::Enum(crate::sum::EnumOp::Unwrap(_))
+                | Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::FloorDiv(_)
+                | Op::Modulo(_)
+                | Op::Integer(_) => false,
+                Op::Collection(C::Bytes(_) | C::QueryRef(_)) => {
+                    !matches!(op, Op::Collection(operation) if operation.traps())
+                }
                 _ => primitive_reads_no_caller(op),
             };
         }
@@ -519,17 +578,28 @@ pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> 
 }
 
 /// Whether `op`, outside a nested body, can read the caller context only
-/// through a trap site; see [`names_caller_in_sites`].
+/// through a trap site; see [`safe_caller_body`].
 fn primitive_reads_no_caller(op: &Op) -> bool {
     use crate::collection::CollectionOp as C;
-    use crate::record::ClassOp;
     match op {
         Op::ReadRef(ty) => !ty.release_runs_code(),
         // Native byte primitives and read-only queries: none calls
         // compiled code. A trap passes its site record.
         Op::Collection(C::Bytes(_) | C::QueryRef(_) | C::Trap) => true,
-        Op::Class(ClassOp::FieldRef(..))
-        | Op::Site(_)
+        Op::Enum(op) => op.signature().is_some_and(|(inputs, output)| {
+            inputs
+                .iter()
+                .chain(std::iter::once(&output))
+                .all(|ty| !ty.release_runs_code())
+        }),
+        Op::Class(op) => op.signature().is_some_and(|(inputs, output)| {
+            inputs
+                .iter()
+                .chain(std::iter::once(&output))
+                .all(|ty| !ty.release_runs_code())
+        }),
+        Op::Collection(C::ViewNew(..) | C::ViewLen(_)) => true,
+        Op::Site(_)
         | Op::CallerSite(_)
         | Op::Loan(_)
         | Op::UseLoan(_)
@@ -537,6 +607,11 @@ fn primitive_reads_no_caller(op: &Op) -> bool {
         | Op::Access(..)
         | Op::Returning(..)
         | Op::LoadLocal(_)
+        | Op::MoveLocal(_)
+        | Op::StoreLocal(_)
+        | Op::DropLocal(_)
+        | Op::ForwardsReferences
+        | Op::Try { .. }
         | Op::BorrowLocal(..)
         | Op::Reborrow(_)
         | Op::PushInt(_)
@@ -565,39 +640,17 @@ fn primitive_reads_no_caller(op: &Op) -> bool {
     }
 }
 
-/// Whether a std body can neither trap nor run other code, so nothing in it
-/// reads the caller context and a user call to it needs no site (issue #750).
-/// Domain accessors such as `NonNegative[i64].get` are the common case: a
-/// field read through `self`. Only straight-line reads qualify; any call,
-/// arithmetic, collection operation, or release of an owned local does not.
-pub(super) fn reads_no_caller(body: &[Op], sig: &FnSig, locals: &[Ty]) -> bool {
-    use crate::record::ClassOp;
-    let owns = sig
-        .inputs
-        .iter()
-        .map(|(_, ty)| ty)
-        .chain(locals)
-        .any(Ty::managed);
-    !owns
-        && sig.outputs.iter().all(|ty| !ty.managed())
-        && body.iter().all(|op| match op {
-            Op::ReadRef(ty) => !ty.managed(),
-            Op::Class(ClassOp::FieldRef(..)) => true,
-            Op::Site(_)
-            | Op::CallerSite(_)
-            | Op::Loan(_)
-            | Op::UseLoan(_)
-            | Op::EndLoan(_)
-            | Op::Returning(..)
-            | Op::LoadLocal(_)
-            | Op::BorrowLocal(..)
-            | Op::Reborrow(_)
-            | Op::PushInt(_)
-            | Op::PushBool(_)
-            | Op::PushUnit
-            | Op::Return => true,
-            _ => false,
-        })
+/// Whether this body and all its direct callees read no caller context.
+/// Code-free owned values may allocate or return errors; they cannot invoke
+/// destructors. Unknown/indirect calls and traps remain conservative. The
+/// caller supplies the direct-call proof (or records fixed-point edges).
+fn reads_no_caller(
+    body: &[Op],
+    sig: &FnSig,
+    locals: &[Ty],
+    callees: &mut impl FnMut(&str) -> bool,
+) -> bool {
+    safe_caller_body(body, sig, locals, false, callees)
 }
 
 /// Visits every operation of one function, not of the functions it defines.

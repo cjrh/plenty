@@ -238,9 +238,11 @@ it only on a miss (issue #949), which k-nucleotide now uses; its remaining hit
 cost outside the hash is the cache miss on the bucket load, and a byte view
 taken in a loop still calls `plenty_byte_view` on every pass. Not delivered:
 borrowed-key `get`, `get_ref`, `get_mut` and `in` for `str` keys, a `&strview`
-form, and a borrowed form for `dict[bytes, V]`. Caller-site bookkeeping around
-`Bytes.to_text_range` (issue #948) remains for programs that build keys;
-issue #931 records the measurements.
+form, and a borrowed form for `dict[bytes, V]`.
+[Transitive caller-context proofs](completed-work/performance.md#transitive-caller-context-proofs-issue-948)
+are delivered (issue #948); eliminating the outer scope around trapping
+`Bytes.to_text_range` additionally requires terminal-call inlining (issue #958).
+Issue #931 records the earlier key-construction measurements.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [Benchmarks Game baseline refresh](completed-work/performance.md#benchmarks-game-baseline-refresh-2026-11-11)
