@@ -83,6 +83,7 @@ mod threads;
 mod value_generics;
 mod view_methods;
 mod views;
+mod window_iteration;
 use value_generics::Argument;
 
 mod lexer;

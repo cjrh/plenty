@@ -374,6 +374,7 @@ impl Scan {
                     | C::IterGet(Ty::ByteStr)
                     | C::ViewLen(_)
                     | C::ViewNew(..)
+                    | C::ViewSpan(_)
                     | C::ViewRow(..)
                     | C::ViewItem(..)
                     | C::ViewSwap(_)
@@ -2477,6 +2478,9 @@ impl Lower<'_> {
         hint: Option<Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Iteration> {
+        if let Some(plan) = self.window_iteration(names, iterable, ops)? {
+            return Ok(plan);
+        }
         if self.is_clist_column(iterable) {
             return self.clist_iteration(names, iterable, ops);
         }

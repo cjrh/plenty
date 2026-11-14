@@ -1,0 +1,191 @@
+{
+  "moving_ranges": [
+    {
+      "instructions": 3679534872.0,
+      "task_ms": 388.28,
+      "user_cpu_s": 0.395391
+    },
+    {
+      "instructions": 3679535384.0,
+      "task_ms": 388.78,
+      "user_cpu_s": 0.400277
+    },
+    {
+      "instructions": 3679534864.0,
+      "task_ms": 301.85,
+      "user_cpu_s": 0.3120250000000002
+    },
+    {
+      "instructions": 3679534786.0,
+      "task_ms": 296.68,
+      "user_cpu_s": 0.3059459999999987
+    },
+    {
+      "instructions": 3679534758.0,
+      "task_ms": 290.9,
+      "user_cpu_s": 0.29485700000000037
+    }
+  ],
+  "moving_windows": [
+    {
+      "instructions": 3576434790.0,
+      "task_ms": 319.63,
+      "user_cpu_s": 0.33167699999999994
+    },
+    {
+      "instructions": 3576434821.0,
+      "task_ms": 314.18,
+      "user_cpu_s": 0.32373600000000025
+    },
+    {
+      "instructions": 3576434906.0,
+      "task_ms": 283.2,
+      "user_cpu_s": 0.2905559999999996
+    },
+    {
+      "instructions": 3576435116.0,
+      "task_ms": 270.81,
+      "user_cpu_s": 0.275957
+    },
+    {
+      "instructions": 3576434789.0,
+      "task_ms": 283.44,
+      "user_cpu_s": 0.28979400000000055
+    }
+  ],
+  "moving_c": [
+    {
+      "instructions": 2350467718.0,
+      "task_ms": 296.71,
+      "user_cpu_s": 0.30657100000000004
+    },
+    {
+      "instructions": 2350467659.0,
+      "task_ms": 293.59,
+      "user_cpu_s": 0.30320800000000014
+    },
+    {
+      "instructions": 2350467645.0,
+      "task_ms": 284.15,
+      "user_cpu_s": 0.29300000000000015
+    },
+    {
+      "instructions": 2350468321.0,
+      "task_ms": 268.88,
+      "user_cpu_s": 0.2770740000000007
+    },
+    {
+      "instructions": 2350468025.0,
+      "task_ms": 276.11,
+      "user_cpu_s": 0.2844939999999987
+    }
+  ],
+  "moving_rust": [
+    {
+      "instructions": 2759835279.0,
+      "task_ms": 293.72,
+      "user_cpu_s": 0.3030219999999999
+    },
+    {
+      "instructions": 2759833643.0,
+      "task_ms": 300.18,
+      "user_cpu_s": 0.31145599999999973
+    },
+    {
+      "instructions": 2759833678.0,
+      "task_ms": 292.53,
+      "user_cpu_s": 0.2973460000000001
+    },
+    {
+      "instructions": 2759834296.0,
+      "task_ms": 267.73,
+      "user_cpu_s": 0.2760979999999993
+    },
+    {
+      "instructions": 2759833602.0,
+      "task_ms": 280.41,
+      "user_cpu_s": 0.2901070000000008
+    }
+  ],
+  "knuc_ranges": [
+    {
+      "instructions": 2337291437.0,
+      "task_ms": 522.94,
+      "user_cpu_s": 0.49782400000000004
+    },
+    {
+      "instructions": 2332267585.0,
+      "task_ms": 509.99,
+      "user_cpu_s": 0.4885710000000003
+    },
+    {
+      "instructions": 2330505425.0,
+      "task_ms": 518.99,
+      "user_cpu_s": 0.49701400000000007
+    },
+    {
+      "instructions": 2336797054.0,
+      "task_ms": 238.86,
+      "user_cpu_s": 0.2266010000000005
+    },
+    {
+      "instructions": 2333470611.0,
+      "task_ms": 266.01,
+      "user_cpu_s": 0.24834899999999926
+    }
+  ],
+  "knuc_windows": [
+    {
+      "instructions": 2210639203.0,
+      "task_ms": 347.3,
+      "user_cpu_s": 0.33184000000000013
+    },
+    {
+      "instructions": 2212111394.0,
+      "task_ms": 519.3,
+      "user_cpu_s": 0.500273
+    },
+    {
+      "instructions": 2215143309.0,
+      "task_ms": 287.71,
+      "user_cpu_s": 0.27115899999999904
+    },
+    {
+      "instructions": 2213085476.0,
+      "task_ms": 281.22,
+      "user_cpu_s": 0.26686300000000074
+    },
+    {
+      "instructions": 2211670084.0,
+      "task_ms": 239.03,
+      "user_cpu_s": 0.22357300000000002
+    }
+  ],
+  "knuc_rust": [
+    {
+      "instructions": 3812051585.0,
+      "task_ms": 924.79,
+      "user_cpu_s": 0.8987379999999998
+    },
+    {
+      "instructions": 3813042952.0,
+      "task_ms": 913.59,
+      "user_cpu_s": 0.8847199999999997
+    },
+    {
+      "instructions": 3812520583.0,
+      "task_ms": 654.24,
+      "user_cpu_s": 0.6412140000000015
+    },
+    {
+      "instructions": 3812342236.0,
+      "task_ms": 682.32,
+      "user_cpu_s": 0.6600959999999993
+    },
+    {
+      "instructions": 3814937210.0,
+      "task_ms": 712.89,
+      "user_cpu_s": 0.6921990000000005
+    }
+  ]
+}

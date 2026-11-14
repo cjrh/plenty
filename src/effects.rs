@@ -245,6 +245,7 @@ impl CollectionOp {
             | ListRowRef(..)
             | ListRowTake(_)
             | ViewNew(..)
+            | ViewSpan(_)
             | ViewLen(_)
             | ViewRow(..)
             | ViewItem(..)

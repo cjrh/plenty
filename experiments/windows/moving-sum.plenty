@@ -1,0 +1,22 @@
+# Matched scalar arithmetic: ordered accumulation over width-four windows.
+def ranges(xs: &[f64], width: i64) -> Result[f64, OverflowError[i64]]:
+    mut total = 0.0
+    for i in range(len(xs) - width + 1):
+        for x in &xs[i:i + width]:
+            total += *x
+    Ok(total)
+
+def windows(xs: &[f64], width: i64) -> f64:
+    mut total = 0.0
+    for window in xs.windows(width):
+        for x in window:
+            total += *x
+    total
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    xs = [f64(i % 16) for i in range(1024)]?
+    mut total = 0.0
+    for repeat in range(100000):
+        total += windows(&xs[:], 4)
+    print(total)?
+    Ok(())

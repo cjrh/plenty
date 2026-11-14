@@ -327,6 +327,7 @@ fn collection_allowed(op: &crate::collection::CollectionOp) -> bool {
         | ListRowRef(..)
         | ListRowTake(_)
         | ViewNew(..)
+        | ViewSpan(_)
         | ViewLen(_)
         | ViewRow(..)
         | ViewItem(..)

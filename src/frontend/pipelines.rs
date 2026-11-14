@@ -546,6 +546,14 @@ impl Lower<'_> {
     }
 
     fn pipeline_raw_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
+        if let Expression::Method(base, name, _, _) = &ungroup(source).kind
+            && matches!(name.as_str(), "windows" | "chunks")
+            && self.window_source(base).is_some()
+        {
+            return Err(source.at.error(
+                "windows/chunks currently require a direct loop or eager comprehension; borrowed window items are not pipeline sources",
+            ));
+        }
         let start = self.locals.len();
         let ops_start = ops.len();
         let name = format!("<pipeline item {}>", self.locals.len());

@@ -14,6 +14,22 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_view(&mut self, operation: &CollectionOp) -> Result<bool> {
         match operation {
             CollectionOp::ViewNew(source, mutable) => self.view_new(source, *mutable)?,
+            CollectionOp::ViewSpan(view) => {
+                let (count, _) = self.pop_typed(Ty::I64)?;
+                let (start, _) = self.pop_typed(Ty::I64)?;
+                let (value, _) = self.pop_typed(view.clone())?;
+                let (rows, _) = self.split_view(value);
+                // The frontend's cursor proves the complete span is in bounds.
+                // Text cursors advance only at UTF-8 scalar boundaries.
+                let element = view_element(view);
+                let address = if element == Ty::Text {
+                    self.bcx.ins().iadd(rows, start)
+                } else {
+                    self.view_row(rows, start, &element)
+                };
+                let span = self.bcx.ins().iconcat(address, count);
+                self.stack.push((span, view.clone()));
+            }
             CollectionOp::ViewLen(view) => {
                 let element = view_element(view);
                 // Wider rows only lower the bound; other elements keep the

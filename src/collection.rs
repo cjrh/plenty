@@ -374,6 +374,9 @@ pub enum CollectionOp {
     /// view is the first selected row's address and the row count; the
     /// frontend keeps the owner's loan live while the view is used.
     ViewNew(Ty, bool),
+    /// View, proven in-bounds start/count -> shared subview. Internal loop
+    /// construction only; text offsets/counts are UTF-8 bytes on boundaries.
+    ViewSpan(Ty),
     /// View -> its row count.
     ViewLen(Ty),
     /// View, index -> reference to that row. Negative indices count from the
@@ -1025,6 +1028,7 @@ impl CollectionOp {
                     Ty::View(element, *mutable),
                 )
             }
+            ViewSpan(view) => (vec![view.clone(), Ty::I64, Ty::I64], view.clone()),
             ViewLen(view) => (vec![view.clone()], Ty::I64),
             ViewRow(view, mutable) | ViewItem(view, mutable) => {
                 let Ty::View(element, _) = view else {
@@ -1390,6 +1394,7 @@ impl CollectionOp {
             | Self::ListRowRef(..)
             | Self::ListRowTake(_)
             | Self::ViewNew(..)
+            | Self::ViewSpan(_)
             | Self::ViewLen(_)
             | Self::ViewRow(..)
             | Self::ViewItem(..)

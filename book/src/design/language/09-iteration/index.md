@@ -9,6 +9,7 @@ no heap allocation.
 - [Comprehensions and collection construction](02-comprehensions.md)
 - [Generators](03-generators.md)
 - [Enumeration and paired iteration](04-adapters.md)
+- [Shared windows and chunks](07-windows.md)
 - [Reverse traversal](05-reverse-and-reduce.md)
 - [Local iterator pipelines](06-pipelines.md)
 

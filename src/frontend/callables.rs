@@ -365,6 +365,16 @@ impl Lower<'_> {
                 Some(crate::bytes::byte_view())
             }
             Expression::Method(base, name, args, _) => {
+                if name == "unwrap"
+                    && args.is_empty()
+                    && let Some(Ty::Enum(sum)) = self.expression_type_hint(base)
+                    && (sum.is_result() || sum.is_option())
+                {
+                    return sum.get().variants[usize::from(sum.is_option())]
+                        .fields
+                        .first()
+                        .cloned();
+                }
                 if let Some(result) = self.byte_string_method_hint(base, name, args) {
                     return Some(result);
                 }
