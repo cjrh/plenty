@@ -1,0 +1,33 @@
+function %counter_order(i64, i64, i64) -> f64 tail {
+    const0 = 0x00000000000000003ff0000000000000
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    v4 = f64const 0.0
+    v5 = icmp sle v1, v3
+    v6 = vconst.f64x2 const0
+    v7 = extractlane v6, 0
+    brif v5, block3(v4), block1(v4, v3)
+block1(v8: f64, v9: i64):
+    v27 = iconst.i64 3
+    v10 = ishl v9, v27
+    v11 = iadd v0, v10
+    v12 = load.f64 notrap aligned v11
+    jump block2
+block2:
+    v13 = iconst.i64 1
+    v14 = iadd v9, v13
+    v15 = icmp slt v14, v1
+    v16 = iadd v2, v9
+    v17 = iadd v16, v13
+    v18 = imul v16, v17
+    v19 = ushr v18, v13
+    v20 = iadd v19, v2
+    v21 = iadd v20, v13
+    v22 = fcvt_from_sint.f64 v21
+    v23 = fdiv v7, v22
+    v24 = fmul v23, v12
+    v25 = fadd v8, v24
+    brif v15, block1(v25, v14), block3(v25)
+block3(v26: f64):
+    return v26
+}

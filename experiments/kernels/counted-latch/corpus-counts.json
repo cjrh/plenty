@@ -1,0 +1,177 @@
+[
+  {
+    "file": "experiments/kernels/accessor-tail/variants.clif",
+    "baseline_exit": 0,
+    "baseline": "%a loop 0x3f-0x5a: 8 instructions\n%b loop 0x17-0x2a: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a loop 0x3f-0x5a: 8 instructions\n%b loop 0x17-0x2a: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bounded-arguments/variants.clif",
+    "baseline_exit": 0,
+    "baseline": "",
+    "candidate_exit": 0,
+    "candidate": ""
+  },
+  {
+    "file": "experiments/kernels/bytes/dispatch.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:59 loop 0xa3-0x1cb: 62 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:59 loop 0xa3-0x1cb: 62 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bytes/registers.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:59 loop 0x69-0x10a: 37 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:59 loop 0x69-0x10a: 37 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bytes-literals/clif/fill.clif",
+    "baseline_exit": 0,
+    "baseline": "%a_as_emitted loop 0x5b-0xa4: 15 instructions\n%b_set_call_only loop 0x5b-0xa4: 15 instructions\n%c_set_trap_only loop 0x52-0x9b: 15 instructions\n%d_no_negative_join loop 0x5b-0xa1: 14 instructions\n%e_trap_only_no_join loop 0x52-0x98: 14 instructions\n%f_call_without_loop_values loop 0x52-0x9b: 15 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a_as_emitted loop 0x5b-0xa4: 15 instructions\n%b_set_call_only loop 0x5b-0xa4: 15 instructions\n%c_set_trap_only loop 0x52-0x9b: 15 instructions\n%d_no_negative_join loop 0x5b-0xa1: 14 instructions\n%e_trap_only_no_join loop 0x52-0x98: 14 instructions\n%f_call_without_loop_values loop 0x52-0x9b: 15 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bytes-literals/clif/read.clif",
+    "baseline_exit": 0,
+    "baseline": "%a_as_emitted loop 0x73-0x8d: 7 instructions\n%b_method_call_only loop 0x6d-0x88: 7 instructions\n%c_trap_only loop 0x61-0x7c: 7 instructions\n%d_enter_only loop 0x61-0x7c: 7 instructions\n%e_site_last loop 0x6d-0x88: 7 instructions\n%f_arguments_in_a_slot loop 0x79-0x94: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a_as_emitted loop 0x73-0x8d: 7 instructions\n%b_method_call_only loop 0x6d-0x88: 7 instructions\n%c_trap_only loop 0x61-0x7c: 7 instructions\n%d_enter_only loop 0x61-0x7c: 7 instructions\n%e_site_last loop 0x6d-0x88: 7 instructions\n%f_arguments_in_a_slot loop 0x79-0x94: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/caller-context/variants.clif",
+    "baseline_exit": 0,
+    "baseline": "%with_scope loop 0x30-0x73: 17 instructions\n%proved_no_scope loop 0x2f-0x47: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%with_scope loop 0x30-0x73: 17 instructions\n%proved_no_scope loop 0x2f-0x47: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/clif/cold_args.clif",
+    "baseline_exit": 0,
+    "baseline": "%n_call_no_args loop 0x1e-0x4e: 12 instructions\n%o_trap_only loop 0x1e-0x4e: 12 instructions\n%p_store_index_trap loop 0x22-0x52: 12 instructions\n%q_store_both_trap loop 0x22-0x52: 12 instructions\n%r_call_len_only loop 0x1e-0x4e: 12 instructions\n%s_call_index_only loop 0x1e-0x4e: 12 instructions\n%t_call_index_first_only loop 0x1e-0x4e: 12 instructions\n%u_global_scratch loop 0x1e-0x4e: 12 instructions\n%v_stack_scratch_site_only loop 0x22-0x52: 12 instructions\n%w_stack_record_addr_arg loop 0x22-0x52: 12 instructions\n%x_record_fresh_addr loop 0x22-0x52: 12 instructions\n%y_global_then_trap loop 0x1e-0x4e: 12 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%n_call_no_args loop 0x1e-0x4e: 12 instructions\n%o_trap_only loop 0x1e-0x4e: 12 instructions\n%p_store_index_trap loop 0x22-0x52: 12 instructions\n%q_store_both_trap loop 0x22-0x52: 12 instructions\n%r_call_len_only loop 0x1e-0x4e: 12 instructions\n%s_call_index_only loop 0x1e-0x4e: 12 instructions\n%t_call_index_first_only loop 0x1e-0x4e: 12 instructions\n%u_global_scratch loop 0x1e-0x4e: 12 instructions\n%v_stack_scratch_site_only loop 0x22-0x52: 12 instructions\n%w_stack_record_addr_arg loop 0x22-0x52: 12 instructions\n%x_record_fresh_addr loop 0x22-0x52: 12 instructions\n%y_global_then_trap loop 0x1e-0x4e: 12 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/clif/reverse.clif",
+    "baseline_exit": 0,
+    "baseline": "%reverse_a_plenty loop 0x14-0x51: 14 instructions\n%reverse_b_nonneg_hi loop 0x14-0x4f: 13 instructions\n%reverse_c_split_once loop 0x14-0x4f: 13 instructions\n%reverse_d_rotated loop 0x1e-0x4e: 12 instructions\n%reverse_e_trapz loop 0x1e-0x4e: 12 instructions\n%reverse_f_hoisted loop 0x2d-0x4b: 8 instructions\n%reverse_g_unchecked_top loop 0x13-0x3c: 9 instructions\n%reverse_h_shared_trap_block loop 0x23-0x5e: 14 instructions\n%reverse_i_param_per_check loop 0x1e-0x4e: 12 instructions\n%reverse_j_param_unrotated loop 0x14-0x4f: 13 instructions\n%reverse_k_args_in_memory loop 0x22-0x52: 12 instructions\n%reverse_l_memory_unrotated loop 0x18-0x57: 13 instructions\n%reverse_m_site_first loop 0x22-0x52: 12 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%reverse_a_plenty loop 0x14-0x51: 14 instructions\n%reverse_b_nonneg_hi loop 0x14-0x4f: 13 instructions\n%reverse_c_split_once loop 0x14-0x4f: 13 instructions\n%reverse_d_rotated loop 0x1e-0x4e: 12 instructions\n%reverse_e_trapz loop 0x1e-0x4e: 12 instructions\n%reverse_f_hoisted loop 0x2d-0x4b: 8 instructions\n%reverse_g_unchecked_top loop 0x13-0x3c: 9 instructions\n%reverse_h_shared_trap_block loop 0x23-0x5e: 14 instructions\n%reverse_i_param_per_check loop 0x1e-0x4e: 12 instructions\n%reverse_j_param_unrotated loop 0x14-0x4f: 13 instructions\n%reverse_k_args_in_memory loop 0x22-0x52: 12 instructions\n%reverse_l_memory_unrotated loop 0x18-0x57: 13 instructions\n%reverse_m_site_first loop 0x22-0x52: 12 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/clist-zip/variants.clif",
+    "baseline_exit": 0,
+    "baseline": "%a_pulls loop 0x77-0x148: 41 instructions\n%b_direct loop 0x5f-0xaa: 12 instructions\n%c_shared loop 0x63-0x94: 9 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a_pulls loop 0x77-0x148: 41 instructions\n%b_direct loop 0x5f-0xaa: 12 instructions\n%c_shared loop 0x63-0x94: 9 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/field-rng/clif/remainder.clif",
+    "baseline_exit": 0,
+    "baseline": "%a_as_dumped loop 0xd-0x44: 12 instructions\n%b_no_shift loop 0xd-0x40: 11 instructions\n%c_not_returned loop 0xa-0x3e: 11 instructions\n%d_not_stored loop 0xa-0x46: 13 instructions\n%e_negated_product loop 0xd-0x43: 10 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a_as_dumped loop 0xd-0x44: 12 instructions\n%b_no_shift loop 0xd-0x40: 11 instructions\n%c_not_returned loop 0xa-0x3e: 11 instructions\n%d_not_stored loop 0xa-0x46: 13 instructions\n%e_negated_product loop 0xd-0x43: 10 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/gather-latch-params.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:60 loop 0x1b-0x36: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:60 loop 0x1b-0x36: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/gather-lowered.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:60 loop 0x1b-0x36: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:60 loop 0x1b-0x36: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/gather-merged-latch.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:60 loop 0x1b-0x36: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:60 loop 0x1b-0x36: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/sum-f32-merged.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:63 loop 0x2a-0x4a: 8 instructions\nu0:63 loop 0x6e-0x85: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:63 loop 0x2a-0x4a: 8 instructions\nu0:63 loop 0x6e-0x85: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/sum-index-merged.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:61 loop 0x2b-0x4b: 8 instructions\nu0:61 loop 0x70-0x87: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:61 loop 0x2b-0x4b: 8 instructions\nu0:61 loop 0x70-0x87: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/sum-iter-merged.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:62 loop 0x14-0x28: 5 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:62 loop 0x14-0x28: 5 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/use-state.clif",
+    "baseline_exit": 0,
+    "baseline": "%exit_sum loop 0x11-0x27: 6 instructions\n%exit_count loop 0x14-0x26: 5 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%exit_sum loop 0x11-0x27: 6 instructions\n%exit_count loop 0x14-0x26: 5 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/scalar-captures/variants.clif",
+    "baseline_exit": 0,
+    "baseline": "%a_capture_loads loop 0xe3-0x10a: 9 instructions\n%b_capture_ssa loop 0xe7-0x109: 8 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a_capture_loads loop 0xe3-0x10a: 9 instructions\n%b_capture_ssa loop 0xe7-0x109: 8 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/text-set-scan/scan.clif",
+    "baseline_exit": 0,
+    "baseline": "",
+    "candidate_exit": 0,
+    "candidate": ""
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/assumed.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:58 loop 0x25-0x4a: 9 instructions\nu0:58 loop 0x4f-0x74: 9 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:58 loop 0x25-0x4a: 9 instructions\nu0:58 loop 0x4f-0x74: 9 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/checked.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:58 loop 0x28-0x62: 14 instructions\nu0:58 loop 0x67-0x98: 12 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:58 loop 0x28-0x62: 14 instructions\nu0:58 loop 0x67-0x98: 12 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/float-load.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:58 loop 0x12-0x2f: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:58 loop 0x12-0x2f: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/lowered.clif",
+    "baseline_exit": 0,
+    "baseline": "u0:58 loop 0x12-0x37: 9 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "u0:58 loop 0x12-0x37: 9 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/unused-range/variants.clif",
+    "baseline_exit": 0,
+    "baseline": "%a loop 0x17-0x35: 6 instructions\n%b loop 0x17-0x2e: 5 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "%a loop 0x17-0x35: 6 instructions\n%b loop 0x17-0x2e: 5 instructions\n"
+  }
+]

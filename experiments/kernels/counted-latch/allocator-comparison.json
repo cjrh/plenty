@@ -1,0 +1,39 @@
+{
+  "baseline_failures": [
+    "cranelift/filetests/filetests/isa/x64/fastcall.clif",
+    "cranelift/filetests/filetests/isa/x64/fcvt.clif",
+    "cranelift/filetests/filetests/isa/x64/fma-call.clif",
+    "cranelift/filetests/filetests/isa/x64/fpromote-demote.clif",
+    "cranelift/filetests/filetests/isa/x64/fsqrt.clif",
+    "cranelift/filetests/filetests/isa/x64/i128.clif",
+    "cranelift/filetests/filetests/isa/x64/mul_overflow_flag_consumers.clif",
+    "cranelift/filetests/filetests/isa/x64/reload-fold-avx.clif",
+    "cranelift/filetests/filetests/isa/x64/reload-fold.clif",
+    "cranelift/filetests/filetests/isa/x64/shuffle-avx512.clif",
+    "cranelift/filetests/filetests/isa/x64/simd-bitselect.clif",
+    "cranelift/filetests/filetests/isa/x64/simd-lane-access-compile.clif",
+    "cranelift/filetests/filetests/isa/x64/simd-pairwise-add.clif",
+    "cranelift/filetests/filetests/isa/x64/user_stack_maps.clif",
+    "cranelift/filetests/filetests/isa/x64/ymm-spill.clif"
+  ],
+  "candidate_failures": [
+    "cranelift/filetests/filetests/isa/x64/fastcall.clif",
+    "cranelift/filetests/filetests/isa/x64/fcvt.clif",
+    "cranelift/filetests/filetests/isa/x64/fma-call.clif",
+    "cranelift/filetests/filetests/isa/x64/fpromote-demote.clif",
+    "cranelift/filetests/filetests/isa/x64/fsqrt.clif",
+    "cranelift/filetests/filetests/isa/x64/i128.clif",
+    "cranelift/filetests/filetests/isa/x64/mul_overflow_flag_consumers.clif",
+    "cranelift/filetests/filetests/isa/x64/reload-fold-avx.clif",
+    "cranelift/filetests/filetests/isa/x64/reload-fold.clif",
+    "cranelift/filetests/filetests/isa/x64/shuffle-avx512.clif",
+    "cranelift/filetests/filetests/isa/x64/simd-bitselect.clif",
+    "cranelift/filetests/filetests/isa/x64/simd-lane-access-compile.clif",
+    "cranelift/filetests/filetests/isa/x64/simd-pairwise-add.clif",
+    "cranelift/filetests/filetests/isa/x64/user_stack_maps.clif",
+    "cranelift/filetests/filetests/isa/x64/ymm-spill.clif"
+  ],
+  "added": [],
+  "removed": [],
+  "changed_diagnostics": []
+}
