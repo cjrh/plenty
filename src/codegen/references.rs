@@ -169,11 +169,11 @@ impl Lowerer<'_, '_> {
         let base = ty.newtype_base();
         // Exactly the types `unpack` reduces to the low word with
         // `raw_word`: a two-word native type (wide, reference, view) is not
-        // `I64`, and quantities unpack through their storage. Scalars and
+        // `I64`, and numeric wrappers unpack through their storage. Scalars and
         // flat records are read by `read_typed_reference`'s own paths.
         let one_word = !(base.is_numeric() || *base == Ty::Bool)
             && !ty.flat_field()
-            && ty.quantity_storage().is_none()
+            && ty.native_storage().is_none()
             && clif_type(ty.clone()) == types::I64;
         if one_word {
             return self.reference_word(reference);

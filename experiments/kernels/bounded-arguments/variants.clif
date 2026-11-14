@@ -1,0 +1,90 @@
+; a: baseline two-word arguments spilled for accessor borrows.
+function %a(i128, i128) -> f64 tail {
+    ss0 = explicit_slot 32, align = 16
+    const0 = 0x00000000000000003ff0000000000000
+
+block0(v0: i128, v1: i128):
+    v4 = stack_addr.i64 ss0
+    store notrap aligned v0, v4
+    store notrap aligned v1, v4+16
+    ; line 49
+    v8 = load.i64 notrap aligned v4
+    ; line 10
+    v11 = iconst.i64 16
+    v12 = iadd v4, v11  ; v11 = 16
+    ; line 49
+    v14 = load.i64 notrap aligned v12
+    ; line 11
+    v34 = vconst.f64x2 const0
+    v35 = extractlane v34, 0  ; v34 = const0
+    ; line 10
+    v17 = iadd v8, v14
+    ; line 11
+    v19 = iconst.i64 1
+    v20 = iadd v17, v19  ; v19 = 1
+    v21 = imul v17, v20
+    v37 = ushr v21, v19  ; v19 = 1
+    v23 -> v37
+    v30 = iadd v37, v8
+    v32 = iadd v30, v19  ; v19 = 1
+    v33 = fcvt_from_sint.f64 v32
+    v36 = fdiv v35, v33
+    return v36
+}
+
+
+; b: direct field values avoid taking a local address.
+function %b(i128, i128) -> f64 tail {
+    const0 = 0x00000000000000003ff0000000000000
+
+block0(v0: i128, v1: i128):
+    ; line 49
+    v8, v98 = isplit v0
+    ; line 10
+    ; line 49
+    v14, v99 = isplit v1
+    ; line 11
+    v34 = vconst.f64x2 const0
+    v35 = extractlane v34, 0  ; v34 = const0
+    ; line 10
+    v17 = iadd v8, v14
+    ; line 11
+    v19 = iconst.i64 1
+    v20 = iadd v17, v19  ; v19 = 1
+    v21 = imul v17, v20
+    v37 = ushr v21, v19  ; v19 = 1
+    v23 -> v37
+    v30 = iadd v37, v8
+    v32 = iadd v30, v19  ; v19 = 1
+    v33 = fcvt_from_sint.f64 v32
+    v36 = fdiv v35, v33
+    return v36
+}
+
+
+; c: native integer arguments plus direct field values.
+function %c(i64, i64) -> f64 tail {
+    const0 = 0x00000000000000003ff0000000000000
+
+block0(v8: i64, v14: i64):
+    ; line 49
+    ; line 10
+    ; line 49
+    ; line 11
+    v34 = vconst.f64x2 const0
+    v35 = extractlane v34, 0  ; v34 = const0
+    ; line 10
+    v17 = iadd v8, v14
+    ; line 11
+    v19 = iconst.i64 1
+    v20 = iadd v17, v19  ; v19 = 1
+    v21 = imul v17, v20
+    v37 = ushr v21, v19  ; v19 = 1
+    v23 -> v37
+    v30 = iadd v37, v8
+    v32 = iadd v30, v19  ; v19 = 1
+    v33 = fcvt_from_sint.f64 v32
+    v36 = fdiv v35, v33
+    return v36
+}
+

@@ -1,0 +1,284 @@
+{
+  "original": [
+    {
+      "instructions": 2724495099,
+      "task_ms": 165.64,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495106,
+      "task_ms": 163.02,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495029,
+      "task_ms": 161.26,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495036,
+      "task_ms": 161.3,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495230,
+      "task_ms": 161.68,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495320,
+      "task_ms": 161.68,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495028,
+      "task_ms": 162.05,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495367,
+      "task_ms": 162.91,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724495031,
+      "task_ms": 171.77,
+      "output": "1.274224152\n"
+    }
+  ],
+  "bounded-before": [
+    {
+      "instructions": 3524735289,
+      "task_ms": 163.8,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735273,
+      "task_ms": 162.31,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735223,
+      "task_ms": 163.11,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735216,
+      "task_ms": 164.14,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735260,
+      "task_ms": 163.53,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735204,
+      "task_ms": 163.75,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735536,
+      "task_ms": 162.83,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524735271,
+      "task_ms": 163.26,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 3524736163,
+      "task_ms": 173.49,
+      "output": "1.274224152\n"
+    }
+  ],
+  "bounded-after": [
+    {
+      "instructions": 2724415092,
+      "task_ms": 159.11,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415175,
+      "task_ms": 160.58,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415170,
+      "task_ms": 159.69,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415141,
+      "task_ms": 160.75,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415206,
+      "task_ms": 159.32,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415216,
+      "task_ms": 161.63,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415162,
+      "task_ms": 162.29,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415200,
+      "task_ms": 161.24,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2724415219,
+      "task_ms": 157.34,
+      "output": "1.274224152\n"
+    }
+  ],
+  "original-v3": [
+    {
+      "instructions": 2564495638,
+      "task_ms": 161.05,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495416,
+      "task_ms": 161.35,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495371,
+      "task_ms": 159.27,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495386,
+      "task_ms": 161.13,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495366,
+      "task_ms": 161.2,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495383,
+      "task_ms": 161.17,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495288,
+      "task_ms": 159.8,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495404,
+      "task_ms": 159.14,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564495359,
+      "task_ms": 161.47,
+      "output": "1.274224152\n"
+    }
+  ],
+  "after-v3": [
+    {
+      "instructions": 2564415593,
+      "task_ms": 160.31,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415538,
+      "task_ms": 160.69,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415571,
+      "task_ms": 160.66,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415812,
+      "task_ms": 160.9,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415497,
+      "task_ms": 160.44,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415550,
+      "task_ms": 159.27,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415519,
+      "task_ms": 159.21,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415471,
+      "task_ms": 158.44,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2564415741,
+      "task_ms": 162.6,
+      "output": "1.274224152\n"
+    }
+  ],
+  "c": [
+    {
+      "instructions": 2401554253,
+      "task_ms": 165.58,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554227,
+      "task_ms": 163.53,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554152,
+      "task_ms": 165.92,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554150,
+      "task_ms": 164.52,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554187,
+      "task_ms": 165.31,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554507,
+      "task_ms": 164.6,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554206,
+      "task_ms": 165.64,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554251,
+      "task_ms": 165.57,
+      "output": "1.274224152\n"
+    },
+    {
+      "instructions": 2401554201,
+      "task_ms": 174.43,
+      "output": "1.274224152\n"
+    }
+  ]
+}

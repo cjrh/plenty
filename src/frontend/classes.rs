@@ -1443,8 +1443,8 @@ impl Lower<'_> {
         }
         if let Ty::Ref(receiver, false) = &sig.inputs[0].1
             && let Ty::Class(class) = receiver.as_ref()
-            && let Some(storage) = receiver.quantity_storage()
-            && matches!(name, "get" | "to")
+            && let Some(storage) = receiver.native_storage()
+            && (name == "get" || name == "to" && receiver.quantity_storage().is_some())
         {
             // Keep the method's shared loan through argument evaluation, but
             // read its numeric value directly. A named owner needs no address

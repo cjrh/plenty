@@ -8,7 +8,7 @@ pub(super) fn pack_value(
     value: cranelift_codegen::ir::Value,
     ty: &Ty,
 ) -> cranelift_codegen::ir::Value {
-    if let Some(storage) = ty.quantity_storage() {
+    if let Some(storage) = ty.native_storage() {
         return pack_value(b, value, &storage);
     }
     if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
@@ -316,6 +316,11 @@ impl Lowerer<'_, '_> {
             }
         };
         let result = self.unpack(result, &output);
+        let result = if let ClassOp::Field(class, 0) = op {
+            self.bounded_value(class, result)
+        } else {
+            result
+        };
         self.stack.push((result, output));
         Ok(())
     }
@@ -688,7 +693,7 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
-        if let Some(storage) = ty.quantity_storage() {
+        if let Some(storage) = ty.native_storage() {
             return self.unpack(value, &storage);
         }
         let target = clif_type(ty.clone());

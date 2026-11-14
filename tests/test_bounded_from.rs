@@ -216,3 +216,109 @@ fn the_constructor_stays_private() {
         "from `Bounded.from(value)` when the compiler proves the value's range",
     );
 }
+
+#[test]
+fn bounded_arguments_and_accessors_stay_in_registers() {
+    let source = include_str!("../experiments/kernels/bounded-arguments/kernels.plenty");
+    let helper = clif(source, "eval_a");
+    assert!(helper.contains("(i64, i64) -> f64"), "{helper}");
+    for unwanted in ["explicit_slot", "load.", "store", "overflow", "call "] {
+        assert!(!helper.contains(unwanted), "{unwanted}: {helper}");
+    }
+    let loop_body = clif(source, "a_times_u");
+    assert_eq!(checks(&loop_body), 0, "{loop_body}");
+    // The output bounds trap still parks its arguments in one 16-byte slot.
+    // No additional frame is needed merely to borrow eval_a's Bounded values.
+    assert!(!loop_body.contains("explicit_slot 32"), "{loop_body}");
+}
+
+#[test]
+fn bounded_native_values_preserve_widths_calls_and_containers() {
+    let mut source = String::from(
+        "def identity[T](value: T) -> T:\n    value\n\n\
+         def wrapped[T](value: T) -> Result[Option[T], AllocError]:\n    Ok(Some(value))\n\n",
+    );
+    let mut body = String::new();
+    let mut expected = String::new();
+    for (index, (ty, low, high)) in [
+        ("i8", "-128", "127"),
+        ("u8", "0", "255"),
+        ("i16", "-32768", "32767"),
+        ("u16", "0", "65535"),
+        ("i32", "-2147483648", "2147483647"),
+        ("u32", "0", "4294967295"),
+        ("i64", "-9223372036854775808", "9223372036854775807"),
+        ("u64", "0", "18446744073709551615"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        source.push_str(&format!(
+            "type B{index} = Bounded[{ty}, {low}, {high}]\n\
+             class Holder{index}:\n    value: B{index}\n\n\
+             def read{index}(value: &B{index}) -> {ty}:\n    value.get()\n\n"
+        ));
+        body.push_str(&format!(
+            "    mut low{index}: B{index} = {low}
+    high{index}: B{index} = {high}
+    held{index} = Holder{index}(identity(high{index}))
+    mut values{index} = [low{index}, held{index}.value]?
+    print(read{index}(&values{index}[0]), wrapped(values{index}[1])?.unwrap().get())?
+    low{index} = high{index}
+    values{index}[0] = low{index}
+    print(values{index}[0].get())?
+"
+        ));
+        expected.push_str(&format!("{low} {high}\n{high}\n"));
+    }
+    source.push_str("def main() -> Result[(), AllocError | IoError]:\n");
+    source.push_str(&body);
+    source.push_str("    Ok(())\n");
+    for fast in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.plenty"), &source).unwrap();
+        let mut command = Command::new(support::plenty_bin());
+        command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+        if fast {
+            command.arg("--fast-compile");
+        }
+        let output = command.arg("main.plenty").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{source}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    }
+}
+
+#[test]
+fn bounded_direct_reads_retain_exclusive_alias_checks() {
+    check_error(
+        "def main() -> ():\n    mut value: Bounded[i64, 0, 9] = 1\n    loan = &mut value\n    print(value.get(), loan.get()).unwrap()\n",
+        "exclusively borrowed",
+    );
+}
+
+#[test]
+fn bounded_indirect_calls_and_ordinary_class_abi() {
+    let source = r#"
+class Plain:
+    value: i64
+type Small = Bounded[i8, -128, 127]
+def plain(value: Plain) -> Plain:
+    value
+def bounded(value: Small) -> Small:
+    value
+def invoke(operation: Callable[[Small], Small], value: Small) -> Small:
+    operation(value)
+def main() -> Result[(), IoError]:
+    print(invoke(bounded, -128).get(), plain(Plain(127)).value)?
+    Ok(())
+"#;
+    runs(source, "-128 127\n");
+    let ordinary = clif(source, "plain");
+    assert!(ordinary.contains("(i128) -> i128"), "{ordinary}");
+    let bounded = clif(source, "bounded");
+    assert!(bounded.contains("(i8) -> i8"), "{bounded}");
+}

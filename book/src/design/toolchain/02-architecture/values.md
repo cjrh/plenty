@@ -26,6 +26,14 @@ classes with two or more fields. The
 [flat class layout proposal](../../../proposals/completed/flat-class-layout.md) records
 why the record holds an address and the layout contract C interop depends on.
 
+Compiler-known numeric wrappers have a narrower native convention:
+`Quantity` and [`Bounded`](../../language/03-types/bounded.md) locals and call
+arguments use their storage scalar, while ordinary user classes retain their
+class ABI. Packing into runtime slots still uses the usual tagged slot layout.
+Their compiler-known `.get()` reads the field directly while retaining the
+shared receiver loan, so borrowing an owned local for extraction needs no
+addressable stack slot.
+
 A field whose type is a class with a record (after looking through one-field
 wrappers) is stored *flat* when its owner is a class record, a tuple, or an
 enum variant with two or more fields: its record bytes sit at a fixed offset

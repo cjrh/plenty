@@ -214,7 +214,7 @@ impl Ty {
     /// own tag records whether its initializer completed. Dictionary projections
     /// carry a complete shared reference (slot address and tag offset).
     pub fn wide(&self) -> bool {
-        if let Some(storage) = self.quantity_storage() {
+        if let Some(storage) = self.native_storage() {
             return storage.wide();
         }
         matches!(self, Self::Enum(_) | Self::Class(_) | Self::DictView(..))
@@ -228,6 +228,17 @@ impl Ty {
         let definition = class.try_get()?;
         definition.quantity.as_ref()?;
         Some(definition.fields[0].1.clone())
+    }
+    /// Compiler-known numeric wrappers retain their nominal checking type,
+    /// but use their storage's native value and calling convention. Ordinary
+    /// classes keep their existing ABI even when their field layout is scalar.
+    pub fn native_storage(&self) -> Option<Ty> {
+        let Self::Class(class) = self else {
+            return None;
+        };
+        let definition = class.try_get()?;
+        (definition.quantity.is_some() || definition.bounds.is_some())
+            .then(|| definition.fields[0].1.clone())
     }
     /// The field a one-field class is represented as
     /// (`ClassType::newtype_field`), if `self` is such a class.
