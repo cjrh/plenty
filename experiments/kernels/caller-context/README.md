@@ -11,7 +11,8 @@ release compiler, optimized output, cache disabled, Ryzen 7 7840HS, CPU 4.
 Instructions per pass are the difference between N=2,000,000 and N=1,000,000.
 CPU time uses the same difference of `task-clock`, seven repetitions per
 program. These short measurements share the machine with compiler work;
-instruction counts are more stable than time.
+instruction counts are more stable than time. Raw counter reports are in
+[`measurements.json`](measurements.json).
 
 | Kernel | Baseline instructions | Transitive proof | Baseline ns | Proof ns |
 |---|---:|---:|---:|---:|
@@ -48,6 +49,12 @@ so the perf difference, rather than that static number alone, is the total.
 | Transitively prove nontrapping native operations and direct callees, including code-free owned values | 97.00 | 342.00 | Kept |
 | Remove context from every direct call | — | — | Rejected: nested traps, indirect callbacks and destructor-capable cleanup require it |
 
+[`variants.clif`](variants.clif) additionally isolates the ABI effect with an
+opaque one-word conversion result. The existing CLIF harness reports 17 loop
+instructions with the scope and 7 without it, excluding instructions inside
+the three called helpers. This model isolates register preservation and call
+setup; its simpler result ABI is not the full conversion kernel above.
+
 The proof computes the greatest fixed point of the direct-call graph.
 Recursion is safe only when no operation or outgoing edge reads the context.
 A native operation that can trap, unknown operation/callee, indirect call,
@@ -72,10 +79,53 @@ benchmark. Cache-disabled optimized compilation takes 454.38M versus 458.51M
 instructions (+0.91%), 221 versus 226 ms CPU in three repetitions; timing
 spread is 2.6–4.3%.
 
-`Bytes.to_text_range` itself retains a trapping range check. On this branch
-alone its outer caller scope remains because the terminal-call wrapper is
-not inlined. Issue #958 supplies that independent inlining change; validate
-the two together explicitly instead of attributing its effects to this PR.
+## Explicit combination with issue #958
+
+Integration branch `codex/integration-958-948` combines analysis commit
+`185454fe` with #958 production commit `28a78c32` and its test-only correction
+`f989012e`. Neither issue branch contains the other's changes. The 68
+trap-location integration tests pass on this combination, including exact
+range-trap diagnostics in optimized and unoptimized builds.
+
+The single-call-site `key-construction/keys-K-N.plenty` kernel now inlines the
+range wrapper and removes its outer context scope. Nine repetitions, same CPU,
+2M–1M difference; a later measurement round under concurrent compiler/test load:
+
+| Kernel | Baseline instructions | Combined | Baseline ns | Combined ns |
+|---|---:|---:|---:|---:|
+| Range, 3 bytes | 148.03 | 103.00 | 16.47 | 13.05 |
+| Range, 12 bytes | 393.04 | 348.00 | 35.21 | 30.03 |
+
+These CPU times belong to this later round, not the earlier view table.
+Inlining and context elision both contribute to the 45-instruction reduction;
+it is not an analysis-only result. The emitted main body has no call to
+`Bytes.to_text_range` and no context scope at that conversion; the one scope
+remaining in its main body belongs to initial buffer construction.
+
+**Remaining scope of issue #948:** the dictionary `built` kernels have three
+static range-conversion sites and exceed the existing shared-inlining budget.
+The larger k-nucleotide graph also prevents the terminal conversion chain from
+being selected for complete inlining. Both keep the native range-wrapper
+boundary and its context scope, even with #958. No size limit was relaxed.
+An owned-key k-nucleotide variant (replace the borrowed lookup with
+`key = sequence.to_text_range(i, i + length)?`, then `get_or_insert(key, 0)`,
+and add `std.bytes.BytesError` to affected error unions) demonstrates that limit:
+
+| Compiler | Instructions | CPU ms |
+|---|---:|---:|
+| Baseline | 932.41–932.59M | 183.12–183.43 |
+| Analysis alone | 932.54–933.11M | 186.06 |
+| Combined | 931.90–932.29M | 183.50–187.54 |
+
+Outputs match byte for byte. These results establish no whole-program CPU
+improvement. The variation in instructions includes randomized hash layout.
+A future extension would need to preserve the containing frame while lowering
+a retained terminal callee as an ordinary call plus an inline return; allowing
+an actual tail transfer inside an inlined wrapper would return past its caller.
+That ownership, ABI and diagnostic change is deliberately outside this PR.
+Keep issue #948 open for the retained boundaries. Merge #958 first if reviewing
+the combined single-site range benefit; the analysis itself is independently
+compilable and useful for the view-conversion path.
 
 ## Reproduce
 
@@ -93,6 +143,10 @@ perf stat -r 7 -e instructions:u,task-clock taskset -c 4 /tmp/view-2m
 PLENTY_CACHE=off target/release/plenty --dump ops,clif-opt,asm --dump-std \
   experiments/kernels/caller-context/view-3-1000000.plenty -o /tmp/view-dump
 python3 experiments/kernels/loops.py < /tmp/view-dump/asm.txt
+# Build the existing CLIF harness using experiments/kernels/README.md.
+target/kernel-harness/release/plenty-kernel-harness \
+  experiments/kernels/caller-context/variants.clif > /tmp/context-variants.txt
+python3 experiments/kernels/loops.py < /tmp/context-variants.txt
 gcc -O2 experiments/key-construction/keys.c -o /tmp/c-keys
 perf stat -r 7 -e instructions:u,task-clock taskset -c 4 /tmp/c-keys 3 1000000
 ```

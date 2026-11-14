@@ -218,6 +218,8 @@ After the heap-key steps, hits k=18 is `get_or_insert_heap_text` 222, `main`
 
 The [transitive analysis experiment](../kernels/caller-context/README.md)
 removes 33 instructions per call from byte-view conversion. The `built` kernels
-also need issue #958's terminal-call inlining to remove their outer trapping
-`Bytes.to_text_range` scope. Current borrowed-key k-nucleotide bypasses this
+retain their outer trapping `Bytes.to_text_range` scope even with issue #958:
+their three static sites exceed the current shared-inlining budget. A separate
+single-site range kernel benefits from combining the two fixes. Current
+borrowed-key k-nucleotide bypasses this
 conversion and shows no measurable CPU-time change from the analysis alone.

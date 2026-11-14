@@ -206,8 +206,12 @@ An isolated byte-view conversion falls from 130 to 97 instructions per call
 for a 3-byte key and from 375 to 342 for a 12-byte key. Pinned CPU measurements
 are about 8.0 to 5.8 ns and 16.7 to 14.5 ns respectively. Current k-nucleotide
 uses borrowed keys and is unchanged within measurement spread. Removing the
-outer scope around `Bytes.to_text_range` additionally requires issue #958's
-terminal-call inlining. Measurements, exclusions and reproduction commands
+outer scope around a single-site `Bytes.to_text_range` additionally requires
+issue #958's terminal-call inlining; the combination drops 148 to 103 and
+393 to 348 instructions in the range-construction kernels. The three-site
+dictionary kernel and larger k-nucleotide graph still retain that scope under
+the existing inlining budgets, so issue #948 remains open. Measurements,
+exclusions and reproduction commands
 are in `experiments/kernels/caller-context/README.md`.
 
 ### One-word reference reads (issue #844)

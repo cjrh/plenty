@@ -1,0 +1,72 @@
+{
+  "baseline": "caf7c247",
+  "analysis": "185454fe",
+  "combined_958": [
+    "28a78c32",
+    "f989012e"
+  ],
+  "events": [
+    "instructions:u",
+    "task-clock"
+  ],
+  "repetitions": {
+    "view": 7,
+    "built_combined": 9,
+    "range": 9,
+    "knucleotide": 7,
+    "compile": 3
+  },
+  "cpu": 4,
+  "reports": {
+    "baseline": {
+      "built-18-1000000.perf": "# started on Sat Nov 14 08:00:35 2026\n\n614203505,,instructions:u,0.27%,31906133,100.00,,\n30.49,msec,task-clock:u,1.37%,31906133,100.00,,\n",
+      "built-18-2000000.perf": "# started on Sat Nov 14 08:00:35 2026\n\n1222632125,,instructions:u,0.00%,58396005,100.00,,\n58.48,msec,task-clock:u,1.17%,58396005,100.00,,\n",
+      "built-3-1000000.perf": "# started on Sat Nov 14 08:00:35 2026\n\n293916428,,instructions:u,0.44%,14663794,100.00,,\n14.69,msec,task-clock:u,1.45%,14663794,100.00,,\n",
+      "built-3-2000000.perf": "# started on Sat Nov 14 08:00:35 2026\n\n587202193,,instructions:u,0.44%,28519401,100.00,,\n28.17,msec,task-clock:u,0.97%,28519401,100.00,,\n",
+      "c-12-1000000.perf": "# started on Sat Nov 14 08:00:38 2026\n\n196462220,,instructions:u,0.00%,15066065,100.00,,\n13.25,msec,task-clock:u,2.41%,15066065,100.00,,\n",
+      "c-12-2000000.perf": "# started on Sat Nov 14 08:00:38 2026\n\n392462186,,instructions:u,0.00%,26861909,100.00,,\n25.38,msec,task-clock:u,1.26%,26861909,100.00,,\n",
+      "c-3-1000000.perf": "# started on Sat Nov 14 08:00:38 2026\n\n87460227,,instructions:u,0.00%,7773361,100.00,,\n8.14,msec,task-clock:u,1.47%,7773361,100.00,,\n",
+      "c-3-2000000.perf": "# started on Sat Nov 14 08:00:38 2026\n\n174460191,,instructions:u,0.00%,14953346,100.00,,\n15.00,msec,task-clock:u,1.66%,14953346,100.00,,\n",
+      "compile.perf": "# started on Sat Nov 14 08:02:06 2026\n\n454383890,,instructions:u,0.13%,211305453,100.00,,\n221.21,msec,task-clock:u,2.60%,211305453,100.00,,\n",
+      "knucleotide-0.perf": "# started on Sat Nov 14 08:01:13 2026\n\n706275268,,instructions:u,0.01%,70656294,100.00,,\n72.46,msec,task-clock:u,0.64%,70656294,100.00,,\n",
+      "knucleotide-1.perf": "# started on Sat Nov 14 08:01:13 2026\n\n706172264,,instructions:u,0.04%,72185910,100.00,,\n71.14,msec,task-clock:u,0.38%,72185910,100.00,,\n",
+      "knucleotide-owned-0.perf": "# started on Sat Nov 14 08:11:47 2026\n\n932410175,,instructions:u,0.04%,181180499,100.00,,\n183.43,msec,task-clock:u,1.27%,181180499,100.00,,\n",
+      "knucleotide-owned-1.perf": "# started on Sat Nov 14 08:11:49 2026\n\n932594899,,instructions:u,0.05%,186731254,100.00,,\n183.12,msec,task-clock:u,0.60%,186731254,100.00,,\n",
+      "range-12-1000000.perf": "# started on Sat Nov 14 08:14:08 2026\n\n393655385,,instructions:u,0.00%,39856362,100.00,,\n38.32,msec,task-clock:u,1.79%,39856362,100.00,,\n",
+      "range-12-2000000.perf": "# started on Sat Nov 14 08:14:09 2026\n\n786699012,,instructions:u,0.00%,73653970,100.00,,\n73.53,msec,task-clock:u,0.83%,73653970,100.00,,\n",
+      "range-3-1000000.perf": "# started on Sat Nov 14 08:14:07 2026\n\n148643038,,instructions:u,0.00%,19013818,100.00,,\n19.75,msec,task-clock:u,1.75%,19013818,100.00,,\n",
+      "range-3-2000000.perf": "# started on Sat Nov 14 08:14:07 2026\n\n296674287,,instructions:u,0.00%,36400835,100.00,,\n36.22,msec,task-clock:u,1.91%,36400835,100.00,,\n",
+      "view-12-1000000.perf": "# started on Sat Nov 14 08:00:34 2026\n\n375655346,,instructions:u,0.00%,17945211,100.00,,\n18.22,msec,task-clock:u,1.45%,17945211,100.00,,\n",
+      "view-12-2000000.perf": "# started on Sat Nov 14 08:00:34 2026\n\n750698804,,instructions:u,0.00%,36164012,100.00,,\n34.87,msec,task-clock:u,1.42%,36164012,100.00,,\n",
+      "view-3-1000000.perf": "# started on Sat Nov 14 08:00:34 2026\n\n130642897,,instructions:u,0.00%,8885368,100.00,,\n9.30,msec,task-clock:u,1.43%,8885368,100.00,,\n",
+      "view-3-2000000.perf": "# started on Sat Nov 14 08:00:34 2026\n\n260674249,,instructions:u,0.00%,18368660,100.00,,\n17.29,msec,task-clock:u,2.16%,18368660,100.00,,\n"
+    },
+    "after": {
+      "built-18-1000000.perf": "# started on Sat Nov 14 08:00:37 2026\n\n614203451,,instructions:u,0.27%,29986661,100.00,,\n30.18,msec,task-clock:u,1.01%,29986661,100.00,,\n",
+      "built-18-2000000.perf": "# started on Sat Nov 14 08:00:37 2026\n\n1225203640,,instructions:u,0.21%,56751235,100.00,,\n58.92,msec,task-clock:u,0.89%,56751235,100.00,,\n",
+      "built-3-1000000.perf": "# started on Sat Nov 14 08:00:37 2026\n\n292630734,,instructions:u,0.00%,15918417,100.00,,\n14.94,msec,task-clock:u,1.13%,15918417,100.00,,\n",
+      "built-3-2000000.perf": "# started on Sat Nov 14 08:00:37 2026\n\n592345004,,instructions:u,0.61%,28713645,100.00,,\n28.54,msec,task-clock:u,1.29%,28713645,100.00,,\n",
+      "compile.perf": "# started on Sat Nov 14 08:02:06 2026\n\n458514117,,instructions:u,0.21%,240931951,100.00,,\n226.13,msec,task-clock:u,4.29%,240931951,100.00,,\n",
+      "knucleotide-0.perf": "# started on Sat Nov 14 08:01:14 2026\n\n706300901,,instructions:u,0.03%,72941469,100.00,,\n71.30,msec,task-clock:u,1.35%,72941469,100.00,,\n",
+      "knucleotide-1.perf": "# started on Sat Nov 14 08:01:14 2026\n\n706101080,,instructions:u,0.04%,71581952,100.00,,\n71.38,msec,task-clock:u,0.59%,71581952,100.00,,\n",
+      "knucleotide-owned-0.perf": "# started on Sat Nov 14 08:11:51 2026\n\n933108500,,instructions:u,0.05%,187577027,100.00,,\n186.06,msec,task-clock:u,0.53%,187577027,100.00,,\n",
+      "knucleotide-owned-1.perf": "# started on Sat Nov 14 08:11:53 2026\n\n932544183,,instructions:u,0.03%,185270887,100.00,,\n186.06,msec,task-clock:u,0.53%,185270887,100.00,,\n",
+      "view-12-1000000.perf": "# started on Sat Nov 14 08:00:36 2026\n\n342611866,,instructions:u,0.00%,16056584,100.00,,\n15.79,msec,task-clock:u,1.15%,16056584,100.00,,\n",
+      "view-12-2000000.perf": "# started on Sat Nov 14 08:00:36 2026\n\n684611972,,instructions:u,0.00%,29949400,100.00,,\n30.30,msec,task-clock:u,1.11%,29949400,100.00,,\n",
+      "view-3-1000000.perf": "# started on Sat Nov 14 08:00:36 2026\n\n97611791,,instructions:u,0.00%,6476932,100.00,,\n6.57,msec,task-clock:u,1.46%,6476932,100.00,,\n",
+      "view-3-2000000.perf": "# started on Sat Nov 14 08:00:36 2026\n\n194611671,,instructions:u,0.00%,13652417,100.00,,\n12.37,msec,task-clock:u,2.08%,13652417,100.00,,\n"
+    },
+    "combined": {
+      "built-18-1000000.perf": "# started on Sat Nov 14 08:11:57 2026\n\n611632227,,instructions:u,0.16%,49229693,100.00,,\n48.99,msec,task-clock:u,1.86%,49229693,100.00,,\n",
+      "built-18-2000000.perf": "# started on Sat Nov 14 08:11:58 2026\n\n1220632144,,instructions:u,0.00%,97693223,100.00,,\n100.97,msec,task-clock:u,1.54%,97693223,100.00,,\n",
+      "built-3-1000000.perf": "# started on Sat Nov 14 08:11:55 2026\n\n291630627,,instructions:u,0.00%,26485026,100.00,,\n26.50,msec,task-clock:u,1.72%,26485026,100.00,,\n",
+      "built-3-2000000.perf": "# started on Sat Nov 14 08:11:56 2026\n\n582630771,,instructions:u,0.00%,54477228,100.00,,\n53.08,msec,task-clock:u,1.20%,54477228,100.00,,\n",
+      "knucleotide-owned-0.perf": "# started on Sat Nov 14 08:11:59 2026\n\n932289901,,instructions:u,0.03%,186838488,100.00,,\n187.54,msec,task-clock:u,0.55%,186838488,100.00,,\n",
+      "knucleotide-owned-1.perf": "# started on Sat Nov 14 08:12:01 2026\n\n931902574,,instructions:u,0.02%,171121240,100.00,,\n183.50,msec,task-clock:u,1.25%,171121240,100.00,,\n",
+      "range-12-1000000.perf": "# started on Sat Nov 14 08:14:11 2026\n\n348611864,,instructions:u,0.00%,34108156,100.00,,\n34.31,msec,task-clock:u,1.50%,34108156,100.00,,\n",
+      "range-12-2000000.perf": "# started on Sat Nov 14 08:14:11 2026\n\n696611992,,instructions:u,0.00%,65698058,100.00,,\n64.34,msec,task-clock:u,1.33%,65698058,100.00,,\n",
+      "range-3-1000000.perf": "# started on Sat Nov 14 08:14:10 2026\n\n103611752,,instructions:u,0.00%,16446401,100.00,,\n15.86,msec,task-clock:u,1.10%,16446401,100.00,,\n",
+      "range-3-2000000.perf": "# started on Sat Nov 14 08:14:10 2026\n\n206611700,,instructions:u,0.00%,25094657,100.00,,\n28.91,msec,task-clock:u,2.17%,25094657,100.00,,\n"
+    }
+  }
+}

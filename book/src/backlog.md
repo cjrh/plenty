@@ -240,8 +240,10 @@ taken in a loop still calls `plenty_byte_view` on every pass. Not delivered:
 borrowed-key `get`, `get_ref`, `get_mut` and `in` for `str` keys, a `&strview`
 form, and a borrowed form for `dict[bytes, V]`.
 [Transitive caller-context proofs](completed-work/performance.md#transitive-caller-context-proofs-issue-948)
-are delivered (issue #948); eliminating the outer scope around trapping
-`Bytes.to_text_range` additionally requires terminal-call inlining (issue #958).
+are delivered in part (issue #948). Combined with terminal-call inlining
+(issue #958), a single-site `Bytes.to_text_range` drops its outer context scope.
+The three-site dictionary kernel and larger k-nucleotide graph still retain
+that scope under the existing inlining budgets; this remains issue #948.
 Issue #931 records the earlier key-construction measurements.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
