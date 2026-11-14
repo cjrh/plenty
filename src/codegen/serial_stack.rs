@@ -572,6 +572,7 @@ mod tests {
             UserFn {
                 inline: None,
                 inline_body: None,
+                inline_native_calls: false,
                 column_predicate: None,
                 standard_library: false,
                 drop_callback: None,

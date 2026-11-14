@@ -208,11 +208,20 @@ are about 8.0 to 5.8 ns and 16.7 to 14.5 ns respectively. Current k-nucleotide
 uses borrowed keys and is unchanged within measurement spread. Removing the
 outer scope around a single-site `Bytes.to_text_range` additionally requires
 issue #958's terminal-call inlining; the combination drops 148 to 103 and
-393 to 348 instructions in the range-construction kernels. The three-site
-dictionary kernel and larger owned-key k-nucleotide variant still retain that scope under
-the existing inlining budgets, so issue #948 remains open. Measurements,
-exclusions and reproduction commands
-are in `experiments/kernels/caller-context/README.md`.
+393 to 348 instructions in the range-construction kernels.
+
+The remaining multi-site scope is removed by retaining proven
+context-independent callees inside bounded, cleanup-free inline wrappers.
+Terminal callees return through ordinary calls into the containing frame,
+including inline result storage. Type-only markers cost no budget; all numeric
+size limits are unchanged. The three-site dictionary kernels lose about 30
+instructions per key, and an owned-key k-nucleotide comparison at fasta 500,000
+drops from 7.33B to 6.84B instructions. Short inline-key kernels use less CPU;
+heap-key kernels can use slightly more, and whole-program CPU measurements
+remain too variable to establish a reliable speedup. Current borrowed-key
+k-nucleotide is unchanged within measurement spread. Exact trap diagnostics and
+cleanup exclusions remain regression-tested. Measurements, exclusions and
+reproduction commands are in `experiments/kernels/caller-context/README.md`.
 
 ### One-word reference reads (issue #844)
 

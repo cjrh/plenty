@@ -1,0 +1,773 @@
+{
+  "baseline": "6a466afb",
+  "source": "owned-knucleotide.plenty",
+  "cpu": 4,
+  "runs": [
+    {
+      "label": "0-before-built-3-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-3-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "292917278,,instructions:u,0.44%,14835705,100.00,,\n14.51,msec,task-clock:u,0.76%,14835705,100.00,,\n",
+      "instructions": 292917278.0,
+      "cpu_ms": 14.51
+    },
+    {
+      "label": "0-before-built-3-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-3-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "582631663,,instructions:u,0.00%,34959093,100.00,,\n28.60,msec,task-clock:u,3.76%,34959093,100.00,,\n",
+      "instructions": 582631663.0,
+      "cpu_ms": 28.6
+    },
+    {
+      "label": "0-before-built-18-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-18-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "611918585,,instructions:u,0.21%,28855088,100.00,,\n29.59,msec,task-clock:u,1.72%,28855088,100.00,,\n",
+      "instructions": 611918585.0,
+      "cpu_ms": 29.59
+    },
+    {
+      "label": "0-before-built-18-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-18-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "1220633049,,instructions:u,0.00%,56284574,100.00,,\n56.59,msec,task-clock:u,0.43%,56284574,100.00,,\n",
+      "instructions": 1220633049.0,
+      "cpu_ms": 56.59
+    },
+    {
+      "label": "0-before-owned",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/before-owned < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "951229576,,instructions:u,0.06%,84510298,100.00,,\n85.35,msec,task-clock:u,0.90%,84510298,100.00,,\n",
+      "instructions": 951229576.0,
+      "cpu_ms": 85.35
+    },
+    {
+      "label": "0-before-borrowed",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/before-borrowed < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "699893965,,instructions:u,0.01%,66917314,100.00,,\n67.43,msec,task-clock:u,1.01%,66917314,100.00,,\n",
+      "instructions": 699893965.0,
+      "cpu_ms": 67.43
+    },
+    {
+      "label": "0-after-built-3-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-3-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "262631355,,instructions:u,0.00%,13606322,100.00,,\n13.46,msec,task-clock:u,0.87%,13606322,100.00,,\n",
+      "instructions": 262631355.0,
+      "cpu_ms": 13.46
+    },
+    {
+      "label": "0-after-built-3-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-3-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "524631395,,instructions:u,0.00%,24923638,100.00,,\n25.68,msec,task-clock:u,2.17%,24923638,100.00,,\n",
+      "instructions": 524631395.0,
+      "cpu_ms": 25.68
+    },
+    {
+      "label": "0-after-built-18-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-18-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "581632753,,instructions:u,0.00%,28746184,100.00,,\n29.38,msec,task-clock:u,0.41%,28746184,100.00,,\n",
+      "instructions": 581632753.0,
+      "cpu_ms": 29.38
+    },
+    {
+      "label": "0-after-built-18-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-18-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "1162632819,,instructions:u,0.00%,57110457,100.00,,\n58.18,msec,task-clock:u,0.44%,57110457,100.00,,\n",
+      "instructions": 1162632819.0,
+      "cpu_ms": 58.18
+    },
+    {
+      "label": "0-after-owned",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/after-owned < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "901292727,,instructions:u,0.01%,79085981,100.00,,\n79.12,msec,task-clock:u,1.00%,79085981,100.00,,\n",
+      "instructions": 901292727.0,
+      "cpu_ms": 79.12
+    },
+    {
+      "label": "0-after-borrowed",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/after-borrowed < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "700000700,,instructions:u,0.04%,67741663,100.00,,\n71.34,msec,task-clock:u,6.83%,67741663,100.00,,\n",
+      "instructions": 700000700.0,
+      "cpu_ms": 71.34
+    },
+    {
+      "label": "1-after-built-3-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-3-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "262631383,,instructions:u,0.00%,13107009,100.00,,\n13.25,msec,task-clock:u,0.62%,13107009,100.00,,\n",
+      "instructions": 262631383.0,
+      "cpu_ms": 13.25
+    },
+    {
+      "label": "1-after-built-3-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-3-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "529774238,,instructions:u,0.63%,25030459,100.00,,\n25.44,msec,task-clock:u,0.80%,25030459,100.00,,\n",
+      "instructions": 529774238.0,
+      "cpu_ms": 25.44
+    },
+    {
+      "label": "1-after-built-18-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-18-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "581632845,,instructions:u,0.00%,28419815,100.00,,\n29.30,msec,task-clock:u,0.83%,28419815,100.00,,\n",
+      "instructions": 581632845.0,
+      "cpu_ms": 29.3
+    },
+    {
+      "label": "1-after-built-18-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/after-built-18-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "1165204199,,instructions:u,0.22%,57584262,100.00,,\n57.57,msec,task-clock:u,1.27%,57584262,100.00,,\n",
+      "instructions": 1165204199.0,
+      "cpu_ms": 57.57
+    },
+    {
+      "label": "1-after-owned",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/after-owned < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "901860461,,instructions:u,0.03%,82000532,100.00,,\n82.50,msec,task-clock:u,0.97%,82000532,100.00,,\n",
+      "instructions": 901860461.0,
+      "cpu_ms": 82.5
+    },
+    {
+      "label": "1-after-borrowed",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/after-borrowed < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "700231777,,instructions:u,0.02%,67576194,100.00,,\n68.39,msec,task-clock:u,0.36%,67576194,100.00,,\n",
+      "instructions": 700231777.0,
+      "cpu_ms": 68.39
+    },
+    {
+      "label": "1-before-built-3-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-3-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "292917235,,instructions:u,0.44%,14633999,100.00,,\n14.53,msec,task-clock:u,0.60%,14633999,100.00,,\n",
+      "instructions": 292917235.0,
+      "cpu_ms": 14.53
+    },
+    {
+      "label": "1-before-built-3-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-3-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "585202935,,instructions:u,0.44%,27947834,100.00,,\n28.26,msec,task-clock:u,0.53%,27947834,100.00,,\n",
+      "instructions": 585202935.0,
+      "cpu_ms": 28.26
+    },
+    {
+      "label": "1-before-built-18-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-18-1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "610632878,,instructions:u,0.00%,29661523,100.00,,\n29.63,msec,task-clock:u,0.80%,29661523,100.00,,\n",
+      "instructions": 610632878.0,
+      "cpu_ms": 29.63
+    },
+    {
+      "label": "1-before-built-18-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/before-built-18-2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "1223204539,,instructions:u,0.21%,57001354,100.00,,\n57.53,msec,task-clock:u,0.34%,57001354,100.00,,\n",
+      "instructions": 1223204539.0,
+      "cpu_ms": 57.53
+    },
+    {
+      "label": "1-before-owned",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/before-owned < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "950771564,,instructions:u,0.04%,83035123,100.00,,\n82.63,msec,task-clock:u,0.46%,83035123,100.00,,\n",
+      "instructions": 950771564.0,
+      "cpu_ms": 82.63
+    },
+    {
+      "label": "1-before-borrowed",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/before-borrowed < /tmp/issue948-evidence/fasta-50000.txt"
+      ],
+      "stdout": "A 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\nA 30.346\nT 30.052\nC 19.807\nG 19.795\n\nAA 9.212\nTA 9.118\nAT 9.097\nTT 9.040\nAC 6.019\nAG 6.018\nCA 6.018\nGA 5.998\nCT 5.959\nGT 5.957\nTC 5.951\nTG 5.944\nGC 3.923\nGG 3.917\nCG 3.916\nCC 3.914\n\n2948\tGGT\n889\tGGTA\n89\tGGTATT\n2\tGGTATTTTAATT\n2\tGGTATTTTAATTTATAGT\n",
+      "perf": "700063702,,instructions:u,0.05%,68442811,100.00,,\n67.74,msec,task-clock:u,1.02%,68442811,100.00,,\n",
+      "instructions": 700063702.0,
+      "cpu_ms": 67.74
+    },
+    {
+      "label": "c-hits-3-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-hits",
+        "3",
+        "1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "158461664,,instructions:u,0.00%,18496240,100.00,,\n18.32,msec,task-clock:u,0.49%,18496240,100.00,,\n",
+      "instructions": 158461664.0,
+      "cpu_ms": 18.32
+    },
+    {
+      "label": "c-keys-3-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-keys",
+        "3",
+        "1000000"
+      ],
+      "stdout": "3000000\n3000000\n3000000\n3000000\n3000000\n3000000\n3000000\n",
+      "perf": "87460767,,instructions:u,0.00%,8014552,100.00,,\n8.30,msec,task-clock:u,0.93%,8014552,100.00,,\n",
+      "instructions": 87460767.0,
+      "cpu_ms": 8.3
+    },
+    {
+      "label": "c-hits-3-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-hits",
+        "3",
+        "2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "316461557,,instructions:u,0.00%,35257911,100.00,,\n35.23,msec,task-clock:u,0.23%,35257911,100.00,,\n",
+      "instructions": 316461557.0,
+      "cpu_ms": 35.23
+    },
+    {
+      "label": "c-keys-3-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-keys",
+        "3",
+        "2000000"
+      ],
+      "stdout": "6000000\n6000000\n6000000\n6000000\n6000000\n6000000\n6000000\n",
+      "perf": "174460775,,instructions:u,0.00%,15372489,100.00,,\n15.21,msec,task-clock:u,0.60%,15372489,100.00,,\n",
+      "instructions": 174460775.0,
+      "cpu_ms": 15.21
+    },
+    {
+      "label": "c-hits-18-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-hits",
+        "18",
+        "1000000"
+      ],
+      "stdout": "1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n1000000\n",
+      "perf": "208461637,,instructions:u,0.00%,18929448,100.00,,\n19.36,msec,task-clock:u,0.60%,18929448,100.00,,\n",
+      "instructions": 208461637.0,
+      "cpu_ms": 19.36
+    },
+    {
+      "label": "c-keys-18-1000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-keys",
+        "18",
+        "1000000"
+      ],
+      "stdout": "18000000\n18000000\n18000000\n18000000\n18000000\n18000000\n18000000\n",
+      "perf": "224462656,,instructions:u,0.00%,14561373,100.00,,\n15.01,msec,task-clock:u,1.48%,14561373,100.00,,\n",
+      "instructions": 224462656.0,
+      "cpu_ms": 15.01
+    },
+    {
+      "label": "c-hits-18-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-hits",
+        "18",
+        "2000000"
+      ],
+      "stdout": "2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n2000000\n",
+      "perf": "416461658,,instructions:u,0.00%,36814627,100.00,,\n37.05,msec,task-clock:u,0.36%,36814627,100.00,,\n",
+      "instructions": 416461658.0,
+      "cpu_ms": 37.05
+    },
+    {
+      "label": "c-keys-18-2000000",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/c-keys",
+        "18",
+        "2000000"
+      ],
+      "stdout": "36000000\n36000000\n36000000\n36000000\n36000000\n36000000\n36000000\n",
+      "perf": "448462896,,instructions:u,0.00%,28346328,100.00,,\n28.32,msec,task-clock:u,0.43%,28346328,100.00,,\n",
+      "instructions": 448462896.0,
+      "cpu_ms": 28.32
+    },
+    {
+      "label": "compile-before",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "3",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/plenty-before",
+        "--compile",
+        "experiments/kernels/caller-context/owned-knucleotide.plenty",
+        "-o",
+        "/tmp/issue948-evidence/compiled-before"
+      ],
+      "stdout": "",
+      "perf": "432587912,,instructions:u,0.00%,81236557,100.00,,\n80.89,msec,task-clock:u,0.67%,81236557,100.00,,\n",
+      "instructions": 432587912.0,
+      "cpu_ms": 80.89
+    },
+    {
+      "label": "compile-after",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "3",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/plenty-after",
+        "--compile",
+        "experiments/kernels/caller-context/owned-knucleotide.plenty",
+        "-o",
+        "/tmp/issue948-evidence/compiled-after"
+      ],
+      "stdout": "",
+      "perf": "432762502,,instructions:u,0.00%,82374059,100.00,,\n81.91,msec,task-clock:u,0.28%,82374059,100.00,,\n",
+      "instructions": 432762502.0,
+      "cpu_ms": 81.91
+    }
+  ],
+  "owned_large": [
+    {
+      "variant": "before",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/before-owned < /tmp/issue948-evidence/fasta-500000.txt"
+      ],
+      "stdout": "A 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\n",
+      "perf": "7336061161,,instructions:u,0.04%,514748355,100.00,,\n514.54,msec,task-clock:u,1.21%,514748355,100.00,,\n"
+    },
+    {
+      "variant": "after",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/after-owned < /tmp/issue948-evidence/fasta-500000.txt"
+      ],
+      "stdout": "A 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\n",
+      "perf": "6842592129,,instructions:u,0.05%,525622182,100.00,,\n509.42,msec,task-clock:u,1.40%,525622182,100.00,,\n"
+    },
+    {
+      "variant": "after",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/after-owned < /tmp/issue948-evidence/fasta-500000.txt"
+      ],
+      "stdout": "A 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\n",
+      "perf": "6845854331,,instructions:u,0.07%,896610983,100.00,,\n557.39,msec,task-clock:u,10.26%,896610983,100.00,,\n"
+    },
+    {
+      "variant": "before",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "7",
+        "-e",
+        "instructions:u,task-clock",
+        "sh",
+        "-c",
+        "exec taskset -c 4 /tmp/issue948-evidence/before-owned < /tmp/issue948-evidence/fasta-500000.txt"
+      ],
+      "stdout": "A 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\n",
+      "perf": "7332428011,,instructions:u,0.03%,697324687,100.00,,\n585.84,msec,task-clock:u,5.19%,697324687,100.00,,\n"
+    }
+  ]
+}

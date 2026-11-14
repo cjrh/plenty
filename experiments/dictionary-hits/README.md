@@ -218,8 +218,12 @@ After the heap-key steps, hits k=18 is `get_or_insert_heap_text` 222, `main`
 
 The [transitive analysis experiment](../kernels/caller-context/README.md)
 removes 33 instructions per call from byte-view conversion. The `built` kernels
-retain their outer trapping `Bytes.to_text_range` scope even with issue #958:
-their three static sites exceed the current shared-inlining budget. A separate
-single-site range kernel benefits from combining the two fixes. Current
+now omit their outer trapping `Bytes.to_text_range` scope at all three static
+sites. The follow-up keeps context-independent conversion and predicate helpers
+native inside bounded inline wrappers, preserving the existing budgets and
+trap diagnostics. It removes about 30 instructions per constructed key;
+inline-key CPU improves, while heap-key CPU can be slightly worse. See the
+[retained-call measurements](../kernels/caller-context/README.md#retained-call-wrapper-plan-remaining-issue-948). A separate
+single-site range kernel benefits from combining the original two fixes. Current
 borrowed-key k-nucleotide bypasses this
 conversion and shows no measurable CPU-time change from the analysis alone.

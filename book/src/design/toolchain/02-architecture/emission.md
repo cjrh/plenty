@@ -328,17 +328,27 @@ body keeps its own locals, source position, trap sites and cleanup, so traps
 and `?` failures behave as the call would; only its final return becomes a
 jump. A callee is inlined when it is not recursive, not a generator, defines
 no function and its operations, counting the callees inlined into it, stay
-within a bound. A terminal direct call is allowed only when the enclosing
-callee has no managed inputs or locals and that terminal target is itself
-inlined (scalar leaf or bounded call-site body). Remaining native tail calls
-and indirect tail calls keep their enclosing function out of this plan
-(issue #958). The operation bounds are:
+within a bound. A terminal direct call is allowed when the enclosing callee
+has no managed inputs or locals and that terminal target is itself inlined
+(scalar leaf or bounded call-site body). If expansion exceeds the bound, a
+cleanup-free wrapper can instead retain callees whose complete graph is proven
+independent of caller context (issue #948). A retained terminal callee uses an
+ordinary call followed by the inline return: it returns into the containing
+frame, including through the normal result-storage ABI. The wrapper's own
+traps retain their original call-site notes. Trapping direct terminal callees
+still require full substitution; unknown and indirect terminal calls keep the
+wrapper native (issue #958). The operation bounds are unchanged:
 
 | Callee | Bound |
 |---|---|
 | A class's `new` or `__init__` | 64 operations |
 | Any function with one direct call site | 160 operations |
 | Any other function | 16 operations, or 24 while its call sites times its operations stay within 256 |
+
+Type-only reborrows and reference-forwarding markers emit no instructions and
+do not count toward these bounds. The planner first tries full expansion; its
+bounded fallback retains context-independent ordinary calls as well as terminal
+ones, so the expanded callees do not consume the wrapper's budget.
 
 The larger shared bound (issue #770) covers bounds-checked accessors such as
 `Bytes.get` and `Bytes.set` and short arithmetic helpers called in hot loops,
