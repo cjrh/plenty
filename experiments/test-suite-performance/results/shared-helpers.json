@@ -1,0 +1,193 @@
+{
+  "label": "shared-helpers",
+  "revision": "1b60042d115179c336396c19f2af95d74a23c2a5",
+  "host": "Linux-7.3.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "worktree": "/home/caleb/Documents/repos/plenty/.worktrees/test-suite-performance",
+  "environment": {
+    "RUSTFLAGS": null,
+    "CARGO_ENCODED_RUSTFLAGS": null,
+    "CARGO_TARGET_DIR": null,
+    "CARGO_BUILD_DIR": null,
+    "PLENTY_CACHE": null,
+    "PLENTY_CACHE_DIR": null,
+    "RUSTC_WRAPPER": ""
+  },
+  "source_sha256": {
+    "tests/integration.rs": "5a392cbab412e8a0c8105081fd326e055439dd2ef63965107eda7fc0386d1d28",
+    "tests/support/mod.rs": "37ca7e5d8868f61892a2306a590a1472509e9838624415eedd2f8f9146ebff36",
+    "src/frontend.rs": "120c327f2828a3cea59d86765aae1459ad761df9f9d0e66e7cdf311f2b8a097b"
+  },
+  "rows": [
+    {
+      "scenario": "warm",
+      "repeat": 0,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "test_arithmetic_errors::"
+      ],
+      "returncode": 0,
+      "seconds": 0.37439179699867964,
+      "instructions": 3139206850
+    },
+    {
+      "scenario": "warm",
+      "repeat": 1,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "test_arithmetic_errors::"
+      ],
+      "returncode": 0,
+      "seconds": 0.3203652990050614,
+      "instructions": 2734004908
+    },
+    {
+      "scenario": "warm",
+      "repeat": 2,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "test_arithmetic_errors::"
+      ],
+      "returncode": 0,
+      "seconds": 0.3212824729998829,
+      "instructions": 2734720254
+    },
+    {
+      "scenario": "test-edit",
+      "repeat": 0,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "--no-run"
+      ],
+      "returncode": 0,
+      "seconds": 13.990873971997644,
+      "instructions": 111331059318
+    },
+    {
+      "scenario": "test-edit",
+      "repeat": 1,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "--no-run"
+      ],
+      "returncode": 0,
+      "seconds": 13.877203212992754,
+      "instructions": 111349547189
+    },
+    {
+      "scenario": "test-edit",
+      "repeat": 2,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "--no-run"
+      ],
+      "returncode": 0,
+      "seconds": 14.060469481002656,
+      "instructions": 111336049192
+    },
+    {
+      "scenario": "compiler-edit",
+      "repeat": 0,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "--no-run"
+      ],
+      "returncode": 0,
+      "seconds": 28.99394247100281,
+      "instructions": 242256828185
+    },
+    {
+      "scenario": "compiler-edit",
+      "repeat": 1,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "--no-run"
+      ],
+      "returncode": 0,
+      "seconds": 29.826332313998137,
+      "instructions": 242255696848
+    },
+    {
+      "scenario": "compiler-edit",
+      "repeat": 2,
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--test",
+        "integration",
+        "--jobs",
+        "6",
+        "--no-run"
+      ],
+      "returncode": 0,
+      "seconds": 30.130204814995523,
+      "instructions": 242244154800
+    }
+  ]
+}

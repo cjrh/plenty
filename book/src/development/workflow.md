@@ -81,9 +81,23 @@ The execution phase includes Cargo's short freshness check and doctest builds;
 this is command-level attribution, not a compiler or per-test profiler.
 
 ```sh
-python3 -B scripts/check_timings.py suite --profile ci
+just test --filter test_std_url::
+just test --runner nextest
+just test --runner nextest --profile ci
 python3 -B scripts/check_timings.py report target/check-timings/suite-CURRENT/timings.json --baseline target/check-timings/suite-EARLIER/timings.json
 ```
+
+`--filter` selects only matching integration tests, labels the report as a
+filtered run, and keeps the full suite's workspace/features so artifacts can be
+reused. Without a filter, the full suite still runs. The optional `nextest`
+runner requires an installed `cargo-nextest`; it overlaps test binaries and
+runs doctests separately because nextest does not run them. It uses the
+repository's nextest `ci` configuration (including test groups and JUnit),
+independently of the Cargo build profile selected with `--profile`.
+The default remains Cargo with the development build profile.
+`--build-jobs 3 --test-threads 3` limits build and execution concurrency for
+either runner on a shared machine. Reports retain the actual commands and
+failure status for each phase.
 
 On Linux, both check commands automatically use an installed ccache for native
 compilation, while preserving explicit compiler selections. Its objects live in
@@ -210,14 +224,17 @@ The integration tests in `tests/test_*.rs` are modules of one test binary,
 binary is linked once. Select one file's tests by module, or one test by path:
 
 ```sh
-cargo test --locked --test integration test_std_url::
-cargo test --locked --test integration -- --exact test_std_url::rfc_3986_examples_split_into_components
+just test --filter test_std_url::
+cargo test --locked --workspace --all-features --test integration -- --exact test_std_url::rfc_3986_examples_split_into_components
 ```
 
 Cargo builds separately for each set of `--workspace` and feature flags, so
 add the full suite's flags to reuse its build. List a new test file in
 `tests/integration.rs`; `every_test_file_is_listed` fails until it is. Editing
 any test file recompiles the whole binary.
+Shared fixture helpers are compiled once in `tests/support/shared.rs`;
+`tests/support/mod.rs` reexports them for each test module. Keep per-test
+state local to the individual fixture rather than adding global shared state.
 
 Most tests compile a Plenty program and link it with `cc`. The workspace's
 `.cargo/config.toml` sets `COMPILER_PATH` for the processes Cargo starts, so

@@ -49,6 +49,12 @@ queue. The [reference](design/index.md) owns current behavior and limits;
 support. Local issue/PR numbers identify records in the shared `issues.db`, not
 GitHub records. Reproductions, claims and review state remain there.
 
+## Shared integration fixture compilation
+
+Shared test helpers compile once, reducing measured small-edit rebuild latency.
+See the [delivery record](completed-work/language-and-tooling.md#shared-integration-fixture-compilation-2026-11-14)
+and [test workflow](development/workflow.md#check-timing-reports).
+
 ## Derived serialization
 
 Issue #781 completes B77 with shared JSON/TOML codecs for `@serial` classes and

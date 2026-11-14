@@ -9,9 +9,12 @@
 //! a module filter: `cargo test --test integration test_std_url::`.
 //!
 //! Rust treats a `#[path]` module like a `mod.rs` file, so the `mod support;`
-//! in each file still resolves to `tests/support/mod.rs`. Each file keeps its
-//! own copy of those helpers, as when every file was a separate crate.
+//! in each file still resolves to `tests/support/mod.rs`. That module reexports
+//! one shared implementation, avoiding hundreds of duplicate helper bodies.
 #![allow(clippy::duplicate_mod)]
+
+#[path = "support/shared.rs"]
+mod test_support;
 
 #[path = "test_pipelines.rs"]
 mod test_pipelines;
