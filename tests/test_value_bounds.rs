@@ -482,7 +482,16 @@ def br7(x: i32) -> i32:
     (x % 100000i32) % 7i32
 
 
+# Every seed's successor, by the low-product multiplier.
+def cycle() -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for s in range(139968):
+        total += (s * 3877 + 29573) % 139968 + (s * 3877 + 29573) // 139968 * 7
+    Ok(total)
+
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(cycle()?)?
     wide = [UNSIGNED]?
     for i in range(len(wide)):
         x = wide[i]
@@ -505,8 +514,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 /// An unsigned division or remainder by a constant multiplies by a one-word
 /// reciprocal chosen from the dividend's bound (issues #953 and #954): `10`
 /// has one for every `u64`, `1000` only for a dividend below `2**63`, and
-/// `7` only for a 32-bit dividend below `2**31`. Results match the definition at the
-/// edges of each bound, in both build modes.
+/// `7` only for a 32-bit dividend below `2**31`. A bound that keeps the
+/// product within 64 bits selects a multiply and a shift (issue #960).
+/// Results match the definition at the edges of each bound, in both build
+/// modes.
 #[test]
 fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
     let unsigned = [
@@ -563,6 +574,11 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
             })),
         );
     let mut expected = String::new();
+    let cycle: i64 = (0..139_968)
+        .map(|s| s * 3877 + 29_573)
+        .map(|x| x % 139_968 + x / 139_968 * 7)
+        .sum();
+    writeln!(expected, "{cycle}").unwrap();
     for x in unsigned {
         writeln!(expected, "{} {} {} {}", x / 10, x % 10, x / 1000, x % 1000).unwrap();
     }
@@ -592,13 +608,21 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
     }
 
     // Before Cranelift's own expansion: a multiply-high where a one-word
-    // multiplier is proved, the division instruction where it is not.
+    // multiplier is proved and the product may need 128 bits, a multiply and
+    // a shift where it fits in 64 (issue #960), and the division instruction
+    // where no multiplier is proved.
     let clif = dump(&source, "clif");
     let count = |name: &str, needle: &str| support::asm_body(&clif, name).matches(needle).count();
-    for name in [
-        "q10", "r10", "nq1000", "nr1000", "seed", "product", "r3", "bq7", "br7",
-    ] {
+    for name in ["q10", "r10", "nq1000", "nr1000"] {
         assert_eq!(count(name, "umulhi"), 1, "{name}");
+        assert_eq!(count(name, "udiv") + count(name, "urem"), 0, "{name}");
+    }
+    for name in ["seed", "product", "r3", "bq7", "br7"] {
+        assert_eq!(
+            (count(name, "umulhi"), count(name, "ushr")),
+            (0, 1),
+            "{name}"
+        );
         assert_eq!(count(name, "udiv") + count(name, "urem"), 0, "{name}");
     }
     for name in ["q1000", "q7"] {
@@ -609,11 +633,16 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
         );
     }
     assert_eq!((count("r1000", "umulhi"), count("r1000", "urem")), (0, 1));
-    // `2**64 / 139968` rounded up divides every dividend below `2**30`
-    // without a shift; a dividend up to `2**63 - 2` needs one for 1000.
+    // `2**46 / 139968` rounded up divides every dividend below `2**30`, and
+    // their product is below `2**60`. A 32-bit dividend is multiplied in 64
+    // bits. A dividend up to `2**63 - 2` keeps the high product and a shift.
     let seed = support::asm_body(&clif, "seed");
-    assert!(seed.contains("0x77dd_5a03_fada"), "{seed}");
-    assert_eq!(count("seed", "ushr"), 0, "{seed}");
+    assert!(seed.contains("0x1df7_5681"), "{seed}");
+    let narrow = support::asm_body(&clif, "r3");
+    assert!(
+        narrow.contains("uextend.i64") && narrow.contains("0xaaaa_aaab"),
+        "{narrow}"
+    );
     assert_eq!(count("nq1000", "ushr"), 1);
     // A dividend that adds a constant is subtracted from; a product is added
     // to the quotient times the negated divisor.
@@ -634,4 +663,245 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
         division.contains(shift) && !division.contains("sub") && !division.contains("add"),
         "{body}"
     );
+}
+
+const UNSIGNED_REMAINDERS: &str = r#"
+def uq7(x: u32) -> u32:
+    (x % 100000u32) // 7u32
+
+
+def ur7(x: u32) -> u32:
+    (x % 100000u32) % 7u32
+
+
+def chain(x: u32) -> u32:
+    (x % 100000u32) // 7u32 // 7u32
+
+
+def proved(x: u32) -> u32:
+    ((x % 100000u32) * 5u32 + 3u32) // 7u32
+
+
+def wide(x: u64) -> u64:
+    (x % 1000000u64) // 1000u64
+
+
+def edge(x: u32) -> u32:
+    (x % 2147483648u32) // 7u32
+
+
+def over(x: u32) -> u32:
+    (x % 2147483650u32) // 7u32
+
+
+def variable(x: u32, y: u32) -> Result[u32, ZeroDivisionError]:
+    Ok((x % y) // 7u32)
+
+
+def main() -> Result[(), AllocError | IoError | ZeroDivisionError]:
+    narrow = [NARROW]?
+    for i in range(len(narrow)):
+        x = narrow[i]
+        print(uq7(x), ur7(x), chain(x), proved(x), edge(x), over(x))?
+        print(variable(x, 100001u32)?, variable(x, 4294967295u32)?)?
+    longs = [WIDE]?
+    for i in range(len(longs)):
+        print(wide(longs[i]))?
+    Ok(())
+"#;
+
+/// An unsigned `%` by a constant is below the constant, so a `//` or `%` of
+/// it by a constant multiplies by a one-word reciprocal (issue #961). The
+/// bound passes through a quotient and through arithmetic the checker
+/// proved. A remainder whose limit is outside the signed range of its width
+/// records nothing, nor does one by a divisor that is not constant.
+#[test]
+fn an_unsigned_remainder_by_a_constant_bounds_the_next_division() {
+    let narrow = [
+        0,
+        6,
+        7,
+        99_999,
+        100_000,
+        100_006,
+        i32::MAX as u32,
+        1 << 31,
+        (1 << 31) + 1,
+        (1 << 31) + 2,
+        u32::MAX - 1,
+        u32::MAX,
+    ];
+    let wide = [0, 999, 1000, 999_999, 1_000_000, 1 << 63, u64::MAX];
+    let source = UNSIGNED_REMAINDERS
+        .replace("NARROW", &narrow.map(|x| format!("{x}u32")).join(", "))
+        .replace("WIDE", &wide.map(|x| format!("{x}u64")).join(", "));
+    let mut expected = String::new();
+    for x in narrow {
+        let r = x % 100_000;
+        writeln!(
+            expected,
+            "{} {} {} {} {} {}",
+            r / 7,
+            r % 7,
+            r / 7 / 7,
+            (r * 5 + 3) / 7,
+            x % (1 << 31) / 7,
+            x % 2_147_483_650 / 7
+        )
+        .unwrap();
+        writeln!(expected, "{} {}", x % 100_001 / 7, x % u32::MAX / 7).unwrap();
+    }
+    for x in wide {
+        writeln!(expected, "{}", x % 1_000_000 / 1000).unwrap();
+    }
+    for flags in [&["--fast-compile"][..], &["--release"]] {
+        assert_eq!(run(&source, flags), expected, "{flags:?}");
+    }
+
+    let clif = dump(&source, "clif");
+    let body = |name: &str| support::asm_body(&clif, name);
+    let count = |name: &str, needle: &str| body(name).matches(needle).count();
+    // `7` has no one-word reciprocal for every `u32`, and `1000` none for
+    // every `u64`: these multipliers come from the remainder's bound, which
+    // also keeps each product within 64 bits (issue #960).
+    for (name, multiplier) in [
+        ("uq7", "0x0001_2493"),
+        ("ur7", "0x0001_2493"),
+        ("proved", "0x0009_2493"),
+        ("wide", "0x0008_3127"),
+        // A remainder below `2**31` is within the signed range; one that
+        // can reach `2**31` is not.
+        ("edge", "0x9249_2493"),
+    ] {
+        assert!(body(name).contains(multiplier), "{}", body(name));
+        assert_eq!(count(name, "udiv"), 0, "{}", body(name));
+        // `wide` takes its remainder of any `u64` by the high product.
+        let high = usize::from(name == "wide");
+        assert_eq!(count(name, "umulhi"), high, "{}", body(name));
+    }
+    assert_eq!((count("chain", "ushr"), count("chain", "udiv")), (2, 0));
+    assert_eq!(count("over", "udiv"), 1, "{}", body("over"));
+    assert_eq!(count("variable", "udiv"), 1, "{}", body("variable"));
+}
+
+const NARROWED_CASTS: &str = r#"
+def narrowed(x: u32) -> u32:
+    if x < 100000u32:
+        y = i32(x)
+        return u32(y // 7i32)
+    x // 7u32
+
+
+def reversed(x: i32) -> i32:
+    if x >= 0i32:
+        if x < 100000i32:
+            y = u32(x)
+            return i32(y // 7u32)
+    x // 7i32
+
+
+def main() -> Result[(), AllocError | IoError]:
+    unsigned = [UNSIGNED]?
+    for i in range(len(unsigned)):
+        print(narrowed(unsigned[i]))?
+    signed = [SIGNED]?
+    for i in range(len(signed)):
+        print(reversed(signed[i]))?
+    Ok(())
+"#;
+
+/// A cast between types of one width returns its operand. The interval an
+/// `if` proved for the cast holds in that suite only, so its bound must not
+/// reach the operand's uses after the `if`: there `7` needs the division
+/// instruction for a `u32`, and a signed dividend may be negative.
+#[test]
+fn a_proved_cast_bounds_its_result_not_its_operand() {
+    // `3000000002 * ceil(2**32 / 7) >> 32` is one more than the quotient.
+    let unsigned = [0, 6, 7, 99_999, 100_000, 3_000_000_002, u32::MAX];
+    let signed = [i32::MIN, -100_000, -50, -1, 0, 99_999, 100_000, i32::MAX];
+    let source = NARROWED_CASTS
+        .replace("UNSIGNED", &unsigned.map(|x| format!("{x}u32")).join(", "))
+        .replace(
+            "SIGNED",
+            &signed
+                .map(|x| match x {
+                    i32::MIN => "i32.MIN".to_string(),
+                    _ => format!("{x}i32"),
+                })
+                .join(", "),
+        );
+    let mut expected = String::new();
+    for x in unsigned {
+        writeln!(expected, "{}", x / 7).unwrap();
+    }
+    for x in signed {
+        writeln!(expected, "{}", floor_div(i128::from(x), 7)).unwrap();
+    }
+    for flags in [&["--fast-compile"][..], &["--release"]] {
+        assert_eq!(run(&source, flags), expected, "{flags:?}");
+    }
+
+    let clif = dump(&source, "clif");
+    let body = |name: &str| support::asm_body(&clif, name);
+    let count = |name: &str, needle: &str| body(name).matches(needle).count();
+    // Inside the `if` the bound chooses the multiplier.
+    for (name, division) in [("narrowed", "udiv"), ("reversed", "sdiv")] {
+        assert!(body(name).contains("0x0001_2493"), "{}", body(name));
+        assert_eq!(
+            (count(name, "ushr"), count(name, division)),
+            (1, 1),
+            "{}",
+            body(name)
+        );
+    }
+}
+
+const CAST_REMAINDERS: &str = r#"
+def narrowed(x: u32) -> u32:
+    if x < 100000u32:
+        y = i32(x)
+        return u32(y % 7i32)
+    x % 7u32
+
+
+def summed(x: u32) -> u32:
+    if x < 100000u32:
+        y = i32(x + 5u32)
+        return u32(y % 7i32)
+    x % 7u32
+
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [VALUES]?
+    for i in range(len(xs)):
+        print(narrowed(xs[i]), summed(xs[i]))?
+    Ok(())
+"#;
+
+/// A proved cast's bound sits on a copy of its operand, an add of zero
+/// (issue #976). The remainder's form is chosen from the copied value: an
+/// add of the dividend, or a subtract when the dividend adds a constant.
+#[test]
+fn a_remainder_of_a_proved_cast_looks_through_its_copy() {
+    let values = [0u32, 6, 7, 99_994, 99_995, 99_999, 100_000, u32::MAX];
+    let source = CAST_REMAINDERS.replace("VALUES", &values.map(|x| format!("{x}u32")).join(", "));
+    let mut expected = String::new();
+    for x in values {
+        let summed = if x < 100_000 { (x + 5) % 7 } else { x % 7 };
+        writeln!(expected, "{} {summed}", x % 7).unwrap();
+    }
+    for flags in [&["--fast-compile"][..], &["--release"]] {
+        assert_eq!(run(&source, flags), expected, "{flags:?}");
+    }
+
+    let clif = dump(&source, "clif");
+    let count = |name: &str, needle: &str| support::asm_body(&clif, name).matches(needle).count();
+    for name in ["narrowed", "summed"] {
+        assert_eq!(
+            (count(name, "ushr"), count(name, "umulhi")),
+            (1, 0),
+            "{name}"
+        );
+    }
+    assert_eq!((count("narrowed", "isub"), count("summed", "isub")), (0, 1));
 }

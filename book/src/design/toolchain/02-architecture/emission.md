@@ -676,8 +676,11 @@ Two mechanisms remove arithmetic checks. The checker's
 infallible in the language: such an operation arrives as `Op::Proved` (or a
 division with a `Divisor` proof) and is lowered as the plain instruction. Code
 generation does not recompute the interval, so it cannot disagree with the
-error contract. A proved operation's nonnegative signed interval also seeds
-the bounds below.
+error contract. A proved operation's nonnegative interval also seeds the
+bounds below, when it is within the signed range of the value's width. A
+cast between types of one width returns its operand, which is also used
+where an `if` has not narrowed it, so such a cast's bound is recorded on a
+copy of the value (issue #976).
 
 The operation validator (`src/op/check.rs`) checks a proof as far as the
 sequence shows its operands:
@@ -705,10 +708,14 @@ function for all 8-bit pairs and the edge values of the wider types.
 
 Separately, the lowerer records an upper bound for some nonnegative signed
 values (`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow
-check of arithmetic that the bounds keep in range, in trapping and
-`Result`-returning functions alike. These bounds see what the interval rules
-do not, such as loop counters and locals written in a loop. They remove
-instructions only: the operation's error stays in the function's contract.
+check of signed arithmetic that the bounds keep in range, in trapping and
+`Result`-returning functions alike. A bound describes a value's bits read as
+a signed integer, so an unsigned value has one only within the signed range
+of its width; there it serves
+[division by a constant](#division-by-a-constant). These bounds see what the
+interval rules do not, such as loop counters and locals written in a loop.
+They remove instructions only: the operation's error stays in the function's
+contract.
 
 - A view of numeric items holds at most `i64.MAX / item size` of them, so
   `len(xs)` of a `&[f64]` is at most `i64.MAX / 8`.
@@ -722,6 +729,9 @@ instructions only: the operation's error stays in the function's contract.
   constant cannot overflow.
 - A signed `%` by a positive divisor is nonnegative; by a positive constant
   `M` it is at most `M - 1`, so `x % 1000 * 3877 + 29573` has no check.
+  An unsigned `%` by a constant `M` is at most `M - 1` likewise
+  (issue #961), so `(x % 100000u32) // 7u32` has a one-word reciprocal; an
+  `M` above `2**(N - 1)` for an `N`-bit type records nothing.
 - A local the loop writes keeps a bound when every write in the loop's
   condition and body, nested blocks included, stores a `%` by a positive
   constant and the entry value is nonnegative and bounded: a read is at most
@@ -763,17 +773,28 @@ nonnegative, and its bound is the one recorded above or its type's maximum:
   dividend.
 - A dividend below `2**(N - 1)`, which every nonnegative signed value is,
   always has such a multiplier: `mulq; shr`. A smaller bound often needs no
-  shift: fasta's `(seed * 3877 + 29573) % 139968` with `seed` below `139968`
-  is one `mulq`.
+  shift.
+- When the whole product fits in 64 bits, an ordinary multiply and one shift
+  replace the high product (issue #960). The multiplier is
+  `m = ceil(2**k / d)` for the smallest `k` such that
+  `bound * (m * d - 2**k) < 2**k`; it is used when `bound * m < 2**64`, and
+  then `(x * m) >> k` is `x // d`. That is `imul; shr` in any registers,
+  where `mulq` needs `%rax` and `%rdx` and takes a cycle longer for the high
+  half. fasta's `(seed * 3877 + 29573) % 139968` with `seed` below `139968`
+  divides by `imul $0x1df75681; shr $46`. A 32-bit dividend is zero-extended
+  and multiplied in 64 bits, which covers every 32-bit case. A 64-bit
+  dividend needs a bound near `2**64 / m`: a nonnegative `i64` with no
+  smaller bound keeps the high product.
 - Without a proved one-word multiplier (`x // 1000` of an unbounded `u64`)
   the division instruction stays, and Cranelift expands it as before. 8- and
   16-bit divisions, signed divisions of a value that may be negative, and
   `--fast-compile` builds are unchanged.
 
 The remainder is `x - q * d`, or `q * (-d) + x` when `x` is not itself a sum
-with a constant. x86-64's subtract overwrites its first operand, so the
-register allocator copies the dividend before it and the result after it
-(issue #954); the add has no such copies. For a dividend such as
+with a constant. x86-64's subtract overwrites its first operand, so after a
+high product, whose `mulq` also reads the dividend from `%rax`, the register
+allocator copies the dividend before it and the result after it (issue #954);
+the add has no such copies. For a dividend such as
 `seed * 3877 + 29573`, Cranelift would fold the constant into the add as a
 three-component `lea`, one cycle slower than `sub` on the generator's
 dependency chain, while the two copies are eliminated at register renaming.

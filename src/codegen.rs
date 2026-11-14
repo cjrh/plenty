@@ -3719,24 +3719,44 @@ impl Lowerer<'_, '_> {
         ) {
             return Err(format!("AOT: `Proved` cannot hold {op:?}").into());
         }
+        let existing = self.bcx.func.dfg.num_values();
         self.lower_assumed(op)?;
         let Some((value, ty)) = self.stack.last() else {
             return Err("AOT: stack underflow on proved arithmetic".into());
         };
-        // The bound facts describe signed values.
-        if is_signed(ty.clone())
-            && interval.lo >= 0
-            && let Ok(limit) = u64::try_from(interval.hi)
-        {
-            let value = *value;
-            self.counters.nonnegative.insert(value);
-            let limit = self
-                .counters
-                .at_most
-                .get(&value)
-                .map_or(limit, |&l| l.min(limit));
-            self.counters.at_most.insert(value, limit);
+        let mut value = *value;
+        // The bound facts describe a value's bits read as a signed integer,
+        // which an unsigned value within the signed range also satisfies.
+        let limit = u64::try_from(interval.hi)
+            .ok()
+            .filter(|limit| *limit <= signed_max(self.bcx.func.dfg.value_type(value)));
+        let (true, true, Some(limit)) = (ty.is_int(), interval.lo >= 0, limit) else {
+            return Ok(());
+        };
+        // A cast can return a value that existed before it: its operand,
+        // when the widths match, or the word its operand was truncated
+        // from. A fact holds wherever its value is used, and that value is
+        // also used where the interval does not hold, such as outside the
+        // `if` that narrowed it (issue #976). Facts the value lacks then go
+        // on a copy, which the optimizer folds away.
+        if value.as_u32() < existing as u32 {
+            let known = self.nonnegative_operand(value)
+                && self.upper_bound(value).is_some_and(|known| known <= limit);
+            if known {
+                return Ok(());
+            }
+            value = self.bcx.ins().iadd_imm_s(value, 0);
+            if let Some(top) = self.stack.last_mut() {
+                top.0 = value;
+            }
         }
+        self.counters.nonnegative.insert(value);
+        let limit = self
+            .counters
+            .at_most
+            .get(&value)
+            .map_or(limit, |&l| l.min(limit));
+        self.counters.at_most.insert(value, limit);
         Ok(())
     }
 
@@ -3819,11 +3839,10 @@ impl Lowerer<'_, '_> {
 
         let v = if !signed {
             let quotient = self.unsigned_quotient(a, b);
-            // Nonnegative operands: the quotient is at most the dividend,
-            // divided by a constant divisor.
-            if is_signed(ty.clone())
-                && let Some(limit) = self.upper_bound(a)
-            {
+            // The quotient is at most the dividend, divided by a constant
+            // divisor. An unsigned dividend has a bound only when a
+            // remainder or a proved operation recorded one.
+            if let Some(limit) = self.upper_bound(a) {
                 let divisor = known::known_signed(&self.bcx.func.dfg, b)
                     .and_then(|b| u64::try_from(b).ok())
                     .filter(|&b| b > 0)
@@ -3867,8 +3886,13 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// A signed remainder by a positive divisor is nonnegative and below
-    /// the divisor.
+    /// Records that a remainder by a positive divisor is nonnegative and
+    /// below the divisor.
+    ///
+    /// An unsigned divisor is positive wherever the remainder exists. The
+    /// bound facts describe a value's bits read as a signed integer, so an
+    /// unsigned remainder is recorded only when its limit is within the
+    /// signed range of its width.
     pub(super) fn note_remainder(
         &mut self,
         remainder: cranelift_codegen::ir::Value,
@@ -3876,18 +3900,26 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
         proof: crate::numeric::Divisor,
     ) {
-        if !is_signed(ty.clone()) {
+        let dfg = &self.bcx.func.dfg;
+        let signed = is_signed(ty.clone());
+        let constant = if signed {
+            known::known_signed(dfg, b).and_then(|b| u64::try_from(b).ok())
+        } else {
+            known::known_int(dfg, b)
+        }
+        .filter(|b| *b > 0);
+        if signed && constant.is_none() && proof != crate::numeric::Divisor::Positive {
             return;
         }
-        let constant = known::known_signed(&self.bcx.func.dfg, b);
-        if constant.is_some_and(|b| b > 0) || proof == crate::numeric::Divisor::Positive {
+        let limit = constant
+            .or_else(|| self.counters.at_most.get(&b).copied())
+            .and_then(|divisor| divisor.checked_sub(1))
+            .filter(|limit| *limit <= signed_max(dfg.value_type(remainder)));
+        if signed || limit.is_some() {
             self.counters.nonnegative.insert(remainder);
-            let limit = constant
-                .and_then(|b| u64::try_from(b).ok())
-                .or_else(|| self.counters.at_most.get(&b).copied());
-            if let Some(limit) = limit.filter(|limit| *limit > 0) {
-                self.counters.at_most.insert(remainder, limit - 1);
-            }
+        }
+        if let Some(limit) = limit {
+            self.counters.at_most.insert(remainder, limit);
         }
     }
 
