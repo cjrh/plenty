@@ -2485,9 +2485,10 @@ impl Lower<'_> {
     }
 }
 
-const LIBRARY_GENERICS: [&str; 7] = [
+const LIBRARY_GENERICS: [&str; 8] = [
     "SpawnError",
     "AppendError",
+    "DictInitError",
     "SendError",
     "SendTimeoutError",
     "Selected",

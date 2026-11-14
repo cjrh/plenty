@@ -86,3 +86,28 @@ For a generic constructor, an annotation supplies the instance, as for `wrap`
 above. Without that context, name it explicitly: `Option[i64].Some`.
 Constructor values take every positional argument and retain any initializer
 failure in their result. See [constructor rules](../../design/language/03-types/classes.md).
+
+A dictionary can call a factory only for a missing key. This is useful when
+the starting value allocates, as a grouping list does:
+
+```plenty
+def empty_group() -> Result[list[str], AllocError]:
+    []
+
+def main() -> Result[(), AllocError | DictInitError[AllocError] | IoError]:
+    mut groups: dict[i64, list[str]] = {}?
+    for word in ["red", "blue", "cat"]?:
+        group = groups.get_or_insert_with(len(word), empty_group)?
+        group.append(word)?
+    print(groups)?
+    Ok(())
+```
+```output
+{3: ["red", "cat"], 4: ["blue"]}
+```
+
+`empty_group` is passed without calling it. A present key skips its body.
+A fallible factory preserves its error in `DictInitError.Factory`; dictionary
+growth errors use `DictInitError.Allocation`. See
+[dictionary lookup](../../design/facilities/01-builtins/dictionaries.md#lookup-and-removal)
+for ownership and borrowing rules.

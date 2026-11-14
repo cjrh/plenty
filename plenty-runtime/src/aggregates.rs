@@ -1006,6 +1006,8 @@ thread_local! {
     /// Key hashes computed on this thread, so tests can check how often an
     /// operation hashes (issue #748).
     static HASHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Full key lookups, excluding placement after a table rebuild.
+    static PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
     #[cfg(test)]
@@ -1029,6 +1031,8 @@ impl Collection {
     /// Keys are compared only where the bucket's stored hash bits match.
     #[inline]
     unsafe fn probe(&self, key: u128, hash: u64) -> usize {
+        #[cfg(test)]
+        PROBES.with(|count| count.set(count.get() + 1));
         // A text key is one word in an ordinary row. Deciding that once
         // keeps `key`'s storage dispatch and the general `equal` out of the
         // candidate loop (issue #931).
@@ -3296,7 +3300,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3480,6 +3484,11 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             });
             return;
         }
+        if op == DICT_LAZY_FINISH {
+            let [owner, key, value, state] = read_operands::<4>(op, args);
+            out.write(lazy_finish(owner, key, value, state));
+            return;
+        }
         if op == 197 {
             let operands = read_operands::<5>(op, args);
             out.write(process::spawn_call(operands, descriptor));
@@ -3521,6 +3530,30 @@ pub(crate) unsafe fn collection(
     descriptor: *const Type,
 ) -> u128 {
     unsafe { collection_at(op, a, b, value, descriptor, std::ptr::null()) }
+}
+
+/// Finish a private lazy probe after the generated factory has returned.
+unsafe fn lazy_finish(a: u128, b: u128, value: u128, state: u128) -> u128 {
+    unsafe {
+        // No Rust reference survives across the user factory call.
+        // Its source-level exclusive loan keeps this table unchanged.
+        let c = &mut *(*(a as *const u128) as *mut Collection);
+        let state = state as *const u128;
+        let vacant = *state.add(2) as u64;
+        let slot = Slot {
+            found: None,
+            hashed: true,
+            hash: *state.add(1) as u64,
+            vacant: (vacant != u64::MAX).then_some(vacant as usize),
+            table_len: *state.add(3) as usize,
+        };
+        let added = c.try_add(b, value, slot);
+        if added.is_err() {
+            release(b, c.ty().key());
+            release(value, c.ty().value.expect("dictionary value"));
+        }
+        c.get_or_insert_result(added.map(|index| (index, false)))
+    }
 }
 
 /// `site` locates the operation in a trap; null prints the message alone.
@@ -3645,6 +3678,23 @@ pub(crate) unsafe fn collection_at(
             // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
             // code tests to release its copyable operands and then clears.
             DICT_GET_OR_INSERT => get_or_insert(a as *const u128, b, value),
+            DICT_LAZY_PROBE => {
+                let c = &*(*(a as *const u128) as *const Collection);
+                let slot = c.locate(b);
+                let state = value as *mut u128;
+                let hit = slot
+                    .found
+                    .map_or(0, |index| c.entries.slot_address(index, true) as u64);
+                state.write(hit as u128);
+                state.add(1).write(slot.hash as u128);
+                state
+                    .add(2)
+                    .write(slot.vacant.map_or(u64::MAX, |bucket| bucket as u64) as u128);
+                state.add(3).write(slot.table_len as u128);
+                value
+            }
+            DICT_LAZY_HIT => *(a as *const u128),
+
             DICT_GET_OR_INSERT_BYTES => {
                 let words = plenty_dict_get_or_insert_bytes(
                     a as *const u128,

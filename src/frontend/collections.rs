@@ -4798,6 +4798,9 @@ impl Lower<'_> {
                 .borrowed_lookup(base, name == "get_mut", args, ops)
                 .map(Some);
         }
+        if name == "get_or_insert_with" && matches!(collection, Some(Ty::Dict(..))) {
+            return self.dict_get_or_insert_with(base, args, ops).map(Some);
+        }
         if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
             return self.dict_get_or_insert(base, args, ops).map(Some);
         }
@@ -6996,7 +6999,9 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
-        "get_or_insert" | "get_or_insert_bytes" if matches!(ty, Ty::Dict(..)) => {
+        "get_or_insert" | "get_or_insert_bytes" | "get_or_insert_with"
+            if matches!(ty, Ty::Dict(..)) =>
+        {
             "a mutable dictionary binding or class field"
         }
         "get_mut" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {

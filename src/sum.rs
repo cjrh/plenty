@@ -372,6 +372,27 @@ pub fn append_error(value: Ty) -> Ty {
     structural(ty, format!("AppendError[{}]", value.identity_name()))
 }
 
+/// Lazy dictionary initialization keeps arbitrary factory failures distinct
+/// from the dictionary's own reservation failure.
+pub fn dict_init_error(error: Ty) -> Ty {
+    let Ty::Enum(template) = send_error(error.clone()) else {
+        unreachable!()
+    };
+    let mut ty = (*template.get()).clone();
+    ty.name = format!("DictInitError[{error}]");
+    ty.variants = vec![
+        Variant {
+            name: "Factory".into(),
+            fields: vec![error.clone()],
+        },
+        Variant {
+            name: "Allocation".into(),
+            fields: vec![alloc_error()],
+        },
+    ];
+    structural(ty, format!("DictInitError[{}]", error.identity_name()))
+}
+
 pub fn recv_error() -> Ty {
     let Ty::Enum(template) = alloc_error() else {
         unreachable!()

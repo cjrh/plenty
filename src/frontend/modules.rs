@@ -2708,6 +2708,7 @@ fn canonical_facility_expression(e: &mut Expr) {
             name.as_str(),
             "SpawnError"
                 | "AppendError"
+                | "DictInitError"
                 | "SendError"
                 | "SendTimeoutError"
                 | "Selected"

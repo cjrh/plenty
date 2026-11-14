@@ -319,6 +319,10 @@ pub enum CollectionOp {
     /// Exclusive dictionary reference, owned key and default ->
     /// Result[&mut value, AllocError] (issue #748).
     DictGetOrInsert(Ty),
+    /// Private split lazy insertion: stack probe state, existing value, commit.
+    DictLazyProbe(Ty),
+    DictLazyHit(Ty),
+    DictLazyFinish(Ty),
     /// Exclusive `dict[str, V]` reference, `&[u8]` view of the key's bytes
     /// and owned default -> Result[&mut value, DataError] (issue #949).
     DictGetOrInsertBytes(Ty),
@@ -958,6 +962,32 @@ impl CollectionOp {
                     crate::sum::option(Ty::Ref(element.clone(), *mutable)),
                 )
             }
+            DictLazyProbe(t) => {
+                let Ty::Dict(k, _) = t else { unreachable!() };
+                (
+                    vec![Ty::Ref(Arc::new(t.clone()), true), (**k).clone()],
+                    crate::sum::tuple(vec![Ty::U64; 4]),
+                )
+            }
+            DictLazyHit(t) => {
+                let Ty::Dict(_, v) = t else { unreachable!() };
+                (
+                    vec![crate::sum::tuple(vec![Ty::U64; 4])],
+                    Ty::Ref(v.clone(), true),
+                )
+            }
+            DictLazyFinish(t) => {
+                let Ty::Dict(k, v) = t else { unreachable!() };
+                (
+                    vec![
+                        Ty::Ref(Arc::new(t.clone()), true),
+                        (**k).clone(),
+                        (**v).clone(),
+                        crate::sum::tuple(vec![Ty::U64; 4]),
+                    ],
+                    crate::sum::result(Ty::Ref(v.clone(), true), crate::sum::alloc_error()),
+                )
+            }
             DictGetOrInsert(t) => {
                 let Ty::Dict(k, v) = t else { unreachable!() };
                 (
@@ -1170,6 +1200,7 @@ impl CollectionOp {
                 | Self::SetIntersectionUpdate(_)
                 | Self::SetDifferenceUpdate(_)
                 | Self::KeySetFilter(_)
+                | Self::DictLazyFinish(_)
                 | Self::DictPop(_)
                 | Self::ListPop(_)
                 | Self::SetDiscard(_)
@@ -1204,7 +1235,9 @@ impl CollectionOp {
     pub fn only_reads_operands(&self) -> bool {
         use crate::bytes::BytesOp;
         match self {
-            Self::Get(_)
+            Self::DictLazyProbe(_)
+            | Self::DictLazyHit(_)
+            | Self::Get(_)
             | Self::ListGet(_)
             | Self::ListCount(_)
             | Self::ListFind(_)
@@ -1367,6 +1400,9 @@ impl CollectionOp {
             Self::DictPop(_) => 39,
             Self::DictGetRef(..) => 113,
             Self::ListGetRef(..) => opcode::LIST_GET_REF,
+            Self::DictLazyProbe(_) => opcode::DICT_LAZY_PROBE,
+            Self::DictLazyHit(_) => opcode::DICT_LAZY_HIT,
+            Self::DictLazyFinish(_) => opcode::DICT_LAZY_FINISH,
             Self::DictGetOrInsert(_) => opcode::DICT_GET_OR_INSERT,
             Self::DictGetOrInsertBytes(_) => opcode::DICT_GET_OR_INSERT_BYTES,
             Self::ListPop(_) => 40,

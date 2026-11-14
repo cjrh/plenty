@@ -181,6 +181,8 @@ mod test_data_callable_bounds;
 mod test_data_structure_patterns;
 #[path = "test_dense_match.rs"]
 mod test_dense_match;
+#[path = "test_dictionary_lazy.rs"]
+mod test_dictionary_lazy;
 #[path = "test_dictionary_lookup.rs"]
 mod test_dictionary_lookup;
 #[path = "test_dictionary_mutation.rs"]

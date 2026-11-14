@@ -5,6 +5,16 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Lazy dictionary initialization (issue #966)
+
+`dict.get_or_insert_with(key, factory)` accepts infallible and fallible
+zero-argument functions or closures, including owned one-shot factories.
+A hit skips the body and releases unused captures. A miss retains its hash
+and vacant bucket across the callback; factory or growth failure publishes
+no entry. `DictInitError[E]` preserves factory errors and dictionary allocation
+errors separately. The result borrows only the dictionary. See
+[dictionary lookup](../design/facilities/01-builtins/dictionaries.md#lookup-and-removal).
+
 ## Diverging `while True:` loops (issue #896)
 
 A `while` loop whose condition is the literal `True` and whose body has no

@@ -1167,6 +1167,9 @@ fn infer_inner(
         (Some("SendError"), Ty::Enum(t)) if t.name.starts_with("SendError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }
+        (Some("DictInitError"), Ty::Enum(t)) if t.name.starts_with("DictInitError[") => {
+            Some(vec![&t.local().variants[0].fields[0]])
+        }
         (Some("AppendError"), Ty::Enum(t)) if t.name.starts_with("AppendError[") => {
             Some(vec![&t.local().variants[0].fields[0]])
         }

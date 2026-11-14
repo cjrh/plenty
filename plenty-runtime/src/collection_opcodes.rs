@@ -58,6 +58,11 @@ pub const GET_OR_INSERT_HIT: i64 = 2;
 /// is `DICT_GET_OR_INSERT`'s, with the same hit flag; on a hit the caller
 /// still owns the default, affine or not.
 pub const DICT_GET_OR_INSERT_BYTES: i64 = 607;
+/// Private lazy insertion: probe into a four-word stack state, read a hit,
+/// then finish a miss using its retained hash and vacant bucket.
+pub const DICT_LAZY_PROBE: i64 = 608;
+pub const DICT_LAZY_HIT: i64 = 609;
+pub const DICT_LAZY_FINISH: i64 = 612;
 /// `list.insert(index, element)`: the list, the index and the owned element
 /// (issue #798).
 pub const LIST_INSERT: i64 = 602;
@@ -90,6 +95,7 @@ pub const fn scratch_operand_count(op: i64) -> usize {
     match op {
         // Float formatting; datagram receive.
         281 | 417 => 2,
+        DICT_LAZY_FINISH => 1,
         // Slices: receiver, start, stop, step and the bound flags.
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         // A text view's source, start, stop and the bound flags.
