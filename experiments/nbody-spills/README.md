@@ -10,6 +10,7 @@ expanded n-body step. All counts are per step on x86-64.
 | `layouts.sh` | Build eight binaries with `advance` at different addresses with two compilers and measure them |
 | `ir.py` | Generate hand-written CLIF kernels: scalar, and magnitudes packed by tree, statement or operation |
 | `peephole.py` | Rewrite an allocated kernel listing: `--fold` reloads into the next instruction's memory operand, `--copies` retargets a reload that feeds a copy, `--scalar` uses 8-byte spill moves |
+| `nbody_f64x4.plenty` | `experiments/nbody-rsqrt/nbody_exact.plenty` with an `f64x4` magnitude loop before the `f64x2` one; measured through `NBODY_SOURCE` for the narrow-spill prototype (issue #969, not adopted) |
 | `results.json` | Final session: compilers before and after, `std.simd` and list-of-class sources, gcc, clang, Rust, hand-written kernels |
 | `results-fold.json` | Fork prototypes and peephole variants |
 | `cranelift-any-use-fold.patch`, `regalloc2-register-first.patch` | The fork prototypes measured in `results-fold.json`; they are slower and are not proposed |
