@@ -193,9 +193,11 @@ conditions are delivered (spectral-norm, mandelbrot and fasta kernels in
 countdown-free unit-step range loops (issues #932 and #933;
 `experiments/kernels/indexed-conditions/`) and inline `bytes` value reads
 (`experiments/kernels/bytes-literals/`), and x86-64 branches on the flags of
-every checked add and subtract (issue #934, in the Cranelift fork); the
-remaining per-pass costs are issue #935 (loads not folded into branch
-compares), in Cranelift, and for fasta issue #947 (a value live across a call before the loop and kept in a stack slot is reloaded and stored back on each pass when all registers are in use; issue #939 fixed fasta's `random_fasta`, its cold call blocks and its register-to-register moves). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)) and moves a split value's pieces into its spill bundle's register when that register is free (`docs/spill-bundle-registers.md` in the fork), and extends a stack-held value's register over a loop that uses it on every pass when a register is free there (`docs/loop-extension.md`); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
+every checked add and subtract (issue #934, in the Cranelift fork) and loads
+folded into branch compares
+([issue #935](completed-work/performance.md#loads-folded-into-branch-compares-issue-935),
+in the Cranelift fork); the
+remaining per-pass cost is for fasta issue #947 (a value live across a call before the loop and kept in a stack slot is reloaded and stored back on each pass when all registers are in use; issue #939 fixed fasta's `random_fasta`, its cold call blocks and its register-to-register moves). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)) and moves a split value's pieces into its spill bundle's register when that register is free (`docs/spill-bundle-registers.md` in the fork), and extends a stack-held value's register over a loop that uses it on every pass when a register is free there (`docs/loop-extension.md`); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
 #936), and a reference parameter's stored field is forwarded to the next read
 (`experiments/kernels/field-rng/`).
 A local whose loop writes are all remainders by positive constants keeps a

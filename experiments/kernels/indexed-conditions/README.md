@@ -45,7 +45,10 @@ because the condition reads only scalars and the cached length and rows.
 The after loop is `add; cmp len; jae; mov (rows,k,8); cmp; jl`. Cranelift
 0.137 does not fold a load into the compare of a branch: when it lowers a
 block's branch no instruction color is current, so `cmp (mem), reg` is never
-chosen there. This is an upstream limit (issue #935).
+chosen there. The Cranelift fork now folds it (issue #935): the loop is
+`add; cmp len; jae; cmp %r, (rows,k,8); jl`, which makes `find_view` and
+`find_list` 5 and the `select_all` search loop 6. See
+[loads folded into branch compares](../../../book/src/completed-work/performance.md#loads-folded-into-branch-compares-issue-935).
 
 `select_all`, 9 to 7: as above, minus the header. Before, `limits`' length
 and rows were read before the inner loop on every outer pass (4 instructions
