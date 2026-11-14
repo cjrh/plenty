@@ -1,0 +1,1189 @@
+{
+  "cpu": "AMD Ryzen 7 7840HS, CPU 3",
+  "repeats": 3,
+  "events": [
+    "instructions:u",
+    "task-clock:u"
+  ],
+  "task_clock_unit": "milliseconds",
+  "cache": "PLENTY_CACHE=off; --no-cache compiler runs",
+  "baseline": {
+    "plenty": "eacaf2019634621a2e42dbc5a1fb8534ee1eedce",
+    "cranelift": "98c03730582a07fe57c027f0e18e821040c68b8c"
+  },
+  "candidate": {
+    "frontend": "frontend-candidate.patch",
+    "cranelift": "76470301a2f60737091e71d282c3371ebae5b011",
+    "frontend_patch_sha256": "ec167662fadef5a2ca3061e8de5f11dc186154f7193b97ea700e2248e5b9a995",
+    "source_sha256": {
+      "src/codegen/collections.rs": "ed7d10c0c2b85d73525e9b369bb152730553abf9b632085c4843ccc39acd16d8",
+      "src/codegen/symbols.rs": "05bf34522207a296f93ebd21127b2312db694a2a51bea862a1432183c5fa1845",
+      "src/op.rs": "c6be1903c63881cd69d4cdf6e97d0adb7540a743e75b0074570eb5fb58240d1c"
+    }
+  },
+  "drivers": {
+    "baseline-plenty": {
+      "sha256": "34280cce7c529680a3278992e4bffa062f4be96b00e08290271003d79fcfbc55"
+    },
+    "candidate-plenty": {
+      "sha256": "396de282ed7b779406972592e37412a51e69ec0061707c666acab796c8b15eb0"
+    },
+    "baseline-compile-bench": {
+      "sha256": "d450c5d0269ef2bcf0c1432c5a3d9b10f06230e5ec8d90bdfd67965867117449"
+    },
+    "candidate-compile-bench": {
+      "sha256": "6e7117d01a76b21a90d397aa128191d7d6257c0b4d248bc066d935415919f3fb"
+    },
+    "measure.py": {
+      "sha256": "f7b94e4c3e5af0fa76ab7b381e9d65f9e6d9c924f60d45f6d1c115a41e0a036b",
+      "commit": "8de85c55"
+    },
+    "measure_compile.py": {
+      "sha256": "f2d109eec38b68967d6f1843f8b298fe61511b96d43cdbd8eb2a50d031152356",
+      "commit": "8de85c55"
+    }
+  },
+  "runtime": [
+    {
+      "name": "binary-trees-binarytrees",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+      "instructions:u": 7283918607.0,
+      "task-clock:u": 380.99,
+      "arguments": [
+        "16"
+      ]
+    },
+    {
+      "name": "binary-trees-binarytrees",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+      "instructions:u": 7283919106.0,
+      "task-clock:u": 385.25,
+      "arguments": [
+        "16"
+      ]
+    },
+    {
+      "name": "bounded-spectral",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724526849.0,
+      "task-clock:u": 149.97,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "bounded-spectral",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2564527177.0,
+      "task-clock:u": 149.86,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1623085905.0,
+      "task-clock:u": 143.76,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1623085919.0,
+      "task-clock:u": 144.27,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1484890721.0,
+      "task-clock:u": 123.75,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1484891176.0,
+      "task-clock:u": 123.4,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fasta-fasta",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+      "instructions:u": 979243003.0,
+      "task-clock:u": 158.9,
+      "arguments": [
+        "2500000"
+      ]
+    },
+    {
+      "name": "fasta-fasta",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+      "instructions:u": 979242641.0,
+      "task-clock:u": 153.26,
+      "arguments": [
+        "2500000"
+      ]
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2227035864.0,
+      "task-clock:u": 160.34,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2229500645.0,
+      "task-clock:u": 175.06,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2235546327.0,
+      "task-clock:u": 216.57,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2235433048.0,
+      "task-clock:u": 205.03,
+      "arguments": []
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+      "instructions:u": 8202031075.0,
+      "task-clock:u": 713.96,
+      "arguments": [
+        "4000"
+      ]
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+      "instructions:u": 8202031136.0,
+      "task-clock:u": 714.39,
+      "arguments": [
+        "4000"
+      ]
+    },
+    {
+      "name": "n-body-nbody",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2365723404.0,
+      "task-clock:u": 194.3,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2365723059.0,
+      "task-clock:u": 183.89,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2410690035.0,
+      "task-clock:u": 192.76,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2410690399.0,
+      "task-clock:u": 195.83,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 628869383.0,
+      "task-clock:u": 41.13,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 628869347.0,
+      "task-clock:u": 42.59,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 629060757.0,
+      "task-clock:u": 42.59,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 629064644.0,
+      "task-clock:u": 41.68,
+      "arguments": []
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+      "instructions:u": 468457792.0,
+      "task-clock:u": 37.56,
+      "arguments": []
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+      "instructions:u": 468458039.0,
+      "task-clock:u": 37.01,
+      "arguments": []
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "variant": "baseline",
+      "round": 0,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724606680.0,
+      "task-clock:u": 150.86,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "variant": "candidate",
+      "round": 0,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724526559.0,
+      "task-clock:u": 152.25,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "binary-trees-binarytrees",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+      "instructions:u": 7283919901.0,
+      "task-clock:u": 402.72,
+      "arguments": [
+        "16"
+      ]
+    },
+    {
+      "name": "binary-trees-binarytrees",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+      "instructions:u": 7283920114.0,
+      "task-clock:u": 399.44,
+      "arguments": [
+        "16"
+      ]
+    },
+    {
+      "name": "bounded-spectral",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2564526974.0,
+      "task-clock:u": 150.47,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "bounded-spectral",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724526764.0,
+      "task-clock:u": 151.99,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1623085940.0,
+      "task-clock:u": 144.26,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1623085829.0,
+      "task-clock:u": 145.12,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1484879002.0,
+      "task-clock:u": 124.65,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1484890222.0,
+      "task-clock:u": 125.32,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fasta-fasta",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+      "instructions:u": 979242323.0,
+      "task-clock:u": 153.88,
+      "arguments": [
+        "2500000"
+      ]
+    },
+    {
+      "name": "fasta-fasta",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+      "instructions:u": 979242157.0,
+      "task-clock:u": 151.47,
+      "arguments": [
+        "2500000"
+      ]
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2227170645.0,
+      "task-clock:u": 158.99,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2233714633.0,
+      "task-clock:u": 159.03,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2236119900.0,
+      "task-clock:u": 204.53,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2226533213.0,
+      "task-clock:u": 206.15,
+      "arguments": []
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+      "instructions:u": 8202032092.0,
+      "task-clock:u": 720.92,
+      "arguments": [
+        "4000"
+      ]
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+      "instructions:u": 8202031069.0,
+      "task-clock:u": 715.59,
+      "arguments": [
+        "4000"
+      ]
+    },
+    {
+      "name": "n-body-nbody",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2365722696.0,
+      "task-clock:u": 180.54,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2365722816.0,
+      "task-clock:u": 180.79,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2410689816.0,
+      "task-clock:u": 188.34,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2410689858.0,
+      "task-clock:u": 187.85,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 628869348.0,
+      "task-clock:u": 42.12,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 628869650.0,
+      "task-clock:u": 41.4,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 629045562.0,
+      "task-clock:u": 41.72,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 629047848.0,
+      "task-clock:u": 46.38,
+      "arguments": []
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+      "instructions:u": 468457770.0,
+      "task-clock:u": 38.73,
+      "arguments": []
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+      "instructions:u": 468457751.0,
+      "task-clock:u": 36.95,
+      "arguments": []
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "variant": "candidate",
+      "round": 1,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724526909.0,
+      "task-clock:u": 150.58,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "variant": "baseline",
+      "round": 1,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724606711.0,
+      "task-clock:u": 152.38,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "binary-trees-binarytrees",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+      "instructions:u": 7283919006.0,
+      "task-clock:u": 395.37,
+      "arguments": [
+        "16"
+      ]
+    },
+    {
+      "name": "binary-trees-binarytrees",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+      "instructions:u": 7283919342.0,
+      "task-clock:u": 384.34,
+      "arguments": [
+        "16"
+      ]
+    },
+    {
+      "name": "bounded-spectral",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724526835.0,
+      "task-clock:u": 149.86,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "bounded-spectral",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2564527088.0,
+      "task-clock:u": 149.53,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1623086345.0,
+      "task-clock:u": 144.06,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1623085883.0,
+      "task-clock:u": 143.95,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1484890305.0,
+      "task-clock:u": 125.54,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+      "instructions:u": 1484889489.0,
+      "task-clock:u": 126.39,
+      "arguments": [
+        "10"
+      ]
+    },
+    {
+      "name": "fasta-fasta",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+      "instructions:u": 979242620.0,
+      "task-clock:u": 153.18,
+      "arguments": [
+        "2500000"
+      ]
+    },
+    {
+      "name": "fasta-fasta",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+      "instructions:u": 979242149.0,
+      "task-clock:u": 152.98,
+      "arguments": [
+        "2500000"
+      ]
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2229812010.0,
+      "task-clock:u": 185.37,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2228549766.0,
+      "task-clock:u": 163.04,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2229380117.0,
+      "task-clock:u": 211.34,
+      "arguments": []
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+      "instructions:u": 2235387461.0,
+      "task-clock:u": 204.14,
+      "arguments": []
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+      "instructions:u": 8202031139.0,
+      "task-clock:u": 716.13,
+      "arguments": [
+        "4000"
+      ]
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+      "instructions:u": 8202031390.0,
+      "task-clock:u": 716.23,
+      "arguments": [
+        "4000"
+      ]
+    },
+    {
+      "name": "n-body-nbody",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2365722848.0,
+      "task-clock:u": 180.73,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2365723146.0,
+      "task-clock:u": 180.15,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2410689764.0,
+      "task-clock:u": 188.01,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+      "instructions:u": 2410689796.0,
+      "task-clock:u": 187.62,
+      "arguments": [
+        "5000000"
+      ]
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 628869547.0,
+      "task-clock:u": 41.44,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 628869687.0,
+      "task-clock:u": 42.76,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 629047797.0,
+      "task-clock:u": 43.0,
+      "arguments": []
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+      "instructions:u": 629061082.0,
+      "task-clock:u": 42.63,
+      "arguments": []
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+      "instructions:u": 468457718.0,
+      "task-clock:u": 37.8,
+      "arguments": []
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+      "instructions:u": 468457819.0,
+      "task-clock:u": 37.29,
+      "arguments": []
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "variant": "baseline",
+      "round": 2,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724606687.0,
+      "task-clock:u": 151.0,
+      "arguments": [
+        "2000"
+      ]
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "variant": "candidate",
+      "round": 2,
+      "output_sha256": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f",
+      "instructions:u": 2724526972.0,
+      "task-clock:u": 151.66,
+      "arguments": [
+        "2000"
+      ]
+    }
+  ],
+  "compile": [
+    {
+      "name": "aot-1000x10",
+      "variant": "baseline",
+      "round": 0,
+      "instructions:u": 129081293594.0,
+      "task-clock:u": 15590.78
+    },
+    {
+      "name": "aot-1000x10",
+      "variant": "candidate",
+      "round": 0,
+      "instructions:u": 129440978659.0,
+      "task-clock:u": 15625.93
+    },
+    {
+      "name": "spectral",
+      "variant": "baseline",
+      "round": 0,
+      "instructions:u": 384747536.0,
+      "task-clock:u": 70.72
+    },
+    {
+      "name": "spectral",
+      "variant": "candidate",
+      "round": 0,
+      "instructions:u": 385632442.0,
+      "task-clock:u": 71.7
+    },
+    {
+      "name": "bounded",
+      "variant": "baseline",
+      "round": 0,
+      "instructions:u": 385609454.0,
+      "task-clock:u": 72.52
+    },
+    {
+      "name": "bounded",
+      "variant": "candidate",
+      "round": 0,
+      "instructions:u": 386458461.0,
+      "task-clock:u": 71.41
+    },
+    {
+      "name": "fasta",
+      "variant": "baseline",
+      "round": 0,
+      "instructions:u": 393964841.0,
+      "task-clock:u": 73.72
+    },
+    {
+      "name": "fasta",
+      "variant": "candidate",
+      "round": 0,
+      "instructions:u": 394973111.0,
+      "task-clock:u": 74.0
+    },
+    {
+      "name": "aot-1000x10",
+      "variant": "candidate",
+      "round": 1,
+      "instructions:u": 129437342242.0,
+      "task-clock:u": 15603.54
+    },
+    {
+      "name": "aot-1000x10",
+      "variant": "baseline",
+      "round": 1,
+      "instructions:u": 129077370385.0,
+      "task-clock:u": 15734.4
+    },
+    {
+      "name": "spectral",
+      "variant": "candidate",
+      "round": 1,
+      "instructions:u": 385674347.0,
+      "task-clock:u": 71.6
+    },
+    {
+      "name": "spectral",
+      "variant": "baseline",
+      "round": 1,
+      "instructions:u": 384761673.0,
+      "task-clock:u": 71.5
+    },
+    {
+      "name": "bounded",
+      "variant": "candidate",
+      "round": 1,
+      "instructions:u": 386496860.0,
+      "task-clock:u": 72.14
+    },
+    {
+      "name": "bounded",
+      "variant": "baseline",
+      "round": 1,
+      "instructions:u": 385589727.0,
+      "task-clock:u": 70.76
+    },
+    {
+      "name": "fasta",
+      "variant": "candidate",
+      "round": 1,
+      "instructions:u": 394982850.0,
+      "task-clock:u": 73.38
+    },
+    {
+      "name": "fasta",
+      "variant": "baseline",
+      "round": 1,
+      "instructions:u": 393994146.0,
+      "task-clock:u": 73.82
+    },
+    {
+      "name": "aot-1000x10",
+      "variant": "baseline",
+      "round": 2,
+      "instructions:u": 129077647442.0,
+      "task-clock:u": 15612.78
+    },
+    {
+      "name": "aot-1000x10",
+      "variant": "candidate",
+      "round": 2,
+      "instructions:u": 129435908422.0,
+      "task-clock:u": 16138.9
+    },
+    {
+      "name": "spectral",
+      "variant": "baseline",
+      "round": 2,
+      "instructions:u": 384813152.0,
+      "task-clock:u": 76.18
+    },
+    {
+      "name": "spectral",
+      "variant": "candidate",
+      "round": 2,
+      "instructions:u": 385655909.0,
+      "task-clock:u": 78.33
+    },
+    {
+      "name": "bounded",
+      "variant": "baseline",
+      "round": 2,
+      "instructions:u": 385621168.0,
+      "task-clock:u": 79.38
+    },
+    {
+      "name": "bounded",
+      "variant": "candidate",
+      "round": 2,
+      "instructions:u": 386485709.0,
+      "task-clock:u": 76.8
+    },
+    {
+      "name": "fasta",
+      "variant": "baseline",
+      "round": 2,
+      "instructions:u": 393992443.0,
+      "task-clock:u": 81.24
+    },
+    {
+      "name": "fasta",
+      "variant": "candidate",
+      "round": 2,
+      "instructions:u": 395013064.0,
+      "task-clock:u": 73.98
+    }
+  ],
+  "runtime_raw_sha256": "f199c5f6e4f1d6d1d9f7ed0feee6e60eb7581a86157d214c2adf5bf0de1f2099",
+  "compile_raw_sha256": "28199d20c7735bcc279cb6495784f17d964c5edb8b754c4d13fc8c9f462d8ae7",
+  "benchmark_builds": [
+    {
+      "name": "binary-trees-binarytrees",
+      "source": "benchmarks/game/binary-trees/plenty/binarytrees.plenty",
+      "baseline_sha256": "fc33819b03353c1a63d357a210c40e22b6f5d3a3165b5a39ef1a86ae49262a48",
+      "candidate_sha256": "fc33819b03353c1a63d357a210c40e22b6f5d3a3165b5a39ef1a86ae49262a48",
+      "source_sha256": "144614f648b31ea2e3b000779aa83233e12ef5925be946d45c68c128281c82c6"
+    },
+    {
+      "name": "fannkuch-redux-fannkuchredux",
+      "source": "benchmarks/game/fannkuch-redux/plenty/fannkuchredux.plenty",
+      "baseline_sha256": "3fe107cf7b19800aacea7144db8fef7d67a871862fbdc5760e02c22d2f4a9669",
+      "candidate_sha256": "3fe107cf7b19800aacea7144db8fef7d67a871862fbdc5760e02c22d2f4a9669",
+      "source_sha256": "9832469858824f1936f620df22ed2a7b17e369871c861f5a897bc8bc0c6e6036"
+    },
+    {
+      "name": "fasta-fasta",
+      "source": "benchmarks/game/fasta/plenty/fasta.plenty",
+      "baseline_sha256": "8b9dd73cdca0314667dc736d2d19489fd244566fc7c92589eb217d9b3b7fb644",
+      "candidate_sha256": "8b9dd73cdca0314667dc736d2d19489fd244566fc7c92589eb217d9b3b7fb644",
+      "source_sha256": "f2f3e268018707385fb727145e45c71c406369ac53ea45348e79c65d1dd5281f"
+    },
+    {
+      "name": "k-nucleotide-knucleotide",
+      "source": "benchmarks/game/k-nucleotide/plenty/knucleotide.plenty",
+      "baseline_sha256": "f9d4741450c0cc06173451fab71e690696d226c69ed35ef85d627e4110421094",
+      "candidate_sha256": "f9d4741450c0cc06173451fab71e690696d226c69ed35ef85d627e4110421094",
+      "source_sha256": "7e2dbeaa0831cd6301acba9e27e45a57df0370915b968bf2700298e31b0bf1e1"
+    },
+    {
+      "name": "k-nucleotide-knucleotide_parallel",
+      "source": "benchmarks/game/k-nucleotide/plenty/knucleotide_parallel.plenty",
+      "baseline_sha256": "dc53af4498719faaf944a5299636b49ce19766f5389152e39838ff8cb7721a0f",
+      "candidate_sha256": "e1ffdec61735df5afdad9ec797de6d0fffa8d8c97665dee766dea455715b1401",
+      "source_sha256": "d320aa6670c38a9554abc1f9823694553273f0a3342198b6eb164f66899e640d"
+    },
+    {
+      "name": "mandelbrot-mandelbrot",
+      "source": "benchmarks/game/mandelbrot/plenty/mandelbrot.plenty",
+      "baseline_sha256": "566dc8639a37c94c99b3298fa71942ed28fb6b43f5a81e96fc5755b43c17a1e5",
+      "candidate_sha256": "566dc8639a37c94c99b3298fa71942ed28fb6b43f5a81e96fc5755b43c17a1e5",
+      "source_sha256": "8d7ce7ac59320c60c5cbea87625c73d482d2d8f1c8153746ea3e31fdeeb45bf3"
+    },
+    {
+      "name": "n-body-nbody",
+      "source": "benchmarks/game/n-body/plenty/nbody.plenty",
+      "baseline_sha256": "928595d8d168594fa5b0f7207d0c9c9158d8854456689e339c7bcb6435fd7219",
+      "candidate_sha256": "c7175bfba3606fd930f3a005c233d38283076a864c73c7562d8262f01185edca",
+      "source_sha256": "e6ce38486a07684b67b9ba5ae283f0a34625b377be1ab46c3aa9411952e9ca97"
+    },
+    {
+      "name": "n-body-nbody_clist",
+      "source": "benchmarks/game/n-body/plenty/nbody_clist.plenty",
+      "baseline_sha256": "b21638fc8e7e83b72dacd1c30079f67d6b3f6f09c1e35c7c2bece4eaf52b95d0",
+      "candidate_sha256": "524923aa3cf4c8e71969fcef41df4ff7d1a1aad0e46746201a83df7278338149",
+      "source_sha256": "93dfb738c7528e49b8d5b188d6627f97ffe0a8b49281647a32bb1daacf10623d"
+    },
+    {
+      "name": "regex-redux-regexredux",
+      "source": "benchmarks/game/regex-redux/plenty/regexredux.plenty",
+      "baseline_sha256": "572c978411752f481c4753f8868af2e9e9b250aaa6f168d89a1dec484c3745d2",
+      "candidate_sha256": "572c978411752f481c4753f8868af2e9e9b250aaa6f168d89a1dec484c3745d2",
+      "source_sha256": "411f7a362884d86bd71ec2f1b4caf71ab1c2423e7df62bcc9ac9c82cf24b6991"
+    },
+    {
+      "name": "regex-redux-regexredux_parallel",
+      "source": "benchmarks/game/regex-redux/plenty/regexredux_parallel.plenty",
+      "baseline_sha256": "3932587d284ae5b13434f2576bdcc72fc7a1d007a59e2de4ccdfcf00626c4506",
+      "candidate_sha256": "63fba5f5138aff641bf054149b892dd9f13c74fb60c287a5b714b90d075c9f1b",
+      "source_sha256": "bb80d25382aabbf2f546997765dad4b62b90b31845bad10de252b5c364689981"
+    },
+    {
+      "name": "reverse-complement-revcomp",
+      "source": "benchmarks/game/reverse-complement/plenty/revcomp.plenty",
+      "baseline_sha256": "a2f1257fac195c880788635154d6ff793b201c44fe1e03c7edfea558390da9a5",
+      "candidate_sha256": "a2f1257fac195c880788635154d6ff793b201c44fe1e03c7edfea558390da9a5",
+      "source_sha256": "77389eb73c1192de0937713d3f7ff86f3a78d17e4f5fe7dfac6d530bbb31b401"
+    },
+    {
+      "name": "spectral-norm-spectralnorm",
+      "source": "benchmarks/game/spectral-norm/plenty/spectralnorm.plenty",
+      "baseline_sha256": "979f4811ef774913dca9b3c085d814939fa4b6a3313e5dbdece20a802ee00598",
+      "candidate_sha256": "ee607bdd25fb16c09640f4252af23baed31a700a7914b60418756bd88dc732e8",
+      "source_sha256": "ada5e5e7b9baeab71b4bfe9f2d35f492ed7925810d318e27fc8b4ce55f4e474d"
+    },
+    {
+      "name": "bounded-spectral",
+      "source": "experiments/kernels/bounded-arguments/spectral_norm.plenty",
+      "baseline_sha256": "396294bcb9d492eb7b348da365fe16b95d3c7ce94047bebd050198523814875f",
+      "candidate_sha256": "8154bcf600fe7c2713675a959556a2ae23e7c34c653c3067273835344316a68d",
+      "source_sha256": "95d3b67ad0c53d8b2ca1f408ec2a667ce5e636e51ad11fb3c2c3d6a405a1f024"
+    },
+    {
+      "name": "fannkuch-redux-parallel",
+      "source": "examples/fannkuch_redux.plenty",
+      "baseline_sha256": "ed1bd134dbb3838591e84d8dc2e8c2de401dbcd2ab93fadf6492f2e79b00e5b4",
+      "candidate_sha256": "ed1bd134dbb3838591e84d8dc2e8c2de401dbcd2ab93fadf6492f2e79b00e5b4",
+      "source_sha256": "4bc39a7604a3819be86dc92aa7960b7e2c25b3be5d1997452b42c23d96f6f58e"
+    }
+  ],
+  "generated_stdin": {
+    "k-nucleotide-input.txt": "c79f4de8054a37bd3f114db149fdd548d25dbeeebe91bdf26049b08b68dbcafe",
+    "regex-redux-input.txt": "6b40f34703840e073cef7fd62cc95a65f280ba1cf3891aa189a820fe0e081f06",
+    "reverse-complement-input.txt": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "baseline": {
+    "wasmtime": "98c03730582a07fe57c027f0e18e821040c68b8c",
+    "regalloc2": "b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1"
+  },
+  "candidate": {
+    "wasmtime": "76470301a2f60737091e71d282c3371ebae5b011",
+    "regalloc2": "b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1"
+  },
+  "baseline_failures": [
+    "FAIL cranelift/filetests/filetests/isa/x64/fastcall.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fcvt.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fma-call.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fpromote-demote.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fsqrt.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/i128.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/mul_overflow_flag_consumers.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/reload-fold-avx.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/reload-fold.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/shuffle-avx512.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/simd-bitselect.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/simd-lane-access-compile.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/simd-pairwise-add.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/user_stack_maps.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/ymm-spill.clif: compile"
+  ],
+  "candidate_failures": [
+    "FAIL cranelift/filetests/filetests/isa/x64/fastcall.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fcvt.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fma-call.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fpromote-demote.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/fsqrt.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/i128.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/mul_overflow_flag_consumers.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/reload-fold-avx.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/reload-fold.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/shuffle-avx512.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/simd-bitselect.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/simd-lane-access-compile.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/simd-pairwise-add.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/user_stack_maps.clif: compile",
+    "FAIL cranelift/filetests/filetests/isa/x64/ymm-spill.clif: compile"
+  ],
+  "normalization": "Ignore only timestamped concurrent logger status lines and final test count (one added regression); retain all precise-output diagnostics.",
+  "identical_normalized_diagnostics": true,
+  "identical_with_only_test_count_removed": false,
+  "baseline_test_log_sha256": "d7525d668d9e10d2546becb0a0fc6ba47bea9f66ca1b813f19d4dca5c8d98095",
+  "baseline_normalized_sha256": "2797cbd40878c6050e5751a52e2d219b26e0d374c88f63ac4c64725380877dc5",
+  "candidate_test_log_sha256": "50adfad05455fcc0af362e02681c794e1e9ae328c851930e94b8d38f29f98937",
+  "candidate_normalized_sha256": "2797cbd40878c6050e5751a52e2d219b26e0d374c88f63ac4c64725380877dc5"
+}

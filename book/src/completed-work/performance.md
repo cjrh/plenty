@@ -1686,6 +1686,37 @@ Public boundary costs, list/clist layout, other targets and broader workload
 qualification remain in issue #967 and B23. See the retained experiment
 `experiments/declared-vectors/paired.md` for attribution, raw data and reproduction.
 
+## Scalar floating-load folding experiment (issue #980)
+
+The qualified local experiment in `experiments/kernels/fp-load-folding/`
+separates two barriers to folding spectral norm's input load into a multiply:
+a body/latch block boundary and recursive multiplicity from register-only
+successor arguments. The frontend candidate coalesces only optimized x86
+scalar load/multiply/loop-carried-add opportunities without an owning-loop
+continue. The backend candidate retains direct use counts and existing
+side-effect, same-block and adjacency restrictions. Floating division,
+multiplication and addition keep their original order.
+
+The bounded A/AT loops fall from 17/17 to 16/16 instructions. Whole-program
+instructions fall 5.8726%, while CPU time is effectively unchanged. Unchecked
+spectral norm changes 16/18 to 17/17, and one small clist loop gains an
+instruction; this is not a general per-loop nonregression result. Compilation
+instruction costs rise about 0.23–0.28%. Explicit native integration with the
+independent issue #977 scheduling candidate reaches C's 14/14 instructions,
+but a complete combined Plenty compiler has not been qualified.
+
+The standalone candidate passes the complete uncached Plenty suite, focused
+loop/trap/alias tests, f32/f64 optimized and fast-compile probes, six backend
+use-state units, 684 native-ISA filetests and 2,048 bit-exact native matrix
+cases with floating-exception parity and protected spans. The allocator check
+retains the same 15 existing precise-output mismatches as its baseline; no
+expectation was blessed. Fourteen benchmark output hashes match. Patches,
+CLIF controls, native verifier and counter samples retain the evidence.
+
+This delivery preserves a candidate and its qualification. Production source
+and dependency pins are unchanged; fork publication/adoption remains issue
+#980, with further performance scope in [B19](../backlog.md).
+
 ## Declared-vector prototype (issue #967)
 
 The bounded experiment in `experiments/declared-vectors/` compares matched
