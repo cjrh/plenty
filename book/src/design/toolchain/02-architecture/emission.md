@@ -763,17 +763,28 @@ nonnegative, and its bound is the one recorded above or its type's maximum:
   dividend.
 - A dividend below `2**(N - 1)`, which every nonnegative signed value is,
   always has such a multiplier: `mulq; shr`. A smaller bound often needs no
-  shift: fasta's `(seed * 3877 + 29573) % 139968` with `seed` below `139968`
-  is one `mulq`.
+  shift.
+- When the whole product fits in 64 bits, an ordinary multiply and one shift
+  replace the high product (issue #960). The multiplier is
+  `m = ceil(2**k / d)` for the smallest `k` such that
+  `bound * (m * d - 2**k) < 2**k`; it is used when `bound * m < 2**64`, and
+  then `(x * m) >> k` is `x // d`. That is `imul; shr` in any registers,
+  where `mulq` needs `%rax` and `%rdx` and takes a cycle longer for the high
+  half. fasta's `(seed * 3877 + 29573) % 139968` with `seed` below `139968`
+  divides by `imul $0x1df75681; shr $46`. A 32-bit dividend is zero-extended
+  and multiplied in 64 bits, which covers every 32-bit case. A 64-bit
+  dividend needs a bound near `2**64 / m`: a nonnegative `i64` with no
+  smaller bound keeps the high product.
 - Without a proved one-word multiplier (`x // 1000` of an unbounded `u64`)
   the division instruction stays, and Cranelift expands it as before. 8- and
   16-bit divisions, signed divisions of a value that may be negative, and
   `--fast-compile` builds are unchanged.
 
 The remainder is `x - q * d`, or `q * (-d) + x` when `x` is not itself a sum
-with a constant. x86-64's subtract overwrites its first operand, so the
-register allocator copies the dividend before it and the result after it
-(issue #954); the add has no such copies. For a dividend such as
+with a constant. x86-64's subtract overwrites its first operand, so after a
+high product, whose `mulq` also reads the dividend from `%rax`, the register
+allocator copies the dividend before it and the result after it (issue #954);
+the add has no such copies. For a dividend such as
 `seed * 3877 + 29573`, Cranelift would fold the constant into the add as a
 three-component `lea`, one cycle slower than `sub` on the generator's
 dependency chain, while the two copies are eliminated at register renaming.

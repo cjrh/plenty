@@ -482,7 +482,16 @@ def br7(x: i32) -> i32:
     (x % 100000i32) % 7i32
 
 
+# Every seed's successor, by the low-product multiplier.
+def cycle() -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for s in range(139968):
+        total += (s * 3877 + 29573) % 139968 + (s * 3877 + 29573) // 139968 * 7
+    Ok(total)
+
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(cycle()?)?
     wide = [UNSIGNED]?
     for i in range(len(wide)):
         x = wide[i]
@@ -505,8 +514,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 /// An unsigned division or remainder by a constant multiplies by a one-word
 /// reciprocal chosen from the dividend's bound (issues #953 and #954): `10`
 /// has one for every `u64`, `1000` only for a dividend below `2**63`, and
-/// `7` only for a 32-bit dividend below `2**31`. Results match the definition at the
-/// edges of each bound, in both build modes.
+/// `7` only for a 32-bit dividend below `2**31`. A bound that keeps the
+/// product within 64 bits selects a multiply and a shift (issue #960).
+/// Results match the definition at the edges of each bound, in both build
+/// modes.
 #[test]
 fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
     let unsigned = [
@@ -563,6 +574,11 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
             })),
         );
     let mut expected = String::new();
+    let cycle: i64 = (0..139_968)
+        .map(|s| s * 3877 + 29_573)
+        .map(|x| x % 139_968 + x / 139_968 * 7)
+        .sum();
+    writeln!(expected, "{cycle}").unwrap();
     for x in unsigned {
         writeln!(expected, "{} {} {} {}", x / 10, x % 10, x / 1000, x % 1000).unwrap();
     }
@@ -592,13 +608,21 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
     }
 
     // Before Cranelift's own expansion: a multiply-high where a one-word
-    // multiplier is proved, the division instruction where it is not.
+    // multiplier is proved and the product may need 128 bits, a multiply and
+    // a shift where it fits in 64 (issue #960), and the division instruction
+    // where no multiplier is proved.
     let clif = dump(&source, "clif");
     let count = |name: &str, needle: &str| support::asm_body(&clif, name).matches(needle).count();
-    for name in [
-        "q10", "r10", "nq1000", "nr1000", "seed", "product", "r3", "bq7", "br7",
-    ] {
+    for name in ["q10", "r10", "nq1000", "nr1000"] {
         assert_eq!(count(name, "umulhi"), 1, "{name}");
+        assert_eq!(count(name, "udiv") + count(name, "urem"), 0, "{name}");
+    }
+    for name in ["seed", "product", "r3", "bq7", "br7"] {
+        assert_eq!(
+            (count(name, "umulhi"), count(name, "ushr")),
+            (0, 1),
+            "{name}"
+        );
         assert_eq!(count(name, "udiv") + count(name, "urem"), 0, "{name}");
     }
     for name in ["q1000", "q7"] {
@@ -609,11 +633,16 @@ fn a_bounded_dividend_is_divided_by_a_one_word_multiplier() {
         );
     }
     assert_eq!((count("r1000", "umulhi"), count("r1000", "urem")), (0, 1));
-    // `2**64 / 139968` rounded up divides every dividend below `2**30`
-    // without a shift; a dividend up to `2**63 - 2` needs one for 1000.
+    // `2**46 / 139968` rounded up divides every dividend below `2**30`, and
+    // their product is below `2**60`. A 32-bit dividend is multiplied in 64
+    // bits. A dividend up to `2**63 - 2` keeps the high product and a shift.
     let seed = support::asm_body(&clif, "seed");
-    assert!(seed.contains("0x77dd_5a03_fada"), "{seed}");
-    assert_eq!(count("seed", "ushr"), 0, "{seed}");
+    assert!(seed.contains("0x1df7_5681"), "{seed}");
+    let narrow = support::asm_body(&clif, "r3");
+    assert!(
+        narrow.contains("uextend.i64") && narrow.contains("0xaaaa_aaab"),
+        "{narrow}"
+    );
     assert_eq!(count("nq1000", "ushr"), 1);
     // A dividend that adds a constant is subtracted from; a product is added
     // to the quotient times the negated divisor.
