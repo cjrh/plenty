@@ -829,8 +829,8 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
-/// A match value may be a plain reference, as `unwrap_or` produces one
-/// (issue #897); a view still cannot be one.
+/// A match value keeps the loans of plain references (issue #897) and
+/// builtin views (issue #945).
 #[test]
 fn match_value_produces_a_reference() {
     run(
@@ -849,7 +849,7 @@ def main() -> Result[(), IoError]:
         ),
         "6\n",
     );
-    reject(
+    run(
         r#"
 def main() -> Result[(), AllocError | IoError]:
     a = [1, 2]?
@@ -861,7 +861,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(len(view))?
     Ok(())
 "#,
-        "an `if` or `match` block used as a value cannot produce a view",
+        "1\n",
     );
 }
 

@@ -3,8 +3,8 @@
 //! its owner, so the owner cannot grow, shrink, or move while the view is
 //! used. The loan path records the range, so views with provably disjoint
 //! ranges coexist (issue #593, `ownership::paths`). Codegen addresses its
-//! rows directly (src/codegen/views.rs). Views are local-only until stored
-//! references land (backlog B11). See
+//! rows directly (src/codegen/views.rs). Returned views follow the
+//! first-reference origin rule (issue #945). See
 //! book/src/design/language/04-expressions/slices.md.
 use super::*;
 use crate::collection_opcodes::{
@@ -20,8 +20,6 @@ pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`
 pub(super) const TEXT_OPERATIONS: &str = "a `&strview` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, string search/transform/split/join methods, `for c in v`, and `print(v)`; owned results allocate as their `str` counterparts do";
 
 const STEPPED_VIEW: &str = "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`";
-
-pub(super) const RETURN: &str = "a function cannot return a slice view yet (backlog B11): a view borrows its owner only while the caller holds it; return the bounds, or an owned copy `xs[a:b]?`";
 
 impl Lower<'_> {
     /// Advice for a view argument at a reference parameter whose type is
@@ -502,7 +500,13 @@ impl Lower<'_> {
         let ty = self
             .expr(owner, ops)?
             .ok_or_else(|| owner.at.error("expected a value, got ()"))?;
-        let viewable = matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr)
+        let view_loan = if matches!(ty, Ty::View(..)) {
+            Some(self.reference_origin(owner, ops)?)
+        } else {
+            None
+        };
+        let viewable = view_loan.is_some()
+            || matches!(ty, Ty::List(_) | Ty::Str | Ty::ByteStr)
             || byte_buffers::byte_buffer(&ty).is_some();
         if !viewable {
             return Err(owner.at.error(format!(
@@ -511,7 +515,13 @@ impl Lower<'_> {
         }
         let slot = self.slot(ty.clone(), &owner.at)?;
         ops.push(Op::StoreLocal(slot));
-        self.expression_temps.push(slot);
+        if let Some(loan) = view_loan {
+            // Save the descriptor, retaining its owner's loan rather than
+            // treating the descriptor slot as a fresh temporary owner.
+            self.bind_reference(slot, loan, false, ops);
+        } else {
+            self.expression_temps.push(slot);
+        }
         let name = format!("$held{slot}");
         self.bind(
             name.clone(),

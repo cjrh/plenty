@@ -110,8 +110,9 @@ pub enum Ty {
     /// `&[T]` (false) or `&mut [T]` (true): a borrowed run of contiguous
     /// list or byte rows, made by `&xs[a:b]`. Its value is the first row's
     /// address and the row count; the frontend keeps the owner's loan live
-    /// for as long as the view is used. Local-only until stored references
-    /// (backlog B11); see book/src/design/language/04-expressions/slices.md.
+    /// for as long as the view is used. Returns follow the first-reference
+    /// origin rule; storage remains restricted (backlog B11). See
+    /// book/src/design/language/04-expressions/slices.md.
     View(Arc<Ty>, bool),
     /// The element marker of `&strview`, `View(Text, false)`: a borrowed run
     /// of UTF-8 bytes inside a `str` (issue #595). It appears only inside a
@@ -578,7 +579,7 @@ impl Ty {
     pub fn lends_frame(&self) -> bool {
         matches!(self, Self::Generator(t) if t.lends)
     }
-    /// The `&T` or `&mut T` that a reference-carrying `Option` or `Result`
+    /// The reference or builtin view that a borrowing `Option` or `Result`
     /// holds in its success payload, directly or through further
     /// `Option`/`Result` success payloads. Error payloads never carry one.
     /// See book/src/design/language/05-ownership/05-optional-references.md.
@@ -590,20 +591,23 @@ impl Ty {
             return None;
         }
         match &t.get().variants[usize::from(t.is_option())].fields[0] {
-            reference @ Self::Ref(..) => Some(reference.clone()),
+            reference @ (Self::Ref(..) | Self::View(..)) => Some(reference.clone()),
             success => success.carried_reference(),
         }
     }
-    /// Whether a value of this type holds a loan: a reference, or an
+    /// Whether a value of this type holds a loan: a reference, view, or an
     /// `Option`/`Result` carrying one.
     pub fn carries_loan(&self) -> bool {
-        matches!(self, Self::Ref(..)) || self.carried_reference().is_some()
+        matches!(self, Self::Ref(..) | Self::View(..)) || self.carried_reference().is_some()
     }
     /// Whether the direct or carried reference is exclusive.
     pub fn carries_mutable_loan(&self) -> bool {
         match self {
-            Self::Ref(_, mutable) => *mutable,
-            ty => matches!(ty.carried_reference(), Some(Self::Ref(_, true))),
+            Self::Ref(_, mutable) | Self::View(_, mutable) => *mutable,
+            ty => matches!(
+                ty.carried_reference(),
+                Some(Self::Ref(_, true) | Self::View(_, true))
+            ),
         }
     }
     pub fn dictionary_view(&self) -> bool {

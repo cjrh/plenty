@@ -550,3 +550,411 @@ fn a_returned_conditional_reference_checks_each_origin() {
         "b\n",
     );
 }
+
+#[test]
+fn returned_views_preserve_rows_text_and_mutability() {
+    run_views(
+        r#"
+def tail[T](xs: &[T]) -> &[T]:
+    &xs[1:]
+def forward(xs: &[i64]) -> &[i64]:
+    tail(xs)
+def mutable_tail(xs: &mut [i64]) -> &mut [i64]:
+    &mut xs[1:]
+def text_tail(text: &strview) -> &strview:
+    &text[1:]
+def bytes_of(text: &str) -> &[u8]:
+    text.as_bytes()
+mut xs = [1, 2, 3].unwrap()
+v = forward(&xs)
+print(len(v), v[0], v[-1]).unwrap()
+print(len(tail(tail(&xs)))).unwrap()
+w = mutable_tail(&mut xs)
+w[0] = 9
+print(xs).unwrap()
+text = "aé日"
+s = text_tail(text)
+print(s, len(s)).unwrap()
+b = bytes_of(&text)
+print(len(b), b[0]).unwrap()
+"#,
+        "2 2 3\n1\n[1, 9, 3]\né日 2\n6 97\n",
+    );
+}
+
+#[test]
+fn optional_and_fallible_views_keep_the_origin() {
+    run_views(
+        r#"
+def maybe(xs: &[i64], present: bool) -> Option[&[i64]]:
+    if present:
+        return Some(&xs[1:])
+    Nothing
+def fallible(xs: &mut [i64]) -> Result[&mut [i64], str]:
+    Ok(&mut xs[1:])
+def text(s: &strview) -> Option[&strview]:
+    Some(&s[1:])
+mut xs = [1, 2, 3].unwrap()
+v = maybe(&xs, True).unwrap()
+print(len(v), v[0], maybe(&xs, False).is_none()).unwrap()
+w = fallible(&mut xs).unwrap()
+w[0] = 7
+print(xs).unwrap()
+s = "abc"
+print(text(s).unwrap()).unwrap()
+"#,
+        "2 2 True\n[1, 7, 3]\nbc\n",
+    );
+}
+
+#[test]
+fn returned_views_reject_escaping_and_conflicting_loans() {
+    for source in [
+        "def bad(xs: &[i64], other: &[i64]) -> &[i64]:\n    &other[:]",
+        "def bad(xs: &[i64]) -> &[i64]:\n    local = [1].unwrap()\n    &local[:]",
+        "def bad(xs: &[i64]) -> Option[&[i64]]:\n    local = [1].unwrap()\n    Some(&local[:])",
+        "def bad(s: &strview) -> &strview:\n    local = \"short\"\n    &local[:]",
+    ] {
+        reject(source, "must originate");
+    }
+    reject(
+        "def bad() -> &[i64]:\n    &([1].unwrap())[:]",
+        "needs a reference parameter",
+    );
+    reject(
+        "def bad(xs: &[i64]) -> &mut [i64]:\n    &mut xs[:]",
+        "to be `&mut`",
+    );
+    let shared = "def tail(xs: &[i64]) -> &[i64]:\n    &xs[1:]\n";
+    for action in ["xs.append(4).unwrap()", "xs = [4].unwrap()", "owned = xs"] {
+        reject(
+            &format!(
+                "{shared}mut xs = [1, 2, 3].unwrap()\nv = tail(&xs)\n{action}\nprint(len(v)).unwrap()"
+            ),
+            "borrow",
+        );
+    }
+    reject(
+        &format!("{shared}v = tail([1, 2].unwrap())\nprint(len(v)).unwrap()"),
+        "temporary cannot be stored",
+    );
+    reject(
+        "def tail(xs: &mut [i64]) -> &mut [i64]:\n    &mut xs[1:]\nmut xs = [1, 2, 3].unwrap()\na = tail(&mut xs)\nb = tail(&mut xs)\na[0] = b[0]",
+        "conflicting borrow",
+    );
+    reject(
+        "def tail(s: &strview) -> &strview:\n    &s[1:]\nmut s = \"inline\"\nv = tail(s)\ns = \"moved\"\nprint(v).unwrap()",
+        "borrowed",
+    );
+}
+
+#[test]
+fn returned_view_methods_callables_and_branch_results() {
+    run_views(
+        r#"
+class Data:
+    values: list[i64]
+    def tail(self) -> &[i64]:
+        &self.values[1:]
+def choose(xs: &[i64], flag: bool) -> &[i64]:
+    if flag:
+        &xs[1:]
+    else:
+        &xs[2:]
+def apply(f: Callable[[&[i64], bool], &[i64]], xs: &[i64]) -> &[i64]:
+    f(xs, True)
+def get(xs: &[i64]) -> Option[&[i64]]:
+    Some(choose(xs, False))
+def propagate(xs: &[i64]) -> Option[&[i64]]:
+    v = get(xs)?
+    Some(v)
+def extract(xs: Option[&[i64]]) -> &[i64]:
+    xs.unwrap()
+def select(xs: &[i64], n: i64) -> &[i64]:
+    match n:
+        case 0:
+            &xs[:1]
+        case _:
+            &xs[1:]
+xs = [1, 2, 3].unwrap()
+v = apply(choose, &xs)
+print(v[0], len(choose(&xs, False))).unwrap()
+match propagate(&xs):
+    case Some(w):
+        print(w[0], len(w)).unwrap()
+    case Nothing:
+        pass
+data = Data([4, 5, 6].unwrap())
+w = data.tail()
+print(w[0], len(data.tail())).unwrap()
+held = Some(&xs[:])
+whole = extract(held)
+piece = select(&xs, 1)
+fallback = get(&xs).unwrap_or(&xs[:])
+print(len(whole), piece[0], fallback[0]).unwrap()
+"#,
+        "2 1\n3 1\n5 2\n3 2 3\n",
+    );
+}
+
+#[test]
+fn view_wrappers_do_not_enable_storage_or_extra_origins() {
+    for source in [
+        "def bad(xs: &[i64]) -> Option[Option[&[i64]]]:\n    Some(Some(xs))",
+        "xs = [1, 2].unwrap()\nv = Some(Some(&xs[:]))",
+        "class Holder:\n    values: Option[&[i64]]",
+        "def bad(xs: &[i64]) -> Result[(), &[i64]]:\n    Err(xs)",
+    ] {
+        reject(source, "cannot");
+    }
+    reject(
+        "def get(xs: &[i64], ys: &[i64]) -> Option[&[i64]]:\n    Some(&ys[:])",
+        "must originate",
+    );
+    reject(
+        "def get(xs: &[i64]) -> Option[&[i64]]:\n    Some(xs)\nv = get([1].unwrap())\nprint(v.unwrap()[0]).unwrap()",
+        "temporary cannot be stored",
+    );
+    reject(
+        "def get(xs: &mut [i64]) -> Option[&mut [i64]]:\n    Some(xs)\nmut xs = [1, 2].unwrap()\nv = get(&mut xs)\nxs.append(3).unwrap()\nprint(len(v.unwrap())).unwrap()",
+        "borrow",
+    );
+    reject(
+        "def get(xs: &[i64], ys: &[i64], flag: bool) -> &[i64]:\n    if flag:\n        &xs[:]\n    else:\n        &ys[:]",
+        "must originate",
+    );
+    reject(
+        "def tail(xs: &[i64]) -> &[i64]:\n    &xs[1:]\ndef inspect(xs: &[i64], n: i64) -> ():\n    pass\ndef change(xs: &mut list[i64]) -> i64:\n    xs.append(4).unwrap()\n    0\nmut xs = [1, 2].unwrap()\ninspect(tail(&xs), change(&mut xs))",
+        "borrow",
+    );
+    reject(
+        "def tail(xs: &[i64]) -> &[i64]:\n    &xs[1:]\ndef change(xs: &mut list[i64]) -> i64:\n    xs.append(4).unwrap()\n    0\nmut xs = [1, 2].unwrap()\nprint(tail(&xs), change(&mut xs)).unwrap()",
+        "borrow",
+    );
+}
+
+#[test]
+fn returned_views_retain_bounds_checks() {
+    let source = support::program(
+        "def tail(xs: &[i64]) -> Option[&[i64]]:\n    Some(&xs[1:])\nxs = [1, 2, 3].unwrap()\nv = tail(&xs).unwrap()\nprint(v[2]).unwrap()",
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("program");
+        plenty::compile_source_to_executable_with_options(
+            &source,
+            &executable,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = Command::new(executable).output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "optimize={optimize}");
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("index out of bounds: index 2, length 2"),
+            "optimize={optimize}: {error}"
+        );
+    }
+}
+
+#[test]
+fn capturing_closures_cannot_return_loan_carrying_values() {
+    for capture in ["[xs]", "[&xs]", "once [xs]", "once [&xs]", "once "] {
+        for (output, body) in [
+            ("&[i64]", "&xs[:]"),
+            ("Option[&[i64]]", "Some(&xs[:])"),
+            ("Result[&[i64], AllocError]", "Ok(&xs[:])"),
+        ] {
+            let body = if capture == "once " {
+                body.replace("xs", "unused")
+            } else {
+                body.to_owned()
+            };
+            reject_views(
+                &format!(
+                    "xs = [11, 22, 33].unwrap()\nf = def {capture}(unused: &[i64]) -> {output}:\n    {body}\ndummy = [1].unwrap()\nv = f(&dummy)\ndrop(f)\nprint(v).unwrap()"
+                ),
+                "capturing or one-shot closures cannot return references or yield yet",
+            );
+        }
+    }
+    // Inline pipeline callbacks have a separate environment-splicing path.
+    reject_views(
+        "xs = [1, 2].unwrap()\np = iter(&xs).map(def [&xs](n: &i64) -> Option[&[i64]]: Some(&xs[:]))\ndrop(p)",
+        "capturing or one-shot closures cannot return references or yield yet",
+    );
+    run_views(
+        "xs = [1, 2].unwrap()\nf = def (xs: &[i64]) -> &[i64]:\n    xs\nprint(f(&xs)).unwrap()",
+        "[1, 2]\n",
+    );
+}
+
+#[test]
+fn returned_views_are_observed_and_iterated_after_type_inference() {
+    run_views(
+        r#"
+def tail[T](xs: &[T]) -> &[T]:
+    &xs[1:]
+def maybe(xs: &[i64]) -> Option[&[i64]]:
+    Some(xs)
+def result(xs: &[i64]) -> Result[&[i64], AllocError]:
+    Ok(xs)
+def text[T](s: &str, unused: T) -> Option[&strview]:
+    Some(&s[1:])
+xs = [1, 2, 3].unwrap()
+print(&tail(&xs)).unwrap()
+for x in tail(&xs):
+    print(*x).unwrap()
+for x in &tail(&xs):
+    print(*x).unwrap()
+for x in tail(&[4, 5, 6].unwrap()):
+    print(*x).unwrap()
+for x in maybe(&xs).unwrap():
+    print(*x).unwrap()
+for x in result(&xs).unwrap():
+    print(*x).unwrap()
+s = "aéλ"
+for c in text(&s, 0).unwrap():
+    print(c).unwrap()
+for c in &text(&s, 0).unwrap():
+    print(c).unwrap()
+"#,
+        "[2, 3]\n2\n3\n2\n3\n5\n6\n1\n2\n3\n1\n2\n3\né\nλ\né\nλ\n",
+    );
+    for method in ["keys", "values", "items"] {
+        reject_views(
+            &format!(
+                "def tail[T](xs: &[T]) -> &[T]:\n    &xs[1:]\nxs = [1, 2].unwrap()\ndrop(tail(&xs).{method}())"
+            ),
+            "requires a dictionary",
+        );
+        let names = if method == "items" { "k, v" } else { "v" };
+        reject_views(
+            &format!(
+                "def tail[T](xs: &[T]) -> &[T]:\n    &xs[1:]\nxs = [1, 2].unwrap()\nfor {names} in tail(&xs).{method}():\n    pass"
+            ),
+            "requires a dictionary",
+        );
+    }
+    // Retrying an inferred binary operand saves its descriptor in a hidden
+    // binding; it must save the loan as well, even for unsupported operators.
+    for operator in ["<", "+"] {
+        reject_views(
+            &format!(
+                "def tail[T](xs: &[T]) -> &[T]:\n    &xs[1:]\nxs = [1, 2].unwrap()\nprint(tail(&xs) {operator} tail(&xs)).unwrap()"
+            ),
+            "slice views support",
+        );
+    }
+}
+
+#[test]
+fn named_exclusive_view_returns_preserve_descriptor_and_iteration_loans() {
+    run_views(
+        r#"
+def forward[T](xs: &mut [T]) -> &mut [T]:
+    xs
+def maybe(xs: &mut [i64]) -> Option[&mut [i64]]:
+    Some(xs)
+def result(xs: &mut [i64]) -> Result[&mut [i64], AllocError]:
+    Ok(xs)
+mut xs = [1, 2, 3].unwrap()
+v = forward(&mut xs)
+v[0] = 4
+for x in forward(&mut xs):
+    *x = 5
+for x in &mut forward(&mut xs):
+    *x = 6
+for x in maybe(&mut xs).unwrap():
+    *x = 7
+for x in result(&mut xs).unwrap():
+    *x = 8
+print(xs).unwrap()
+for x in &forward(&mut xs):
+    print(*x).unwrap()
+xs.append(9).unwrap()
+print(xs).unwrap()
+"#,
+        "[8, 8, 8]\n8\n8\n8\n[8, 8, 8, 9]\n",
+    );
+    for call in [
+        "forward(&mut xs)",
+        "maybe(&mut xs).unwrap()",
+        "result(&mut xs).unwrap()",
+    ] {
+        for conflict in [
+            "xs.append(4).unwrap()",
+            "drop(xs)",
+            "other = forward(&mut xs)\n    print(len(other)).unwrap()",
+        ] {
+            reject_views(
+                &format!(
+                    "def forward[T](xs: &mut [T]) -> &mut [T]:\n    xs\ndef maybe(xs: &mut [i64]) -> Option[&mut [i64]]:\n    Some(xs)\ndef result(xs: &mut [i64]) -> Result[&mut [i64], AllocError]:\n    Ok(xs)\nmut xs = [1, 2, 3].unwrap()\nfor x in {call}:\n    {conflict}\n    *x = 9"
+                ),
+                if conflict == "drop(xs)" {
+                    "moved"
+                } else {
+                    "borrow"
+                },
+            );
+        }
+    }
+    reject_views(
+        "def tail[T](xs: &[T]) -> &[T]:\n    &xs[1:]\nmut xs = [1, 2].unwrap()\nfor x in tail(&xs):\n    xs.append(3).unwrap()\n    print(*x).unwrap()",
+        "borrow",
+    );
+    reject_views(
+        "def forward[T](xs: &mut [T]) -> &mut [T]:\n    xs\nmut xs = [1, 2].unwrap()\nfor x in &forward(&mut xs):\n    *x = 9",
+        "exclusive reference",
+    );
+}
+
+fn reject_views(source: &str, expected: &str) {
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let error = plenty::compile_source_to_executable_with_options(
+            &support::program(source),
+            &dir.path().join("program"),
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains(expected),
+            "optimize={optimize}: {source}\nexpected {expected}, got {error}"
+        );
+    }
+}
+
+fn run_views(source: &str, expected: &str) {
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("program");
+        plenty::compile_source_to_executable_with_options(
+            &support::program(source),
+            &executable,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("optimize={optimize}: {source}\n{error}"));
+        let output = Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "optimize={optimize}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            expected,
+            "optimize={optimize}"
+        );
+    }
+}

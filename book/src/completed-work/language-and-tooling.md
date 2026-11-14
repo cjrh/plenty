@@ -471,6 +471,12 @@ are implemented. Methods on owned temporaries can lend within the statement
 owned temporaries, preserving full-expression cleanup without allocating for
 the borrow itself (issue #683).
 
+Returned builtin views (`&[T]`, `&mut [T]`, and `&strview`) follow the
+first-reference origin rule (issue #945, step 1), including one `Option` or
+`Result` success wrapper. The result preserves the owner's loan until last
+use, rejects local or temporary escapes, and retains bounds checks. View
+classes and the user iterator protocol are outside this delivered subset.
+
 See [borrowing](../design/language/05-ownership/02-borrowing.md),
 [returned references](../design/language/05-ownership/04-returned-references.md),
 [optional references](../design/language/05-ownership/05-optional-references.md)

@@ -247,8 +247,10 @@ captures, or passed to or returned from user functions. Binding a view of a
 temporary dictionary is rejected; immediate iteration may borrow a temporary.
 `drop(view)` and `copy(view)` are rejected like ordinary
 references; end the loan by finishing the view's last use.
-Conditional view bindings are not supported. General stored/returned views
-remain separate work.
+Conditional dictionary view bindings are not supported. Stored and returned
+dictionary views remain separate work; returned
+[slice views](../../language/05-ownership/04-returned-references.md#returning-views)
+follow the first-reference origin rule.
 
 `dictionary.values()` creates a shared local view yielding `&V`, without
 allocating or copying affine payloads. Both `values = dictionary.values()`

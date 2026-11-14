@@ -1,11 +1,11 @@
 # Returned references
 
-A function or method returning `&T` or `&mut T` borrows its result from its
-first reference parameter, the *origin*. A [slice view](../04-expressions/slices.md#slice-views)
-parameter, `&[T]` or `&mut [T]`, counts as a reference parameter, as does a
+A function or method returning `&T`, `&mut T`, `&[T]`, `&mut [T]`, or
+`&strview` borrows its result from its first reference parameter, the *origin*.
+A [slice view](../04-expressions/slices.md#slice-views) parameter, `&[T]` or `&mut [T]`, counts as a reference parameter, as does a
 by-value [`Generator[&T]`](../09-iteration/03-generators.md#reference-items)
 parameter, whose items borrow the caller's data rather than the generator.
-A function without a reference parameter cannot return a reference, and a
+A function without a reference parameter cannot return a borrow, and a
 mutable result requires an `&mut` origin. Every return path must originate in the origin; later reference
 parameters, local owners, and owned parameters cannot escape. Direct parameter
 references, reborrows, field and element projections, borrowed-match payloads,
@@ -69,6 +69,9 @@ To return a borrow of a different argument, make it the first reference
 parameter. A function cannot choose between two arguments; that relationship
 needs annotations Plenty does not have. Signatures alone fix the origin, so
 `Callable` types and generic functions follow the same rule.
+Capturing and one-shot closures cannot return loan-carrying values, including
+views and optional/fallible borrows; their environments do not support returned
+loans. Boxed callables have the same return restriction.
 
 The result extends its origin loan until its last use. A body that directly
 returns its parameter or a fixed field projection permits a precise returned
@@ -137,10 +140,47 @@ A method on an element or field of a temporary, as in
 in place. An owned temporary lives to the end of the statement, as a
 temporary receiver does; a returned reference lends as a named reference does.
 
-Returned references cannot enter aggregates, scoped workers with temporary
+Returned borrows cannot enter general aggregates, scoped workers with temporary
 origins, or generator suspension. No lifetime annotation or callee-body
 inference changes the signature's first-reference origin.
 
 A borrow that may be absent or may fail is returned as `Option[&T]` or
-`Result[&T, E]` under the same origin rule; see
+`Result[&T, E]`, including view payloads such as `Option[&[T]]`, under the same
+origin rule; see
 [optional and fallible references](05-optional-references.md).
+
+## Returning views
+
+Returning a view copies its pointer and length, without allocating or copying
+its elements. Narrowing a view parameter keeps the original owner's loan;
+it does not borrow a descriptor local to the callee. The owner cannot move,
+be reassigned, or resize until the returned view's last use. An exclusive
+returned view also prevents competing access through its origin. Indexing
+retains its bounds checks.
+
+```plenty
+def tail(values: &[i64]) -> &[i64]:
+    &values[1:]
+
+def ending(text: &strview) -> &strview:
+    &text[-2:]
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [10, 20, 30]?
+    selected = tail(values)
+    word = "café"
+    text = ending(word)
+    print(len(selected), selected[0], text)?
+    Ok(())
+```
+```output
+2 20 fé
+```
+
+The same rule allows `-> &mut [T]` from an exclusive origin and `-> &[u8]`
+from an origin's `as_bytes()` borrow. Inline string bytes remain protected
+by their owning string slot's loan. A local owner or temporary cannot escape
+through a returned view. A result borrowing a temporary argument may be used
+only within that argument's full expression, following the temporary rules
+above. View fields in classes and other general stored borrows remain
+unsupported.

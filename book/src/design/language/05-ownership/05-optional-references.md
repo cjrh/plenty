@@ -8,6 +8,14 @@ payload may also be another such enum, as in `Result[Option[&T], E]`. These
 first reference parameter, a function without one is rejected, and
 `Option[&mut T]` requires an `&mut` origin.
 
+A slice or substring view may also be the success payload:
+`Option[&[T]]`, `Option[&mut [T]]`, `Option[&strview]`, and their `Result`
+counterparts keep the same origin loan. Only one `Option` or `Result` layer
+may carry a view: `Option[Option[&[T]]]` and `Result[Option[&strview], E]`
+are rejected. The packed representation reserves one bit from a view's
+nonnegative length for the tag; further tags could truncate that length.
+This restriction does not apply to nested ordinary references.
+
 ```plenty
 class Item:
     name: str
@@ -418,9 +426,12 @@ def main() -> Result[(), AllocError | IoError]:
 An arm cannot produce a borrow of an owner it declares, or of a temporary,
 since that owner is dropped when the arm ends. A returned `if` or `match`
 value follows the [returned-reference rule](04-returned-references.md) in each
-arm. A `checked:` block cannot produce a reference-carrying value. Neither form
-can produce a slice or dictionary view, which has no join loan; choose its
-owner first and borrow the view afterwards.
+arm. An `if` or `match` value may also produce a slice or substring view,
+plain or in one `Option` or `Result` layer, keeping every arm's owner borrowed.
+A plain view cannot be the result of an inline conditional expression; use
+an `if` or `match` block instead. A `checked:` block cannot produce a
+reference-carrying value. Dictionary views have no join loan and cannot be
+produced by these choices; choose their owner first and borrow afterwards.
 
 Each evaluation borrows afresh. In a loop, a result used only within its
 iteration does not keep the owners borrowed into the next one. A copy that

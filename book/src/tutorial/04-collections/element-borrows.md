@@ -166,10 +166,33 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 Views whose ranges may overlap, such as `&mut scores[:3]` and `&scores[2:]`,
-conflict. Byte buffers have views too. A view cannot
-be returned or stored yet; the
+conflict. Byte buffers have views too. A helper can return a view borrowed
+from its first borrowed parameter:
+
+```plenty
+def tail(values: &[i64]) -> &[i64]:
+    &values[1:]
+
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [70, 85, 90]?
+    later = tail(scores)
+    print(len(later), later[0])?
+    scores.append(100)?
+    print(len(scores))?
+    Ok(())
+```
+```output
+2 85
+4
+```
+
+The returned view keeps `scores` borrowed until its last use, so appending
+before `print(len(later), later[0])` would be rejected. The helper cannot
+return a view of a local list or of another borrowed parameter. Return an
+owned copy when the caller needs independent storage. Views cannot be stored
+in class fields or collections; the
 [slice reference](../../design/language/04-expressions/slices.md#slice-views)
-lists its operations and limits.
+lists their operations and limits.
 
 ## Borrow part of a string
 
@@ -209,7 +232,10 @@ text with `value[a:b]?` when you need an owned `str` to keep after the string
 changes. Text methods such as `value.upper()?` and `value.split()?` work directly
 on a view and return owned results. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
-lists every operation.
+lists every operation. A helper may return `&strview` borrowed from its first
+borrowed parameter, following the same rule as a list view. Bind the owning
+string before keeping the returned view; a temporary argument lasts only for
+the statement that evaluates the call.
 
 To inspect the UTF-8 encoding, borrow its bytes directly. The byte view uses byte
 positions and loops over `&u8`; the text view still loops over scalars:

@@ -26,6 +26,10 @@ records the shared-cursor lowering and retained instruction evidence for issue #
 [Conditional callback captures](completed-work/performance.md#conditional-callback-captures-issue-891)
 records the removal of the remaining immutable fold-capture reloads.
 
+[Returned builtin views](completed-work/language-and-tooling.md#b11-borrowing)
+record the first-reference-origin return subset of issue #945, including
+optional and fallible view results.
+
 The [Rust-source backend decision](completed-work/language-and-tooling.md#rust-source-backend-proposal-rejected)
 records the proposal's rejection on 2026-11-14; its experiments remain historical.
 
