@@ -330,6 +330,12 @@ are recorded there.
 | B93 | Callable forms | Delivered: reusable callable forms in serial pipelines and `sort_by_key`, and `&mut` named functions (issues #617, #619, #620); [constructor values](completed-work/language-and-tooling.md#constructor-function-values), including generic classes and `Some`/`Ok`/`Err` (issue #618); [lexical checked callbacks](completed-work/language-and-tooling.md#b14-errors) with scoped failure propagation (issue #614). Remaining: `par` callbacks for stored capture-free closures and `Callable` values, including class and variant constructors. Callable names stay (issue #24). [Proposal](proposals/consistency-rules.md#rule-6-every-callable-form-is-a-value-wherever-a-callback-is-accepted). |
 | B96 | Bounded integer adoption | The `Bounded[T, lo, hi]` type, literal checks, checked runtime construction and `from` for [proved ranges](design/language/03-types/bounded.md#proved-ranges) (any argument whose [interval](design/language/03-types/intervals.md) lies in the bounds; issues #937 and #952) are [delivered](completed-work/language-and-tooling.md#b83-value-parameters-and-b96-bounded-integers). [Range loop counters and dominating comparisons](design/language/03-types/intervals.md#comparisons) are delivered (issue #970). Remaining: further interval sources only when each is one exception-free rule (`min`/`max`, `enumerate` indexes, narrowing after a `while` loop and in `match` arms are candidates); adopt it for `std.http.Limits.max_line`/`max_head` (`>= 2`) and fixed std ceilings. Existing ceiling metadata (issue #686) still checks static std inputs; dynamic values still trap under those APIs. |
 
+### Safety boundaries
+
+| ID | Remaining work | Scope / dependency |
+| --- | --- | --- |
+| B98 | Stronger native trust and recovery boundaries | Assess and prototype the [safety-boundary proposal](proposals/trusted-safety-boundaries.md): explicit trusted modules and unchecked exports; checked foreign owners and owner-bound borrows; actor abandonment certification and conservative native callback crossings; transitive trust reports/admission policy; uniform callback safety guarantees. Proposed, not implemented or scheduled. Prefer confinement and recovery certification as initial decisions; exact syntax and compatibility remain open. Related B17 package policy, B22 effects, and B85 actor isolation. |
+
 ### Units of measure
 
 | ID | Remaining work | Scope / dependency |

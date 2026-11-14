@@ -55,6 +55,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Borrowed text and substrings | [One borrowed text type](unified-borrowed-text.md) | [Representation and migration](unified-borrowed-text/representation.md), [evidence and naming](unified-borrowed-text/evidence.md), [current text contract](../design/facilities/01-builtins/text.md) |
 | Bounds checks removed by types | [Value-dependent types for check elimination](value-dependent-types.md) | [`Bounded`](../design/language/03-types/bounded.md), [value generics](value-generics.md), [unchecked blocks](../design/language/03-types/numbers.md#unchecked-blocks) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
+| Native trust and memory safety | [Stronger safety boundaries](trusted-safety-boundaries.md) | [Foreign ownership and trust](trusted-safety-boundaries/native.md), [actor recovery](trusted-safety-boundaries/recovery.md), [current unsafe boundary](../design/comparisons/rust.md#unsafe-code) |
 | Native platforms and libraries | [Cross-platform assessment](cross-platform.md) | [FFI](ffi-and-dynamic-libraries.md), [export contracts](ffi-export-contracts.md), [GCC backend](codegen-gcc.md) |
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
 | Cooperative suspension and owned tasks | [Async/await exploration](async-await.md), [Go-style scoped tasks](stackful-tasks.md) | [Async ownership and cleanup](async-await/ownership.md), [async spike evidence](async-await/evidence.md), [stackful runtime choices](stackful-tasks/runtime.md), [stackful spike evidence](stackful-tasks/evidence.md), [linear execution responsibility](linear-integration.md) |
@@ -104,6 +105,7 @@ records and local merge metadata; it did not rerun their feature suites.
 
 | Proposal | Backlog |
 | --- | --- |
+| [Stronger safety boundaries](trusted-safety-boundaries.md) — trusted modules, checked foreign owners, actor abandonment certification, transitive trust policy, and callback guarantees | B98; related B17, B22, B85 |
 | [One borrowed text type](unified-borrowed-text.md) — exploratory unification of `&str` and `&substr`; representation and generic-reference semantics remain adoption gates | B12; returned text relates to B11 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |
 | [Actor budgets and retained stacks](actor-budget-scheduling.md) — test-only heap/trap probe; compiler checkpoints and stage ownership integration remain unimplemented | B85 |
