@@ -78,6 +78,12 @@ accepts a `Positive` or `NonZero` quantity divisor for `//` and `%`, with the
 same proof-based checks as the underlying integers. Domain dividends retain
 the underlying domain's restrictions.
 
+An integer literal scalar beside domain storage is a checked constant of that
+domain, as [beside a plain domain value](numbers.md#nonzero-integers). The
+literal may be suffixed, parenthesized or negated once. For
+`z: Quantity[NonZero[i64], Length]`, `z * 2`, `-(2i64) * z` and `z *= -(2i64)`
+are valid; `z *= 0` and `z *= 2i32` are compile-time errors.
+
 Inside `checked:`, failures remain `OverflowError[T]` and/or
 `ZeroDivisionError`, as for the underlying arithmetic. Integer domains use
 their underlying integer in `OverflowError`. Quantity construction and
