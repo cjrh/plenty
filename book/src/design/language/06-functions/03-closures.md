@@ -77,6 +77,9 @@ retains its transitive loans.
 
 Calls can target temporaries, such as `make(3)(4)` or `wrapped.unwrap()(4)`;
 the callee survives the full expression and cleans up if an argument propagates.
-Capturing and one-shot closures cannot return references or yield.
+Capturing and one-shot closures cannot return loan-carrying values: ordinary
+references, builtin views, or `Option`/`Result` success payloads carrying either.
+They also cannot yield. Capture-free reusable `Callable` functions can return
+borrows under the [first-reference origin rule](../05-ownership/04-returned-references.md).
 Environment nesting is limited to 64 levels and must fit the native stack
 layout limit. Closure calls do not perform native tail transfers.

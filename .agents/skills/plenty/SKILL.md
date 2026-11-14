@@ -199,7 +199,10 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   A `&strview` parameter implicitly borrows a whole string passed as `s`; `&s`, a `&str`
   binding, or a literal also works. Annotated view locals still need an
   explicit borrow, such as `whole: &strview = &s`.
-  Views cannot be returned or stored. `std` operations that read bytes
+  Views may be returned from the first reference or view parameter, including
+  one `Option` or `Result` success wrapper. The result keeps the owner's loan;
+  local and temporary owners cannot escape. Nested wrappers carrying views,
+  view fields, and collection storage remain rejected. `std` operations that read bytes
   (`Bytes.extend`, stream `write`, `write_all`, crypto `update`) take one
   `&[u8]`, not `source, start, stop`: `w.write(&buf[a:b])`. A writer class
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.

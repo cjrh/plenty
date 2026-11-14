@@ -451,9 +451,12 @@ reference or view parameter is the
 [origin](../05-ownership/04-returned-references.md) of a returned reference.
 Views may be passed to [scoped workers](../../facilities/03-concurrency/index.md).
 
-Views are local until stored references land (backlog B11). A view cannot be
-returned, stored in a class field, tuple, collection, or enum payload, or
-captured by an anonymous function. Return or store the bounds, or an owned copy.
+A function may return a view under the
+[returned-reference origin rule](../05-ownership/04-returned-references.md#returning-views).
+A single `Option` or `Result` success payload may carry it under the same
+rule. A view cannot be stored in a class field, tuple, collection, or user enum
+payload, or captured by an anonymous function. Store an owned copy or bounds
+when the data must outlive its owner's loan (backlog B11).
 
 ### Substring views
 
@@ -545,7 +548,9 @@ All text methods above accept either strings or views in their text operands,
 including methods called on an owning string. They read the selected UTF-8
 range directly and allocate only an owned result when required. A view cannot
 stand in for an owning `str` argument to an arbitrary function, or be stored in
-a collection or returned. Joining collections or generators of views therefore
+a collection. It may be returned under the
+[origin rule](../05-ownership/04-returned-references.md#returning-views).
+Joining collections or generators of views therefore
 remains unsupported. String repetition uses `repeat(n)?`; `*` is rejected for
 both strings and views. `str.from` converts numeric and boolean values, rather
 than copying text, and there is no `str.format` method: formatting uses f-strings
@@ -554,13 +559,14 @@ and `std.fmt.Formatter`.
 The byte view returned by `as_bytes()` keeps the text view's original loan,
 including inline bytes stored in a string slot. It can be bound locally, passed
 to any `&[u8]` reader, narrowed by byte positions, indexed, and iterated as an
-ordinary byte view. It grants no mutable access to string storage. General
-returned/stored views remain unsupported; `as_bytes()` is a checked builtin
-borrow operation, not permission for arbitrary functions to return views.
+ordinary byte view. It grants no mutable access to string storage. A function
+may return this byte view when it borrows from its first reference or view
+parameter, just as it may return a narrowed slice view.
 
 A substring view borrows its string as other views borrow their owner: while
-it is live, the string cannot be reassigned or moved, and the view stays local
-until stored references land (backlog B11).
+it is live, the string cannot be reassigned or moved. Returning the view keeps
+that loan in the caller; storing it in a class or collection remains unsupported
+(backlog B11).
 
 ## Limits
 
@@ -571,7 +577,6 @@ until stored references land (backlog B11).
 | `xs[::k]` with `k: i64` | ``slice step must be `NonZero[i64]`, not `i64` `` |
 | `&xs[::2]` | `a slice view selects adjacent elements, so it takes no step` |
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
-| `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `f(&s[1:])` for `f(s: &str)` | ``this argument is a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
 | `width(s)` for `width(v: &[u8])` and `s: str` | ``this parameter takes a slice view; a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes`` |
 | `fill(xs)` for `fill(v: &mut [i64])` | ``this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it`` |

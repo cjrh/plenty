@@ -34,8 +34,9 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesErro
 ```
 
 The checked `u32` conversion propagates `RangeError` if a payload length cannot
-fit the wire field. `read_bytes` returns an owned copy because borrowed views
-cannot escape a method. Scalar fields allocate nothing when storage already has capacity.
+fit the wire field. `read_bytes` returns an owned copy that stays independent
+of later cursor reads or writes. Scalar fields allocate nothing when storage
+already has capacity.
 
 If a field is truncated, `BinaryError.Truncated` reports its position, requested
 width, and available bytes. The failed operation leaves the cursor in place;
