@@ -1,11 +1,19 @@
 # Compiling Plenty to Rust source
 
-> **Status: Restricted checked-IR emitter spike; no production backend (2026-10-24).**
-> B20 tracks optional backends; B17 tracks Rust dependency tooling. The current
-> compiler still emits native code through Cranelift. No production command, target,
-> Rust import syntax or compatibility guarantee is introduced here.
+> **Status: Rejected (2026-11-14).**
+> Closed at the user's direction. No further Rust-source backend implementation
+> is planned. The design and measured experiments below remain a historical
+> record; the developer spike and experiment sources are retained.
+> Cranelift remains the production backend. This decision does not reject
+> [Rust dependency integration](../rust-crate-dependencies.md), which remains B17.
 
-## Recommendation
+## Decision
+
+Do not continue the Rust-source backend proposal. The user rejected this
+exploration on 2026-11-14. No additional technical rationale was recorded with
+that decision. B20 retains the separate GCC assessment.
+
+## Historical exploration
 
 The [checked-emitter experiment](rust-source-backend/checked-emitter.md) now
 generates a restricted scalar library from Plenty's actual checked operations,
@@ -13,8 +21,8 @@ including a Rust → Plenty → Rust companion round-trip. It measures generated
 Rust build costs separately from the earlier hand-lowered ownership probes.
 References, records, enums and dynamic owners remain outside that emitter.
 
-**The evidence supports continued bounded exploration of Rust-hosted Plenty
-libraries.** Emitting a Rust crate could let Rust call Plenty functions, and
+The exploration considered Rust-hosted Plenty libraries. Emitting a Rust crate
+could let Rust call Plenty functions, and
 Plenty call selected Rust APIs, with ordinary Rust owners, borrows, enums and
 callbacks. rustc would own type layout, calling conventions, generic codegen
 and final linking within that build. Users could write application logic in
@@ -28,7 +36,7 @@ current runtime representations would preserve more behavior but expose a
 Plenty runtime API to Rust users. Prefer a small shared native-type subset,
 with explicit wrappers for richer Plenty values.
 
-The [Rust crate investigation](rust-crate-dependencies.md) already includes an
+The [Rust crate investigation](../rust-crate-dependencies.md) already includes an
 actual restricted Plenty-to-Rust emitter alongside two native adapter routes.
 This proposal develops the source-backend direction as its own architectural
 choice. It does not overturn that investigation's lower-cost recommendation
@@ -57,7 +65,7 @@ differ. The independent Rust check is valuable defense and catches emitter
 mistakes, but a supported Plenty program rejected by emitted Rust is a backend
 problem, not a reason to silently redefine the language.
 
-Start from the [existing structured operations](../design/toolchain/02-architecture/frontend.md)
+Start from the [existing structured operations](../../design/toolchain/02-architecture/frontend.md)
 and their construction sites, not Cranelift IR or assembly. `src/op.rs` already
 retains typed slots, structured branches/loops, `Loan`, `Access`, `Site`, `Try`
 cleanup and `DropLocal` operations. It is not devoid of ownership information.
@@ -112,5 +120,6 @@ generation, dependency build, Rust compilation, link time and peak memory.
 
 The [semantic contract](rust-source-backend/contract.md) describes the hard
 boundaries. [Probe evidence and adoption criteria](rust-source-backend/evidence.md)
-explain what has run and what would justify a first implementation. Future work
-and priority remain in the [backlog](../backlog.md), not this proposal.
+record what ran and the adoption criteria considered before rejection. These
+criteria are historical, with no further implementation planned. Other backend
+and dependency work remains in the [backlog](../../backlog.md).
