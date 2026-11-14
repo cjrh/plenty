@@ -238,9 +238,17 @@ speedup. Every measured output matches byte for byte. The owned comparison
 intentionally retains per-key allocation; recommended benchmark source still
 uses borrowed dictionary lookup.
 
-Cache-disabled optimized compilation of the owned comparison, three repetitions:
-432.59M→432.76M instructions (+0.04%), 80.89→81.91 ms CPU. This is the measured
-whole-program compile cost, not a claim about every compiler workload.
+After the final recursion-guard audit, complete generated asm dumps of the
+built k=3 kernel and owned whole program match the measured candidate byte for
+byte. The guard rejects every member of a mutual tail cycle and prevents a
+completed recursive branch from enabling the retained-call fallback elsewhere.
+
+Final cache-disabled optimized compilation of the owned comparison, two
+alternating rounds of five repetitions: 432.598–432.611M→432.634–432.658M
+instructions (about +0.01%), 193.51–201.39→198.23–200.94 ms CPU. Earlier
+pre-audit compile counters remain in the raw report for provenance; these final
+rounds supersede them. This is the measured whole-program compile cost, not a
+claim about every compiler workload.
 Stripped executable sizes are 212,248→212,392 bytes for built k=3 and
 396,384→396,448 bytes for the owned comparison.
 

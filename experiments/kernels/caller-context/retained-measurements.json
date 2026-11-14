@@ -769,5 +769,96 @@
       "stdout": "A 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\nA 30.289\nT 30.154\nC 19.802\nG 19.755\n\nAA 9.175\nTA 9.130\nAT 9.129\nTT 9.093\nCA 6.000\nAC 5.999\nAG 5.986\nGA 5.983\nCT 5.973\nTC 5.972\nTG 5.958\nGT 5.958\nCC 3.920\nGC 3.911\nCG 3.909\nGG 3.903\n\n29433\tGGT\n8930\tGGTA\n949\tGGTATT\n18\tGGTATTTTAATT\n18\tGGTATTTTAATTTATAGT\n",
       "perf": "7332428011,,instructions:u,0.03%,697324687,100.00,,\n585.84,msec,task-clock:u,5.19%,697324687,100.00,,\n"
     }
-  ]
+  ],
+  "compile_final": [
+    {
+      "variant": "before",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/plenty-before",
+        "--compile",
+        "experiments/kernels/caller-context/owned-knucleotide.plenty",
+        "-o",
+        "/tmp/issue948-evidence/compiled-before"
+      ],
+      "stdout": "",
+      "perf": "432611258,,instructions:u,0.00%,197117481,100.00,,\n193.51,msec,task-clock:u,0.99%,197117481,100.00,,\n"
+    },
+    {
+      "variant": "cycle-final",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/plenty-cycle-final",
+        "--compile",
+        "experiments/kernels/caller-context/owned-knucleotide.plenty",
+        "-o",
+        "/tmp/issue948-evidence/compiled-cycle-final"
+      ],
+      "stdout": "",
+      "perf": "432657561,,instructions:u,0.00%,201875032,100.00,,\n198.23,msec,task-clock:u,0.99%,201875032,100.00,,\n"
+    },
+    {
+      "variant": "cycle-final",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/plenty-cycle-final",
+        "--compile",
+        "experiments/kernels/caller-context/owned-knucleotide.plenty",
+        "-o",
+        "/tmp/issue948-evidence/compiled-cycle-final"
+      ],
+      "stdout": "",
+      "perf": "432634307,,instructions:u,0.00%,199455326,100.00,,\n200.94,msec,task-clock:u,0.61%,199455326,100.00,,\n"
+    },
+    {
+      "variant": "before",
+      "command": [
+        "perf",
+        "stat",
+        "-x,",
+        "-r",
+        "5",
+        "-e",
+        "instructions:u,task-clock",
+        "taskset",
+        "-c",
+        "4",
+        "/tmp/issue948-evidence/plenty-before",
+        "--compile",
+        "experiments/kernels/caller-context/owned-knucleotide.plenty",
+        "-o",
+        "/tmp/issue948-evidence/compiled-before"
+      ],
+      "stdout": "",
+      "perf": "432597907,,instructions:u,0.00%,194628172,100.00,,\n201.39,msec,task-clock:u,1.41%,194628172,100.00,,\n"
+    }
+  ],
+  "final_asm_identity": "Full generated asm dumps for built-3-1000000 and owned-knucleotide match the measured candidate byte for byte after the recursive-component guard."
 }

@@ -80,6 +80,9 @@ struct Plan<'a> {
     /// Direct call sites of each function across every body.
     sites: HashMap<&'a str, usize>,
     states: HashMap<&'a str, State>,
+    active: Vec<&'a str>,
+    /// Callees reaching a recursive component cannot use retained-call fallback.
+    recursive: crate::hash::HashSet<&'a str>,
     /// Proven before planning; retained calls cannot need a dynamic caller site.
     context_free: crate::hash::HashSet<&'a str>,
     /// Inline copies that fit only while their context-free callees stay calls.
@@ -124,6 +127,8 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
         candidates,
         sites,
         states: HashMap::default(),
+        active: Vec::new(),
+        recursive: Default::default(),
         context_free: bodies
             .iter()
             .filter(|(name, _)| functions[name].reads_no_caller)
@@ -188,13 +193,26 @@ impl<'a> Plan<'a> {
         match self.states.get(name) {
             Some(State::Done(size)) => return *size,
             Some(State::Visiting) => {
-                self.states.insert(name, State::Done(None));
+                // Every member must keep its native tail-transfer boundary.
+                // Keeping only the revisited head native would let another
+                // member inline a retained ordinary call back to that head,
+                // turning mutual tail recursion into growing native frames.
+                let start = self
+                    .active
+                    .iter()
+                    .position(|&active| active == name)
+                    .unwrap();
+                for &member in &self.active[start..] {
+                    self.states.insert(member, State::Done(None));
+                    self.recursive.insert(member);
+                }
                 return None;
             }
             None => {}
         }
         let body = *self.candidates.get(name)?;
         self.states.insert(name, State::Visiting);
+        self.active.push(name);
         let mut ops = Vec::new();
         crate::threading::walk(body, &mut |op| ops.push(op));
         let mut total = Some(0usize);
@@ -220,6 +238,11 @@ impl<'a> Plan<'a> {
                 }
                 _ => Some(1),
             };
+            if let Op::Call(callee) | Op::TailCall(callee) = op
+                && self.recursive.contains(callee.as_str())
+            {
+                self.recursive.insert(name);
+            }
             let retained_cost = match op {
                 Op::TailCall(callee) | Op::Call(callee)
                     if self.cleanup_free.contains(name)
@@ -234,13 +257,17 @@ impl<'a> Plan<'a> {
                 .zip(retained_cost)
                 .map(|(total, cost)| total + cost);
         }
+        let active = self.active.pop();
+        debug_assert_eq!(active, Some(name));
         // A recursive call found below marked this function as staying a call.
         let size = match self.states.get(name) {
             Some(State::Done(None)) => None,
             _ => total.filter(|&total| self.fits(name, total)).or_else(|| {
-                retained.filter(|&size| self.fits(name, size)).inspect(|_| {
-                    self.native_calls.insert(name);
-                })
+                retained
+                    .filter(|&size| !self.recursive.contains(name) && self.fits(name, size))
+                    .inspect(|_| {
+                        self.native_calls.insert(name);
+                    })
             }),
         };
         self.states.insert(name, State::Done(size));
@@ -558,6 +585,8 @@ mod tests {
                     .collect(),
                 sites: [("wrapper", sites), ("large", 2)].into_iter().collect(),
                 states: Default::default(),
+                active: Vec::new(),
+                recursive: Default::default(),
                 leaves: Default::default(),
                 context_free: if safe {
                     ["large"].into_iter().collect()
@@ -587,12 +616,45 @@ mod tests {
             candidates: [("recursive", &body)].into_iter().collect(),
             sites: [("recursive", 1)].into_iter().collect(),
             states: Default::default(),
+            active: Vec::new(),
+            recursive: Default::default(),
             leaves: Default::default(),
             context_free: ["recursive"].into_iter().collect(),
             cleanup_free: ["recursive"].into_iter().collect(),
             native_calls: Default::default(),
         };
         assert_eq!(plan.size("recursive"), None);
+        assert!(plan.native_calls.is_empty());
+    }
+
+    #[test]
+    fn context_independent_mutual_recursion_keeps_every_transfer_native() {
+        let first: Arc<[Op]> = vec![Op::If {
+            then: vec![Op::TailCall("second".into())].into(),
+            elifs: Arc::from([]),
+            otherwise: vec![Op::TailCall("third".into())].into(),
+        }]
+        .into();
+        let second: Arc<[Op]> = vec![Op::TailCall("first".into())].into();
+        let third: Arc<[Op]> = vec![Op::TailCall("second".into())].into();
+        let mut plan = Plan {
+            candidates: [("first", &first), ("second", &second), ("third", &third)]
+                .into_iter()
+                .collect(),
+            sites: [("first", 1), ("second", 2), ("third", 1)]
+                .into_iter()
+                .collect(),
+            states: Default::default(),
+            active: Vec::new(),
+            recursive: Default::default(),
+            leaves: Default::default(),
+            context_free: ["first", "second", "third"].into_iter().collect(),
+            cleanup_free: ["first", "second", "third"].into_iter().collect(),
+            native_calls: Default::default(),
+        };
+        assert_eq!(plan.size("first"), None);
+        assert_eq!(plan.size("second"), None);
+        assert_eq!(plan.size("third"), None);
         assert!(plan.native_calls.is_empty());
     }
 }
