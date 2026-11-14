@@ -513,9 +513,9 @@ fn variant_fixes(fields: &[Ty]) -> Option<usize> {
         [] => Some(0),
         [field] if !field.has_inline_storage() => Some(0),
         [field] => match &*field.newtype_base() {
-            // A nested sum's own tags are packed into its owner's: leave those
-            // to the runtime.
-            Ty::Enum(_) => None,
+            // A nested sum's own tags are packed into its owner's, so only a
+            // sum whose payloads hold no addresses moves without the runtime.
+            Ty::Enum(t) => nested_plain_bytes(t).map(|_| 0),
             base @ Ty::Class(_) => record_fixes(base),
             base => slot_fixes(base).map(|n| n - 1),
         },
@@ -568,6 +568,7 @@ fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<
                     record_fixes(base)?;
                     variants.push((tag, base.inline_bytes() as u64));
                 }
+                Ty::Enum(nested) => variants.push((tag, nested_plain_bytes(nested)?)),
                 base => variants.push((tag, plain_bytes(base)?)),
             },
             fields => {
@@ -582,6 +583,41 @@ fn plain_variants(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<
         }
     }
     Some(variants)
+}
+
+/// The bytes of a sum's payload when it moves without the runtime although its
+/// tag is packed into an owner's tags, so the copy cannot test it: every
+/// variant keeps the same number of bytes of inline storage, and none holds an
+/// address to fix. A variant without inline storage keeps its payload in the
+/// value word itself, which is then no address to copy from. An
+/// `Option[std.simd.f64x2]` copies with two vector moves (issue #944).
+fn nested_plain_bytes(ty: &crate::nominal::Nominal<crate::sum::EnumType>) -> Option<u64> {
+    let mut size = None;
+    for variant in &ty.get().variants {
+        let bytes = match variant.fields.as_slice() {
+            [] => return None,
+            [field] if !field.has_inline_storage() => return None,
+            [field] => match &*field.newtype_base() {
+                base @ Ty::Class(_) => {
+                    (record_fixes(base)? == 0).then_some(())?;
+                    base.inline_bytes() as u64
+                }
+                Ty::Enum(nested) => nested_plain_bytes(nested)?,
+                base => plain_bytes(base)?,
+            },
+            fields => {
+                let fixes = fields
+                    .iter()
+                    .try_fold(0, |n, f| Some(n + field_fixes(f)?))?;
+                (fixes == 0).then_some(())?;
+                Lowerer::record_offset(fields.iter()) as u64
+            }
+        };
+        if *size.get_or_insert(bytes) != bytes {
+            return None;
+        }
+    }
+    size
 }
 
 /// Moves out of a local whose bytes the consuming operation reads in place.

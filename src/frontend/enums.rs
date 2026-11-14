@@ -604,20 +604,90 @@ impl Lower<'_> {
         } else {
             None
         };
-        let source = self.slot(ty, &value.at)?;
-        ops.push(Op::StoreLocal(source));
+        let parts = if borrowed.is_none() && carried.is_none() {
+            self.tuple_parts(value, &matched, ops)?
+        } else {
+            None
+        };
+        let source = self.match_source(value, ty, parts.as_deref(), ops)?;
         self.building(&value.at, value_start, ops, false);
         self.finish_temporaries(temporary_start, ops);
         let subject = patterns::Subject {
             source,
             borrowed,
             carried,
+            parts,
         };
         self.match_patterns(value, cases, &matched, subject, tail, ops)
     }
 }
 
 impl Lower<'_> {
+    /// When the matched value is a tuple literal whose elements `ops` has just
+    /// built into a tuple, store the elements in slots of their own instead,
+    /// so the match tests and moves them as values without building the
+    /// tuple (issue #944). The elements are evaluated exactly as before.
+    ///
+    /// Kept out of line, as [`Self::match_source`] is, so nested matches keep
+    /// their recursion frames small.
+    #[inline(never)]
+    fn tuple_parts(
+        &mut self,
+        value: &Expr,
+        matched: &Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<Box<patterns::Parts>>> {
+        let (Expression::Tuple(values), Ty::Enum(t)) = (&ungroup(value).kind, matched) else {
+            return Ok(None);
+        };
+        if !t.tuple() || !matches!(ops.last(), Some(Op::Enum(EnumOp::New(built, 0))) if built == t)
+        {
+            return Ok(None);
+        }
+        let fields = t.get().variants[0].fields.clone();
+        let n = fields.len();
+        if n != values.len()
+            || fields.iter().any(Ty::carries_loan)
+            || self.parameters + self.locals.len() + n > usize::from(u8::MAX)
+        {
+            return Ok(None);
+        }
+        ops.pop();
+        // Scope cleanup releases later slots first. Giving the first element
+        // the last slot releases unmatched elements in element order, as
+        // releasing the tuple releases its fields.
+        let first = self.parameters + self.locals.len();
+        for field in fields.iter().rev() {
+            self.slot(field.clone(), &value.at)?;
+        }
+        let slots: Vec<u8> = (0..n).map(|i| (first + n - 1 - i) as u8).collect();
+        for &slot in slots.iter().rev() {
+            ops.push(Op::StoreLocal(slot));
+        }
+        Ok(Some(Box::new(patterns::Parts {
+            tuple: t.clone(),
+            slots,
+        })))
+    }
+
+    /// The slot holding the matched value of type `ty`. A tuple literal's
+    /// first element stands for it, and every use goes to a part instead.
+    #[inline(never)]
+    fn match_source(
+        &mut self,
+        value: &Expr,
+        ty: Ty,
+        parts: Option<&patterns::Parts>,
+        ops: &mut Vec<Op>,
+    ) -> Result<u8> {
+        if let Some(parts) = parts {
+            return Ok(parts.slots[0]);
+        }
+        let source = self.slot(ty, &value.at)?;
+        ops.push(Op::StoreLocal(source));
+        Ok(source)
+    }
+
     /// Lowers a `match` block used as a value: the selected case's final
     /// expression stays on the stack after the case's cleanup.
     pub(super) fn match_value(

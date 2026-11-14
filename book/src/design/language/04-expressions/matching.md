@@ -110,6 +110,10 @@ Coverage considers combinations of component patterns, so omitting
 moves each bound affine component once and destroys ignored components once.
 Matching a reference instead binds component references, preserving disjoint
 component loans.
+When the matched value is a tuple literal, such as `match (left, right):`,
+the match holds each component in its own place and never builds the tuple:
+components are evaluated left to right and released in the same order as when
+matching a built tuple.
 
 ## Class patterns
 

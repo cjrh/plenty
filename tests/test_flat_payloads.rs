@@ -343,3 +343,82 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[(Pair
         "drop b\ndrop a\na\ndrop g\ndrop pl\ndrop pr\npr\ndrop t1\nkept t2\ndrop x\ndrop y\nreplaced\nHolder[tuple[Point, Point]](item=(Point(x=1, y=2), Point(x=3, y=4)), count=5)\n18\n12\nc1 Point(x=7, y=8)\n(Point(x=3, y=4), Point(x=1, y=2), 42)\nend\ndrop c1\ndrop c2\ndrop p1\ndrop p2\ndrop p3\ndrop t2\n",
     );
 }
+
+const VECTORS: &str = r#"import std.simd as simd
+
+enum Mixed:
+    Lanes(simd.f64x2)
+    Number(f64)
+
+def keep(t: (Option[simd.f64x2], Option[simd.f64x2])) -> (Option[simd.f64x2], Option[simd.f64x2]):
+    t
+
+def keep_mixed(t: (Option[Mixed], i64)) -> (Option[Mixed], i64):
+    t
+
+def total(xs: &list[f64], p: i64, q: i64) -> f64:
+    match (simd.load_f64x2(xs, p), simd.load_f64x2(xs, q)):
+        case (Some(a), Some(b)):
+            a.add(&b).sum_ordered(0.0)
+        case _:
+            -1.0
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1.0, 2.0, 3.0, 4.0, 5.0]?
+    print(total(&xs, 0, 2), total(&xs, 2, 4))?
+    match keep((simd.load_f64x2(&xs, 1), Nothing)):
+        case (Some(v), Nothing):
+            print(v.to_tuple())?
+        case _:
+            print("no")?
+    for m in [Some(Mixed.Lanes(simd.splat_f64x2(1.5))), Some(Mixed.Number(2.5))]?:
+        match keep_mixed((m, 3)):
+            case (Some(Mixed.Lanes(v)), n):
+                print(v.to_tuple(), n)?
+            case (Some(Mixed.Number(x)), n):
+                print(x, n)?
+            case _:
+                print("no")?
+    Ok(())
+"#;
+
+// An `Option[std.simd.f64x2]` payload holds no address, so copying it needs
+// no runtime walk, and a matched tuple literal is never built (issue #944). A
+// nested sum with a variant whose payload sits in the value word keeps the
+// runtime copy, since the packed tag does not say whether the word is an
+// address.
+#[test]
+fn vector_options_copy_and_match_without_the_runtime() {
+    native(VECTORS, "10.0 -1.0\n(2.0, 3.0)\n(1.5, 1.5) 3\n2.5 3\n");
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), VECTORS).unwrap();
+    let args = ["--release", "--dump", "asm", "p.plenty", "-o", "out"];
+    let output = plenty(dir.path(), &args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = std::fs::read_to_string(dir.path().join("out").join("asm.txt")).unwrap();
+    for name in ["keep ", "total "] {
+        let asm = section(&text, name);
+        for call in ["%Memmove", "%Memcpy", "# plenty_op_117"] {
+            assert!(!asm.contains(call), "{name} calls {call}:\n{asm}");
+        }
+    }
+    let asm = section(&text, "keep_mixed ");
+    assert!(asm.contains("# plenty_op_117"), "keep_mixed:\n{asm}");
+    let args = [
+        "--dump",
+        "ops",
+        "--dump-filter",
+        "total",
+        "p.plenty",
+        "-o",
+        "ops",
+    ];
+    let output = plenty(dir.path(), &args);
+    assert!(output.status.success());
+    let ops = std::fs::read_to_string(dir.path().join("ops").join("ops.txt")).unwrap();
+    assert!(!ops.contains("New(tuple["), "{ops}");
+}
