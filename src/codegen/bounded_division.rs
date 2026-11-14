@@ -31,6 +31,29 @@
 //! and `e < d < 2**(s + 1)`, so any `bound < 2**(N - 1)` satisfies the
 //! condition: a nonnegative signed dividend always has such a multiplier.
 //!
+//! # Low product
+//!
+//! Nothing above depends on `k` being at least `N`: for any `k`, with
+//! `m = ceil(2**k / d)` and `e = m * d - 2**k`, `bound * e < 2**k` gives
+//! `floor(x * m / 2**k) = x // d` for every `0 <= x <= bound`. When also
+//! `bound * m < 2**64`, the product `x * m` fits in one 64-bit register, so
+//! an ordinary multiply and one right shift by `k < 64` compute the quotient
+//! (issue #960): `imul; shr` in any registers, where the high product needs
+//! `mulq` with its fixed `%rax` and `%rdx` and a slower high half. LLVM does
+//! the same for a dividend below `2**32`.
+//!
+//! [`low_multiplier`] takes the smallest `k` that satisfies the first
+//! condition, which is the only one worth testing against the second.
+//! `ceil(2**(k + 1) / d) <= 2 * ceil(2**k / d)`, so from `k` to `k + 1` the
+//! excess `e` at most doubles while `2**k` doubles: the first condition holds
+//! for every larger `k`. The multiplier never decreases with `k`, so the
+//! smallest `k` has the smallest product.
+//!
+//! A 32-bit dividend is zero-extended and multiplied in 64 bits. Its
+//! one-word multiplier of the first section is below `2**32` with
+//! `k = 32 + s <= 63`, so the low product covers every 32-bit case that the
+//! high product did.
+//!
 //! # Remainder
 //!
 //! The remainder is `x - q * d`, or the equal (modulo `2**N`)
@@ -42,7 +65,7 @@
 //! `lea`, which is a cycle slower than `sub` on the dependency chain of a
 //! generator such as `seed = (seed * a + c) % m`. See
 //! `experiments/kernels/field-rng/README.md` for the measurements.
-use cranelift_codegen::ir::{InstBuilder, InstructionData, Opcode, Value, ValueDef};
+use cranelift_codegen::ir::{InstBuilder, InstructionData, Opcode, Value, ValueDef, types};
 
 use super::{Lowerer, known};
 
@@ -73,10 +96,60 @@ pub(super) fn multiplier(divisor: u64, bound: u64, bits: u32) -> Option<(u64, u3
     None
 }
 
+/// The multiplier `m` and shift `k < bits` with `(x * m) >> k == x / d` for
+/// every `0 <= x <= bound`, where `bound * m < 2**bits`: the product does
+/// not wrap in a `bits`-wide register. `None` for the divisors
+/// [`multiplier`] rejects, or when the smallest proved multiplier's product
+/// needs more than `bits` bits.
+pub(super) fn low_multiplier(divisor: u64, bound: u64, bits: u32) -> Option<(u64, u32)> {
+    debug_assert!(matches!(bits, 8 | 16 | 32 | 64));
+    if divisor < 3 || divisor.is_power_of_two() {
+        return None;
+    }
+    let limit = 1u128 << bits;
+    let (d, bound) = (u128::from(divisor), u128::from(bound));
+    for shift in 0..bits {
+        // `m <= 2**63`, and `d` and `bound` are below `2**64`, so every
+        // product fits in 128 bits.
+        let power = 1u128 << shift;
+        let m = power.div_ceil(d);
+        if bound * m >= limit {
+            // Multipliers only grow with the shift.
+            return None;
+        }
+        let excess = m * d - power;
+        if bound * excess < power {
+            return Some((m as u64, shift));
+        }
+    }
+    None
+}
+
 impl Lowerer<'_, '_> {
+    /// `a // d` as the low 64 bits of a product shifted right, for a
+    /// multiplier and shift from [`low_multiplier`].
+    fn low_product_quotient(&mut self, a: Value, m: u64, shift: u32) -> Value {
+        let ty = self.bcx.func.dfg.value_type(a);
+        let wide = match ty {
+            types::I64 => a,
+            _ => self.bcx.ins().uextend(types::I64, a),
+        };
+        // `iconst` takes the constant's bits.
+        let m = self.bcx.ins().iconst(types::I64, m as i64);
+        let product = self.bcx.ins().imul(wide, m);
+        let quotient = match shift {
+            0 => product,
+            _ => self.bcx.ins().ushr_imm_u(product, i64::from(shift)),
+        };
+        match ty {
+            types::I64 => quotient,
+            _ => self.bcx.ins().ireduce(ty, quotient),
+        }
+    }
+
     /// The quotient of unsigned `a // b` by multiplication, when `b` is a
     /// constant and a one-word multiplier is proved for every value `a` can
-    /// hold.
+    /// hold: by the low product where it cannot wrap, else by the high one.
     ///
     /// Returns the quotient and `-b` in the operands' width.
     fn multiplied_quotient(&mut self, a: Value, b: Value) -> Option<(Value, i64)> {
@@ -93,6 +166,14 @@ impl Lowerer<'_, '_> {
         let divisor = known::known_int(dfg, b)?;
         let type_max = u64::MAX >> (64 - ty.bits());
         let bound = self.upper_bound(a).map_or(type_max, |b| b.min(type_max));
+        let negated = (divisor.wrapping_neg() & type_max) as i64;
+        // A divisor outside the type has no multiplier; `multiplier` below
+        // rejects it too.
+        if divisor <= type_max
+            && let Some((m, shift)) = low_multiplier(divisor, bound, 64)
+        {
+            return Some((self.low_product_quotient(a, m, shift), negated));
+        }
         let (m, shift) = multiplier(divisor, bound, ty.bits())?;
         // `iconst` takes the constant's bits zero-extended.
         let m = self.bcx.ins().iconst(ty, m as i64);
@@ -101,7 +182,7 @@ impl Lowerer<'_, '_> {
             0 => high,
             _ => self.bcx.ins().ushr_imm_u(high, i64::from(shift)),
         };
-        Some((quotient, (divisor.wrapping_neg() & type_max) as i64))
+        Some((quotient, negated))
     }
 
     /// Unsigned `a // b`: both operands are of an unsigned type, or proved
@@ -130,24 +211,35 @@ impl Lowerer<'_, '_> {
 
     /// Whether `value` is a sum or difference with a constant operand, which
     /// the x86-64 backend would fold into an address computation that uses it.
-    fn adds_constant(&self, value: Value) -> bool {
+    ///
+    /// Adding zero is a copy that carries a proved cast's bound (issue #976)
+    /// and the optimizer removes it, so the value it copies is examined.
+    fn adds_constant(&self, mut value: Value) -> bool {
         let dfg = &self.bcx.func.dfg;
-        let ValueDef::Result(inst, _) = dfg.value_def(value) else {
-            return false;
-        };
-        match dfg.insts[inst] {
-            InstructionData::Binary {
-                opcode: Opcode::Iadd | Opcode::Isub,
+        loop {
+            let ValueDef::Result(inst, _) = dfg.value_def(value) else {
+                return false;
+            };
+            let InstructionData::Binary {
+                opcode: opcode @ (Opcode::Iadd | Opcode::Isub),
                 args,
-            } => args.iter().any(|arg| known::known_int(dfg, *arg).is_some()),
-            _ => false,
+            } = dfg.insts[inst]
+            else {
+                return false;
+            };
+            let constants = args.map(|arg| known::known_int(dfg, arg));
+            match (opcode, constants) {
+                (_, [None, Some(0)]) => value = args[0],
+                (Opcode::Iadd, [Some(0), None]) => value = args[1],
+                _ => return constants.iter().any(Option::is_some),
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::multiplier;
+    use super::{low_multiplier, multiplier};
 
     /// `((x * m) >> bits) >> s`, as the emitted instructions compute it.
     fn quotient(x: u64, m: u64, shift: u32, bits: u32) -> u64 {
@@ -172,6 +264,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_eight_bit_low_multiplier_divides_every_dividend_within_its_bound() {
+        let mut found = 0;
+        for d in 0..=255u64 {
+            for bound in 0..=255u64 {
+                let Some((m, shift)) = low_multiplier(d, bound, 8) else {
+                    continue;
+                };
+                found += 1;
+                assert!(shift < 8 && bound * m < 256, "{d} within {bound}");
+                for x in 0..=bound {
+                    // The wrapped product, as the register holds it.
+                    let product = (x * m) as u8;
+                    assert_eq!(
+                        u64::from(product >> shift),
+                        x / d,
+                        "{x} // {d} within {bound}"
+                    );
+                }
+            }
+        }
+        assert!(found > 1000, "{found}");
+    }
+
+    #[test]
+    fn sixteen_bit_low_multipliers_divide_every_dividend_within_their_bound() {
+        let mut found = 0;
+        for d in (3..=300u64).chain([641, 1000, 1001, 10_000, 32_769, 65_521]) {
+            for bound in [d - 1, d, 2 * d + 1, 3 * d - 1, 100, 255, 1000, 4095, 65_535] {
+                let Some((m, shift)) = low_multiplier(d, bound, 16) else {
+                    continue;
+                };
+                found += 1;
+                assert!(shift < 16 && bound * m < 65_536, "{d} within {bound}");
+                for x in 0..=bound {
+                    let product = (x * m) as u16;
+                    assert_eq!(
+                        u64::from(product >> shift),
+                        x / d,
+                        "{x} // {d} within {bound}"
+                    );
+                }
+            }
+        }
+        assert!(found > 500, "{found}");
     }
 
     #[test]
@@ -275,6 +414,16 @@ mod tests {
                 ];
                 for bound in bounds {
                     let bound = bound.max(1);
+                    if let Some((m, shift)) = low_multiplier(d, bound, 64) {
+                        assert!(shift < 64 && u128::from(bound) * u128::from(m) < 1 << 64);
+                        for x in edges(d, bound) {
+                            assert_eq!(
+                                x.wrapping_mul(m) >> shift,
+                                x / d,
+                                "low {x} // {d} within {bound}"
+                            );
+                        }
+                    }
                     let Some((m, shift)) = multiplier(d, bound, bits) else {
                         assert!(d.is_power_of_two() || bound > max / 2, "{d} within {bound}");
                         continue;
@@ -287,9 +436,40 @@ mod tests {
                             "{x} // {d} within {bound}"
                         );
                     }
+                    // A 32-bit dividend's high-product multiplier is also a
+                    // low-product one in 64 bits, so that width never needs
+                    // the high product.
+                    if bits == 32 {
+                        assert!(low_multiplier(d, bound, 64).is_some(), "{d} within {bound}");
+                    }
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_low_multiplier_needs_a_product_within_the_register() {
+        // fasta's dividend, below `2**30`: the multiplier fits `imul`'s
+        // immediate, and is the one LLVM picks for a 32-bit dividend.
+        let bound = 139_967 * 3877 + 29_573;
+        assert_eq!(low_multiplier(139_968, bound, 64), Some((0x1df7_5681, 46)));
+        // A divisor with a 32-bit multiplier for every `u32` keeps it; 7
+        // needs 33 bits there, and its product 65.
+        assert_eq!(
+            low_multiplier(10, u64::from(u32::MAX), 64),
+            Some((0xcccc_cccd, 35))
+        );
+        assert_eq!(low_multiplier(7, u64::from(u32::MAX), 64), None);
+        assert_eq!(low_multiplier(7, 99_999, 64), Some((0x1_2493, 19)));
+        // A dividend near `2**63` leaves no room for the product.
+        assert_eq!(low_multiplier(1000, i64::MAX as u64, 64), None);
+        assert_eq!(low_multiplier(10, u64::MAX, 64), None);
+        // A dividend below the divisor has the quotient zero.
+        let (m, shift) = low_multiplier(1000, 999, 64).unwrap();
+        assert_eq!((999 * m) >> shift, 0);
+        assert_eq!(low_multiplier(8, 100, 64), None);
+        assert_eq!(low_multiplier(1, 100, 64), None);
+        assert_eq!(low_multiplier(0, 100, 64), None);
     }
 
     #[test]
