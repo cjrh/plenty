@@ -184,7 +184,7 @@ dependencies = [
 [[package]]
 name = "cranelift-assembler-x64"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-assembler-x64-meta",
 ]
@@ -192,7 +192,7 @@ dependencies = [
 [[package]]
 name = "cranelift-assembler-x64-meta"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-srcgen",
 ]
@@ -200,7 +200,7 @@ dependencies = [
 [[package]]
 name = "cranelift-bforest"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-entity",
  "wasmtime-internal-core",
@@ -209,7 +209,7 @@ dependencies = [
 [[package]]
 name = "cranelift-bitset"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "serde",
  "serde_derive",
@@ -219,7 +219,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "bumpalo",
  "cranelift-assembler-x64",
@@ -248,7 +248,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-meta"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-assembler-x64-meta",
  "cranelift-codegen-shared",
@@ -259,12 +259,12 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-shared"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 
 [[package]]
 name = "cranelift-control"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "arbitrary",
 ]
@@ -272,7 +272,7 @@ dependencies = [
 [[package]]
 name = "cranelift-entity"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-bitset",
  "serde",
@@ -283,7 +283,7 @@ dependencies = [
 [[package]]
 name = "cranelift-frontend"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-codegen",
  "hashbrown 0.17.1",
@@ -295,12 +295,12 @@ dependencies = [
 [[package]]
 name = "cranelift-isle"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 
 [[package]]
 name = "cranelift-module"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -311,7 +311,7 @@ dependencies = [
 [[package]]
 name = "cranelift-native"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "cranelift-codegen",
  "libc",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "cranelift-object"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "anyhow",
  "cranelift-codegen",
@@ -337,7 +337,7 @@ dependencies = [
 [[package]]
 name = "cranelift-srcgen"
 version = "0.137.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 
 [[package]]
 name = "crc32fast"
@@ -1485,7 +1485,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-core"
 version = "50.0.0"
-source = "git+https://github.com/cjrh/wasmtime?branch=fork#2967482d4c03db557d183582860901498571087b"
+source = "git+https://github.com/cjrh/wasmtime?branch=fork#98c03730582a07fe57c027f0e18e821040c68b8c"
 dependencies = [
  "hashbrown 0.17.1",
  "libm",

@@ -863,6 +863,32 @@ has the same per-pass count and the optimized IR is identical; the 20
 instructions per step are 5 moves and a jump in outer-loop code whose
 register assignment changed.
 
+## Loads folded into branch compares (issue #935)
+
+Cranelift 0.137 never merged a load into the instruction a block's branch
+tests: the branch is lowered before the block's body, when no instruction
+color was current, so `while limits[k] < r` was `mov (rows,k,8), %r; cmp; jl`.
+Upstream has the same limit. The
+[Cranelift fork](../development/workflow.md#cranelift-and-regalloc2-forks)
+gives the branch its own color, so it merges a load under the rules a body
+instruction follows (a single use, and no store or call between), on every
+backend that merges loads. The x86-64 backend also merges a load on the left
+of an integer compare, as `cmp %r, (mem)` or `cmp $imm, (mem)`; it merged
+only a load on the right. The search loop is now
+`add; cmp len; jae; cmp %r, (rows,k,8); jl`, 5 instructions per pass
+(`experiments/kernels/indexed-conditions/`). Instruction counts against
+`9dee6930`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| fasta 2,500,000 | 1,043,761,998 | 980,584,178 | −6.1% |
+| regex-redux (250k input) | 2,519,233,464 | 2,513,778,748 | −0.2% |
+
+fannkuch-redux, mandelbrot, n-body, spectral-norm, binary-trees and
+reverse-complement are unchanged; k-nucleotide's difference is within its
+run-to-run variation of 0.5%. Program text shrinks by up to 0.04%, and
+compiler instructions change by −0.3% to +0.3%.
+
 ## Loop-exit blocks kept off the loop's allocation
 
 A loop whose bounds-check failure path calls a reporting function before it

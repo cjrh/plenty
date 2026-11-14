@@ -316,6 +316,35 @@ fn scalar_class_calls_keep_bytes_cached_and_checked_indexes_step_freely() {
     assert_eq!(calls("plenty_bytes_set"), 0, "{body}");
 }
 
+/// A loop condition that compares an indexed element reads it as the memory
+/// operand of the compare (issue #935, in the Cranelift fork): no separate
+/// load of the row.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn indexed_loop_condition_compares_the_row_in_memory() {
+    const SOURCE: &str = r#"
+def find(limits: &[i64], r: i64) -> Result[i64, OverflowError[i64]]:
+    mut k = 0
+    while limits[k] < r:
+        k += 1
+    Ok(k)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    limits = [10, 20, 30, 40]?
+    print(find(&limits[:], 25)?)?
+    Ok(())
+"#;
+    assert_eq!(run(SOURCE, &["--release"]), "2\n");
+    let asm = dump(SOURCE, "asm");
+    let body = support::asm_body(&asm, "find");
+    let row = |line: &&str| line.contains(",8)");
+    assert!(
+        body.lines().filter(row).all(|line| line.contains("cmp ")),
+        "{body}"
+    );
+    assert!(body.lines().filter(row).count() >= 1, "{body}");
+}
+
 const CONJUNCTION: &str = r#"
 const LIMIT: i64 = 50
 
