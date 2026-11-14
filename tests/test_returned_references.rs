@@ -2,6 +2,116 @@ mod support;
 use std::process::Command;
 
 #[test]
+fn indexed_borrows_keep_the_projection_origin_not_the_index_origin() {
+    for (parameters, expression) in [
+        ("xs: &[i64], other: &[i64]", "&other[index(xs)]"),
+        ("xs: &i64, other: &[i64]", "&other[xs]"),
+        ("xs: &list[i64], other: &list[i64]", "&other[index(xs)]"),
+        ("xs: &mut [i64], other: &mut [i64]", "&mut other[index(xs)]"),
+        ("xs: &[i64], other: &dict[i64, i64]", "&other[index(xs)]"),
+        (
+            "xs: &[i64], other: &list[list[i64]]",
+            "&other[index(xs)][0]",
+        ),
+    ] {
+        let result = if expression.starts_with("&mut") {
+            "&mut i64"
+        } else {
+            "&i64"
+        };
+        reject_views(
+            &format!(
+                "def index(xs: &[i64]) -> i64:\n    0\ndef wrong({parameters}) -> {result}:\n    {expression}\n"
+            ),
+            "must originate",
+        );
+        reject_views(
+            &format!(
+                "def index(xs: &[i64]) -> i64:\n    0\ndef wrong({parameters}) -> Option[{result}]:\n    Some({expression})\n"
+            ),
+            "must originate",
+        );
+    }
+    reject_views(
+        "def index(xs: &[i64]) -> i64:\n    0\ndef forward(xs: &[i64]) -> &[i64]:\n    xs\ndef wrong(xs: &[i64], other: &[i64]) -> &i64:\n    &forward(other)[index(xs)]",
+        "must originate",
+    );
+    // The original wrong-owner-drop reproduction must fail in the callee,
+    // before the caller can observe storage freed under its returned reference.
+    reject_views(
+        "def index(xs: &[i64]) -> i64:\n    0\ndef wrong(xs: &[i64], other: &[i64]) -> &i64:\n    &other[index(xs)]\na = [1, 2].unwrap()\nb = [7, 8].unwrap()\nr = wrong(&a, &b)\ndrop(b)\nprint(*r).unwrap()",
+        "must originate",
+    );
+    reject_views(
+        "def index(xs: &[i64]) -> i64:\n    0\ndef local(xs: &[i64]) -> &i64:\n    other = [7].unwrap()\n    &other[index(xs)]",
+        "must originate",
+    );
+}
+
+#[test]
+fn indexed_borrows_do_not_keep_the_index_arguments_borrowed() {
+    run_views(
+        r#"
+def index(xs: &[i64]) -> i64:
+    print(xs[0]).unwrap()
+    0
+def first(xs: &[i64], indices: &[i64]) -> &i64:
+    &xs[index(indices)]
+def first_mut(xs: &mut [i64], indices: &[i64]) -> &mut i64:
+    &mut xs[index(indices)]
+xs = [7, 8].unwrap()
+indices = [1].unwrap()
+r = first(&xs, &indices)
+drop(indices)
+print(*r).unwrap()
+mut ys = [9].unwrap()
+indices2 = [2].unwrap()
+m = first_mut(&mut ys, &indices2)
+drop(indices2)
+*m = 10
+print(*m).unwrap()
+"#,
+        "1\n7\n2\n10\n",
+    );
+    run_views(
+        "def forward(xs: &[i64]) -> &[i64]:\n    print(0).unwrap()\n    xs\ndef index(xs: &[i64]) -> i64:\n    print(1).unwrap()\n    0\ndef first(xs: &[i64], indices: &[i64]) -> &i64:\n    &forward(xs)[index(indices)]\nxs = [7].unwrap()\nindices = [1].unwrap()\nr = first(&xs, &indices)\ndrop(indices)\nprint(*r).unwrap()",
+        "0\n1\n7\n",
+    );
+    reject_views(
+        "def index(xs: &[i64]) -> i64:\n    0\ndef first(xs: &[i64], indices: &[i64]) -> &i64:\n    &xs[index(indices)]\nxs = [7].unwrap()\nindices = [1].unwrap()\nr = first(&xs, &indices)\ndrop(xs)\nprint(*r).unwrap()",
+        "use of moved binding",
+    );
+    // A call-produced view is evaluated first, so its existing address must
+    // keep the owner borrowed through the index call rather than move later.
+    reject_views(
+        "def forward(xs: &[i64]) -> &[i64]:\n    xs\ndef index(xs: &mut list[i64]) -> i64:\n    xs.append(9).unwrap()\n    0\nmut xs = [7].unwrap()\nr = &forward(&xs)[index(&mut xs)]\nprint(*r).unwrap()",
+        "conflicting borrow",
+    );
+    // Evaluate the index before taking an element address, exactly once even
+    // when user code resizes the owner. Nested indices keep source order.
+    run_views(
+        "def index(xs: &mut list[i64]) -> i64:\n    xs.append(9).unwrap()\n    print(len(xs)).unwrap()\n    1\nmut xs = [7].unwrap()\nr = &xs[index(&mut xs)]\nprint(*r).unwrap()\ndef key(n: i64) -> i64:\n    print(n).unwrap()\n    0\nrows = [[5].unwrap()].unwrap()\np = &rows[key(1)][key(2)]\nprint(*p).unwrap()",
+        "2\n9\n1\n2\n5\n",
+    );
+    run_views(
+        "def index(xs: &mut list[str]) -> i64:\n    xs.append(\"b\").unwrap()\n    1\nmut xs = [\"a\"].unwrap()\nr = &xs[index(&mut xs)]\nprint(*r).unwrap()",
+        "b\n",
+    );
+}
+
+#[test]
+fn nested_projection_views_keep_their_actual_owner() {
+    reject_views(
+        "def index(xs: &[i64]) -> i64:\n    0\ndef wrong(xs: &[i64], other: &list[list[i64]]) -> &[i64]:\n    &other[index(xs)][:]",
+        "must originate",
+    );
+    run_views(
+        "def index(xs: &[i64]) -> i64:\n    0\ndef first(xs: &list[list[i64]], indices: &[i64]) -> &[i64]:\n    &xs[index(indices)][:]\nxs = [[7].unwrap()].unwrap()\nindices = [1].unwrap()\nv = first(&xs, &indices)\ndrop(indices)\nprint(v[0]).unwrap()",
+        "7\n",
+    );
+}
+
+#[test]
 fn temporary_argument_references_cannot_escape_the_full_expression() {
     reject(
         "def view(s: &str) -> &str:\n    s\nr = view(\"temporary\")\nprint(r).unwrap()\n",

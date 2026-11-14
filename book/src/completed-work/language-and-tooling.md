@@ -477,6 +477,14 @@ first-reference origin rule (issue #945, step 1), including one `Option` or
 use, rejects local or temporary escapes, and retains bounds checks. View
 classes and the user iterator protocol are outside this delivered subset.
 
+Element and view projections retain their actual storage origin when an index
+expression borrows another argument (issue #974). Such incidental borrows no
+longer allow a result from a later parameter or local owner to escape under the
+first parameter's loan. A valid result keeps its storage borrowed without
+extending the index argument's loan. Named element projections evaluate indices
+once in source order before taking addresses, allowing owner reads in exclusive
+element indices without keeping an address across index calls.
+
 See [borrowing](../design/language/05-ownership/02-borrowing.md),
 [returned references](../design/language/05-ownership/04-returned-references.md),
 [optional references](../design/language/05-ownership/05-optional-references.md)
