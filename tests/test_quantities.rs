@@ -319,6 +319,75 @@ def main() -> Result[(), IoError]:
     );
 }
 
+/// Issue #957: `*=` takes a literal scalar exactly as `*=` on the plain domain
+/// value does, so a suffixed or parenthesized literal is a checked constant
+/// of the storage domain rather than a plain integer of the wrong type.
+#[test]
+fn scaling_domain_storage_accepts_the_literals_plain_domains_accept() {
+    assert_stdout(
+        &format!(
+            "{BASES}
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | OverflowError[i8]]:
+    mut a = Quantity[NonZero[i64], Length](3)
+    a *= -(2i64)
+    a *= 2i64
+    a *= -2
+    a *= ((-(1)))
+    mut xs = [a]?
+    xs[0] *= -(2i64)
+    mut p = Quantity[Positive[i64], Length](3)
+    p *= ((2i64))
+    mut n = Quantity[NonNegative[i8], Length](4)
+    n *= -(0i8)
+    mut low = Quantity[NonZero[i8], Length](1)
+    low *= -(128i8)
+    print(a.get(), xs[0].get(), p.get(), n.get(), low.get())?
+    product: Quantity[NonZero[i64], Length] = -(2i64) * a * 2i64
+    print(product.get())?
+    Ok(())
+"
+        ),
+        "-24 48 6 0 -128\n96\n",
+    );
+    for (storage, update, message) in [
+        (
+            "NonZero[i64]",
+            "*= -(0i64)",
+            "5:10: `0` is not a `NonZero[i64]`",
+        ),
+        ("NonZero[i64]", "*= 0i64", "`0` is not a `NonZero[i64]`"),
+        ("NonZero[i64]", "*= 0", "`0` is not a `NonZero[i64]`"),
+        ("Positive[i64]", "*= -(1i64)", "must be greater than zero"),
+        ("NonNegative[i64]", "*= -1i64", "cannot be negative"),
+        ("NonZero[i64]", "*= -(2i32)", "expected i64, got i32"),
+        ("NonZero[i8]", "*= -(129i8)", "out of range"),
+        // Negation applied twice is an operation, not a literal.
+        (
+            "NonZero[i64]",
+            "*= -(-(2i64))",
+            "require a scalar `NonZero[i64]`",
+        ),
+        // The storage operator rejects division, whatever the literal's form.
+        (
+            "NonZero[i64]",
+            "/= 2",
+            "operator `/` does not accept `NonZero[i64]`",
+        ),
+        (
+            "NonZero[i64]",
+            "/= 2i64",
+            "operator `/` does not accept `NonZero[i64]`",
+        ),
+        // Plain storage keeps ordinary literal typing.
+        ("i64", "*= 2i32", "require a scalar `i64`"),
+    ] {
+        rejects(
+            &format!("    mut q = Quantity[{storage}, Length](3)\n    q {update}"),
+            message,
+        );
+    }
+}
+
 #[test]
 fn quantity_updates_preserve_borrow_and_domain_invariants() {
     for body in [

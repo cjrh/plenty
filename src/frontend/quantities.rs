@@ -297,7 +297,17 @@ impl Lower<'_> {
         } else {
             storage
         };
-        let actual = self.expr_expected(value, Some(expected.clone()), ops)?;
+        // A literal scalar beside domain storage is a checked constant of that
+        // domain, suffixed or not, as for `*=` on a plain domain value;
+        // `expr_expected` alone converts only unsuffixed literals (issue #957).
+        let actual = if !matches!(op, "+" | "-")
+            && expected.integer_domain().is_some()
+            && nonzero::literal(value)
+        {
+            self.nonzero_literal(value, &expected, ops)?
+        } else {
+            self.expr_expected(value, Some(expected.clone()), ops)?
+        };
         if actual != Some(expected.clone()) {
             return Err(self.aliases.dimension_error(&value.at, format!("quantity `+=` and `-=` require equal dimensions and storage; `*=` and `/=` require a scalar `{expected}`, got {}", type_name(actual.clone())), std::iter::once(&expected).chain(actual.iter())));
         }
