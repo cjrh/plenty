@@ -1424,7 +1424,45 @@ impl Lower<'_> {
             ));
         }
         self.ide_member(e);
-        self.borrow_with_indices(e, mutable, &mut None, ops)
+        // Named projections evaluate keys in source order before borrowing the
+        // owner, just like assignment. This permits an exclusive projection's
+        // index to read its owner and keeps element addresses out of user calls.
+        let mut slots = Vec::new();
+        let mut prepared = if self.place_type(e).is_some() && self.computed_indices(e) {
+            self.access_indices(e, &mut slots, ops, false)?;
+            Some(slots.iter())
+        } else {
+            None
+        };
+        let (ty, mut loan) = self.borrow_with_indices(e, mutable, &mut prepared, ops)?;
+        // Index expressions can emit unrelated loans after the projection's
+        // loan. Publish a child of the actual projection so reference_origin
+        // finds the value's origin, while its parent stays live across indexing
+        // (and prevents index-side calls from invalidating the element address).
+        if ops.iter().rev().find_map(|op| match op {
+            Op::Loan(fact) => Some(fact.id),
+            _ => None,
+        }) != Some(loan)
+        {
+            loan = self.new_loan(self.loans[loan].root, mutable, Some(loan), ops);
+        }
+        Ok((ty, loan))
+    }
+
+    /// Literal and scalar-local indices emit no loans or user calls. Keep
+    /// their direct projection shape for in-place reads and scalar replacement.
+    fn computed_indices(&self, e: &Expr) -> bool {
+        match &ungroup(e).kind {
+            Expression::Member(base, _, _) => self.computed_indices(base),
+            Expression::Unary(op, base) if op == "*" => self.computed_indices(base),
+            Expression::Index(base, index) => {
+                self.computed_indices(base)
+                    || !(slices::literal_bound(index).is_some()
+                        || matches!(&ungroup(index).kind, Expression::Name(name)
+                            if self.names.get(name).is_some_and(|local| local.ty == Ty::I64)))
+            }
+            _ => false,
+        }
     }
 
     /// Save index values before taking an assignment loan. No element address

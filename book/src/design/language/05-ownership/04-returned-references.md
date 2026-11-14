@@ -30,6 +30,31 @@ def main() -> Result[(), IoError]:
 3
 ```
 
+An element or view borrows the storage it projects from. References used only
+to compute its index or bounds do not become its origin: `&values[index(other)]`
+borrows `values`. Returning the following element is therefore rejected even
+though the index computation borrows the first parameter:
+
+```plenty-error
+def index(values: &[i64]) -> i64:
+    0
+
+def wrong(origin: &[i64], later: &[i64]) -> &i64:
+    &later[index(origin)]
+
+def main() -> ():
+    pass
+```
+```error
+returned reference must originate from the first reference parameter
+```
+
+An element projection from named storage evaluates its computed indices once,
+in source order, before taking an element address. An exclusive element borrow
+can therefore read its owner to compute an index. No element address is kept
+across those computations, so an index helper cannot resize storage behind a
+saved address.
+
 Later reference parameters are ordinary inputs. Their loans end when the call
 returns, so a temporary key or a borrow of another owner does not restrict the
 result. For a method, the origin is its reference receiver:
