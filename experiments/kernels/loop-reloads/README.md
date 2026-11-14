@@ -1,4 +1,4 @@
-# Values reloaded on every pass of a loop (issue #939)
+# Values reloaded on every pass of a loop (issues #939 and #947)
 
 > The `--unchecked assume` build mode used in this record was removed. The
 > measurements are historical; commands that pass `--unchecked` no longer run.
@@ -90,10 +90,104 @@ code), unchecked 575,860,425 → 562,360,453, clist 1,234,359,385 →
 The pass itself costs 0.3%. The remaining difference between the two builds
 is in Cranelift functions the change does not touch (different inlining).
 
-## Not fixed
+## All registers in use (issue #947)
 
-The extension takes free registers only. A cut-down `random_fasta` (the
-same loops with a checksum call in place of `write_lines`, and the codes
-read from a constant) still loads and stores the block's length once per
-symbol: all 14 allocatable registers are in use in that loop, one of them
-holding a second copy of the loop count.
+The extension above takes free registers only. Two cut-down copies of
+`random_fasta` (a checksum call in place of `write_lines`) kept stack loads
+and stores in the per-symbol loop, where all 14 allocatable registers are
+in use: `forwarded-count.plenty`, and `more-values.plenty` with one more
+value carried through the loop.
+
+Two candidate changes are on branch `claude/issue-947` of each fork. They
+are not merged into the forks' `fork` branches and `Cargo.lock` does not pin
+them; the numbers below were taken with both as path overrides. "Before"
+is the pinned compiler.
+
+* Cranelift `bc716584d5`: `remove_constant_phis` removes a block
+  parameter whose arguments, other than itself, are all one value. The
+  per-symbol loop held the block's length twice, once in such a parameter:
+  SSA construction leaves one for a variable that a loop does not change
+  when the loop body holds a join (here the `while limits[k] < r` scan).
+* regalloc2 `85ec363` (`docs/loop-extension.md`, "Making room"):
+  when no register is free for the whole loop, the extension moves unsplit
+  values that hold a register where it is wanted to other registers free
+  for them.
+
+Per-symbol loop of `random_fasta`, static instructions and stack loads plus
+stores:
+
+| Program | Before | Parameter removal only | Both |
+|---|---:|---:|---:|
+| `forwarded-count.plenty` | 37, 5 | 30, 0 | 30, 0 |
+| `more-values.plenty` | 40, 7 | 37, 5 | 37, 5 |
+| `benchmarks/game/fasta` | 30, 0 | 33, 2 | 30, 0 |
+
+Parameter removal alone made the benchmark worse: with two parameters
+fewer the allocator's register choices shift (its probe order depends on
+bundle numbers), the loop's temporaries land on different registers and
+none is free for the whole loop. Making room restores it, which is why the
+two changes go together.
+
+User-mode instructions, one run each pinned to one core (`perf stat -e
+instructions:u`), compilers built from the same Plenty source:
+
+| Program | Before | Parameter removal only | Both | Change |
+|---|---:|---:|---:|---:|
+| `forwarded-count.plenty` 1000000 | 249,023,663 | | 243,023,657 | −2.41% |
+| `more-values.plenty` 1000000 | 255,833,956 | | 246,833,850 | −3.52% |
+| binary-trees 14 | 1,539,347,231 | 1,540,947,483 | 1,540,947,312 | +0.10% |
+| fannkuch-redux 9 | 145,233,858 | 145,596,763 | 145,596,668 | +0.25% |
+| fasta 1000000 | 417,705,803 | 441,706,029 | 417,705,450 | 0.00% |
+| k-nucleotide | 2,340,029,386 | 2,329,917,930 | 2,323,735,642 | −0.70% |
+| mandelbrot 1000 | 517,448,775 | 517,448,858 | 517,448,754 | 0.00% |
+| n-body 500000 | 233,378,150 | 235,378,165 | 235,378,146 | +0.86% |
+| n-body clist 500000 | 241,361,109 | 239,361,146 | 239,361,120 | −0.83% |
+| regex-redux | 2,519,233,168 | 2,521,132,940 | 2,517,896,404 | −0.05% |
+| reverse-complement | 49,138,920 | 49,138,913 | 49,138,913 | 0.00% |
+| spectral-norm 500 | 171,279,121 | 171,279,056 | 171,279,033 | 0.00% |
+
+k-nucleotide varies by a few tenths of a percent between runs of one
+binary.
+
+### n-body
+
+Plain n-body executes 4 instructions more per step (about 467 before).
+They are `xmm` moves and reloads in the straight-line body of `advance`.
+Its CLIF differs only in removed `i64` block parameters, and making room
+changes nothing in it. The cause is regalloc2's probe order: the register
+it tries first for a bundle is offset by the bundle's number, and removing
+values renumbers every later bundle, floating-point ones included. With
+the offset shifted by each of 32 constants in a test build (100,000 steps):
+
+| Compiler | Mean | Minimum |
+|---|---:|---:|
+| Before | 47.885 M | 46.97 M |
+| Parameter removal only | 47.720 M | 46.97 M |
+| Both | 47.720 M | 46.97 M |
+
+The change is neutral for n-body's code on average; the unshifted order
+that ships happens to fall 0.86% on the wrong side. fannkuch-redux and
+binary-trees were not sampled this way.
+
+### Compile cost
+
+Compiler user-mode instructions for `--dump asm --dump-std`, pinned:
+
+| Program | Before | Parameter removal only | Both |
+|---|---:|---:|---:|
+| fasta | 371,513,786 | 371,519,803 (0.00%) | 371,762,866 (+0.07%) |
+| k-nucleotide | 437,401,181 | 437,619,885 (+0.05%) | 434,373,040 (−0.69%) |
+| n-body | 493,958,407 | 494,232,846 (+0.06%) | 499,724,356 (+1.17%) |
+| regex-redux | 1,300,319,446 | 1,300,147,535 (−0.01%) | 1,302,912,860 (+0.20%) |
+
+n-body is the worst case found: many floating-point values in loops with
+every `xmm` register in use, each of which now sweeps the registers twice.
+
+## Not fixed by the candidates
+
+* `more-values.plenty` still loads and stores two values per symbol. More
+  values are used in the loop than there are registers, and a value live
+  through the loop but not used in it keeps its register; splitting it
+  around the loop is not attempted.
+* A value reloaded in a loop and not changed there is still stored back.
+* The probe-order sensitivity described under n-body.
