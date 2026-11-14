@@ -326,9 +326,13 @@ In optimized builds, `src/codegen/inline_calls.rs` lowers some calls by
 lowering the callee's typed body in the caller (issues #548 and #722). The
 body keeps its own locals, source position, trap sites and cleanup, so traps
 and `?` failures behave as the call would; only its final return becomes a
-jump. A callee is inlined when it is not recursive, not a generator, has no
-tail call and defines no function, and its operations, counting the callees
-inlined into it, stay within a bound:
+jump. A callee is inlined when it is not recursive, not a generator, defines
+no function and its operations, counting the callees inlined into it, stay
+within a bound. A terminal direct call is allowed only when the enclosing
+callee has no managed inputs or locals and that terminal target is itself
+inlined (scalar leaf or bounded call-site body). Remaining native tail calls
+and indirect tail calls keep their enclosing function out of this plan
+(issue #958). The operation bounds are:
 
 | Callee | Bound |
 |---|---|

@@ -1,0 +1,77 @@
+[
+  {
+    "build": "original",
+    "instructions": 1961158828,
+    "task_ms": 309.16
+  },
+  {
+    "build": "tail-before",
+    "instructions": 2572780303,
+    "task_ms": 346.52
+  },
+  {
+    "build": "tail-after",
+    "instructions": 1957818377,
+    "task_ms": 312.16
+  },
+  {
+    "build": "tail-before",
+    "instructions": 2572780297,
+    "task_ms": 349.98
+  },
+  {
+    "build": "tail-after",
+    "instructions": 1957818405,
+    "task_ms": 311.23
+  },
+  {
+    "build": "original",
+    "instructions": 1961159119,
+    "task_ms": 309.06
+  },
+  {
+    "build": "tail-after",
+    "instructions": 1957818436,
+    "task_ms": 313.86
+  },
+  {
+    "build": "original",
+    "instructions": 1961158763,
+    "task_ms": 311.13
+  },
+  {
+    "build": "tail-before",
+    "instructions": 2572780151,
+    "task_ms": 348.93
+  },
+  {
+    "build": "original",
+    "instructions": 1961159140,
+    "task_ms": 308.42
+  },
+  {
+    "build": "tail-before",
+    "instructions": 2572780490,
+    "task_ms": 350.0
+  },
+  {
+    "build": "tail-after",
+    "instructions": 1957818667,
+    "task_ms": 310.92
+  },
+  {
+    "build": "tail-before",
+    "instructions": 2572780572,
+    "task_ms": 350.51
+  },
+  {
+    "build": "tail-after",
+    "instructions": 1957818706,
+    "task_ms": 309.76
+  },
+  {
+    "build": "original",
+    "instructions": 1961159339,
+    "task_ms": 311.82
+  }
+]

@@ -202,6 +202,9 @@ in the Cranelift fork); the
 remaining per-pass cost is for fasta a value live across a call before the loop and kept in a stack slot, which is reloaded and stored back on each pass when all registers are in use (issue #939 fixed fasta's `random_fasta`, its cold call blocks and its register-to-register moves). Issue #947 is closed as not worth fixing: two fork prototypes that remove those reloads from a cut-down loop left the real benchmarks unchanged and regressed n-body; see `experiments/kernels/loop-reloads/`. The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)) and moves a split value's pieces into its spill bundle's register when that register is free (`docs/spill-bundle-registers.md` in the fork), and extends a stack-held value's register over a loop that uses it on every pass when a register is free there (`docs/loop-extension.md`); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
 #936), and a reference parameter's stored field is forwarded to the next read
 (`experiments/kernels/field-rng/`).
+[Terminal accessor wrappers](completed-work/performance.md#terminal-accessor-inlining-issue-958)
+also inline when they own no cleanup and every terminal target itself inlines
+(issue #958); real and indirect tail boundaries remain calls.
 A local whose loop writes are all remainders by positive constants keeps a
 bound across passes (issue #940), and a nonnegative `Bounded` field supplies
 its bounds to arithmetic on `get` (issue #937), with `Bounded.from` storing a

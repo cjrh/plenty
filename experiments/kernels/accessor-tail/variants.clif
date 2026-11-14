@@ -1,0 +1,81 @@
+; a: native call retained for terminal accessor wrapper.
+function %a(i128, i64) -> i64 tail {
+    gv0 = symbol colocated userextname1 ; .Ldata1 (trap sites: 1)
+    sig0 = (i128) -> i64 tail
+    fn0 = colocated u0:82 sig0 ; __plenty_fn___plenty_class_Wrapped.terminal
+
+block0(v0: i128, v1: i64):
+    v18, v19 = isplit v0
+    ; line 20
+    jump block2
+
+block2:
+    v2 = iconst.i64 0
+    v53 = smax v2, v1  ; v2 = 0
+    v22 = icmp sle v53, v2  ; v2 = 0
+    v6 = iconst.i64 1
+    brif v22, block1(v2), block3(v2, v53)  ; v2 = 0, v2 = 0
+
+block3(v23: i64, v29: i64):
+    ; line 21
+    v26 = call fn0(v0)
+    v27, v28 = sadd_overflow v23, v26
+    trapnz v28, user4  ; plenty_trap_overflow
+    jump block5
+
+block5:
+    jump block4
+
+block4:
+    v62 = iconst.i64 1
+    v63 = isub.i64 v29, v62  ; v62 = 1
+    v64 = iconst.i64 0
+    v65 = icmp sgt v63, v64  ; v64 = 0
+    ; line 20
+    brif v65, block3(v27, v63), block1(v27)
+
+block1(v37: i64):
+    ; line 22
+    return v37
+}
+
+; b: accessor body substituted at call site.
+function %b(i128, i64) -> i64 tail {
+    gv0 = symbol colocated userextname1 ; .Ldata1 (trap sites: 1)
+    sig0 = (i128) -> i64 tail
+    fn0 = colocated u0:82 sig0 ; __plenty_fn___plenty_class_Wrapped.terminal
+
+block0(v0: i128, v1: i64):
+    v18, v19 = isplit v0
+    ; line 20
+    jump block2
+
+block2:
+    v2 = iconst.i64 0
+    v53 = smax v2, v1  ; v2 = 0
+    v22 = icmp sle v53, v2  ; v2 = 0
+    v6 = iconst.i64 1
+    brif v22, block1(v2), block3(v2, v53)  ; v2 = 0, v2 = 0
+
+block3(v23: i64, v29: i64):
+    ; line 21
+    v26 = load.i64 notrap aligned v18
+    v27, v28 = sadd_overflow v23, v26
+    trapnz v28, user4  ; plenty_trap_overflow
+    jump block5
+
+block5:
+    jump block4
+
+block4:
+    v62 = iconst.i64 1
+    v63 = isub.i64 v29, v62  ; v62 = 1
+    v64 = iconst.i64 0
+    v65 = icmp sgt v63, v64  ; v64 = 0
+    ; line 20
+    brif v65, block3(v27, v63), block1(v27)
+
+block1(v37: i64):
+    ; line 22
+    return v37
+}

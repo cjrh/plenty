@@ -78,6 +78,11 @@ struct Plan<'a> {
     /// Direct call sites of each function across every body.
     sites: HashMap<&'a str, usize>,
     states: HashMap<&'a str, State>,
+    /// Leaf substitutions are already selected before this larger-body plan.
+    leaves: crate::hash::HashSet<&'a str>,
+    /// An inlined outer body may substitute a terminal call only when its
+    /// own pre-call cleanup has no work, matching `lower_tail_call`.
+    cleanup_free: crate::hash::HashSet<&'a str>,
 }
 
 /// Mark the functions to lower at their call sites in optimized builds:
@@ -88,9 +93,10 @@ struct Plan<'a> {
 /// must be about as small as the call it replaces, or a little larger while
 /// its copies together stay small.
 ///
-/// A real tail call releases the caller's locals before the callee runs,
-/// which a jump back into the caller cannot express, so a body with one
-/// stays a call. So do generators and bodies that define functions.
+/// A terminal call may disappear along with its wrapper when its callee is
+/// itself substituted and the wrapper owns no cleanup. Real tail calls stay
+/// calls: they transfer out of their frame instead of returning into an
+/// inlined wrapper. Generators and bodies defining functions also stay calls.
 pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<String, UserFn>) {
     let candidates: HashMap<&str, &Arc<[Op]>> = bodies
         .iter()
@@ -112,6 +118,25 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
         candidates,
         sites,
         states: HashMap::default(),
+        leaves: bodies
+            .iter()
+            .filter(|(name, _)| functions[name].inline.is_some())
+            .map(|(name, _)| name.as_str())
+            .collect(),
+        cleanup_free: bodies
+            .iter()
+            .filter(|(name, _)| {
+                let function = &functions[name];
+                function
+                    .sig
+                    .inputs
+                    .iter()
+                    .map(|(_, ty)| ty)
+                    .chain(function.locals.iter())
+                    .all(|ty| !ty.managed())
+            })
+            .map(|(name, _)| name.as_str())
+            .collect(),
     };
     // Declaration order keeps the outcome deterministic.
     for (name, _) in bodies {
@@ -164,6 +189,13 @@ impl<'a> Plan<'a> {
                 continue;
             }
             let cost = match op {
+                Op::TailCall(callee) if self.cleanup_free.contains(name) => {
+                    if self.leaves.contains(callee.as_str()) {
+                        Some(1)
+                    } else {
+                        self.size(callee)
+                    }
+                }
                 Op::TailCall(_) | Op::TailCallIndirect(_) | Op::Yield(_) | Op::DefineFn(..) => None,
                 Op::Call(callee) if self.candidates.contains_key(callee.as_str()) => {
                     Some(self.size(callee).unwrap_or(1))

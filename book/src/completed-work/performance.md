@@ -1592,3 +1592,31 @@ The retained kernels, C comparison and instruction evidence are in
 `experiments/kernels/unused-range/`. See [loop counter
 checks](../design/toolchain/02-architecture/emission.md#loop-counter-checks)
 for the lowering's restrictions.
+
+
+## Terminal accessor inlining (issue #958)
+
+Small wrappers ending in an accessor or another inlined direct call can now
+inline into their callers. The wrapper must have no managed inputs or locals,
+and every terminal target must itself be selected for scalar-leaf or general
+inlining under the existing size bounds. Recursive, indirect and remaining
+native tail calls keep their enclosing body out of this plan. Native tail-call
+lowering and shared cleanup are unchanged; managed outer wrappers remain calls.
+
+This fixes both `Rng.next` ending in `self.seed.get()` and an independent user
+accessor chain. On baseline x86-64, the isolated bounded generator loop drops
+from 7 instructions plus its 13-instruction callee to 12 instructions, matching
+the equivalent unsigned C kernel. A checked user-accessor sum drops from 8 plus
+its 6-instruction callee to 6 instructions; C uses 5 because it hoists the
+unchanged field load. The remaining invariant-load limitation is the kind recorded in closed
+issue #938, whose proposed hoisting change was declined after measurement.
+
+Five interleaved pinned-core fasta runs (`n = 5,000,000`) retire 2,572.780M
+instructions before and 1,957.818M after for the tail-accessor version, versus
+1,961.159M for the unchanged local-return benchmark. Median CPU times are
+349.98, 311.23 and 309.16 ms respectively; the latter two ranges overlap.
+Exact output agrees with the benchmark fixture. Synthetic 1000-unit AOT
+compilation uses 0.065% more instructions; real-program compile probes and raw
+sample ranges are retained in `experiments/kernels/accessor-tail/README.md`,
+with the Plenty/C kernels and CLIF substitution variants. This main-based
+implementation is independent of issue #972's native Bounded representation.
