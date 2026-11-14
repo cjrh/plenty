@@ -1592,3 +1592,26 @@ The retained kernels, C comparison and instruction evidence are in
 `experiments/kernels/unused-range/`. See [loop counter
 checks](../design/toolchain/02-architecture/emission.md#loop-counter-checks)
 for the lowering's restrictions.
+
+
+## Bounded integer arguments (issue #972)
+
+`Bounded[T, lo, hi]` keeps its nominal checking type while native values and
+calls use the width of `T`. Its compiler-known `.get()` copies the field
+without taking a local address, preserving shared receiver borrow checks.
+Ordinary user-class calling conventions and runtime aggregate slots are unchanged.
+The isolated spectral-norm helper drops its 32-byte borrowing frame and its
+integer loads/stores. Both bounded matrix inner loops fall from 22 to 17
+instructions on baseline x86-64; the equivalent C loops use 14.
+
+The existing unchecked spectral-norm benchmark is retained. A measured bounded
+rewrite has 17/17 instructions against the original's 16/18, so it fails the
+individual-loop nonregression gate even though total retired instructions at
+`n = 2000` fall slightly (2,724.495M to 2,724.415M). Nine interleaved pinned-core
+samples give median CPU times of 162.05/160.58 ms, with overlapping ranges;
+this is evidence of no whole-program regression, not a reliable speedup claim.
+The remaining latch move/jump is tracked by issue #977. The checked-in
+kernels, IR variants, raw samples and reproduction instructions in
+`experiments/kernels/bounded-arguments/README.md` record the attribution and
+x86-64-v3 comparison. This delivery removes the
+compiler spill; it does not deliver the benchmark rewrite.

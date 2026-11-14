@@ -104,7 +104,7 @@ impl Lowerer<'_, '_> {
         if !self.joins.pending() {
             return None;
         }
-        let storage = ty.quantity_storage().unwrap_or_else(|| ty.clone());
+        let storage = ty.native_storage().unwrap_or_else(|| ty.clone());
         let one_word = !storage.wide()
             && !matches!(storage, Ty::Ref(..) | Ty::View(..))
             && clif_type(storage).bits() <= 64;

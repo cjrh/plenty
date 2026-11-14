@@ -114,7 +114,10 @@ this value is in -9223372036854775808..9223372036854775807, which is not inside 
 ## Value behavior
 
 A bounded integer is a copyable private single-field class. It stores only `T`;
-the bounds are type metadata and add no fields. It follows ordinary class
+the bounds are type metadata and add no fields. Native calls and local values
+use the underlying integer width, and `.get()` reads that integer directly
+without taking a local address. Its shared receiver still obeys ordinary
+borrow checking. Runtime container slots retain their usual layout. It follows ordinary class
 borrowing, equality, hashing and cleanup behavior. Equality requires matching
 bounded types. Default formatting shows the class and its value; `.get()` gives
 the ordinary integer's formatting and ordering operations.

@@ -1,0 +1,110 @@
+[
+  {
+    "round": 0,
+    "build": "before",
+    "source": "spectral",
+    "instructions": 382741123
+  },
+  {
+    "round": 0,
+    "build": "before",
+    "source": "fasta",
+    "instructions": 391113304
+  },
+  {
+    "round": 0,
+    "build": "before",
+    "source": "bounded",
+    "instructions": 384364540
+  },
+  {
+    "round": 0,
+    "build": "after",
+    "source": "spectral",
+    "instructions": 383977136
+  },
+  {
+    "round": 0,
+    "build": "after",
+    "source": "fasta",
+    "instructions": 392249490
+  },
+  {
+    "round": 0,
+    "build": "after",
+    "source": "bounded",
+    "instructions": 384845809
+  },
+  {
+    "round": 1,
+    "build": "before",
+    "source": "spectral",
+    "instructions": 382799063
+  },
+  {
+    "round": 1,
+    "build": "before",
+    "source": "fasta",
+    "instructions": 391102592
+  },
+  {
+    "round": 1,
+    "build": "before",
+    "source": "bounded",
+    "instructions": 384384540
+  },
+  {
+    "round": 1,
+    "build": "after",
+    "source": "spectral",
+    "instructions": 383960838
+  },
+  {
+    "round": 1,
+    "build": "after",
+    "source": "fasta",
+    "instructions": 392267461
+  },
+  {
+    "round": 1,
+    "build": "after",
+    "source": "bounded",
+    "instructions": 384847921
+  },
+  {
+    "round": 2,
+    "build": "before",
+    "source": "spectral",
+    "instructions": 382760742
+  },
+  {
+    "round": 2,
+    "build": "before",
+    "source": "fasta",
+    "instructions": 391117259
+  },
+  {
+    "round": 2,
+    "build": "before",
+    "source": "bounded",
+    "instructions": 384391980
+  },
+  {
+    "round": 2,
+    "build": "after",
+    "source": "spectral",
+    "instructions": 383977766
+  },
+  {
+    "round": 2,
+    "build": "after",
+    "source": "fasta",
+    "instructions": 392227879
+  },
+  {
+    "round": 2,
+    "build": "after",
+    "source": "bounded",
+    "instructions": 384866177
+  }
+]

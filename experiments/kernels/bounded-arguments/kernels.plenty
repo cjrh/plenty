@@ -1,0 +1,42 @@
+# spectral-norm: power method on the infinite matrix A(i, j) = 1 / ((i + j)(i + j + 1) / 2 + i + 1).
+# Same algorithm as the reference (spectralnorm.clang-8.c).
+
+# Indices stay below MAX_N, so (i + j + 1)^2 stays far below i64.MAX.
+const MAX_N: i64 = 1_000_000
+type Index = Bounded[i64, 0, MAX_N]
+
+
+def eval_a(i: Index, j: Index) -> f64:
+    ij = i.get() + j.get()
+    1.0 / f64(ij * (ij + 1) // 2 + i.get() + 1)
+
+
+def a_times_u(u: &[f64], au: &mut [f64]) -> ():
+    n = len(u)
+    if n > MAX_N:
+        return
+    for i in range(n):
+        mut sum = 0.0
+        for j in range(n):
+            sum += eval_a(Index.from(i), Index.from(j)) * u[j]
+        au[i] = sum
+
+
+def at_times_u(u: &[f64], au: &mut [f64]) -> ():
+    n = len(u)
+    if n > MAX_N:
+        return
+    for i in range(n):
+        mut sum = 0.0
+        for j in range(n):
+            sum += eval_a(Index.from(j), Index.from(i)) * u[j]
+        au[i] = sum
+
+
+
+def main() -> ():
+    u = [1.0, 2.0, 3.0].unwrap()
+    mut out = [0.0, 0.0, 0.0].unwrap()
+    a_times_u(&u, &mut out)
+    at_times_u(&u, &mut out)
+    print(out).unwrap()
