@@ -26,8 +26,14 @@ pub(in crate::frontend) struct Lent {
     /// References held as state, passed by value. The plan never reassigns
     /// them, and the lender keeps their loans live across the call.
     shared: Vec<u8>,
+    /// Each caller referent represented by a passed source reference. Recorded
+    /// from semantic reference origins, never diagnostic binding names.
+    source_referents: BTreeMap<u8, u8>,
     /// Slots rewritten for each item; the borrower allocates its own.
     scratch: Vec<u8>,
+    /// Initialized neutral roots of path-sensitive item joins, with no runtime
+    /// referent. Borrowers initialize their relocated slots at function entry.
+    absent_referents: BTreeSet<u8>,
     /// Item slots holding references, with the lender's loan each derives
     /// from. The borrower gives each a loan of its own.
     references: Vec<(u8, usize, bool)>,
@@ -178,6 +184,9 @@ struct Relocation<'a> {
     /// operations on them are dropped, and the lender keeps their loans
     /// live across the call.
     foreign: BTreeSet<u8>,
+    /// Caller referents represented by passed source references. These roots
+    /// occur only in checking facts; runtime slots still use `slots`.
+    checking_roots: HashMap<u8, u8>,
     loans: HashMap<usize, usize>,
     names: &'a [Option<Arc<str>>],
     at: &'a Token,
@@ -229,18 +238,42 @@ impl Relocation<'_> {
                 Op::EmptyLocal(i) => Op::EmptyLocal(self.written(*i)?),
                 Op::Next(i) => Op::Next(self.written(*i)?),
                 Op::FieldMove(fact) => Op::FieldMove(fact.with_root(self.written(fact.root())?)),
-                Op::Access(i, _, _) if self.foreign.contains(i) => continue,
+                Op::Access(i, _, _)
+                    if self.foreign.contains(i) && !self.checking_roots.contains_key(i) =>
+                {
+                    continue;
+                }
                 Op::Access(i, write, via) => Op::Access(
-                    self.slot(*i)?,
+                    self.checking_roots
+                        .get(i)
+                        .copied()
+                        .map_or_else(|| self.slot(*i), Ok)?,
                     *write,
                     via.and_then(|id| self.loans.get(&id).copied()),
                 ),
-                Op::Loan(loan) if self.foreign.contains(&loan.root) => continue,
+                Op::Loan(loan)
+                    if self.foreign.contains(&loan.root)
+                        && !self.checking_roots.contains_key(&loan.root) =>
+                {
+                    continue;
+                }
                 Op::Loan(loan) => {
                     let mut loan = loan.clone();
                     loan.id = self.loans[&loan.id];
-                    loan.root = self.slot(loan.root)?;
+                    loan.root = self
+                        .checking_roots
+                        .get(&loan.root)
+                        .copied()
+                        .map_or_else(|| self.slot(loan.root), Ok)?;
                     loan.parent = loan.parent.and_then(|id| self.loans.get(&id).copied());
+                    loan.holder = loan.holder.and_then(|assigned| {
+                        self.loans
+                            .get(&assigned.holder)
+                            .map(|&holder| crate::ownership::Assigned {
+                                holder,
+                                kind: assigned.kind,
+                            })
+                    });
                     loan.through = loan.through.and_then(|i| self.slots.get(&i).copied());
                     loan.binding = loan.binding.and_then(|i| self.slots.get(&i).copied());
                     loan.dependencies = loan
@@ -591,6 +624,19 @@ impl Lower<'_> {
             types,
             owned: owned.clone(),
             shared: shared.clone(),
+            source_referents: shared
+                .iter()
+                .filter_map(|&slot| {
+                    self.reference_locals
+                        .get(&slot)
+                        .map(|&loan| (self.loans[loan].root, slot))
+                })
+                .collect(),
+            absent_referents: scratch
+                .iter()
+                .copied()
+                .filter(|slot| self.absent_referents.contains(slot))
+                .collect(),
             scratch,
             references,
             streaming,
@@ -729,6 +775,11 @@ impl Lower<'_> {
             let mut scratch = Vec::new();
             for &slot in &lent.scratch {
                 let local = self.slot(lent.types[&slot].clone(), at)?;
+                if lent.absent_referents.contains(&slot) {
+                    self.function_initializers
+                        .extend([Op::PushUnit, Op::StoreLocal(local)]);
+                    self.absent_referents.insert(local);
+                }
                 map.insert(slot, local);
                 scratch.push(local);
             }
@@ -745,10 +796,20 @@ impl Lower<'_> {
                 .into_iter()
                 .filter(|slot| !map.contains_key(slot))
                 .collect();
+            // A borrowed user source's actual receiver lives in the caller.
+            // Keep its per-poll and selected-arm facts through the source
+            // reference passed as hidden state, rather than dropping them as
+            // foreign. This changes checking roots only, never runtime slots.
+            let checking_roots: HashMap<u8, u8> = lent
+                .source_referents
+                .iter()
+                .filter(|(root, _)| foreign.contains(root))
+                .map(|(&root, source)| (root, map[source]))
+                .collect();
             let mut renumbered = HashMap::default();
             let first = self.loans.len();
             for (old, loan) in &internal {
-                if !foreign.contains(&loan.root) {
+                if !foreign.contains(&loan.root) || checking_roots.contains_key(&loan.root) {
                     renumbered.insert(*old, first + renumbered.len());
                 }
             }
@@ -756,6 +817,7 @@ impl Lower<'_> {
                 slots: map,
                 shared: lent.shared.iter().copied().collect(),
                 foreign,
+                checking_roots,
                 loans: renumbered,
                 names: &[],
                 at,
@@ -775,6 +837,15 @@ impl Lower<'_> {
                 })
                 .collect();
             facts.sort_by_key(|loan| loan.id);
+            for loan in &facts {
+                if let Some(assigned) = loan.holder {
+                    self.holders
+                        .entry(assigned.holder)
+                        .or_default()
+                        .assigned
+                        .push(loan.id);
+                }
+            }
             self.loans.extend(facts);
             // An item reference points into a source the lender keeps borrowed
             // for the whole call, which the borrower reaches only through

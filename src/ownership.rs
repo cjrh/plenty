@@ -681,7 +681,9 @@ pub struct Loan {
     /// its own value with `EndLoan`, so a use of the join keeps only the loan
     /// of the arm that ran on that path. The end is ignored where the join or
     /// a loan derived from it is live, since that value may come from an
-    /// earlier evaluation, as in a loop, and hold any arm's loan.
+    /// earlier evaluation, as in a loop, and hold any arm's loan. A repeated
+    /// arm definition likewise cannot reset its older loan while a descendant
+    /// of that join is live.
     pub holder: Option<Assigned>,
 }
 /// The holder a loan was assigned to: see [`Loan::holder`]. One field, so
@@ -3092,7 +3094,20 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
                         use_loan(*id, &loans, &held, &mut before);
                     }
                     Some(Op::Loan(l)) => {
-                        before.remove(&l.id);
+                        // Re-evaluating one branch does not replace an older
+                        // item still carried by a copy of its join. Like an
+                        // EndLoan boundary, this definition starts a new item
+                        // only when no descendant keeps the old join live.
+                        let carried = l.holder.is_some_and(|assigned| {
+                            assigned.kind == Joined::Arm
+                                && before
+                                    .0
+                                    .iter()
+                                    .any(|live| descends(*live, assigned.holder, &loans))
+                        });
+                        if !carried {
+                            before.remove(&l.id);
+                        }
                         if let Some(p) = l.parent {
                             before.insert(p);
                         }

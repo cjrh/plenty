@@ -1717,8 +1717,9 @@ The [cursor lesson](../tutorial/06-data/user-iterators.md) teaches a named
 exclusive loan and recommended owning collection construction. A relaxed
 shared-item lifetime, separate container factory protocol, arbitrary `flat_map`
 sources, parallel user sources and direct builtin collection conversion remain
-outside this delivery. `chain` requires owned user items; its strict borrowed-item
-origin gap is recorded as issue #981. The reference states those boundaries. This completes
+outside this delivery. Strict borrowed-item `chain` joins were delivered
+separately in issue #981, preserving each selected receiver's lifetime. The
+reference states those boundaries. This completes
 the three delivered steps in issue #945 without lifting broader B11/B12 limits.
 
 ## B83 inline arrays
@@ -1735,3 +1736,13 @@ nested pair of three-byte arrays occupies six logical bytes. Existing class
 layout is unchanged. This prerequisite does not deliver public vector APIs,
 array arithmetic, a SIMD rewrite, or flattened `clist` array lanes.
 [Remaining B83 scope](../backlog.md) stays in the backlog.
+
+## Borrowed user-iterator chains (issue #981)
+
+[`chain`](../design/language/09-iteration/06-pipelines.md) accepts matching
+strict borrowed items from structural user iterators. Its item joins are
+created after the selected poll, using the checker's existing conditional-value
+loan holders. The join retains receiver stability and external source loans;
+keeping an earlier item live still prevents another advance across backedges,
+`continue`, source switches, nested chains and lent or resumed pipelines.
+No relaxed shared-item lifetime or runtime descriptor is introduced.

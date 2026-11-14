@@ -352,7 +352,10 @@ There is a 64-adapter/type-depth limit, alongside expression nesting limits.
 sides must yield exactly the same item type, pair shape included. The second
 source is evaluated at construction but not advanced until the first ends. A
 `take_while` that stops the first side moves on to the second; it does not end
-the chain. An item borrowed from either side keeps both sources borrowed.
+the chain. Both sources retain their construction loans. A strict borrowed
+[user-iterator item](08-user-iterators.md) additionally retains the selected
+receiver's poll loan; another advance is rejected while an earlier item is
+still used, including across the switch between sources.
 
 `flat_map(f)` calls `f` for an outer item only when the previous inner source
 has ended. One rule applies: the callback returns any owned iterable (a list,

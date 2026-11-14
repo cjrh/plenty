@@ -48,3 +48,8 @@ borrow it. Bounds checks remain in place on `self.data[index]`.
 Use `[*value for value in &mut cursor]?` when you need an owned list of the
 remaining integers. See [user iterators](../../design/language/09-iteration/08-user-iterators.md)
 for generic cursors, local pipelines and storage limits.
+
+Use `iter(&mut left).chain(&mut right)` to read two cursors in order without
+collecting their items. Both cursors are lent when the pipeline is built;
+the second starts advancing after the first ends. Use each item before the
+next advance, just as with one cursor.

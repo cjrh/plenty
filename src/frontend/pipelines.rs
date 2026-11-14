@@ -78,9 +78,8 @@ pub(super) struct State {
     pub(super) callbacks: HashMap<u8, (Token, Option<String>)>,
     /// Loans of the reference items of lent pipelines this borrower received.
     pub(super) lent_item_loans: HashSet<usize>,
-    /// Strict receiver-bound items from structural user iterators. `chain`
-    /// currently joins both origins before polling either source, which cannot
-    /// represent a per-poll receiver loan. Mapping to an owned value removes it.
+    /// Strict receiver-bound items from structural user iterators, including
+    /// branch-local item joins that retain their selected receiver loan.
     pub(super) streaming_items: HashSet<usize>,
     /// Generator bridges made so far in this function; the count keeps their
     /// helper names distinct.
@@ -1090,6 +1089,7 @@ impl Lower<'_> {
         let mut right_moves = Vec::new();
         let mut step = Vec::new();
         let mut chained_loans = Vec::new();
+        let mut item_joins = Vec::new();
         for (l, r) in left_fields.iter().zip(&right_fields) {
             let slot = self.slot(l.ty.clone(), at)?;
             let load = |local: &Local| {
@@ -1113,9 +1113,15 @@ impl Lower<'_> {
                 .iter()
                 .any(|origin| self.strict_streaming_origin(*origin))
             {
-                return Err(at.error("chain cannot combine strict streaming user-iterator items; map to owned values first"));
-            }
-            if let Some(&first) = origins.first() {
+                let join = self.chain_item_join(
+                    at,
+                    [l, r],
+                    [&mut left, &mut right],
+                    [&mut left_moves, &mut right_moves],
+                    &mut item_joins,
+                )?;
+                self.reference_locals.insert(slot, join);
+            } else if let Some(&first) = origins.first() {
                 // A reborrow of the first origin, not a loan of the shared
                 // slot, so the slot can be reassigned for the next item.
                 let mut marker = Vec::new();
@@ -1173,6 +1179,12 @@ impl Lower<'_> {
         absent.extend(r.absent);
         let mut cleanup = l.cleanup;
         cleanup.extend(r.cleanup);
+        // Even an exhausted or skipped pull produces a loan-free Nothing.
+        // Define its neutral join on those paths too, so a returned option
+        // cannot make that join live before its initialized placeholder.
+        absent.extend(item_joins.iter().cloned());
+        let mut condition = vec![Op::LoadLocal(second), branch(later, first)];
+        condition.extend(item_joins.iter().cloned());
         let mut steps = vec![Op::LoadLocal(second), branch(r.step, l.step)];
         steps.extend(step);
         // Saturate: a later `take` may still bound a sum above i64.MAX.
@@ -1191,9 +1203,13 @@ impl Lower<'_> {
             counter: None,
             exact_len,
             cleanup,
-            condition: vec![Op::LoadLocal(second), branch(later, first)],
+            condition,
             absent,
-            body: vec![Op::LoadLocal(second), branch(right_body, left_body)],
+            body: {
+                let mut body = vec![Op::LoadLocal(second), branch(right_body, left_body)];
+                body.extend(item_joins);
+                body
+            },
             step: steps,
             target: shared[0].slot,
         };
@@ -1220,6 +1236,74 @@ impl Lower<'_> {
         left.loans.extend(chained_loans);
         left.depth = left.depth.max(right.depth + 1);
         Ok(left)
+    }
+
+    /// Joins reference-carrying items only after the selected source poll.
+    /// Each branch has its own child loan, like an if/match value. Ending the
+    /// other arm does not erase an older item carried across a later poll:
+    /// Joined::Arm keeps that loan while the join or its descendants are live.
+    fn chain_item_join(
+        &mut self,
+        at: &Token,
+        items: [&Local; 2],
+        plans: [&mut Pipeline; 2],
+        mut moves: [&mut Vec<Op>; 2],
+        output: &mut Vec<Op>,
+    ) -> Result<usize> {
+        let referent = self.absent_referent(at)?;
+        let join = self.new_loan(referent, items[0].ty.carries_mutable_loan(), None, output);
+        let mut arms: [Vec<usize>; 2] = [Vec::new(), Vec::new()];
+        for ((index, local), plan) in items.into_iter().enumerate().zip(plans) {
+            if let Some(&origin) = self.reference_locals.get(&local.slot) {
+                // A nested chain's placeholder is not a real referent. Attach
+                // each new arm beside its selected leaf arm instead, avoiding
+                // an outer member whose parent is the inner join itself. Mirror
+                // direct item loans too: zip moves the body into a pull loop,
+                // whose exhausted path can bypass those body-only markers.
+                let leaves = self
+                    .holders
+                    .get(&origin)
+                    .map(|holder| holder.assigned.clone());
+                let mut aliases = HashMap::default();
+                for parent in leaves.clone().unwrap_or_else(|| vec![origin]) {
+                    let mut marker = Vec::new();
+                    let arm = self.new_loan(
+                        self.loans[parent].root,
+                        self.loans[parent].mutable,
+                        Some(parent),
+                        &mut marker,
+                    );
+                    self.loans[arm].holder = Some(crate::ownership::Assigned {
+                        holder: join,
+                        kind: crate::ownership::Joined::Arm,
+                    });
+                    aliases.insert(parent, self.loans[arm].clone());
+                    if leaves.is_none() {
+                        moves[index].push(Op::Loan(self.loans[arm].clone()));
+                    }
+                    arms[index].push(arm);
+                }
+                if !aliases.is_empty() {
+                    let iteration = &mut plan.iteration;
+                    iteration.condition = chain_leaf_aliases(&iteration.condition, &aliases);
+                    iteration.body = chain_leaf_aliases(&iteration.body, &aliases);
+                    iteration.step = chain_leaf_aliases(&iteration.step, &aliases);
+                    iteration.absent = chain_leaf_aliases(&iteration.absent, &aliases);
+                }
+            }
+        }
+        for (index, body) in moves.iter_mut().enumerate() {
+            body.extend(arms[1 - index].iter().copied().map(Op::EndLoan));
+        }
+        self.holders.insert(
+            join,
+            references::Holder {
+                assigned: arms.into_iter().flatten().collect(),
+                returned: false,
+            },
+        );
+        self.pipeline.streaming_items.insert(join);
+        Ok(join)
     }
 
     /// One loop whose condition pulls outer items until the callback's
@@ -2355,6 +2439,61 @@ fn guard_end(plan: &mut Pipeline, ended: u8) {
         Op::LoadLocal(ended),
         branch(absent, std::mem::take(&mut plan.iteration.condition)),
     ];
+}
+
+/// Mirror a source item or nested join's selected leaf and ending boundaries
+/// for its enclosing chain. Runtime operations and polling order are unchanged.
+fn chain_leaf_aliases(ops: &[Op], aliases: &HashMap<usize, crate::ownership::Loan>) -> Vec<Op> {
+    let nested = |ops: &[Op]| -> Arc<[Op]> { chain_leaf_aliases(ops, aliases).into() };
+    let mut result = Vec::new();
+    for original in ops {
+        let mut op = original.clone();
+        match &mut op {
+            Op::Loop { condition, body } => {
+                *condition = nested(condition);
+                *body = nested(body);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                *then = nested(then);
+                for arm in Arc::make_mut(elifs) {
+                    arm.condition = nested(&arm.condition);
+                    arm.body = nested(&arm.body);
+                }
+                *otherwise = nested(otherwise);
+            }
+            Op::Match(arms) => {
+                for arm in Arc::make_mut(arms) {
+                    arm.body = nested(&arm.body);
+                }
+            }
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                *cleanup = nested(cleanup)
+            }
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                *body = nested(body)
+            }
+            _ => {}
+        }
+        result.push(op);
+        match original {
+            Op::Loan(loan) => {
+                if let Some(alias) = aliases.get(&loan.id) {
+                    result.push(Op::Loan(alias.clone()));
+                }
+            }
+            Op::EndLoan(id) => {
+                if let Some(alias) = aliases.get(id) {
+                    result.push(Op::EndLoan(alias.id));
+                }
+            }
+            _ => {}
+        }
+    }
+    result
 }
 
 /// Emit the consumer loop. A split `chain` runs one loop per side, so neither
