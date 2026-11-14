@@ -33,12 +33,34 @@ def read(xs: &array[i64, 3], i: i64) -> i64:
     xs[i]
 def main() -> Result[(), IoError]:
     mut xs = make()
-    print(len(xs), read(&xs, -1), xs)?
+    mut i = -1
+    print(len(xs), read(&xs, -1), xs, xs[-1], xs[i])?
+    i = 0
+    last = make()[-1]
+    print(xs[i], make()[-1], last, array[i64, 2].filled(7)[-1])?
     xs[1] = 99
     print(xs[1], xs)?
     Ok(())
 "#,
-        "3 30 array[10, 20, 30]\n99 array[10, 99, 30]\n",
+        "3 30 array[10, 20, 30] 30 30\n10 30 30 7\n99 array[10, 99, 30]\n",
+    );
+}
+
+#[test]
+fn observed_temporary_array_keeps_owned_elements_alive() {
+    run(
+        r#"
+class Item:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+def make() -> array[Item, 2]:
+    [Item(1), Item(2)]
+def main() -> Result[(), IoError]:
+    print(make()[-1])?
+    Ok(())
+"#,
+        "Item(id=2)\ndrop 1\ndrop 2\n",
     );
 }
 #[test]
@@ -219,6 +241,16 @@ def main() -> Result[(), IoError]:
 #[test]
 fn element_loans_and_zero_length_ownership_restrictions() {
     for (source, expected) in [
+        (
+            r#"
+def make() -> array[i64, 2]:
+    [1, 2]
+def main() -> ():
+    item = &make()[0]
+    print(*item).unwrap()
+"#,
+            "temporary cannot be stored",
+        ),
         (
             r#"
 def main() -> ():

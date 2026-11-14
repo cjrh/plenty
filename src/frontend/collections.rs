@@ -3956,15 +3956,18 @@ impl Lower<'_> {
             }
             return self.index(&element, ops);
         }
-        if matches!(self.place_type(base), Some(Ty::Array(..)))
-            || matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
+        if matches!(
+            self.place_type(base)
+                .or_else(|| self.expression_type_hint(base)),
+            Some(Ty::Array(..))
+        ) || matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
         {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(value, _) = reference else {
                 unreachable!()
             };
             if value.affine() {
-                return Err(index.at.error(if matches!(self.place_type(base),Some(Ty::Array(..))) {
+                return Err(index.at.error(if matches!(self.place_type(base).or_else(|| self.expression_type_hint(base)),Some(Ty::Array(..))) {
                     "cannot move out of an array index; borrow the element or copy it explicitly"
                 } else { "cannot move out of a tuple index; unpack the tuple instead" }));
             }
