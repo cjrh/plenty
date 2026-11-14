@@ -536,8 +536,23 @@ fn copied_file_preserves_only_selected_permissions_and_observed_times() {
 #[test]
 fn recursive_copy_streams_names_and_applies_directory_metadata_after_children() {
     use std::os::unix::fs::MetadataExt;
+
+    // TempDir silently ignores removal failures. Restore directory write access
+    // before it drops, including when an assertion or compilation panics.
+    struct RestoreWriteAccess([PathBuf; 2]);
+    impl Drop for RestoreWriteAccess {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                // The destination may not exist if compilation or copying fails.
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+            }
+        }
+    }
+
     let fixture = tempfile::tempdir().unwrap();
     let source = fixture.path().join("source");
+    let copied = fixture.path().join("copied");
+    let restore = RestoreWriteAccess([source.join("nested"), copied.join("nested")]);
     std::fs::create_dir_all(source.join("nested/empty")).unwrap();
     std::fs::write(source.join(".hidden"), b"hidden").unwrap();
     std::fs::write(
@@ -571,7 +586,6 @@ fn recursive_copy_streams_names_and_applies_directory_metadata_after_children() 
         String::from_utf8(program.run(fixture.path()).stdout).unwrap(),
         "10\n"
     );
-    let copied = fixture.path().join("copied");
     assert!(copied.join("nested/empty").is_dir());
     assert_eq!(std::fs::read(copied.join(".hidden")).unwrap(), b"hidden");
     assert_eq!(
@@ -589,6 +603,10 @@ fn recursive_copy_streams_names_and_applies_directory_metadata_after_children() 
         (after.mtime(), after.mtime_nsec()),
         (before.mtime(), before.mtime_nsec())
     );
+    drop(restore);
+    fixture
+        .close()
+        .expect("read-only copy fixture must be removable");
 }
 
 #[test]
