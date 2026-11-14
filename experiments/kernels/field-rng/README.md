@@ -222,9 +222,8 @@ Rust's 12.5 cycles in the `% IM` kernels is the average of two unrolled
 copies. One uses the same `mul; shr; imul; sub` as Plenty before; the other
 uses LLVM's knowledge that the dividend fits in 32 bits:
 `imul $0x1df75681,%rax,%rcx; shr $46,%rcx`, a 3-cycle low multiply where the
-high half of `mulq` takes 4. Plenty does not choose a low-product multiplier;
-with the shift it would equal the current chain, and it would free `%rax` and
-`%rdx`.
+high half of `mulq` takes 4. Plenty did not choose a low-product multiplier
+here; see [a low-product multiplier](#a-low-product-multiplier-issue-960).
 
 `fill` and `fill_unbounded` are unchanged: their dividend may be negative, so
 they keep Cranelift's signed sequence, both overflow checks and the floor
@@ -234,3 +233,72 @@ fasta, 25,000,000 (`perf stat -r 5`, three interleaved rounds, load average
 2.4 to 5.0): 10,634.6M to 10,434.6M instructions (-1.9%), 7,216M to 7,236M
 cycles before against 7,021M to 7,039M after (-2.7%, one cycle for each of
 its 200 million random numbers). Output identical.
+
+## A low-product multiplier (issue #960)
+
+Plenty before = `9dee6930`, same Cranelift fork. When the bound keeps
+`dividend * multiplier` below `2**64`, the quotient is the low product shifted
+right: `imul; shr`, in any registers
+([division by a constant](../../../book/src/design/toolchain/02-architecture/emission.md#division-by-a-constant)).
+
+Instructions and cycles per pass, `perf stat -r 3` on one pinned core of a
+Ryzen 7 7840HS, 409.6 million passes, two interleaved rounds that agree within
+0.02 cycles. Other builds were running (load average 25 to 58); user-mode
+cycle counts on the pinned core matched the earlier tables' "After" column
+for the unchanged binary.
+
+| Kernel | Before | After | Before cycles | After cycles |
+| --- | ---: | ---: | ---: | ---: |
+| `fill` | 24.0 | 24.0 | 18.2 | 18.2 |
+| `fill_bounded` | 12.0 | 12.0 | 12.1 | 12.1 |
+| `fill_local` | 12.0 | 10.0 | 12.1 | 12.1 |
+| `fill_arms` | 15.0 | 12.5 | 12.1 | 12.1 |
+| `fill_inner` | 12.0 | 10.0 | 12.1 | 12.1 |
+| `fill_unbounded` | 22.0 | 22.0 | 19.1 | 19.1 |
+| `fill_product` | 9.0 | 10.0 | 11.1 | 8.1 |
+
+`fill_local`, 12 to 10 instructions:
+
+```text
+imul  $0xF25,%rax            3 cycles
+add   $0x7385,%rax           1
+imul  $0x1DF75681,%rax,%rcx  3
+shr   $0x2E,%rcx             1
+imul  $0x222C0,%rcx          3
+sub   %rcx,%rax              1
+mov   %rax,(%rsi,%rdi,8)
+add   $1,%rdi
+cmp   %r8,%rdi
+jl
+```
+
+The multiplier is the one LLVM picks for a 32-bit dividend. `imul; shr` has
+the 4 cycles of the unshifted `mulq`, so the chain is still 12. The dividend
+no longer passes through `%rax` for `mulq`, so the `sub` overwrites it in
+place and the two copies of issue #954 are gone, as is the load of `%rax`.
+
+`fill_product`, 11 to 8 cycles. The dividend `s * IA` feeds only multiplies,
+so Cranelift folds `s * IA * m` into one multiply by `IA * m` (modulo
+`2**64`), read from the constant pool; `s * IA` itself is computed beside the
+chain and joins at the add:
+
+```text
+mov   %rax,%rcx
+imul  [IA * 0x1DF75681],%rcx     3 cycles
+shr   $0x2E,%rcx                 1
+imul  $-IM,%rcx                  3
+imul  $0xF25,%rax                (off the chain)
+add   %rcx,%rax                  1
+```
+
+The high product could not be reassociated this way. Rust runs this kernel in
+10.8 cycles.
+
+A division that needed `mulq; shr` and now has a low product saves a cycle of
+latency by the same counts; no kernel here has that form.
+
+fasta, 25,000,000: 10,434.6M instructions before and after (the load of
+`%rax` becomes the `shr`), output identical. Its chain is `fill_local`'s, so
+no cycle change is expected. Under the load above it measured 8,002M and
+8,074M cycles before against 7,886M and 7,942M after, which that load leaves
+inconclusive.
