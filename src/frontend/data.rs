@@ -824,6 +824,19 @@ impl TypeAliases {
                 if let Ty::Class(class) = ty {
                     self.check_copy_class(class, &self.data.classes[name], actual)?;
                 }
+                // A forward class name may not yet reveal its borrowed fields
+                // while its containing enum is resolved. Recheck once every
+                // nominal definition in this bounded batch is complete.
+                if let Ty::Enum(enumeration) = ty
+                    && let Some(barrier) = enumeration
+                        .get()
+                        .variants
+                        .iter()
+                        .flat_map(|variant| &variant.fields)
+                        .find_map(Ty::storage_barrier)
+                {
+                    return Err(at().error(barrier.message("enum payloads")));
+                }
             }
             Ok(())
         })();

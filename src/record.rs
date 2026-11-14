@@ -40,11 +40,6 @@ impl ClassType {
     pub fn state_bytes(&self) -> usize {
         if self.destructor.is_some() { 16 } else { 0 }
     }
-    /// The field a one-field class without `__del__` is represented as: the
-    /// instance is that field's slot, bytes and runtime layout, so construction,
-    /// field access and moving the field out emit no code. A destructor needs
-    /// the state word, so such a class keeps a record. See
-    /// book/src/proposals/flat-class-layout.md.
     /// Byte offset of field `index` in the record: after the state word and
     /// the earlier fields, flat class fields taking only their record bytes.
     pub fn field_offset(&self, index: usize) -> usize {
@@ -54,7 +49,28 @@ impl ClassType {
                 .map(|(_, t)| t.field_bytes())
                 .sum::<usize>()
     }
+    /// Direct borrowed fields identify a scoped, single-origin view class.
+    pub fn borrows(&self) -> bool {
+        self.fields
+            .iter()
+            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)))
+    }
+    pub fn borrows_mutably(&self) -> bool {
+        self.fields
+            .iter()
+            .any(|(_, ty)| matches!(ty, Ty::Ref(_, true) | Ty::View(_, true)))
+    }
+    /// The field a one-field class without `__del__` is represented as: the
+    /// instance is that field's slot, bytes and runtime layout, so construction,
+    /// field access and moving the field out emit no code. A destructor needs
+    /// the state word, so such a class keeps a record. See
+    /// book/src/proposals/flat-class-layout.md.
     pub fn newtype_field(&self) -> Option<&Ty> {
+        // A complete borrowed descriptor needs its own inline payload when a
+        // standard sum adds a tag; never steal a borrowed view's length bits.
+        if self.borrows() {
+            return None;
+        }
         match self.fields.as_slice() {
             [(_, field)] if self.destructor.is_none() => Some(field),
             _ => None,
@@ -123,5 +139,35 @@ impl ClassOp {
                 Ty::Ref(Arc::new(t.get().fields.get(*i)?.1.clone()), *mutable),
             ),
         })
+    }
+}
+
+#[cfg(test)]
+mod view_layout_tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_newtypes_keep_complete_descriptors_outside_sum_tags() {
+        let view = Ty::View(Arc::new(Ty::I64), false);
+        let class = crate::nominal::Nominal::new(ClassType {
+            name: "BorrowedLayout".into(),
+            fields: vec![("data".into(), view)],
+            destructor: None,
+            fallible_init: false,
+            copy: false,
+            forwards_operators: false,
+            redacted: false,
+            quantity: None,
+            bounds: None,
+            bytes: Default::default(),
+            managed: Default::default(),
+        });
+        assert!(class.get().newtype_field().is_none());
+        let ty = Ty::Class(class);
+        assert_eq!(ty.inline_bytes(), 16);
+        let wrapped = crate::sum::option(ty);
+        assert_eq!(wrapped.inline_bytes(), 16);
+        assert_eq!(wrapped.field_bytes(), 32);
+        assert!(!wrapped.managed());
     }
 }

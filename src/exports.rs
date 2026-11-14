@@ -25,6 +25,21 @@ pub(crate) fn check_signature(inputs: &[(String, Ty)], output: &Option<Ty>) -> R
             _ => false,
         }
     }
+    fn view_class(ty: &Ty) -> bool {
+        ty.is_view_class()
+            || ty
+                .carried_reference()
+                .is_some_and(|held| held.is_view_class())
+            || matches!(ty, Ty::Ref(inner, _) if view_class(inner))
+    }
+    if inputs
+        .iter()
+        .map(|(_, ty)| ty)
+        .chain(output)
+        .any(view_class)
+    {
+        return Err("view classes cannot cross a C export boundary".into());
+    }
     if let Some((domain, element)) = inputs
         .iter()
         .map(|(_, ty)| ty)

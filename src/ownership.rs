@@ -2643,7 +2643,17 @@ impl Checker<'_, '_> {
                 // borrowed while the frame lives (issues #899, #913); a loan of the frame's own state cannot be
                 // suspended, since the frame may move.
                 if let Some(Op::Yield(_)) = &nodes[i].op
-                    && let Some(&id) = after.0.iter().find(|id| !self.external(loans[id].root))
+                    && let Some(&id) = after.0.iter().find(|id| {
+                        let loan = loans[id];
+                        !self.external(loan.root)
+                            || loan
+                                .binding
+                                .and_then(|slot| self.locals.get(usize::from(slot)))
+                                .is_some_and(|ty| {
+                                    ty.carried_reference()
+                                        .is_some_and(|held| held.is_view_class())
+                                })
+                    })
                 {
                     let loan = &loans[&id];
                     let place = self.place(loan.root, &loan.fields, loan.precise);

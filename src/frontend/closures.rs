@@ -34,10 +34,9 @@ impl Lower<'_> {
             {
                 return Err(at.error("dictionary key views cannot be captured; materialise keys_snapshot() or to_set()"));
             }
-            if self
-                .place_type(&source)
-                .is_some_and(|ty| ty.carried_reference().is_some())
-            {
+            if self.place_type(&source).is_some_and(|ty| {
+                ty.carried_reference().is_some() && !(capture.borrowed && ty.is_view_class())
+            }) {
                 return Err(at.error(format!(
                     "`{}` holds a borrow and cannot be captured; match it first and pass the reference",
                     capture.name

@@ -1336,6 +1336,7 @@ impl Lower<'_> {
                 None,
                 self.aliases,
                 self.sigs,
+                self.generics.wrapper_positions(&new.function.name),
             );
             self.aliases.data.attribute(outer);
             registered.map_err(|error| -> Box<dyn Error> {
@@ -1891,6 +1892,52 @@ impl Engine {
             .find_map(|((callee, _), wrapper)| (wrapper == symbol).then_some(callee.as_str()))
     }
 
+    /// Source parameter order for a wrapper, including its concrete generic
+    /// and frame specializations. Runtime arguments remain in written order;
+    /// appended hidden lent-state parameters follow all source parameters.
+    pub(super) fn wrapper_positions(&self, symbol: &str) -> Option<&[usize]> {
+        if let Some(positions) = self
+            .call_wrappers
+            .iter()
+            .find_map(|((_, positions), wrapper)| (wrapper == symbol).then_some(positions))
+        {
+            return Some(positions);
+        }
+        if let Some(name) = self
+            .frames
+            .iter()
+            .find_map(|((name, _), instance)| (instance == symbol).then_some(name))
+        {
+            return self.wrapper_positions(name);
+        }
+        self.cache.iter().find_map(|((id, _), instance)| {
+            (instance == symbol)
+                .then(|| self.wrapper_positions(&self.instantiated[*id as usize].0))
+                .flatten()
+        })
+    }
+
+    /// Returned borrows use the first declared lending parameter, even when
+    /// a named call's wrapper accepts arguments in a different written order.
+    pub(super) fn return_origin_parameter(
+        &self,
+        symbol: &str,
+        inputs: &[(String, Ty)],
+    ) -> Option<usize> {
+        let positions = self.wrapper_positions(symbol);
+        inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, ty))| references::returns_through(ty))
+            .min_by_key(|(index, _)| {
+                positions
+                    .and_then(|positions| positions.get(*index))
+                    .copied()
+                    .unwrap_or(*index)
+            })
+            .map(|(index, _)| index)
+    }
+
     /// Whether `symbol` is a named-argument wrapper or a specialization of
     /// one, whose body is synthesized at its first call site.
     pub(super) fn is_wrapper(&self, symbol: &str) -> bool {
@@ -2211,7 +2258,7 @@ impl Engine {
             }
             let borrowed_callable =
                 matches!(ty, Ty::Closure(_)) && bound.as_ref().is_some_and(callable_bound);
-            if ty.contains_reference() && !borrowed_callable {
+            if ty.contains_reference() && !ty.is_view_class() && !borrowed_callable {
                 return Err(at.error(
                     "reference type arguments are not supported; borrow T in the signature",
                 ));

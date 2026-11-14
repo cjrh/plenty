@@ -1,7 +1,7 @@
-# Expected rejection: Plenty does not currently store references in classes.
+# Expected rejection: borrowed view classes cannot be columnar rows.
 class RowRef:
     x: &i64
     y: &i64
 
 def main() -> ():
-    pass
+    rows = clist[RowRef]()

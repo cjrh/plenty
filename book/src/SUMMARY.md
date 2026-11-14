@@ -311,6 +311,7 @@
             - [Reference binding reassignment](design/language/05-ownership/03-reference-rebinding.md)
             - [Returned references](design/language/05-ownership/04-returned-references.md)
             - [Optional and fallible references](design/language/05-ownership/05-optional-references.md)
+            - [Classes that borrow one source](design/language/05-ownership/view-classes.md)
             - [Borrowed matching](design/language/05-ownership/06-borrowed-matching.md)
             - [Deterministic destruction](design/language/05-ownership/07-destruction.md)
         - [Functions and callable values](design/language/06-functions/index.md)

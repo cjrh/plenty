@@ -460,6 +460,15 @@ retain their syntax colours; other themes are unchanged.
 
 ## B11: Borrowing
 
+Issue #945 step 2 adds [single-origin view classes](../design/language/05-ownership/view-classes.md):
+fixed direct borrowed fields, shared copies or one exclusive field, generic
+calls, one standard success wrapper and scoped worker inputs. Method results
+keep both the receiver and actual source borrowed. Ordinary owned fields keep
+normal cleanup, including partial initialization. Borrowed records use the
+private inline ABI without borrowing length bits for sum tags. Heap storage,
+generator suspension, erased captures and C exports remain rejected. The user
+iterator protocol is separate step-3 work in B11.
+
 Borrowed enum matching/payload loans, reference rebinding within the original
 place, precise first-reference return origins and disjoint literal-index loans
 landed (issues #1/#30/#41, local PRs #488/#490). Optional/fallible returned

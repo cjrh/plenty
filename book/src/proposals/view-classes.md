@@ -1,11 +1,13 @@
 # View classes with one borrowed origin
 
-**Status: Not implemented; proposed for approval, 2026-11-14.** This is the
-step-2 decision requested by local issue #945 and its safety constraint in
-comment #2869. [Returned builtin views](../design/language/05-ownership/04-returned-references.md#returning-views)
-are implemented. Classes containing references are not. Approval of this page
-would authorize the contract below and its [qualification gates](view-classes/implementation.md),
-not the iterator protocol in step 3. Remaining work belongs to B11 in the
+**Status: Approved and implemented in local PR #1254, 2026-11-14.** This is
+the step-2 decision requested by issue #945 and comment #2869. The
+[view-class reference](../design/language/05-ownership/view-classes.md) describes
+implemented behavior. Its [qualification record](view-classes/implementation.md)
+records implementation boundaries and the explicit-initializer qualification
+limit for multiple shared fields; the broader generated-constructor proof is
+not delivered. Approval and implementation do not include
+the separate iterator protocol in step 3; remaining work stays in B11 in the
 [backlog](../backlog.md).
 
 ## The decision
@@ -46,9 +48,8 @@ argument and call that a single origin.
 
 ## A proposed cursor
 
-All code on these proposal pages is hypothetical. The current compiler rejects
-reference fields. This example uses the existing class and method spelling;
-the proposed behavior is what makes the field legal:
+This illustrative cursor uses the class and method spelling selected by the
+approved design; runnable examples live in the reference:
 
 ```text
 class ByteCursor:
@@ -88,13 +89,12 @@ proves the later access safe.
 
 No `next` protocol, `for` desugaring for user classes, borrowed generator
 storage, window/chunk iterator, SIMD reinterpretation, or automatic check
-elimination is included. Issue #950 needs borrowed-window iteration in
-addition to view-class storage; step 2 alone does not resolve it. Existing
+elimination is included. Issue #950 was independently delivered through builtin window/chunk loop
+lowering; it does not depend on a user view-class iterator protocol. Existing
 builtin views, generators and free `std.simd` functions retain their contracts.
 
 Implementation must update the reference, relevant tutorial examples, cheat
-sheet and delivery records together. This proposal changes none of those
-implemented contracts before code lands.
+sheet and delivery records together. The reference is authoritative for implemented contracts.
 
 ## Alternatives
 

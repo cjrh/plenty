@@ -419,6 +419,14 @@ impl Lower<'_> {
                         if method == "map" {
                             let ty = output
                                 .ok_or_else(|| e.at.error("map callbacks must return a value"))?;
+                            if ty
+                                .carried_reference()
+                                .is_some_and(|held| held.is_view_class())
+                            {
+                                return Err(e.at.error(
+                                    "pipeline map callbacks cannot return view classes yet",
+                                ));
+                            }
                             if matches!(ty, Ty::Ref(..)) {
                                 return Err(e
                                     .at

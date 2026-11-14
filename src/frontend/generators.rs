@@ -781,7 +781,16 @@ impl Lower<'_> {
         if !f.defaults.is_empty() {
             f.defaults.resize(f.inputs.len(), None);
         }
-        register_signature(&f, self.aliases, self.sigs)?;
+        let frame_symbol = self.sigs.intern(&symbol);
+        register_with_body(
+            frame_symbol,
+            &f,
+            &f.body,
+            None,
+            self.aliases,
+            self.sigs,
+            self.generics.wrapper_positions(name),
+        )?;
         self.generics.frames.insert(key, symbol.clone());
         // A frame is named by its consumer, which may itself be an instance.
         let display = match self.generics.display_names.get(name) {

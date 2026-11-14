@@ -89,8 +89,8 @@ fn other_rejected_storage_names_its_cause(#[case] body: &str, #[case] expected: 
 fn declarations_name_references_and_generators_separately() {
     for (source, expected) in [
         (
-            "class C:\n    field: &i64",
-            "references cannot be stored in class fields",
+            "class C:\n    field: &i64\nclass Owner:\n    view: C",
+            "view classes cannot be stored in class fields",
         ),
         (
             "class C:\n    field: Generator[i64]",

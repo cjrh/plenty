@@ -1,8 +1,9 @@
 # View-class ownership contract
 
-**Not implemented; part of the proposed [single-origin view-class design](../view-classes.md).**
-Examples are hypothetical. The [current ownership reference](../../design/language/05-ownership/index.md)
-continues to govern implemented programs.
+**Approved and implemented in local PR #1254.** This records the rationale
+behind the [single-origin view-class design](../view-classes.md). The
+[view-class reference](../../design/language/05-ownership/view-classes.md)
+is authoritative for implemented programs.
 
 ## Declaration and construction
 

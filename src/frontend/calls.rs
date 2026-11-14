@@ -277,7 +277,16 @@ impl Lower<'_> {
             body,
         };
         if wrapper.type_params.is_empty() {
-            register_signature(&wrapper, self.aliases, self.sigs)?;
+            let wrapper_symbol = self.sigs.intern(&symbol);
+            register_with_body(
+                wrapper_symbol,
+                &wrapper,
+                &wrapper.body,
+                None,
+                self.aliases,
+                self.sigs,
+                Some(&positions),
+            )?;
             if let Some(fields) = self.sigs.returned_fields(name).cloned() {
                 let wrapper = self.sigs.intern(&symbol);
                 self.sigs.set_returned_fields(wrapper, fields);

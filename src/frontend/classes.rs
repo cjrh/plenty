@@ -167,12 +167,37 @@ impl ClassDecl {
             .iter()
             .map(|(n, t)| {
                 let ty = t.resolve(aliases)?.unwrap_or(Ty::Unit);
-                if let Some(barrier) = ty.storage_barrier() {
+                if !matches!(ty, Ty::Ref(..) | Ty::View(..))
+                    && let Some(barrier) = ty.storage_barrier()
+                {
                     return Err(t.at.error(barrier.message("class fields")));
                 }
                 Ok((n.clone(), ty))
             })
             .collect::<Result<Vec<_>>>()?;
+        let borrowed: Vec<_> = fields
+            .iter()
+            .filter(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)))
+            .collect();
+        if borrowed.iter().any(|(_, ty)| ty.carries_mutable_loan()) && borrowed.len() != 1 {
+            return Err(self.at.error("a view class may have shared borrowed fields or exactly one exclusive borrowed field"));
+        }
+        if borrowed.len() > 1 && !self.methods.iter().any(|method| method.name == "__init__") {
+            return Err(self.at.error("multiple shared borrowed fields require an explicit initializer taking one borrowed origin; separate fieldwise inputs have independent origins"));
+        }
+        if borrowed.iter().any(|(_, ty)| ty.carries_mutable_loan()) && self.copy.is_some() {
+            return Err(self.at.error("an exclusive view class cannot be @copy"));
+        }
+        if !borrowed.is_empty()
+            && self
+                .methods
+                .iter()
+                .any(|m| matches!(m.name.as_str(), "__del__" | "__enter__" | "__exit__"))
+        {
+            return Err(self
+                .at
+                .error("view classes cannot declare cleanup or context lifecycle hooks"));
+        }
         let destructor = self
             .methods
             .iter()
@@ -209,6 +234,33 @@ impl TypeAliases {
         actual: &[Argument],
     ) -> Result<()> {
         let definition = class.get();
+        // All nominal fields are now finalized, including forward declarations
+        // and generic instances; validate storage again at this boundary.
+        for ((_, ty), (_, written)) in definition.fields.iter().zip(&declaration.fields) {
+            match ty {
+                Ty::Ref(inner, _) | Ty::View(inner, _) => {
+                    if inner.contains_reference() || inner.storage_barrier().is_some() {
+                        return Err(written.at.error(
+                            "a borrowed field must refer to an ordinary non-borrowing type",
+                        ));
+                    }
+                }
+                ty => {
+                    if let Some(barrier) = ty.storage_barrier() {
+                        return Err(written.at.error(barrier.message("class fields")));
+                    }
+                }
+            }
+        }
+        if definition.borrows()
+            && (declaration.derived_decode.is_some()
+                || declaration.derived_encode
+                || declaration.newtype.is_some())
+        {
+            return Err(declaration
+                .at
+                .error("view classes cannot derive serialization or forward newtype operators"));
+        }
         if !definition.copy || !actual.is_empty() {
             return Ok(());
         }
@@ -579,22 +631,30 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
 fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Result<()> {
     struct Check<'a> {
         ty: &'a ClassType,
+        in_loop: bool,
     }
-    /// Fields initialized on every continuing branch; `None` when no branch continues.
-    fn join(mut sets: Vec<HashSet<String>>) -> Option<HashSet<String>> {
+    #[derive(Clone, Default)]
+    struct Initialized {
+        definite: HashSet<String>,
+        possible: HashSet<String>,
+    }
+    /// A continuing path must initialize all fields, and may not initialize a
+    /// borrowed field again after any earlier continuing path initialized it.
+    fn join(mut sets: Vec<Initialized>) -> Option<Initialized> {
         let mut merged = sets.pop()?;
         for s in sets {
-            merged.retain(|n| s.contains(n));
+            merged.definite.retain(|n| s.definite.contains(n));
+            merged.possible.extend(s.possible);
         }
         Some(merged)
     }
     impl Check<'_> {
-        fn complete(&self, initialized: &HashSet<String>, at: &Token) -> Result<()> {
+        fn complete(&self, initialized: &Initialized, at: &Token) -> Result<()> {
             let missing: Vec<_> = self
                 .ty
                 .fields
                 .iter()
-                .filter(|(n, _)| !initialized.contains(n))
+                .filter(|(n, _)| !initialized.definite.contains(n))
                 .map(|(n, _)| n.as_str())
                 .collect();
             if missing.is_empty() {
@@ -603,7 +663,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 Err(at.error(format!("fields not initialized: {}", missing.join(", "))))
             }
         }
-        fn expr(&self, e: &Expr, initialized: &HashSet<String>) -> Result<()> {
+        fn expr(&self, e: &Expr, initialized: &mut Initialized) -> Result<()> {
             match &e.kind {
                 // Capturing self borrows the whole instance at creation, not
                 // when the closure body eventually runs (issue #709).
@@ -618,7 +678,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 }
                 Expression::Name(n) if n == "self" => self.complete(initialized, &e.at)?,
                 Expression::Member(base, field, _) if matches!(&ungroup(base).kind, Expression::Name(n) if n == "self") => {
-                    if !initialized.contains(field) {
+                    if !initialized.definite.contains(field) {
                         return Err(e.at.error(format!("field `{field}` is not initialized")));
                     }
                 }
@@ -660,43 +720,62 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 }
                 Expression::Conditional { condition, yes, no } => {
                     self.expr(condition, initialized)?;
-                    self.expr(yes, initialized)?;
-                    self.expr(no, initialized)?;
+                    let mut yes_state = initialized.clone();
+                    let mut no_state = initialized.clone();
+                    self.expr(yes, &mut yes_state)?;
+                    self.expr(no, &mut no_state)?;
+                    initialized.possible.extend(yes_state.possible);
+                    initialized.possible.extend(no_state.possible);
                 }
                 // Fields a case initializes are not credited to what follows.
                 Expression::Match(value, cases) => {
                     self.expr(value, initialized)?;
+                    let entry = initialized.clone();
                     for case in cases {
                         for n in case.pattern.bindings() {
                             self.binding(n, &e.at)?;
                         }
-                        self.block(&case.body, initialized.clone())?;
+                        if let Some(state) = self.block(&case.body, entry.clone())? {
+                            initialized.possible.extend(state.possible);
+                        }
                     }
                 }
                 // A failure skips the rest of the block, so nothing it
                 // initializes is credited either.
                 Expression::Checked(_, body) | Expression::If(body) => {
-                    self.block(body, initialized.clone())?;
+                    if let Some(state) = self.block(body, initialized.clone())? {
+                        initialized.possible.extend(state.possible);
+                    }
                 }
 
                 Expression::Collection {
                     entries, clauses, ..
                 } => {
+                    let mut repeated = self.in_loop;
                     for clause in clauses {
+                        let check = Check {
+                            ty: self.ty,
+                            in_loop: repeated,
+                        };
                         match clause {
                             Clause::For(n, e) | Clause::Unpack(n, _, e) => {
                                 for name in n {
                                     self.binding(name, &e.at)?;
                                 }
-                                self.expr(e, initialized)?;
+                                check.expr(e, initialized)?;
+                                repeated = true;
                             }
-                            Clause::If(e) => self.expr(e, initialized)?,
+                            Clause::If(e) => check.expr(e, initialized)?,
                         }
                     }
+                    let check = Check {
+                        ty: self.ty,
+                        in_loop: repeated,
+                    };
                     for (a, b) in entries {
-                        self.expr(a, initialized)?;
+                        check.expr(a, initialized)?;
                         if let Some(b) = b {
-                            self.expr(b, initialized)?;
+                            check.expr(b, initialized)?;
                         }
                     }
                 }
@@ -704,7 +783,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
             }
             Ok(())
         }
-        fn target(&self, target: &Expr, set: &mut HashSet<String>) -> Result<()> {
+        fn target(&self, target: &Expr, set: &mut Initialized) -> Result<()> {
             if let Expression::Tuple(children) = &ungroup(target).kind {
                 for target in children {
                     self.target(target, set)?;
@@ -717,7 +796,30 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 if !self.ty.fields.iter().any(|(n, _)| n == field) {
                     return Err(target.at.error(format!("unknown field `{field}`")));
                 }
-                set.insert(field.clone());
+                if self.in_loop
+                    && self
+                        .ty
+                        .fields
+                        .iter()
+                        .any(|(name, ty)| name == field && matches!(ty, Ty::Ref(..) | Ty::View(..)))
+                {
+                    return Err(target
+                        .at
+                        .error("borrowed fields cannot be initialized in a loop"));
+                }
+                if set.possible.contains(field)
+                    && self
+                        .ty
+                        .fields
+                        .iter()
+                        .any(|(name, ty)| name == field && matches!(ty, Ty::Ref(..) | Ty::View(..)))
+                {
+                    return Err(target.at.error(
+                        "borrowed fields of a view class must be initialized exactly once",
+                    ));
+                }
+                set.definite.insert(field.clone());
+                set.possible.insert(field.clone());
                 return Ok(());
             }
             if let Expression::Name(name) = &target.kind {
@@ -732,11 +834,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                 Ok(())
             }
         }
-        fn block(
-            &self,
-            body: &[Stmt],
-            mut set: HashSet<String>,
-        ) -> Result<Option<HashSet<String>>> {
+        fn block(&self, body: &[Stmt], mut set: Initialized) -> Result<Option<Initialized>> {
             for stmt in body {
                 match &stmt.kind {
                     Statement::With {
@@ -744,7 +842,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         name,
                         body,
                     } => {
-                        self.expr(manager, &set)?;
+                        self.expr(manager, &mut set)?;
                         if let Some(name) = name {
                             self.binding(name, &stmt.at)?;
                         }
@@ -755,7 +853,7 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         }
                     }
                     Statement::SetIndex { target, value } => {
-                        self.expr(value, &set)?;
+                        self.expr(value, &mut set)?;
                         // Several targets are assigned in order after the value,
                         // so each one sees the fields its predecessors initialized.
                         let targets = match &target.kind {
@@ -770,20 +868,20 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         for name in names {
                             self.binding(name, &stmt.at)?;
                         }
-                        self.expr(value, &set)?;
+                        self.expr(value, &mut set)?;
                     }
                     Statement::Assign { name, value, .. } => {
                         self.binding(name, &stmt.at)?;
-                        self.expr(value, &set)?;
+                        self.expr(value, &mut set)?;
                     }
                     Statement::Augment { target, value, .. } => {
-                        self.expr(target, &set)?;
-                        self.expr(value, &set)?;
+                        self.expr(target, &mut set)?;
+                        self.expr(value, &mut set)?;
                     }
-                    Statement::Expr(e) => self.expr(e, &set)?,
+                    Statement::Expr(e) => self.expr(e, &mut set)?,
                     Statement::Return(e) => {
                         if let Some(e) = e {
-                            self.expr(e, &set)?;
+                            self.expr(e, &mut set)?;
                         }
                         let error = e.as_ref().is_some_and(
                             |e| matches!(&ungroup(e).kind, Expression::Call(n, _) if n == "Err"),
@@ -799,11 +897,11 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         elifs,
                         no,
                     } => {
-                        self.expr(condition, &set)?;
+                        self.expr(condition, &mut set)?;
                         let mut continuing = Vec::new();
                         continuing.extend(self.block(yes, set.clone())?);
                         for elif in elifs {
-                            self.expr(&elif.condition, &set)?;
+                            self.expr(&elif.condition, &mut set)?;
                             continuing.extend(self.block(&elif.body, set.clone())?);
                         }
                         continuing.extend(self.block(no, set.clone())?);
@@ -813,8 +911,12 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         set = merged;
                     }
                     Statement::While { condition, body } => {
-                        self.expr(condition, &set)?;
-                        self.block(body, set.clone())?;
+                        let check = Check {
+                            ty: self.ty,
+                            in_loop: true,
+                        };
+                        check.expr(condition, &mut set)?;
+                        check.block(body, set.clone())?;
                     }
                     Statement::For {
                         name,
@@ -824,11 +926,15 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
                         for name in name {
                             self.binding(name, &stmt.at)?;
                         }
-                        self.expr(iterable, &set)?;
-                        self.block(body, set.clone())?;
+                        self.expr(iterable, &mut set)?;
+                        Check {
+                            ty: self.ty,
+                            in_loop: true,
+                        }
+                        .block(body, set.clone())?;
                     }
                     Statement::Match { value, cases } => {
-                        self.expr(value, &set)?;
+                        self.expr(value, &mut set)?;
                         let mut continuing = Vec::new();
                         for case in cases {
                             for n in case.pattern.bindings() {
@@ -854,8 +960,11 @@ fn validate_init(f: &Function, ty: &crate::nominal::Nominal<ClassType>) -> Resul
         }
     }
     let definition = ty.get();
-    let check = Check { ty: &definition };
-    if let Some(set) = check.block(&f.body, HashSet::default())? {
+    let check = Check {
+        ty: &definition,
+        in_loop: false,
+    };
+    if let Some(set) = check.block(&f.body, Initialized::default())? {
         check.complete(&set, &f.at)?;
     }
     Ok(())
@@ -1013,6 +1122,10 @@ impl Lower<'_> {
             ops.push(Op::Class(ClassOp::Field(class.clone(), index)));
             return Ok((output, loans));
         }
+        if matches!(self.place_type(e), Some(Ty::Ref(..) | Ty::View(..))) {
+            let (reference, loan) = self.borrow(e, false, ops)?;
+            return Ok((reference, vec![loan]));
+        }
         if self.place_type(e).is_some() {
             let (reference, loan) = self.borrow(e, false, ops)?;
             let Ty::Ref(ty, _) = reference else {
@@ -1140,6 +1253,39 @@ impl Lower<'_> {
             return self.set_clist_field(target, value, ops);
         }
         self.ide_member(target);
+        if let Expression::Member(base, name, _) = &ungroup(target).kind
+            && let Some(ty @ (Ty::Ref(..) | Ty::View(..))) = self.place_type(target)
+        {
+            let own_init = self.init_fields.is_some()
+                && matches!(&ungroup(base).kind, Expression::Name(n) if n == "self")
+                && self.names.get("self").is_some_and(|local| local.slot == 0);
+            if !own_init {
+                return Err(target
+                    .at
+                    .error("borrowed fields of a view class are fixed after initialization"));
+            }
+            let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
+            self.same(actual, Some(ty.clone()), &value.at)?;
+            self.check_return_reference(value, ops)?;
+            let temp = self.slot(ty.clone(), &value.at)?;
+            ops.push(Op::StoreLocal(temp));
+            let (reference, loan) = self.borrow(base, true, ops)?;
+            let Ty::Ref(inner, _) = reference else {
+                unreachable!()
+            };
+            let Ty::Class(class) = &*inner else {
+                unreachable!()
+            };
+            let index = field_index(class, name, &target.at)?;
+            ops.push(Op::Class(ClassOp::FieldRef(class.clone(), index, true)));
+            ops.extend([
+                Op::MoveLocal(temp),
+                Op::Swap,
+                Op::FillRef(ty),
+                Op::UseLoan(loan),
+            ]);
+            return Ok(());
+        }
         let fills = self.fills_init_field(target);
         let view = self.indexed_element_view(target)?;
         let (ty, temp, loan) = self.borrow_place_after_value(
@@ -1228,6 +1374,16 @@ impl Lower<'_> {
         assigns: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, u8, usize)> {
+        if self.place_type(target).is_some_and(|ty| ty.is_view_class()) {
+            return Err(target.at.error("cannot replace a view-class instance through a reference; reassign a named holder with the same origin"));
+        }
+        if matches!(&ungroup(target).kind, Expression::Member(..))
+            && matches!(self.place_type(target), Some(Ty::Ref(..) | Ty::View(..)))
+        {
+            return Err(target
+                .at
+                .error("borrowed fields of a view class are fixed after initialization"));
+        }
         self.check_field_ceiling(target, value)?;
         let ty = self
             .place_type(target)

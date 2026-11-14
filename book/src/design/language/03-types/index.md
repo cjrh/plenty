@@ -61,8 +61,9 @@ their respective [facilities](../../facilities/index.md),
 [iteration](../09-iteration/index.md) contracts.
 
 Data definitions may refer forward and recur through permitted
-[storage boundaries](recursive-data.md). References cannot be stored in classes,
-enums, or tuples. Generators can occur inside standard `Option` and `Result`
+[storage boundaries](recursive-data.md). Direct references and builtin views
+may form [single-origin view classes](../05-ownership/view-classes.md).
+Broader reference storage in enums, tuples and heap owners remains rejected. Generators can occur inside standard `Option` and `Result`
 wrappers, but not class fields, user enum payloads, or tuple components.
 
 [Quantities](quantities.md) combine numeric storage with a compile-time dimension

@@ -1,12 +1,13 @@
 # View-class implementation and qualification
 
-**Not implemented; accompanies the proposed [view-class decision](../view-classes.md).**
+**Implemented in local PR #1254; accompanies the approved [view-class decision](../view-classes.md).**
 This records acceptance boundaries and source evidence, not an additional
 work queue. Issue #945 and B11 in the [backlog](../../backlog.md) track the work.
 
 ## Existing mechanisms and the new boundary
 
-Source inspection at local `main` `caf7c247` found these integration points:
+The approved proposal inspected local `main` `caf7c247`; implementation is
+based on integrated `main` `9f69b5c1`. These are the integration boundaries:
 
 | Source | Current mechanism | Required treatment |
 | --- | --- | --- |
@@ -26,9 +27,9 @@ establish sound origin propagation. Audit every new producer and consumer.
 ## Representation decision
 
 Reuse [inline class layout](../../design/toolchain/02-architecture/values.md).
-A one-field class without cleanup uses that field's representation; a record
-has its existing inline field storage, 128-bit value slot and private address
-relocation. Borrowed reference/view fields use their complete two-word
+Ordinary one-field classes without cleanup use that field's representation.
+View classes always use their existing inline record storage, 128-bit value
+slot and private address relocation. Borrowed reference/view fields use their complete two-word
 representation and no retain/release of their referents. Plain owned fields
 retain their existing layout and destruction. Construction adds no heap
 allocation; constructing an allocating ordinary field still has its normal
@@ -106,9 +107,57 @@ currently pass position separately. Teach the simple named-local pattern
 before its optional/fallible variants. Update the cheat sheet and Plenty skill
 limits, narrow B11 to actual remaining scope and record the delivered subset.
 
-Issue #950 still needs a separate window/chunk API and iteration design.
+Issue #950 separately delivers builtin window/chunk loop lowering; it does
+not require the user iterator protocol.
 Issue #945 step 3 chooses a user `next` protocol and borrowed-item lifetime;
 this decision does not add it. SIMD view helpers can become classes only after
 this representation is implemented and measured. Existing free helpers remain
 supported; no performance or check-elimination result is claimed by this
-proposal-only change.
+change.
+
+## Implemented checker boundaries
+
+View classes are recognized from direct borrowed fields; no new public type
+constructor or runtime borrow flag is added. Parameter referents reuse the
+carried-loan mechanism. Constructor field writes prove the first non-self
+origin before writing an uninitialized descriptor. The generated constructor
+attaches that checked origin only after initialization succeeds. Initialization
+validation intersects definitely initialized fields and unions possibly
+initialized fields at continuing branch joins. It rejects a second borrowed
+field write after any possibly initializing branch, including writes hidden
+inside checked/match value blocks, while preserving normal exactly-once
+branch alternatives. Repeated loop contexts reject borrowed-field writes.
+
+Borrowing a named view record retains its carried source loan as a dependency.
+Borrowed field projections load the stored descriptor and reborrow its content;
+they never expose a writable descriptor slot. Consuming parameters distinguish
+the external data origin from addresses into the record. Returned method
+results retain the whole receiver, even when existing return-field inference
+could narrow an ordinary class method's loan.
+
+Nominal definitions are checked again after forward declarations finalize, so
+user enums and nested owners cannot hide view-class fields. Standard success
+wrapper loan queries use the completed payload rather than only an early
+restricted-storage flag. Named-argument wrappers preserve source parameter
+order for origin and permission selection while evaluating arguments in their
+written order; this applies to concrete generic specializations too. Appended
+hidden lent-pipeline parameters follow the declared parameters rather than
+indexing beyond a source wrapper's permutation.
+
+Whole-record replacement through a reference is rejected because it could
+change fixed borrowed fields. Reassigning a named holder retains the existing
+same-source rule. Generator suspension checks reject live view-class holders
+even when their source is a caller referent that ordinary builtin views could
+keep across a yield. Pipeline map outputs and C exports reject view classes
+explicitly. Owned fields continue through the existing class cleanup path.
+
+## Conservative qualification limit
+
+The implemented fieldwise constructor supports one borrowed field. Several
+shared fields require an explicit initializer taking one borrowed parent;
+its body derives every field from that parent. Distinct formal fieldwise
+inputs remain independent origins even when a particular caller supplies
+same-source projections. The approved contract's broader fieldwise-constructor
+relationship check is not delivered: accepting it needs a separate call-site
+proof and a corresponding callee-origin producer rule. PR #1254 explicitly
+presents this scope gap for review; it does not claim those proofs exist.

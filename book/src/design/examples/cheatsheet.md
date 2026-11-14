@@ -728,3 +728,26 @@ does not permit calls from ordinary Plenty workers; see
 [host protocol callbacks](../facilities/04-interop/host-threads.md#host-protocol-callbacks).
 
 Trusted interfaces can also declare [initialized C data exports](../facilities/04-interop/exported-objects.md) with `= object "symbol"(size=..., align=...):`, followed by explicit offset/type/value initializer fields. These objects are native ABI layouts, not Plenty classes.
+
+## Borrowed records
+
+A [view class](../language/05-ownership/view-classes.md) stores one borrowed
+origin together with ordinary state. Borrowed fields are fixed after
+initialization; method results keep both receiver and source borrowed.
+
+```plenty
+class Cursor:
+    data: &[i64]
+    position: i64
+    def remaining(self: &Cursor) -> &[i64]:
+        &self.data[self.position:]
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [2, 4]?
+    cursor = Cursor(&values, 1)
+    print(cursor.remaining()[0])?
+    Ok(())
+```
+```output
+4
+```
