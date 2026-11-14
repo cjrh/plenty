@@ -210,16 +210,24 @@ impl SourceGraph {
         );
         for package in &self.packages {
             out.push_str(&format!(
-                "\n[[package]]\nidentity = {}\nsource-identity = {}\nroot = {}\n",
+                "\n[[package]]\nidentity = {}\nsource-identity = {}\n",
                 toml::quote(&package.identity),
-                toml::quote(&package.source_identity),
-                toml::quote(&package.root.to_string_lossy())
+                toml::quote(&package.source_identity)
             ));
-            if let Some(directory) = &package.directory {
+            let mut path = |key: &str, path: &Path| {
+                let (bytes, text) = identity::encode_path(path);
                 out.push_str(&format!(
-                    "directory = {}\n",
-                    toml::quote(&directory.to_string_lossy())
+                    "{key}{} = {}\n",
+                    if bytes { "-bytes" } else { "" },
+                    toml::quote(&text)
                 ));
+            };
+            path("root", &package.root);
+            if let Some(directory) = &package.directory {
+                path("directory", directory);
+            }
+            if let Some(library) = &package.library {
+                path("library", library);
             }
             if let Some(p) = &package.provenance {
                 for (key, value) in [
@@ -233,12 +241,6 @@ impl SourceGraph {
             }
             if let Some(owner) = &package.test_of {
                 out.push_str(&format!("test-of = {}\n", toml::quote(owner)));
-            }
-            if let Some(library) = &package.library {
-                out.push_str(&format!(
-                    "library = {}\n",
-                    toml::quote(&library.to_string_lossy())
-                ));
             }
             let mut edges: Vec<_> = package.dependencies.iter().collect();
             edges.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -302,6 +304,9 @@ impl SourceGraph {
                 let legacy = ["identity", "root", "library", "dependencies"];
                 let current = [
                     "source-identity",
+                    "root-bytes",
+                    "directory-bytes",
+                    "library-bytes",
                     "directory",
                     "name",
                     "version",
@@ -315,8 +320,28 @@ impl SourceGraph {
                     return Err(error(line, &format!("unknown key `{key}` in [[package]]")).into());
                 }
             }
+            let path_field = |key: &str| -> Result<Option<PathBuf>> {
+                match (string(key)?, string(&format!("{key}-bytes"))?) {
+                    (Some(_), Some(_)) => Err(error(
+                        line,
+                        &format!("choose `{key}` or `{key}-bytes`, not both"),
+                    )
+                    .into()),
+                    (Some(path), None) => Ok(Some(base.join(path))),
+                    (None, Some(bytes)) => Ok(Some(base.join(
+                        identity::decode_path(true, &bytes).ok_or_else(|| {
+                            error(
+                                line,
+                                &format!("invalid native path encoding in `{key}-bytes`"),
+                            )
+                        })?,
+                    ))),
+                    (None, None) => Ok(None),
+                }
+            };
             let identity = required("identity")?;
-            let root = base.join(required("root")?);
+            let root = path_field("root")?
+                .ok_or_else(|| error(line, "[[package]] requires `root` or `root-bytes`"))?;
             let directory = if version == 1 {
                 Some(
                     match root.parent() {
@@ -327,7 +352,7 @@ impl SourceGraph {
                     .to_path_buf(),
                 )
             } else {
-                string("directory")?.map(|directory| base.join(directory))
+                path_field("directory")?
             };
             let source_identity = if version == 1 {
                 String::new()
@@ -372,7 +397,7 @@ impl SourceGraph {
                 test_of: string("test-of")?,
                 directory,
                 root,
-                library: string("library")?.map(|library| base.join(library)),
+                library: path_field("library")?,
                 dependencies: vec![],
             });
             edges.push(dependencies);

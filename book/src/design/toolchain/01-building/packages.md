@@ -594,6 +594,11 @@ root. With a package directory, the source root must be a real directory
 whose real path stays inside that package directory. Included files cannot
 cross another package's directory or source root, or a nested manifest boundary.
 
+Version-2 graphs preserve non-Unicode paths using optional `root-bytes`,
+`directory-bytes` and `library-bytes` hex fields. Each is mutually exclusive
+with its ordinary path field and decodes to native path bytes (native code
+units on Windows). Ordinary UTF-8 fields and version-1 input are unchanged.
+
 Version-1 graph input remains supported through an adapter preserving its
 opaque identities and path containment. Only this adapter infers an omitted
 package directory from the parent of `root`. It never infers synthetic-test

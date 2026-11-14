@@ -41,6 +41,13 @@ pub(super) fn path_fields(root: &Path, path: &Path) -> (bool, String) {
                 .join("/"),
         );
     }
+    encode_path(&path)
+}
+/// Graph file paths retain their original absolute/relative spelling.
+pub(super) fn encode_path(path: &Path) -> (bool, String) {
+    if let Some(text) = path.to_str() {
+        return (false, text.to_owned());
+    }
     #[cfg(unix)]
     let bytes = {
         use std::os::unix::ffi::OsStrExt;

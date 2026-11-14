@@ -55,8 +55,11 @@ edges and explicit `test-of` where applicable. Legacy graph version 1 adapts
 its opaque IDs without guessing test ownership; the legacy adapter alone
 infers an omitted package directory from the parent of the source root. In
 version 2, an omitted `directory` means no package directory and includes stay
-within the source root, as for single-file programs and scripts. Unknown graph
-versions fail.
+within the source root, as for single-file programs and scripts. Optional
+`root-bytes`, `directory-bytes` and `library-bytes` hex alternatives preserve
+non-Unicode native paths (native code units on Windows); each excludes its
+ordinary path field. Ordinary UTF-8 fields and version-1 input are unchanged.
+Unknown graph versions fail.
 
 ## Targeted updates
 

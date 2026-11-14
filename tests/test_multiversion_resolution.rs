@@ -559,6 +559,29 @@ fn native_canonical_local_and_git_directories_keep_distinct_lossless_identities(
     );
     ok(&app, &["check", "--locked"]);
     assert_eq!(text, lock(&app));
+    let graph = ok(&app, &["graph", "--locked"]);
+    assert!(
+        graph.contains("root-bytes =")
+            && graph.contains("directory-bytes =")
+            && graph.contains("library-bytes ="),
+        "{graph}"
+    );
+    write(&app.join("graph.toml"), &graph);
+    let output = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+        .args([
+            "--package-graph",
+            "graph.toml",
+            "--check-module",
+            "src/lib.plenty",
+        ])
+        .current_dir(&app)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     // Git's tree paths retain the same native bytes; UTF-8 aliases locate them.
     let mono = root.join("mono");
     repo(&mono);
@@ -591,6 +614,25 @@ fn native_canonical_local_and_git_directories_keep_distinct_lossless_identities(
     assert_eq!(text.matches("subdir-bytes =").count(), 2, "{text}");
     ok(&app, &["check", "--locked"]);
     assert_eq!(text, lock(&app));
+    let graph = ok(&app, &["graph", "--locked"]);
+    write(&app.join("graph.toml"), &graph);
+    let parsed = plenty::project::SourceGraph::read(&app.join("graph.toml")).unwrap();
+    assert_eq!(parsed.to_toml(), graph);
+    let output = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+        .args([
+            "--package-graph",
+            "graph.toml",
+            "--check-module",
+            "src/lib.plenty",
+        ])
+        .current_dir(&app)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 #[test]
 #[cfg(unix)]
