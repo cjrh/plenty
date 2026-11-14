@@ -1,0 +1,59 @@
+{
+  "platform": "x86-64 Linux, baseline SSE2",
+  "gcc": "16.2.1 -O2 -fno-tree-loop-distribute-patterns",
+  "baseline": "9dee6930",
+  "after": "codex/issue-973 candidate",
+  "runtime_size": 4000,
+  "runtime_instructions": {
+    "original_while": [
+      8269219055,
+      8269219010,
+      8269219105
+    ],
+    "same_postcheck_for_before": [
+      8598564233,
+      8598564199,
+      8598564240
+    ],
+    "same_postcheck_for_after": [
+      8201704219,
+      8201704140,
+      8201703976
+    ],
+    "c_reference_O2": [
+      6288683091,
+      6288683450,
+      6288683252
+    ]
+  },
+  "compile_instructions": {
+    "kernel_before": [
+      119804292,
+      121504059,
+      120919219
+    ],
+    "kernel_after": [
+      119389011,
+      119826201,
+      119705520
+    ],
+    "mandelbrot_before": [
+      335475069,
+      334338592,
+      340371440
+    ],
+    "mandelbrot_after": [
+      338197051,
+      335390882,
+      337850767
+    ],
+    "aot_1000_10_before": [
+      128331064558,
+      128333814916
+    ],
+    "aot_1000_10_after": [
+      128326922449,
+      128330073006
+    ]
+  }
+}

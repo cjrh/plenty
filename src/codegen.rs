@@ -3204,7 +3204,9 @@ impl Lowerer<'_, '_> {
                 let ty = self.locals[*i as usize].1.clone();
                 let (value, _) = self.pop_typed(ty.clone())?;
                 let countdown = |&(countdown, ..): &(u8, u8, _)| countdown == *i;
-                if !self.counters.counted.iter().any(countdown) {
+                if !self.counters.counted.iter().any(countdown)
+                    && !self.counters.unused_range_elements.contains(i)
+                {
                     if ty.managed() {
                         let old = self.read_local(*i);
                         self.release(old, &ty);

@@ -13,15 +13,14 @@ def in_set(cr: f64, ci: f64) -> bool:
     mut zi = 0.0
     mut tr = 0.0
     mut ti = 0.0
-    mut i = 0
-    while i < ITERATIONS and tr + ti <= LIMIT_SQUARED:
+    # The initial magnitude is zero, so the first update always runs.
+    for _ in range(ITERATIONS):
         zi = 2.0 * zr * zi + ci
         zr = tr - ti + cr
         tr = zr * zr
         ti = zi * zi
-        # i stops at ITERATIONS.
-        unchecked:
-            i += 1
+        if tr + ti > LIMIT_SQUARED:
+            break
     tr + ti <= LIMIT_SQUARED
 
 

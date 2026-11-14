@@ -71,6 +71,10 @@ pub(super) struct Facts {
     /// variable is below the stop, which holds exactly while the countdown
     /// is positive, so stores to the countdown are dropped (issue #933).
     pub counted: Vec<(u8, u8, Value)>,
+    /// Element slots read only by their counted loop's wrapping steps.
+    /// Omitting their stores breaks dead cyclic SSA parameters that survive
+    /// Cranelift's DCE (issue #973), while the countdown still counts passes.
+    pub unused_range_elements: Vec<u8>,
     /// Row bounds checks done on the current path; see [`Checked`].
     pub checked: Checked,
     /// Facts that prove a row index below a list's length; see [`Bounds`].
@@ -329,6 +333,9 @@ pub(super) struct RangeLoop {
     /// keep no countdown (issue #933); the frontend reads the slot nowhere
     /// after the loop.
     pub countdown_private: bool,
+    /// Only the wrapping steps read the element. `only_steps` also rejects
+    /// borrows and other observations that a load count alone would miss.
+    pub target_private: bool,
 }
 
 /// How often `ops` and their nested bodies contain an operation `counted`
@@ -416,17 +423,17 @@ pub(super) fn analyze_range(condition: &[Op], body: &[Op]) -> Option<RangeLoop> 
         body,
         &|op| matches!(op, Op::StoreLocal(i) if *i == remaining),
     );
-    // A body that never reads the variable (`for _ in range(n)`) counts
-    // passes with the countdown alone; the stop would be one more live value.
-    let countdown_private = countdown_private
-        && count(body, &|op| matches!(op, Op::LoadLocal(i) if *i == target))
-            > count(body, &|op| matches!(op, Op::StoreLocal(i) if *i == target));
+    let target_private = count(body, &|op| matches!(op, Op::LoadLocal(i) if *i == target))
+        == count(body, &|op| matches!(op, Op::StoreLocal(i) if *i == target));
+    // An unused element needs no stores; its countdown alone counts passes.
+    let countdown_private = countdown_private && !target_private;
     Some(RangeLoop {
         target,
         remaining,
         advance,
         unit_steps,
         countdown_private,
+        target_private,
     })
 }
 
