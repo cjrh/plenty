@@ -247,6 +247,16 @@ bytes, also without a call. A miss, an empty table, and a first candidate
 that does not match that way leave through a tail call. The hit reads no `Slot`
 record; only a miss builds one (issue #931).
 
+Lazy `get_or_insert_with` uses compiler-private probe and commit operations.
+The probe writes its existing value address, hash, vacant bucket and table
+length to caller-owned stack storage. Generated control flow invokes the
+ordinary checked factory only on a miss, then commits with the saved probe.
+No Rust reference or runtime scratch storage survives across the callback.
+Growth reuses the hash and relocates the bucket if the table changed. The
+frontend drops unused key/factory operands on hits and maps factory errors
+into `DictInitError.Factory`; the runtime adopts key/value on commit and
+releases them on allocation failure.
+
 `get_or_insert_bytes` calls
 `plenty_dict_get_or_insert_bytes(dictionary, address, count, value)` with the
 source view's two words (issue #949). It hashes the bytes with the text hash

@@ -124,17 +124,41 @@ lookup per item rather than the two of `get_mut` followed by `insert`. A
 missing key may grow the dictionary as `insert` does; on `AllocError` the key
 and default are dropped and the dictionary is unchanged. The result holds the
 same whole-dictionary loan as `get_mut`'s. The default is eager: it is built
-even when the key is present, so prefer `get_mut` when building it costs an
-allocation and the key is usually present.
+even when the key is present. Use `get_or_insert_with` for a default that
+allocates or performs other work.
+
+`dictionary.get_or_insert_with(key, factory)` calls a zero-argument factory
+only when the key is missing. A factory returning `V` gives
+`Result[&mut V, AllocError]`; a factory returning `Result[V, E]` gives
+`Result[&mut V, DictInitError[E]]`. The builtin error has variants
+`Factory(E)` and `Allocation(AllocError)`, preserving the factory error
+separately from dictionary growth failure.
+
+The key and factory expressions evaluate once, in that order, before the
+dictionary is borrowed exclusively. The lookup hashes the key once and keeps
+its vacant slot across the factory call; growth may find a new bucket using
+the retained hash. A hit drops the incoming key and unused owned factory
+captures, preserving the stored key, value and insertion order. A factory
+error leaves the dictionary unchanged. A growth error drops the new key and
+value without publishing an entry.
+
+Named functions, owned closures (including `def once`) and references to
+reusable closures are accepted. The factory may borrow unrelated owners;
+those captures end with the call, while the returned reference borrows only
+the dictionary. A factory that also borrows the dictionary conflicts with
+the exclusive receiver loan and is rejected.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+def empty_group() -> Result[list[str], AllocError]:
+    []
+
+def main() -> Result[(), AllocError | DictInitError[AllocError] | IoError | OverflowError[i64]]:
     mut counts: dict[str, i64] = {}?
     for word in "to be or not to be".split()?:
         *counts.get_or_insert(word, 0)? += 1
     mut lengths: dict[i64, list[str]] = {}?
     for word in counts.keys():
-        group = lengths.get_or_insert(len(*word), []?)?
+        group = lengths.get_or_insert_with(len(*word), empty_group)?
         group.append(*word)?
     print(counts, lengths)?
     Ok(())
@@ -240,7 +264,7 @@ moving a named set or view.
 result explicitly.
 
 A bound view holds a shared loan on the whole dictionary until its last use.
-Insertion, `get_mut`, `get_or_insert`, `get_or_insert_bytes`, update, removal, clearing, and moving the owner
+Insertion, `get_mut`, `get_or_insert`, `get_or_insert_with`, `get_or_insert_bytes`, update, removal, clearing, and moving the owner
 conflict with that loan, including through aliases. Views cannot be stored in
 fields, collections, tuples, enum payloads, generators or worker/closure
 captures, or passed to or returned from user functions. Binding a view of a

@@ -52,6 +52,7 @@ mod generators;
 mod generics;
 pub(crate) mod ide;
 mod intervals;
+mod lazy_dict;
 #[cfg(test)]
 mod lexer_tests;
 mod lints;
@@ -421,6 +422,7 @@ impl TypeRef {
             "SpawnError" => Some(SumCtor::One(crate::sum::spawn_error)),
             "SendError" => Some(SumCtor::One(crate::sum::send_error)),
             "AppendError" => Some(SumCtor::One(crate::sum::append_error)),
+            "DictInitError" => Some(SumCtor::One(crate::sum::dict_init_error)),
             "SendTimeoutError" => Some(SumCtor::One(crate::sum::send_timeout_error)),
             "Selected" => Some(SumCtor::Two(crate::sum::selected)),
             "SubmitError" => Some(SumCtor::One(crate::sum::submit_error)),
@@ -734,6 +736,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "KeyView"
                 | "clist"
                 | "AppendError"
+                | "DictInitError"
                 | "OverflowError"
                 | "ShiftCountError"
                 | "ZeroDivisionError"

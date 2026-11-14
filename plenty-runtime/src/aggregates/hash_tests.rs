@@ -613,3 +613,55 @@ fn get_or_insert_bytes_agrees_with_the_owned_key_at_every_length() {
         }
     }
 }
+
+// Issue #966: user callbacks run between these calls. The probe state is
+// caller-owned and survives arbitrary runtime calls; growth reuses its hash.
+#[test]
+fn lazy_dictionary_probe_hashes_once_across_hits_and_growth() {
+    let owner = OwnedValue {
+        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
+        ty: &COUNTS,
+    };
+    let reference = &owner.value as *const u128 as u128;
+    unsafe {
+        for i in 0..80 {
+            let key = strings::new(format!("key{i}").as_bytes()) as u128;
+            let before = HASHES.with(std::cell::Cell::get);
+            let probes = PROBES.with(std::cell::Cell::get);
+            let mut state = [0u128; 4];
+            let address = state.as_mut_ptr() as u128;
+            assert_eq!(
+                collection(DICT_LAZY_PROBE, reference, key, address, std::ptr::null()),
+                address
+            );
+            assert_eq!(state[0], 0);
+            assert_eq!(HASHES.with(std::cell::Cell::get), before + 1);
+            assert_eq!(
+                PROBES.with(std::cell::Cell::get),
+                probes + usize::from(i != 0)
+            );
+            let result = lazy_finish(reference, key, i, address);
+            assert_eq!(result >> 64, 0);
+            assert_eq!(*(result as *const u128), i);
+            assert_eq!(HASHES.with(std::cell::Cell::get), before + 1);
+            assert_eq!(
+                PROBES.with(std::cell::Cell::get),
+                probes + usize::from(i != 0)
+            );
+            let before = HASHES.with(std::cell::Cell::get);
+            let probes = PROBES.with(std::cell::Cell::get);
+            let key = strings::new(format!("key{i}").as_bytes()) as u128;
+            collection(DICT_LAZY_PROBE, reference, key, address, std::ptr::null());
+            assert_ne!(state[0], 0);
+            assert_eq!(
+                collection(DICT_LAZY_HIT, address, 0, 0, std::ptr::null()),
+                state[0]
+            );
+            assert_eq!(*(state[0] as *const u128), i);
+            assert_eq!(HASHES.with(std::cell::Cell::get), before + 1);
+            assert_eq!(PROBES.with(std::cell::Cell::get), probes + 1);
+            release(key, &TEXT);
+        }
+        assert_eq!((&*(owner.value as *const Collection)).len(), 80);
+    }
+}

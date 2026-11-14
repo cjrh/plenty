@@ -1704,6 +1704,7 @@ impl Parser {
                         | "SpawnError"
                         | "SendError"
                         | "AppendError"
+                        | "DictInitError"
                         | "SendTimeoutError"
                         | "Selected"
                         | "SubmitError"

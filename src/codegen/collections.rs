@@ -1339,16 +1339,20 @@ impl Lowerer<'_, '_> {
         // is, whatever the rules above say.
         let inserts = matches!(
             operation,
-            CollectionOp::TryInsert(_)
+            CollectionOp::DictLazyFinish(_)
+                | CollectionOp::TryInsert(_)
                 | CollectionOp::ListTryInsert(_)
                 | CollectionOp::DictGetOrInsert(_)
                 | CollectionOp::DictGetOrInsertBytes(_)
         );
+        let adopts = |i| {
+            inserts && i > 0 && !(matches!(operation, CollectionOp::DictLazyFinish(_)) && i == 3)
+        };
         let mut values = Vec::new();
         let mut held = Vec::new();
         for (i, input) in inputs.iter().enumerate().rev() {
             let (value, _) = self.pop_typed(input.clone())?;
-            let adopted = inserts && i > 0;
+            let adopted = adopts(i);
             let in_place = !adopted
                 && (only_reads
                     || reads_in_place && *input == Ty::Str
@@ -1473,6 +1477,12 @@ impl Lowerer<'_, '_> {
                 arguments.push(self.inline_storage(ty.inline_bytes()));
             }
         }
+        if matches!(operation, CollectionOp::DictLazyProbe(_)) {
+            // Probe state belongs to this generated frame, never the runtime
+            // scratch area that a factory call may reuse.
+            let storage = self.inline_storage(output.inline_bytes());
+            arguments.push(storage);
+        }
         let site = if operation.traps() {
             Some(self.trap_site()?)
         } else {
@@ -1509,7 +1519,7 @@ impl Lowerer<'_, '_> {
         };
         // The runtime owns the adopted operands now.
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
-            if !(held[i] || inserts && i > 0) {
+            if !(held[i] || adopts(i)) {
                 self.release(*value, ty);
             }
         }

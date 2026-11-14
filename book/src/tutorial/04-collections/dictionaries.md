@@ -85,7 +85,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 
 The default is built before the lookup, even when the key is present. A
 default like `0` costs nothing; one that allocates, such as `[]?`, allocates on
-every call, so use `get_mut` when the key is usually present.
+every call. Once you can [pass functions as values](../10-functions/named-callbacks.md),
+use `get_or_insert_with(key, factory)` to construct a default only when the
+key is missing. It also accepts fallible factories; see
+[lazy dictionary defaults](../../design/facilities/01-builtins/dictionaries.md#lookup-and-removal).
 
 `get_or_insert` takes an owned key. When a `str` key is still a range of a
 [byte buffer](../08-resources/24-byte-buffers.md), building it for every lookup

@@ -217,6 +217,8 @@ Indexing a missing element or key traps; `get` returns an `Option` copy, and
 Dictionaries have no indexed assignment: `insert` adds or replaces,
 `get_mut` returns `Option[&mut V]` to change a value in place, and
 `get_or_insert(k, default)?` returns `&mut V` after inserting a missing key;
+`get_or_insert_with(k, factory)?` calls a zero-argument factory only on a miss
+(`DictInitError[E]` preserves a fallible factory error);
 for a `str` key still held as bytes, `get_or_insert_bytes(&buffer[a:b], default)?`
 builds the key only when it is absent.
 `for v in (&mut d).values():` and `for k, v in (&mut d).items():` change

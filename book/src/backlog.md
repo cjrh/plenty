@@ -228,7 +228,8 @@ Not done: a plain integer field gets no bound (whole-program inference from
 its writes was rejected), `Bounded` intervals with a negative lower bound give
 codegen no bound, and the checker still requires `OverflowError` in the
 signature of arithmetic that codegen proves in range.
-Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
+Lazy fallible dictionary initialization is [delivered](completed-work/language-and-tooling.md#lazy-dictionary-initialization-issue-966)
+(issue #966). Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 key construction from a byte range skips validated clamps and the dispatcher
 (`experiments/key-construction/`), and `get_or_insert` hits skip the
 dispatcher, the general key comparison and the streaming hasher
