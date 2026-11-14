@@ -546,6 +546,7 @@ mod tests {
         quantity: None,
         finite: None,
         destroy: None,
+        array: None,
     };
 
     #[test]

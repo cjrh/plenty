@@ -22,6 +22,7 @@ static INTEGER: Type = Type {
     quantity: None,
     finite: None,
     destroy: None,
+    array: None,
 };
 static RANGE: Type = Type {
     kind: b'R',

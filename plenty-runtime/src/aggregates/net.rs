@@ -637,6 +637,7 @@ mod native {
             quantity: None,
             finite: None,
             destroy: None,
+            array: None,
         };
 
         struct Owner(u128);

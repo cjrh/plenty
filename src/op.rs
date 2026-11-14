@@ -99,6 +99,8 @@ pub enum Ty {
     ForeignPtr(Arc<str>, crate::foreign::Threads),
     Bool,
     List(Arc<Ty>),
+    /// Fixed-length, owner-local homogeneous storage (B83).
+    Array(Arc<Ty>, usize),
     /// Dense native-width columns for a primitive-field class.
     Clist(Arc<Ty>),
     Set(Arc<Ty>),
@@ -196,11 +198,13 @@ impl Ty {
     }
     /// Whether a field of this type, in a class record or a multi-field
     /// variant or tuple, is stored flat: its record's bytes sit at the field's
-    /// offset in the owner, with no value word of their own. A class with a record (after removing newtype layers) qualifies;
-    /// its value is then the field's address. See
+    /// offset in the owner, with no value word of their own. Arrays and
+    /// classes with a record (after removing newtype layers) qualify;
+    /// their value is then the field's address. See
     /// book/src/design/toolchain/02-architecture/values.md.
     pub fn flat_field(&self) -> bool {
-        matches!(&*self.newtype_base(), Self::Class(_)) && self.has_inline_storage()
+        matches!(&*self.newtype_base(), Self::Class(_) | Self::Array(..))
+            && self.has_inline_storage()
     }
     /// The bytes a field of this type takes in its owner's record.
     pub fn field_bytes(&self) -> usize {
@@ -217,7 +221,10 @@ impl Ty {
         if let Some(storage) = self.native_storage() {
             return storage.wide();
         }
-        matches!(self, Self::Enum(_) | Self::Class(_) | Self::DictView(..))
+        matches!(
+            self,
+            Self::Enum(_) | Self::Class(_) | Self::Array(..) | Self::DictView(..)
+        )
     }
     /// Quantity keeps its nominal dimension for checking and static formatting,
     /// but its native value and calling convention are exactly its storage's.
@@ -345,6 +352,7 @@ impl Ty {
                     .unwrap_or(0)
             }
             Self::List(t)
+            | Self::Array(t, _)
             | Self::Clist(t)
             | Self::Set(t)
             | Self::Channel(t, _)
@@ -382,7 +390,7 @@ impl Ty {
                 | Self::FsDirEntry
                 | Self::FsMetadata
                 | Self::ByteStorage
-        ) || matches!(self, Self::Enum(_) if self.facts().affine)
+        ) || matches!(self, Self::Enum(_) | Self::Array(..) if self.facts().affine)
             // An undefined forward reference is conservatively affine. An
             // instance of a generic `@copy` class moves when a field does,
             // and the facts walk is cycle-safe where a field recursion is not.
@@ -391,6 +399,7 @@ impl Ty {
     }
     pub fn restricted_storage(&self) -> bool {
         match self {
+            Self::Array(t, _) => t.restricted_storage(),
             Self::Iter(..)
             | Self::Task(_)
             | Self::Generator(_)
@@ -439,6 +448,7 @@ impl Ty {
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
+            Self::Array(t, _) => t.storage_barrier(),
             Self::Dimension(_) => Some(StorageBarrier::Dimension),
             Self::Iter(..) => Some(StorageBarrier::Iter),
             Self::KeyView(_) => Some(StorageBarrier::KeyView),
@@ -480,7 +490,12 @@ impl Ty {
             match &ty {
                 _ if ty.is_numeric() => {}
                 Self::Bool | Self::Unit | Self::ByteStr | Self::File | Self::Callable(_) => {}
-                Self::Range(t) | Self::List(t) | Self::Clist(t) | Self::Set(t) | Self::Box(t) => {
+                Self::Range(t)
+                | Self::List(t)
+                | Self::Array(t, _)
+                | Self::Clist(t)
+                | Self::Set(t)
+                | Self::Box(t) => {
                     work.push(((**t).clone(), holder));
                 }
                 Self::Dict(k, v) => {
@@ -654,9 +669,11 @@ impl Ty {
             match &ty {
                 _ if !ty.managed() => {}
                 Self::Str | Self::ByteStorage => {}
-                Self::List(t) | Self::Set(t) | Self::Box(t) | Self::Shared(t) => {
-                    work.push((**t).clone())
-                }
+                Self::List(t)
+                | Self::Array(t, _)
+                | Self::Set(t)
+                | Self::Box(t)
+                | Self::Shared(t) => work.push((**t).clone()),
                 Self::Dict(k, v) => work.extend([(**k).clone(), (**v).clone()]),
                 Self::Class(t) => match t.try_get() {
                     Some(definition) if definition.destructor.is_none() => {
@@ -682,6 +699,9 @@ impl Ty {
     /// Values requiring cleanup have one owner per operand/local. This includes
     /// inline generators as well as heap-backed values; scalars copy as bits.
     pub fn managed(&self) -> bool {
+        if let Self::Array(t, n) = self {
+            return *n != 0 && t.managed();
+        }
         match self {
             // Inline values need cleanup only when a payload or field does.
             Self::Enum(t) => {
@@ -806,6 +826,7 @@ impl Ty {
             Ty::Enum(t) => t.name.to_string(),
             Ty::Class(t) => t.name.to_string(),
             Ty::List(t) => format!("list[{}]", t.identity_name()),
+            Ty::Array(t, n) => format!("array[{}, {n}]", t.identity_name()),
             Ty::Clist(t) => format!("clist[{}]", t.identity_name()),
             Ty::Set(t) => format!("set[{}]", t.identity_name()),
             Ty::Dict(k, v) => format!("dict[{}, {}]", k.identity_name(), v.identity_name()),
@@ -941,6 +962,7 @@ impl fmt::Display for Ty {
             Ty::Bool => "bool",
             Ty::Iter(t, _) => return write!(f, "Iter[{t}]"),
             Ty::List(t) => return write!(f, "list[{t}]"),
+            Ty::Array(t, n) => return write!(f, "array[{t}, {n}]"),
             Ty::Set(t) => return write!(f, "set[{t}]"),
             Ty::DictView(t, values) => {
                 return write!(f, "{}View[{t}]", if *values { "Value" } else { "Item" });

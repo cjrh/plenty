@@ -187,6 +187,7 @@ impl CollectionOp {
             | ElementRef(..)
             | TryCopy(_)
             | Next(_)
+            | ArrayNew(_)
             | TryNew(_)
             | Clist(_)
             | TryReserve(_)

@@ -227,6 +227,17 @@ every value in place. See
 [lists](../facilities/01-builtins/lists.md), and
 [dictionaries](../facilities/01-builtins/dictionaries.md).
 
+## Fixed inline arrays
+
+A concrete `array[T, N]` expectation makes a nonempty `[a, b]` literal an
+allocation-free fixed array. `N` is a nonnegative `i64` constant/value parameter.
+Use `array[T, N].filled(value)` for copyable elements or `.from_fn(factory)`
+for a reusable `i64 -> T` callback; `.try_from_fn(factory)` returns a `Result`.
+`len(a)` is fixed; runtime `i64` indices accept negatives and trap out of range.
+Use `&a[i]`, `&mut a[i]`, `a[i] = value`, and `for item in &a` / `&mut a`.
+Empty arrays use `.filled`; empty literals and comprehensions retain list
+meaning. See [arrays](../language/03-types/arrays.md).
+
 ## Tuples
 
 ```plenty

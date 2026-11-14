@@ -40,6 +40,7 @@ const fn scalar(kind: u8) -> Type {
         quantity: None,
         finite: None,
         destroy: None,
+        array: None,
     }
 }
 const fn list(key: &'static Type) -> Type {
@@ -390,6 +391,7 @@ static GUARD: Type = Type {
     affine: true,
     key: Some(&GUARD_CLASS),
     destroy: destroy_entry!(&GUARD),
+    array: None,
     ..scalar(b'O')
 };
 static LIST_GUARD: Type = list(&GUARD);
@@ -2506,6 +2508,7 @@ static RECURSIVE_BOX: Type = Type {
     affine: true,
     key: Some(&RECURSIVE_NODE),
     destroy: destroy_entry!(&RECURSIVE_BOX),
+    array: None,
     ..scalar(b'O')
 };
 static OPTION_RECURSIVE_BOX: Type = Type {
@@ -2612,6 +2615,7 @@ fn recursive_heap_children_finish_before_inline_siblings_on_a_small_stack() {
         affine: true,
         key: Some(&NODE),
         destroy: destroy_entry!(&BOX),
+        array: None,
         ..scalar(b'O')
     };
     static OPTION: Type = Type {

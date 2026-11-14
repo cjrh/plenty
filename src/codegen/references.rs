@@ -278,7 +278,7 @@ impl Lowerer<'_, '_> {
     /// Copy the class value `value` into the record storage at `destination`,
     /// or zero that storage when `value` is empty.
     pub(super) fn write_record(&mut self, value: NativeValue, ty: &Ty, destination: NativeValue) {
-        let bytes = ty.inline_bytes() as u64;
+        let bytes = ty.payload_bytes() as u64;
         if known::known_zero(&self.bcx.func.dfg, value) {
             self.zero_bytes(destination, bytes);
             return;

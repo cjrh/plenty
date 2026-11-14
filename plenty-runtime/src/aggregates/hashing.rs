@@ -335,6 +335,7 @@ mod tests {
             quantity: None,
             finite: None,
             destroy: None,
+            array: None,
         };
         let message: [u8; 40] = std::array::from_fn(|i| (i as u8).wrapping_mul(37) ^ 0x5a);
         for key in [[0; 16], [0xa5; 16], std::array::from_fn(|i| i as u8)] {

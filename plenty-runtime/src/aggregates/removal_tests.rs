@@ -20,6 +20,7 @@ static INTEGER: Type = Type {
     quantity: None,
     finite: None,
     destroy: None,
+    array: None,
 };
 static MAP: Type = Type {
     kind: b'D',

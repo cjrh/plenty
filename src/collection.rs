@@ -186,6 +186,8 @@ impl Query {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum CollectionOp {
+    /// Zeroed owner-local array storage; frontend construction fills every element.
+    ArrayNew(Ty),
     Clist(crate::clist::ClistOp),
     Filesystem(crate::filesystem::FsOp),
     Bytes(crate::bytes::BytesOp),
@@ -464,6 +466,7 @@ impl Ty {
             || matches!(
                 self,
                 Self::Enum(_)
+                    | Self::Array(..)
                     | Self::Clist(_)
                     | Self::Class(_)
                     | Self::Box(_)
@@ -485,9 +488,11 @@ impl Ty {
     }
     pub fn element(&self) -> Option<Ty> {
         match self {
-            Self::List(t) | Self::Set(t) | Self::KeyView(t) | Self::Dict(t, _) => {
-                Some((**t).clone())
-            }
+            Self::List(t)
+            | Self::Array(t, _)
+            | Self::Set(t)
+            | Self::KeyView(t)
+            | Self::Dict(t, _) => Some((**t).clone()),
             Self::Range(t) => Some((**t).clone()),
             Self::Str => Some(Self::Str),
             Self::ByteStr => Some(Self::U8),
@@ -629,6 +634,7 @@ impl CollectionOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         use CollectionOp::*;
         match self {
+            ArrayNew(t) => (vec![], t.clone()),
             Clist(op) => op.signature(),
             Formatted(formatted) => {
                 let (inputs, output) = formatted.operation.signature();
@@ -815,7 +821,7 @@ impl CollectionOp {
             ),
             ElementRef(t, mutable) => {
                 let (key, value) = match t {
-                    Ty::List(element) => (Ty::I64, (**element).clone()),
+                    Ty::List(element) | Ty::Array(element, _) => (Ty::I64, (**element).clone()),
                     Ty::Dict(key, value) => ((**key).clone(), (**value).clone()),
                     _ => unreachable!("element reference collection"),
                 };
@@ -1302,6 +1308,7 @@ impl CollectionOp {
 
     pub fn opcode(&self) -> i64 {
         match self {
+            Self::ArrayNew(_) => unreachable!("array construction is lowered inline"),
             Self::Clist(op) => op.opcode(),
             Self::Formatted(formatted) => formatted.operation.opcode(),
             Self::Filesystem(op) => op.opcode(),

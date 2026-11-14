@@ -44,6 +44,8 @@ pub(super) struct DataTypes {
     /// Column eligibility depends on the complete class schema, including
     /// generic instances whose definitions are still in the queue.
     pending_clists: RefCell<Vec<(Ty, Token)>>,
+    /// Array element nominals may still be waiting for their definitions.
+    pending_arrays: RefCell<Vec<(Ty, Token)>>,
     deferred: Cell<bool>,
     depth: Cell<usize>,
     /// The instance being defined, whose fields request further instances.
@@ -825,6 +827,16 @@ impl TypeAliases {
                     self.check_copy_class(class, &self.data.classes[name], actual)?;
                 }
             }
+            for (array, at) in std::mem::take(&mut *self.data.pending_arrays.borrow_mut()) {
+                let Ty::Array(element, _) = &array else {
+                    unreachable!()
+                };
+                if let Some(barrier) = element.storage_barrier() {
+                    return Err(at.error(barrier.message("arrays")));
+                }
+                crate::generator::layout(&array, &mut vec![])
+                    .map_err(|message| at.error(message))?;
+            }
             Ok(())
         })();
         self.data.deferred.set(false);
@@ -832,6 +844,27 @@ impl TypeAliases {
         *self.data.requirer.borrow_mut() = None;
         *self.data.requiring.borrow_mut() = attributed;
         result
+    }
+
+    pub(super) fn check_array_layout(&self, array: &Ty, at: &Token) -> Result<()> {
+        let Ty::Array(element, _) = array else {
+            unreachable!()
+        };
+        if let Some(barrier) = element.storage_barrier() {
+            return Err(at.error(barrier.message("arrays")));
+        }
+        if self.data.shapes_only {
+            return Ok(());
+        }
+        if !element.facts().complete {
+            self.data
+                .pending_arrays
+                .borrow_mut()
+                .push((array.clone(), at.clone()));
+        } else {
+            crate::generator::layout(array, &mut vec![]).map_err(|message| at.error(message))?;
+        }
+        Ok(())
     }
 
     pub(super) fn clist_type(&self, row: Ty, at: &Token) -> Result<Ty> {

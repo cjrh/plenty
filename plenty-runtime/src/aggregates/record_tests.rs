@@ -20,6 +20,7 @@ static INTEGER: Type = Type {
     quantity: None,
     finite: None,
     destroy: None,
+    array: None,
 };
 static WIDE: Type = Type {
     inline_bytes: 64,
@@ -46,6 +47,7 @@ fn copy_failure_clears_mixed_width_fields_without_consuming_source() {
         affine: true,
         key: Some(&INTEGER),
         destroy: Some(destroy),
+        array: None,
         ..INTEGER
     };
     static TUPLE: Type = Type {
@@ -264,4 +266,48 @@ fn wide_tuple_traversal_benchmark() {
             start.elapsed().as_micros()
         );
     }
+}
+
+#[test]
+fn packed_array_cleanup_preserves_unaligned_neighbor_bytes() {
+    static BYTE: Type = Type {
+        kind: b'5',
+        ..INTEGER
+    };
+    static ARRAY: Type = Type {
+        kind: b'a',
+        inline_bytes: 16,
+        key: Some(&BYTE),
+        array: Some(&ArrayLayout { len: 3, stride: 1 }),
+        ..INTEGER
+    };
+    let mut bytes = [0xa5u8; 8];
+    bytes[1..4].copy_from_slice(&[1, 2, 3]);
+    let record = ARRAY
+        .record(bytes[1..].as_mut_ptr() as usize as u128)
+        .unwrap();
+    assert_eq!(record.bytes(), 3);
+    assert_eq!(unsafe { record.slots().nth(2).unwrap().0.read() }, 3);
+    assert!(unsafe { release_next_fields(record) }.is_none());
+    assert_eq!(bytes, [0xa5, 0, 0, 0, 0xa5, 0xa5, 0xa5, 0xa5]);
+}
+
+#[test]
+fn zero_width_array_record_retains_its_logical_element_count() {
+    static EMPTY: Type = Type {
+        kind: b'a',
+        key: Some(&INTEGER),
+        array: Some(&ArrayLayout { len: 0, stride: 8 }),
+        ..INTEGER
+    };
+    static ARRAY: Type = Type {
+        kind: b'a',
+        key: Some(&EMPTY),
+        array: Some(&ArrayLayout { len: 2, stride: 0 }),
+        ..INTEGER
+    };
+    let record = ARRAY.record(0).unwrap();
+    assert_eq!(record.len(), 2);
+    assert_eq!(record.bytes(), 0);
+    assert_eq!(record.slots().count(), 2);
 }

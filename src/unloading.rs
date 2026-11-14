@@ -269,6 +269,7 @@ fn collection_allowed(op: &crate::collection::CollectionOp) -> bool {
         | ElementRef(..)
         | TryCopy(_)
         | Next(_)
+        | ArrayNew(_)
         | TryNew(_)
         | Clist(_)
         | TryReserve(_)

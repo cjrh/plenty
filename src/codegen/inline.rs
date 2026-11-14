@@ -4,7 +4,7 @@ use super::*;
 use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
 
 impl Lowerer<'_, '_> {
-    /// Copy `bytes` (a multiple of 8) from `source` to `destination`, which
+    /// Copy `bytes` from `source` to `destination`, which
     /// may overlap. Cranelift inlines copies of up to 32 bytes and calls
     /// `memmove` above that; a nested record is usually larger, and the call
     /// cost several times the copy (issue #550). Up to [`INLINE_COPY_LIMIT`]
@@ -12,16 +12,20 @@ impl Lowerer<'_, '_> {
     /// before any is stored so an overlapping copy stays correct.
     pub(super) fn copy_bytes(&mut self, destination: NativeValue, source: NativeValue, bytes: u64) {
         let config = self.module.target_config();
-        if bytes <= 32 || bytes > INLINE_COPY_LIMIT {
+        if bytes <= 32 || bytes > INLINE_COPY_LIMIT || !bytes.is_multiple_of(8) {
             self.bcx.emit_small_memory_copy(
                 config,
                 destination,
                 source,
                 bytes,
-                8,
-                8,
+                if bytes.is_multiple_of(8) { 8 } else { 1 },
+                if bytes.is_multiple_of(8) { 8 } else { 1 },
                 false,
-                MemFlagsData::trusted(),
+                if bytes.is_multiple_of(8) {
+                    MemFlagsData::trusted()
+                } else {
+                    MemFlagsData::new().with_notrap()
+                },
             );
             return;
         }
@@ -45,13 +49,23 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    /// Zero `bytes` (a multiple of 8) at `destination`, in vector stores up to
+    /// Zero `bytes` at `destination`, in vector stores up to
     /// [`INLINE_COPY_LIMIT`] bytes for the reason given at [`Self::copy_bytes`].
     pub(super) fn zero_bytes(&mut self, destination: NativeValue, bytes: u64) {
         let config = self.module.target_config();
-        if bytes <= 32 || bytes > INLINE_COPY_LIMIT {
-            self.bcx
-                .emit_small_memset(config, destination, 0, bytes, 8, MemFlagsData::trusted());
+        if bytes <= 32 || bytes > INLINE_COPY_LIMIT || !bytes.is_multiple_of(8) {
+            self.bcx.emit_small_memset(
+                config,
+                destination,
+                0,
+                bytes,
+                if bytes.is_multiple_of(8) { 8 } else { 1 },
+                if bytes.is_multiple_of(8) {
+                    MemFlagsData::trusted()
+                } else {
+                    MemFlagsData::new().with_notrap()
+                },
+            );
             return;
         }
         let flags = MemFlagsData::new().with_notrap();
@@ -185,7 +199,7 @@ impl Lowerer<'_, '_> {
             .brif(source, copy, &[], done, &[value.into()]);
         self.bcx.switch_to_block(copy);
         self.bcx.seal_block(copy);
-        self.copy_bytes(destination, source, ty.inline_bytes() as u64);
+        self.copy_bytes(destination, source, ty.payload_bytes() as u64);
         if let Ty::Class(_) = ty {
             self.fix_record(ty, destination);
         }

@@ -1682,3 +1682,18 @@ comparisons, about 2.8% fewer moving-sum instructions and 5.2% fewer serial
 k-nucleotide instructions, with noisy CPU measurements reported separately.
 User iterator protocols, stored view classes and mutable windows remain outside
 this delivered scope; broader borrowing and iteration remain B11/B12.
+
+## B83 inline arrays
+
+[Fixed inline arrays](../design/language/03-types/arrays.md) provide checked
+constant lengths, complete literals and copy/factory construction, runtime
+indexing, shared/exclusive borrowed iteration, structural equality and printing,
+and tuple-like ownership. Generic arguments recognize array shape through
+references, tuples and nested arrays. Fallible factories and literal failures
+clean only the initialized prefix.
+
+Dense nested array payloads are distinct from padded outer ABI storage; a
+nested pair of three-byte arrays occupies six logical bytes. Existing class
+layout is unchanged. This prerequisite does not deliver public vector APIs,
+array arithmetic, a SIMD rewrite, or flattened `clist` array lanes.
+[Remaining B83 scope](../backlog.md) stays in the backlog.
