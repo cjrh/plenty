@@ -141,6 +141,7 @@ impl Lowerer<'_, '_> {
         let mut native_arguments = Vec::new();
         let mut buffers = Vec::new();
         let mut errno_output = None;
+        let mut bool_outputs = Vec::new();
         for (index, (argument, mode)) in arguments
             .into_iter()
             .zip(&declaration.arguments)
@@ -155,7 +156,12 @@ impl Lowerer<'_, '_> {
                 argument
             };
             match mode {
-                Argument::Direct => native_arguments.push(argument),
+                Argument::Direct => {
+                    if matches!(&sig.inputs[index].1, Ty::Ref(inner, true) if **inner == Ty::Bool) {
+                        bool_outputs.push(argument);
+                    }
+                    native_arguments.push(argument)
+                }
                 Argument::Errno => errno_output = Some(argument),
                 Argument::Strided if matches!(sig.inputs[index].1, Ty::View(..)) => {
                     // Byte views already carry their borrowed address and count.
@@ -271,6 +277,18 @@ impl Lowerer<'_, '_> {
             self.bcx
                 .ins()
                 .store(MemFlagsData::trusted(), error, output, 0);
+        }
+        for output in bool_outputs {
+            // C may store any byte through a `bool *`; keep the borrowed
+            // value one of Plenty's two states, as results and `load` are.
+            let byte = self
+                .bcx
+                .ins()
+                .load(types::I8, MemFlagsData::trusted(), output, 0);
+            let value = canonical_bool(self.bcx, byte, &Ty::Bool);
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), value, output, 0);
         }
         for buffer in buffers {
             self.release(buffer, &Ty::Str);

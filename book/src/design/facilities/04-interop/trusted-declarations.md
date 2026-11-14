@@ -25,8 +25,9 @@ is `u64`. `bool` matches C `_Bool` (the `<stdbool.h>` `bool` spelling) and
 C++ `bool`, with one-byte size and alignment. Arguments, results and scalar
 borrows are supported, including indirect calls and text adapters returning
 `Result[bool, CStrError]`. C must supply valid boolean objects and matching
-prototypes. Imported values are normalized to Plenty
-`False`/`True`; outbound values are 0/1. Aggregate values and private Plenty
+prototypes. Imported values are normalized to Plenty `False`/`True`: results,
+raw `load` reads, and the byte a call leaves in a `&mut bool` argument.
+Outbound values are 0/1. Aggregate values and private Plenty
 layouts have no raw ABI.
 
 The integer domain types `NonZero[T]`, `Positive[T]`, `NonNegative[T]` and
