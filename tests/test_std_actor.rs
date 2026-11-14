@@ -443,13 +443,35 @@ fn impossible_stage_capacities_are_capacity_overflow() {
 
 #[test]
 fn node_observation_tracks_lifetime_and_copies_outside_the_heap() {
-    let source = OBSERVED_NODE.replace(
-        "    BODY",
-        r#"    print(actors.node(first).unwrap().count).unwrap()
+    let source = OBSERVED_NODE
+        .replace(
+            "from std.sync import CancellationToken",
+            "from std.sync import CancellationToken\nfrom std.ready import WaitError",
+        )
+        .replace(
+            "from std.time import deadline_after",
+            "from std.time import deadline_at, deadline_after",
+        )
+        .replace(
+            "    BODY",
+            r#"    print(actors.node(first).unwrap().count).unwrap()
     snapshot = copy(actors.node(first).unwrap().values).unwrap()
     token = CancellationToken().unwrap()
     actors.send(first, 1).unwrap()
-    drop(actors.run(&deadline_after(&monotonic_now(), &milliseconds(1)).unwrap(), &token))
+    # An expired scheduling turn must leave the message queued. This forces
+    # the path that used to occur only when the suite descheduled this test.
+    expired = actors.run(&deadline_at(&monotonic_now()), &token)
+    print(expired.is_err(), actors.node(first).unwrap().count).unwrap()
+    # Stage.run keeps waiting while a node is alive, even after its mailbox
+    # drains. Observe completion between bounded turns instead of assuming
+    # that the first one-millisecond turn dispatches the message.
+    limit = deadline_after(&monotonic_now(), &seconds(5)).unwrap()
+    while actors.node(first).unwrap().count == 41 and not limit.expired(&monotonic_now()):
+        match actors.run(&deadline_after(&monotonic_now(), &milliseconds(1)).unwrap(), &token):
+            case Err(WaitError.TimedOut):
+                pass
+            case _ as other:
+                other.expect("actor stage failed before observation completed")
     print(actors.node(first).unwrap().count).unwrap()
     drop(actors.stop_actor(first))
     actors.run(&deadline_after(&monotonic_now(), &seconds(5)).unwrap(), &token).unwrap()
@@ -461,16 +483,32 @@ fn node_observation_tracks_lifetime_and_copies_outside_the_heap() {
     print(actors.node(second).is_none(), actors.stats().trapped).unwrap()
     drop(actors)
     print(snapshot).unwrap()"#,
-    );
-    let (_dir, executable) = support::build_file(&source);
-    let output = Command::new(executable).output().unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{stderr}");
-    assert!(stderr.contains("unwrap on Nothing"), "{stderr}");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "41\n42\nTrue\nTrue 8\nTrue 1\n[41]\n"
-    );
+        );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = support::write_main(dir.path(), &source);
+        let executable = dir.path().join("program");
+        plenty::compile_file_to_executable_with_options(
+            &input,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("optimize={optimize}: {error}\n{source}"));
+        let output =
+            support::output_within(&mut Command::new(executable), &[], Duration::from_secs(15));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "optimize={optimize}: {stderr}");
+        assert!(stderr.contains("unwrap on Nothing"), "{stderr}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "41\nTrue 41\n42\nTrue\nTrue 8\nTrue 1\n[41]\n",
+            "optimize={optimize}"
+        );
+    }
 }
 
 #[test]
@@ -496,12 +534,16 @@ fn runnable_stage_respects_its_deadline() {
     let source = OBSERVED_NODE
         .replace("self.count += value", "self.count += value\n                context.send(context.address(), 1).unwrap()")
         .replace("    BODY", r#"    actors.send(first, 1).unwrap()
-    result = actors.run(&deadline_after(&monotonic_now(), &milliseconds(20)).unwrap(), &CancellationToken().unwrap())
-    match result:
-        case Err(error):
-            print(error).unwrap()
-        case Ok(_):
-            print("completed").unwrap()
+    # A turn may expire before dispatch. Require observed progress within
+    # the overall bound while retaining the per-turn deadline assertion.
+    limit = deadline_after(&monotonic_now(), &seconds(5)).unwrap()
+    while actors.node(first).unwrap().count == 41 and not limit.expired(&monotonic_now()):
+        result = actors.run(&deadline_after(&monotonic_now(), &milliseconds(20)).unwrap(), &CancellationToken().unwrap())
+        match result:
+            case Err(error):
+                print(error).unwrap()
+            case Ok(_):
+                print("completed").unwrap()
     print(actors.node(first).unwrap().count > 41).unwrap()"#);
     let (_dir, executable) = support::build_file(&source);
     let output = support::output_within(&mut Command::new(executable), &[], Duration::from_secs(5));
