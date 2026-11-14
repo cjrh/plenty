@@ -432,10 +432,9 @@ Rows are 128 bits wide at every CPU level. A 256-bit row of `x`, `y`, `z` and
 a spare lane was not built: at x86-64-v3 clang's and Rust's 256-bit code for
 this step is 16 and 40 cycles slower than their 128-bit code on this machine,
 a magnitude needs the sum of three lanes of one register, the step holds more
-rows than there are registers, and a function with a 256-bit value spills
-every float 256 bits wide (the
-[`f64x4` measurements](#f64x4-in-ymm-registers-issue-962-stage-4) lost 7
-cycles to that).
+rows than there are registers, and the step with `f64x4` magnitudes is 7
+cycles slower than with `f64x2` ones (the
+[`f64x4` measurements](#f64x4-in-ymm-registers-issue-962-stage-4)).
 
 The fixed-state fixture (`tests/fixtures/fixed-state.plenty`, three points)
 pairs its first two points: 15 instructions per step from 20 at x86-64 and 10
@@ -1496,13 +1495,61 @@ n-body, five million steps, eight padded layouts, median across layouts
 
 The magnitude loop is one `ymm` loop, but n-body is not limited by it: the
 fixed-state pass keeps the bodies in scalar variables, so most of `advance` is
-scalar arithmetic and spills. Once a function holds a 256-bit value, every
-float spill and register move in it is 256 bits wide; the scalar spills of
-`advance` double in width, and the `f64x2`-tail variant is 7.1 cycles slower
-per step. Narrow spills for scalar values in such functions are the next step
-for this variant. Building an `f64x4` from scalar lanes pairs them in two
+scalar arithmetic and spills. Once a function held a 256-bit value, every
+float spill and register move in it was 256 bits wide; the scalar spills of
+`advance` doubled in width, and the `f64x2`-tail variant is 7.1 cycles slower
+per step. [Narrow spills](#narrow-spills-beside-256-bit-values-issue-969)
+later removed the wide spills and recovered 0.4 cycles, so spill width does
+not explain the difference on Zen 4. Building an `f64x4` from scalar lanes pairs them in two
 128-bit halves (`vmovlhps`) and joins the halves with `vinsertf128`. Inserting
 each lane into the 256-bit value instead (`vbroadcastsd` and `vblendpd`) measured
 211.2 cycles per step with the `f64x2` tail and 210.5 with the scalar tail, so
 neither form is better for both variants; the halves match the lowering below
 x86-64-v3.
+
+## Narrow spills beside 256-bit values (issue #969)
+
+In a function that holds a 256-bit value, the Cranelift fork gave every
+float-class value a 32-byte spill slot and moved it with `vmovupd %ymm`,
+scalars and 128-bit vectors included. A value now has a 32-byte slot only if
+its type is 256 bits wide. The others keep the 16-byte slots they have in any
+other function, stored and loaded with `vmovdqu %xmm`. The VEX form is
+required: a legacy SSE load keeps the upper half of its destination register,
+so it would depend on that register's previous value. Register-to-register
+moves stay 256 bits wide, because one register may hold either kind of value.
+regalloc2 takes the slot size per virtual register
+(`Function::vreg_spillslot_size` in the fork) and keeps values of different
+sizes in separate slots.
+
+n-body with `f64x4` magnitudes and an `f64x2` tail
+(`experiments/nbody-spills/nbody_f64x4.plenty`), `advance` at
+`--cpu x86-64-v3`:
+
+| `advance` | Before | After |
+|---|---:|---:|
+| 256-bit stack loads and stores of float registers | 303 | 6 |
+| 128-bit stack loads and stores of float registers | 0 | 304 |
+| Frame size, bytes | 14,720 | 13,568 |
+| Instructions per step | 403.2 | 401.2 |
+| Cycles per step | 185.4 | 185.0 |
+| Cycles per step, `f64x2` magnitudes (identical code) | 178.5 | 178.4 |
+
+AMD Zen 4, core 3, release compilers, `PLENTY_CACHE=off`, two million steps,
+eight padded layouts, 21 interleaved rounds, minimum per layout, median across
+layouts. Other builds ran on the machine during the measurement; the minimum
+selects the undisturbed runs, and the `f64x2` program, whose code is the same
+from both compilers, repeats within 0.3 cycles per layout. The `f64x4`
+variant is equal or faster on every layout, by 0.0 to 1.1 cycles. Output is
+identical.
+
+On Zen 4 a 256-bit load or store costs the same as a 128-bit one, so the
+spill width was not what makes this variant slower than the `f64x2` one: 6.6
+of the 7 cycles remain. `advance` still builds each 256-bit operand from
+scalar variables and takes the result apart again, and has 59 `vzeroupper`
+instructions before calls and returns; which of these costs the cycles is
+not measured. No Intel machine was available to measure.
+
+Limits: a scalar still has a 16-byte slot, as in functions without 256-bit
+values. The low half or low lane of a 256-bit value shares that value's
+register and its 32-byte slot. Cranelift's single-pass allocator, which
+Plenty selects for very large functions, keeps 32-byte slots.
