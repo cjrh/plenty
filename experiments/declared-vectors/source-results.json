@@ -1477,5 +1477,86 @@
         "task-clock": 39.46
       }
     }
+  },
+  "compile_cost": {
+    "compilers": {
+      "baseline": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/baseline-plenty",
+        "sha256": "4f383af30908eb3985be73ab129f989f52777cedba8b173d841917d58688a52d"
+      },
+      "candidate": {
+        "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-967-source-vec3/target/release/plenty",
+        "sha256": "4b41a1003bc774d2f741669621f6aeaccf78693d19eb9e4a5473ca9f9285e025"
+      }
+    },
+    "sources": {
+      "nbody": {
+        "path": "benchmarks/game/n-body/plenty/nbody.plenty",
+        "sha256": "e6ce38486a07684b67b9ba5ae283f0a34625b377be1ab46c3aa9411952e9ca97"
+      },
+      "fasta": {
+        "path": "benchmarks/game/fasta/plenty/fasta.plenty",
+        "sha256": "f2f3e268018707385fb727145e45c71c406369ac53ea45348e79c65d1dd5281f"
+      },
+      "knucleotide": {
+        "path": "benchmarks/game/k-nucleotide/plenty/knucleotide.plenty",
+        "sha256": "7e2dbeaa0831cd6301acba9e27e45a57df0370915b968bf2700298e31b0bf1e1"
+      }
+    },
+    "core": "3",
+    "cache": "PLENTY_CACHE=off; --no-cache",
+    "samples": {
+      "nbody": {
+        "baseline": [
+          493189106.0,
+          493236471.0,
+          493212811.0
+        ],
+        "candidate": [
+          492019175.0,
+          491979271.0,
+          491981725.0
+        ]
+      },
+      "fasta": {
+        "baseline": [
+          394684339.0,
+          394677524.0,
+          394689506.0
+        ],
+        "candidate": [
+          394210981.0,
+          394224038.0,
+          394203039.0
+        ]
+      },
+      "knucleotide": {
+        "baseline": [
+          429849967.0,
+          429837152.0,
+          429847707.0
+        ],
+        "candidate": [
+          429064167.0,
+          429080348.0,
+          429094205.0
+        ]
+      }
+    },
+    "medians": {
+      "nbody": {
+        "baseline": 493212811.0,
+        "candidate": 491981725.0
+      },
+      "fasta": {
+        "baseline": 394684339.0,
+        "candidate": 394210981.0
+      },
+      "knucleotide": {
+        "baseline": 429847707.0,
+        "candidate": 429080348.0
+      }
+    },
+    "driver_sha256": "4ce4b8203982200d9722ed75e3a7341fb1134692af09a384e574d8954509d115"
   }
 }

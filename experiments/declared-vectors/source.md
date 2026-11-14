@@ -113,7 +113,8 @@ escape local registers. For one million outer iterations their medians are:
 | Two shared calls | 243.625 | 206.173 | 44.04 |
 | Array materialization between groups | 161.625 | 183.969 | 39.46 |
 
-These are complete-program costs, including retained callees, and explain why
+Static address-range loop counts can include paths not taken on every trip;
+the dynamic counts are authoritative. These are complete-program costs, including retained callees, and explain why
 register-local instruction improvements cannot be applied to arbitrary call
 or collection-heavy code. List-specific throughput and nested clist layout
 remain unqualified. Measurements cover one host and compiler configuration;
@@ -150,6 +151,30 @@ exception order, NaN payload bits, arbitrary pointer-width boundaries or other
 architectures. Existing paired native experiment checks remain separate
 evidence, not substitutes for source-level tests.
 
+## Compiler cost and validation
+
+Three alternating uncached AOT samples of each unchanged program compare the
+prototype compiler with the exact pre-prototype `58e5a09b` / `98c0373` compiler
+retained by issue #972. Compiler identities and every instruction count are
+included in `source-results.json`; this measures whole compiler/linker command
+instructions, not Rust build time or a claim about every source program.
+
+| Program | Before instructions M | After instructions M | Change |
+|---|---:|---:|---:|
+| n-body | 493.213 | 491.982 | -0.25% |
+| fasta | 394.684 | 394.211 | -0.12% |
+| k-nucleotide | 429.848 | 429.080 | -0.18% |
+
+The final unrestricted `just test` at production commit `f5e40e59` passes:
+6895 integration tests (4 intentional ignores), 315 compiler-library units,
+304 runtime units (5 intentional ignores), 9 allocation-failure tests and two
+additional binary unit tests. The saved report is
+`target/check-timings/suite-20261114T232210-3933950/`: 407.7 seconds, including
+101.5 seconds compiling and 306.2 executing. This is a validation run, not a
+controlled test-suite speed comparison. Clippy, formatting, signature-index
+checks and complete docs CI also pass. The later addendum changes only these
+experiment drivers/results and this report; production code is unchanged.
+
 ## Reproduction and retained evidence
 
 Build the release compiler, then separate preparation from controlled timing:
@@ -169,6 +194,17 @@ or other suite should run concurrently. `preparation.json` and
 `measurements.json` link the exact source recipes and executable identities.
 The source commit field names the branch base when preparation precedes the
 final commit; individual source and compiler hashes identify the actual code.
+
+The optional compile-cost comparison uses a retained pre-prototype executable
+and verifies its expected SHA-256 before running:
+
+```sh
+python3 -B experiments/declared-vectors/source_compile.py --baseline /path/to/baseline-plenty --baseline-sha256 4f383af30908eb3985be73ab129f989f52777cedba8b173d841917d58688a52d
+```
+
+Its exact baseline came from issue #972's unchanged-source build with the
+previous lockfile; the retained preparation plan identifies base `58e5a09b`
+and backend `98c0373`. Rebuilt executables require their own recorded hashes.
 
 The floating-environment check can be repeated with:
 
