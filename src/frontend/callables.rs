@@ -173,7 +173,7 @@ impl Lower<'_> {
             }
             _ => return Err(at.error(format!("{name} requires an owned Callable or closure"))),
         };
-        if matches!(signature.output, Some(Ty::Ref(..))) {
+        if signature.output.as_ref().is_some_and(Ty::carries_loan) {
             return Err(at.error(format!("{name} callbacks cannot return references yet")));
         }
         if signature.inputs.len() >= 256 {

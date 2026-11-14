@@ -589,7 +589,7 @@ impl Lower<'_> {
             (ty, Some(loan))
         } else {
             let ty = self.value(e, ops)?;
-            let loan = if matches!(ty, Ty::Ref(..)) {
+            let loan = if ty.carries_loan() {
                 Some(self.reference_origin(e, ops)?)
             } else {
                 None

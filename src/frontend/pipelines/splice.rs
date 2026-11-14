@@ -238,7 +238,7 @@ impl Lower<'_> {
             },
             at,
         )?;
-        if matches!(output, Some(Ty::Ref(..))) {
+        if output.as_ref().is_some_and(Ty::carries_loan) {
             return Err(
                 at.error("capturing or one-shot closures cannot return references or yield yet")
             );

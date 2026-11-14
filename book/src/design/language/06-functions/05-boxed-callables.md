@@ -28,7 +28,8 @@ allocation failure the consumed environment and its captures are dropped.
 
 `BoxedCallable` accepts reusable shared-call callbacks with wholly owned
 captures. Borrowed captures, generator-containing environments, and callbacks
-returning references are rejected; a mutable closure is rejected with a
+returning references or builtin views (including `Option`/`Result` success
+payloads carrying them) are rejected; a mutable closure is rejected with a
 suggestion to use `BoxedMutCallable`, and a one-shot closure with one to use
 `BoxedOnceCallable`. Signatures otherwise use the same rules as `Callable`,
 including reference parameters and ordinary owned arguments, with at most 255

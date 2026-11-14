@@ -192,7 +192,7 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
     assert_eq!(lock.matches("[[package]]").count(), 4, "{lock}");
     assert!(lock.contains("source = \"path+../base\""), "{lock}");
     assert!(
-        lock.contains("{ alias = \"core\", package = \"base\" }"),
+        lock.contains("{ alias = \"core\", package = \"path:../base\", requirement ="),
         "{lock}"
     );
 
@@ -201,7 +201,7 @@ fn path_dependencies_resolve_by_alias_with_one_package_per_name() {
         &app.join("src/main.plenty"),
         "import left\n\nclass Point:\n    z: i64\n\ndef take(p: Point) -> ():\n    pass\n\ndef main() -> ():\n    take(left.Point(1))\n",
     );
-    fails(&app, &["check"], "expected Point, got left::lib.Point");
+    fails(&app, &["check"], "expected Point, got left@0.1.0#");
 
     // Transitive dependencies are not visible without a direct declaration.
     write(
@@ -917,7 +917,7 @@ fn git_subdirectories_share_one_commit_per_package() {
     assert_eq!(lock.matches("[[package]]").count(), 3, "{lock}");
     assert!(lock.contains("subdir = \"geo\""), "{lock}");
 
-    // A second tag at a different commit cannot join the same graph.
+    // A direct newer geo coexists with shapes' transitive snapshot geo.
     commit(
         &repo,
         &[(
@@ -930,12 +930,14 @@ fn git_subdirectories_share_one_commit_per_package() {
         &app.join("plenty.toml"),
         &library_manifest("app", "0.1.0", &dependencies("v2", "")),
     );
-    fails(
-        &app,
-        &["check"],
-        "conflicting requirements for package `geo`",
+    assert_eq!(succeeds(&app, &["run"]), "140\n");
+    assert_eq!(
+        std::fs::read_to_string(app.join("plenty.lock"))
+            .unwrap()
+            .matches("name = \"geo\"")
+            .count(),
+        2
     );
-    fails(&app, &["check"], "app -> shapes requires");
 
     write(
         &app.join("plenty.toml"),
@@ -1555,8 +1557,8 @@ fn packages_include_files_from_their_directory() {
     assert!(status_lines(&app, &["build"]).contains("Compiling"));
     assert!(status_lines(&app, &["build"]).contains("Fresh"));
 
-    // `plentyc` derives each package's directory from its root, also when
-    // a bare relative path names a graph with relative roots.
+    // `plentyc` preserves explicit package directories in version-two graphs,
+    // including when a graph names relative source roots.
     write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
     let base = dir.path().canonicalize().unwrap();
     let relative = std::fs::read_to_string(app.join("graph.toml"))

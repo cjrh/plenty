@@ -26,8 +26,16 @@ records the shared-cursor lowering and retained instruction evidence for issue #
 [Conditional callback captures](completed-work/performance.md#conditional-callback-captures-issue-891)
 records the removal of the remaining immutable fold-capture reloads.
 
+[Returned builtin views](completed-work/language-and-tooling.md#b11-borrowing)
+record the first-reference-origin return subset of issue #945, including
+optional and fallible view results.
+
 The [Rust-source backend decision](completed-work/language-and-tooling.md#rust-source-backend-proposal-rejected)
 records the proposal's rejection on 2026-11-14; its experiments remain historical.
+
+[Multiple transitive dependency versions](completed-work/language-and-tooling.md#b17-tooling-and-packaging)
+record source identity, edge-specific locks and updates, provenance inspection,
+and explicit shared-resource restrictions.
 
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that

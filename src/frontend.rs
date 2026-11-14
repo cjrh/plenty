@@ -236,11 +236,8 @@ impl TypeRef {
                 output: output.resolve(aliases)?,
             };
             callables::validate(&signature, &self.at)?;
-            if matches!(signature.output, Some(Ty::View(..))) {
-                return Err(self.at.error(views::RETURN));
-            }
             let boxed = crate::op::BoxedMode::from_name(name);
-            if boxed.is_some() && matches!(signature.output, Some(Ty::Ref(..))) {
+            if boxed.is_some() && signature.output.as_ref().is_some_and(Ty::carries_loan) {
                 return Err(self
                     .at
                     .error(format!("{name} callbacks cannot return references yet")));
@@ -2397,7 +2394,9 @@ impl Lower<'_> {
             if local.ty.affine() {
                 ops.push(Op::MoveLocal(local.slot));
             } else {
-                if !matches!(local.ty, Ty::Ref(..)) {
+                // Loading a borrow descriptor uses the loan marked above;
+                // a raw access would read its exclusively borrowed root.
+                if !matches!(local.ty, Ty::Ref(..) | Ty::View(..)) {
                     ops.push(Op::Access(local.slot, false, None));
                 }
                 ops.push(Op::LoadLocal(local.slot));
@@ -4859,7 +4858,8 @@ pub(crate) fn compile_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(modules::load_graph(path, graph, require_main)?, heap, check)
+    (|| lower(modules::load_graph(path, graph, require_main)?, heap, check))()
+        .map_err(|error| graph.explain_error(error))
 }
 
 /// The test file at `path` as `plenty test` builds it, for checking without
@@ -4872,11 +4872,14 @@ pub(crate) fn compile_test_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(
-        modules::load_graph_with(path, graph, true, appendix, false)?,
-        heap,
-        check,
-    )
+    (|| {
+        lower(
+            modules::load_graph_with(path, graph, true, appendix, false)?,
+            heap,
+            check,
+        )
+    })()
+    .map_err(|error| graph.explain_error(error))
 }
 
 pub(crate) fn compile_script(
@@ -4884,11 +4887,14 @@ pub(crate) fn compile_script(
     graph: &crate::project::SourceGraph,
     heap: &mut Heap,
 ) -> Result<Program> {
-    lower(
-        modules::load_graph_with(path, graph, true, None, true)?,
-        heap,
-        crate::CheckOptions::default(),
-    )
+    (|| {
+        lower(
+            modules::load_graph_with(path, graph, true, None, true)?,
+            heap,
+            crate::CheckOptions::default(),
+        )
+    })()
+    .map_err(|error| graph.explain_error(error))
 }
 
 /// The sources of one application build, as the program cache names them.
@@ -4932,11 +4938,14 @@ impl<'a> Sources<'a> {
                 graph,
                 appendix,
                 script,
-            } => lower(
-                modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
-                heap,
-                crate::CheckOptions::default(),
-            ),
+            } => (|| {
+                lower(
+                    modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
+                    heap,
+                    crate::CheckOptions::default(),
+                )
+            })()
+            .map_err(|error| graph.explain_error(error)),
         }
     }
 
@@ -5101,10 +5110,6 @@ fn register_with_body(
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
     };
-    // Aggregates, `Option` and `Result` included, reject views when built.
-    if matches!(output, Some(Ty::View(..))) {
-        return Err(f.at.error(views::RETURN));
-    }
     if types.iter().any(Ty::dictionary_view) || output.as_ref().is_some_and(Ty::dictionary_view) {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }

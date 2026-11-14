@@ -2,13 +2,17 @@
 use super::*;
 
 /// Whether `ty` may be the success payload of an `Option` or `Result`: a
-/// reference to a value that holds no loan of its own, or a further
-/// reference-carrying `Option`/`Result`. A reference to a reference-carrying
+/// reference to a value that holds no loan of its own, a builtin view, or
+/// a further `Option`/`Result` carrying an ordinary reference.
+/// A reference to a reference-carrying
 /// value would be a reference to a reference, which Plenty does not have.
 pub(super) fn carriable(ty: &Ty) -> bool {
     match ty {
         Ty::Ref(inner, _) => !inner.contains_reference() && inner.storage_barrier().is_none(),
-        ty => ty.carried_reference().is_some(),
+        Ty::View(..) => true,
+        // One sum tag fits in the unused sign bit of a view's count.
+        // A second would truncate a valid length in the packed ABI.
+        ty => matches!(ty.carried_reference(), Some(Ty::Ref(..))),
     }
 }
 
@@ -252,10 +256,14 @@ impl Lower<'_> {
                 Ty::Unit
             }
         };
-        if let Ty::Ref(inner, _) = ty {
+        if matches!(ty, Ty::Ref(..) | Ty::View(..)) {
             let parent = self.reference_origin(e, ops)?;
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
-            let ty = Ty::Ref(inner, false);
+            let ty = match ty {
+                Ty::Ref(inner, _) => Ty::Ref(inner, false),
+                Ty::View(element, _) => Ty::View(element, false),
+                _ => unreachable!(),
+            };
             ops.push(Op::Reborrow(ty.clone()));
             return Ok((ty, loan));
         }
@@ -336,11 +344,6 @@ impl Lower<'_> {
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
             return Ok((ty, Some(loan)));
         }
-        if matches!(ty, Ty::View(..)) {
-            return Err(value.at.error(
-                "a view binding requires a direct borrow, named view, or text as_bytes() borrow",
-            ));
-        }
         if ty.lends_frame() {
             let loan = self.lending_frame_binding(value, ops);
             return Ok((ty, loan));
@@ -360,7 +363,7 @@ impl Lower<'_> {
             };
             return Ok((ty, Some(loan)));
         }
-        if !matches!(ty, Ty::Ref(..)) {
+        if !matches!(ty, Ty::Ref(..) | Ty::View(..)) {
             return Ok((ty, None));
         }
         if !matches!(
@@ -1715,6 +1718,34 @@ impl Lower<'_> {
             )));
             return Ok((result, loan));
         }
+        if !matches!(ungroup(e).kind, Expression::Name(_))
+            && (matches!(self.expression_type_hint(e), Some(Ty::View(..)))
+                || self.expression_type_hint(e).is_none()
+                    && matches!(
+                        ungroup(e).kind,
+                        Expression::Call(..)
+                            | Expression::GenericCall(..)
+                            | Expression::Method(..)
+                            | Expression::GenericMethod(..)
+                            | Expression::Invoke(..)
+                            | Expression::Try(..)
+                            | Expression::If(..)
+                            | Expression::Match(..)
+                    ))
+        {
+            let ty = self.value(e, ops)?;
+            let Ty::View(element, writable) = ty else {
+                return Err(e.at.error("borrowing requires a named binding; element and temporary references are not supported yet"));
+            };
+            if mutable && !writable {
+                return Err(e.at.error(SHARED_VIEW_MUTATION));
+            }
+            let parent = self.reference_origin(e, ops)?;
+            let loan = self.new_loan(self.loans[parent].root, mutable, Some(parent), ops);
+            let ty = Ty::View(element, mutable);
+            ops.push(Op::Reborrow(ty.clone()));
+            return Ok((ty, loan));
+        }
         let local = if self.is_function_place(e) {
             if mutable {
                 // A named function has no state, so `&mut f` borrows a fresh
@@ -1963,11 +1994,14 @@ impl Lower<'_> {
             }
             Expression::Unary(op, inner) if op == "&" => {
                 let (ty, loan) = self.shared_argument(inner, expected, ops)?;
-                let Ty::Ref(inner, _) = ty else {
-                    unreachable!()
-                };
-                ops.push(Op::ReadRef((*inner).clone()));
-                Ok(((*inner).clone(), vec![loan]))
+                match ty {
+                    Ty::Ref(inner, _) => {
+                        ops.push(Op::ReadRef((*inner).clone()));
+                        Ok(((*inner).clone(), vec![loan]))
+                    }
+                    view @ Ty::View(..) => Ok((view, vec![loan])),
+                    _ => unreachable!("shared argument is a reference or view"),
+                }
             }
             Expression::Name(_) => self.observe_name(e, ops),
             Expression::Member(base, _, _) if self.qualified_type(base)?.is_none() => {
@@ -1987,7 +2021,7 @@ impl Lower<'_> {
             _ => {
                 let ty = self.expr_expected(e, expected, ops)?;
                 let ty = self.stored(ty, ops);
-                if matches!(ty, Ty::KeyView(_) | Ty::DictView(..)) {
+                if matches!(ty, Ty::KeyView(_) | Ty::DictView(..) | Ty::View(..)) {
                     let loan = self.reference_origin(e, ops)?;
                     Ok((ty, vec![loan]))
                 } else if let Ty::Ref(inner, _) = ty {

@@ -376,6 +376,8 @@ mod test_module_constants;
 mod test_modules;
 #[path = "test_multiple_assignment.rs"]
 mod test_multiple_assignment;
+#[path = "test_multiversion_frontend.rs"]
+mod test_multiversion_frontend;
 #[path = "test_named_arguments.rs"]
 mod test_named_arguments;
 #[path = "test_named_function_borrows.rs"]
@@ -869,3 +871,8 @@ mod test_cpu_levels;
 
 #[path = "test_packed_statements.rs"]
 mod test_packed_statements;
+
+#[path = "test_multiversion_resolution.rs"]
+mod test_multiversion_resolution;
+#[path = "test_multiversion_resources.rs"]
+mod test_multiversion_resources;

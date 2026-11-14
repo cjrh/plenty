@@ -1869,6 +1869,168 @@ print(nested(Some(((8, True),)))).unwrap()
     assert!(unreachable.contains("unreachable"), "{unreachable}");
 }
 
+// A tuple literal matched directly is held as its elements and never built
+// (issue #944). Elements are evaluated left to right, unbound elements are
+// released as the split tuple releases them, and unmatched ones in element
+// order on every exit, as releasing the tuple would.
+#[test]
+fn matched_tuple_literals_keep_evaluation_and_release_order() {
+    runs(
+        r#"class R:
+    id: i64
+
+    def __del__(self: &mut R) -> ():
+        print("drop", self.id).unwrap()
+
+def make(id: i64) -> Option[R]:
+    print("make", id).unwrap()
+    if id < 0:
+        return Nothing
+    Some(R(id))
+
+def arms(a: i64, b: i64, c: i64) -> i64:
+    match (make(a), make(b), make(c)):
+        case (Some(x), Some(_), Nothing):
+            print("first", x.id).unwrap()
+            1
+        case (Nothing, _, Some(z)):
+            print("second", z.id).unwrap()
+            2
+        case _:
+            print("fallback").unwrap()
+            3
+
+def exits(a: i64, b: i64) -> i64:
+    match (make(a), make(b)):
+        case (Some(x), Some(y)):
+            print("both", x.id, y.id).unwrap()
+        case _:
+            print("leave").unwrap()
+            return 0
+    print("after").unwrap()
+    1
+
+def either(a: i64, b: i64) -> Option[R]:
+    match (make(a), make(b)):
+        case (Some(x), Nothing) | (Nothing, Some(x)):
+            Some(x)
+        case (Some(_), Some(_)):
+            print("two").unwrap()
+            Nothing
+        case (Nothing, Nothing):
+            Nothing
+
+def whole(a: i64, b: i64) -> i64:
+    match (make(a), make(b)):
+        case (Nothing, Nothing):
+            0
+        case _ as pair:
+            print("whole").unwrap()
+            1
+
+def nested(a: i64, b: i64) -> i64:
+    match ((make(a), 5), make(b)):
+        case ((Some(x), 5), Nothing):
+            x.id
+        case ((_, n), _):
+            n
+
+def scalars(n: i64, word: str) -> i64:
+    match (n, word, n > 2):
+        case (1, "one", _):
+            1
+        case (_, "two", True):
+            2
+        case (_, _, False):
+            3
+        case _:
+            4
+
+def looped() -> ():
+    for i in range(3):
+        match (make(i), make(-1)):
+            case (Some(x), Nothing):
+                if x.id == 1:
+                    continue
+                if x.id == 2:
+                    break
+                print("body", x.id).unwrap()
+            case _:
+                pass
+    print("loop done").unwrap()
+
+def main() -> ():
+    print(arms(1, 2, -1)).unwrap()
+    print(arms(-1, 2, 3)).unwrap()
+    print(arms(1, 2, 3)).unwrap()
+    print(exits(1, 2)).unwrap()
+    print(exits(1, -1)).unwrap()
+    match either(1, -1):
+        case Some(r):
+            print("got", r.id).unwrap()
+        case Nothing:
+            print("none").unwrap()
+    match either(-1, 2):
+        case Some(r):
+            print("got", r.id).unwrap()
+        case Nothing:
+            print("none").unwrap()
+    drop(either(1, 2))
+    print(whole(1, 2)).unwrap()
+    print(whole(-1, -1)).unwrap()
+    print(nested(7, -1)).unwrap()
+    print(nested(7, 8)).unwrap()
+    print(scalars(1, "one"), scalars(3, "two"), scalars(1, "x"), scalars(5, "x")).unwrap()
+    looped()
+"#,
+        "make 1\nmake 2\nmake -1\ndrop 2\nfirst 1\ndrop 1\n1\nmake -1\nmake 2\nmake 3\ndrop 2\nsecond 3\ndrop 3\n2\nmake 1\nmake 2\nmake 3\nfallback\ndrop 1\ndrop 2\ndrop 3\n3\nmake 1\nmake 2\nboth 1 2\ndrop 2\ndrop 1\nafter\n1\nmake 1\nmake -1\nleave\ndrop 1\n0\nmake 1\nmake -1\ngot 1\ndrop 1\nmake -1\nmake 2\ngot 2\ndrop 2\nmake 1\nmake 2\ndrop 2\ndrop 1\ntwo\nmake 1\nmake 2\nwhole\ndrop 1\ndrop 2\n1\nmake -1\nmake -1\n0\nmake 7\nmake -1\ndrop 7\n7\nmake 7\nmake 8\ndrop 8\ndrop 7\n5\n1 2 3 4\nmake 0\nmake -1\nbody 0\ndrop 0\nmake 1\nmake -1\ndrop 1\nmake 2\nmake -1\ndrop 2\nloop done\n",
+    );
+}
+
+#[test]
+fn matched_tuple_literals_give_values_and_reject_guards() {
+    runs(
+        r#"
+class R:
+    id: i64
+    def __del__(self: &mut R) -> ():
+        print("drop", self.id).unwrap()
+def pick(flag: bool, id: i64) -> Option[R]:
+    if flag:
+        return Some(R(id))
+    Nothing
+def main() -> Result[(), OverflowError[i64]]:
+    kept = R(9)
+    for round in range(2):
+        label = match (pick(round == 0, 1), kept.id, round):
+            case (Some(r), k, 0):
+                r.id + k
+            case (Nothing, k, n):
+                k * 10 + n
+            case _:
+                -1
+        print(label).unwrap()
+    total = match (Some(2), (3, Some(4))):
+        case (Some(a), (b, Some(c))):
+            a + b + c
+        case _:
+            0
+    print(total).unwrap()
+    match (1, True):
+        case (_, False):
+            print("false").unwrap()
+        case _:
+            print("wildcard").unwrap()
+    Ok(())
+"#,
+        "drop 1\n10\n91\n9\nwildcard\ndrop 9\n",
+    );
+    let guard = diagnostic(&support::program(
+        "match (1, 2):\n        case (a, _) if a > 0:\n            pass\n        case _:\n            pass",
+    ));
+    assert!(guard.contains("case guards are not supported"), "{guard}");
+}
+
 #[test]
 fn tuple_patterns_preserve_owned_and_borrowed_components() {
     runs(

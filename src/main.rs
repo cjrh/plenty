@@ -35,8 +35,8 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty add [ALIAS] (--path DIR | --git URL (--tag TAG | --rev COMMIT) [--subdir DIR])
                   [--version REQ] [--offline]
        plenty fetch [--locked] [--offline]
-       plenty update [PACKAGE...] [--offline]
-       plenty graph [--locked] [--offline]
+       plenty update [SELECTOR...] [--offline]
+       plenty graph [--locked] [--offline] [--duplicates | --why NAME_OR_ID_OR_PATH]
        plenty clean
        plenty cache (stats | clean)
        plenty lsp
@@ -54,9 +54,12 @@ FILE::NAME contains it. Output is shown only for failing tests unless
 most N tests at once (default: one per CPU). --timeout SECONDS fails a test
 that runs longer.
 add: add a dependency to plenty.toml and lock it. fetch: download and lock
-every dependency without compiling. update: move Git dependencies (all, or the
-named packages) to the commits their tags and revisions name now. graph: print
-the package graph file that plentyc --package-graph reads.
+every dependency without compiling. update: move all Git dependencies, or selected
+edges, to the commits their tags and revisions name now. A selector is a direct
+alias, root-to-edge path (a/c), or OWNER_ID::ALIAS; ambiguous names list candidates.
+graph: print
+the package graph file that plentyc --package-graph reads; --duplicates lists
+repeated package names, and --why NAME_OR_ID_OR_PATH shows dependency chains and full sources.
 In a workspace root these commands act on every member.
 cache: report or empty the compile/executable cache (PLENTY_CACHE_DIR,
 default ~/.cache/plenty; PLENTY_CACHE=off disables it).
@@ -196,8 +199,42 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
             }
         }
         "graph" => {
-            let (options, _, _) = build_options(rest, false, false)?;
-            print!("{}", project::graph(here, &options)?);
+            let mut duplicates = false;
+            let mut why = None;
+            let mut remaining = vec![];
+            let mut args = rest.iter().cloned();
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--duplicates" => duplicates = true,
+                    "--why" => {
+                        if why.is_some() {
+                            return Err("--why may be supplied only once".into());
+                        }
+                        let selector = args
+                            .next()
+                            .ok_or("--why requires a package name, identity or dependency path")?;
+                        if selector.starts_with('-') {
+                            return Err(
+                                "--why requires a package name, identity or dependency path".into(),
+                            );
+                        }
+                        why = Some(selector);
+                    }
+                    _ => remaining.push(arg),
+                }
+            }
+            if duplicates && why.is_some() {
+                return Err("choose either --duplicates or --why".into());
+            }
+            let (options, _, _) = build_options(&remaining, false, false)?;
+            if duplicates || why.is_some() {
+                print!(
+                    "{}",
+                    project::inspect(here, &options, duplicates, why.as_deref())?
+                );
+            } else {
+                print!("{}", project::graph(here, &options)?);
+            }
         }
         "clean" => {
             if !rest.is_empty() {
