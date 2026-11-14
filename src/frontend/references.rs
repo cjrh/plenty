@@ -1520,10 +1520,13 @@ impl Lower<'_> {
                     return Err(e.at.error(shared::MUTATION));
                 }
                 self.access_indices(base, slots, ops, mutating)?;
-                let container = self.place_type(base).map(|ty| match ty {
-                    Ty::Shared(content) => (*content).clone(),
-                    other => other,
-                });
+                let container =
+                    self.place_type(base)
+                        .map(Ty::referent_or_self)
+                        .map(|ty| match ty {
+                            Ty::Shared(content) => (*content).clone(),
+                            other => other,
+                        });
                 let key = match container {
                     // Tuple indices are compile-time projections, not consumed
                     // runtime keys. borrow_with_indices validates the literal.
@@ -1587,6 +1590,7 @@ impl Lower<'_> {
             let collection = self
                 .place_type(base)
                 .or_else(|| self.expression_type_hint(base))
+                .map(Ty::referent_or_self)
                 .ok_or_else(|| {
                     e.at.error("element borrowing requires a named collection or field")
                 })?;
@@ -2215,7 +2219,8 @@ impl Lower<'_> {
         // reads. Literal list indices also keep disjoint element loans.
         if matches!(
             self.place_type(base)
-                .or_else(|| self.expression_type_hint(base)),
+                .or_else(|| self.expression_type_hint(base))
+                .map(Ty::referent_or_self),
             Some(Ty::Array(..))
         ) || matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
             || self

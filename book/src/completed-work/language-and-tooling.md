@@ -467,7 +467,9 @@ keep both the receiver and actual source borrowed. Ordinary owned fields keep
 normal cleanup, including partial initialization. Borrowed records use the
 private inline ABI without borrowing length bits for sum tags. Heap storage,
 generator suspension, erased captures and C exports remain rejected. The user
-iterator protocol is separate step-3 work in B11.
+iterator protocol is separate step-3 work in B11. Multiple shared fields use
+the user-accepted explicit initializer deriving them from one borrowed parent;
+generated constructors do not infer relationships between independent inputs.
 
 Borrowed enum matching/payload loans, reference rebinding within the original
 place, precise first-reference return origins and disjoint literal-index loans

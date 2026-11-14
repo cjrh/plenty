@@ -1714,3 +1714,129 @@ print(a.data[0], b.data[0], c.data[0], d.data[0], e.data[0]).unwrap()
         "3 3 3 3 3\n",
     );
 }
+
+#[test]
+fn view_classes_inline_arrays_preserve_storage_and_borrowing_boundaries() {
+    for ty in [
+        "array[View, 0]",
+        "array[View, 1]",
+        "array[array[View, 0], 1]",
+    ] {
+        reject_views(
+            &format!("class Owner:\n    items: {ty}\nclass View:\n    data: &[i64]\n"),
+            "view classes",
+        );
+    }
+    reject_views(
+        "class View:\n    data: &[i64]\nclass Owner[T]:\n    items: array[T, 0]\ndef bad(value: Owner[View]) -> ():\n    pass\n",
+        "view classes",
+    );
+    run_views(
+        r#"
+class View:
+    data: &array[i64, 2]
+    state: array[u8, 3]
+    def first(self: &View) -> &i64:
+        &self.data[0]
+source: array[i64, 2] = [4, 7]
+v = View(&source, [1u8, 2u8, 3u8])
+print(*v.first(), v.state[1]).unwrap()
+print(len(v.data)).unwrap()
+for item in &v.data:
+    print(*item).unwrap()
+"#,
+        "4 2\n2\n4\n7\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &array[i64, 2]
+    state: i64
+    def first(self: &View) -> &i64:
+        &self.data[0]
+mut source: array[i64, 2] = [4, 7]
+mut v = View(&source, 0)
+r = v.first()
+v.state = 1
+print(*r).unwrap()
+"#,
+        "conflicting borrow",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &array[i64, 2]
+mut source: array[i64, 2] = [4, 7]
+v = View(&source)
+source[0] = 8
+print(v.data[0]).unwrap()
+"#,
+        "conflicting borrow",
+    );
+    run_views(
+        r#"
+class Edit:
+    data: &mut array[i64, 2]
+    def update(self: &mut Edit, at: i64) -> ():
+        self.data[at] = 9
+        for item in &mut self.data:
+            *item = 10
+mut a: array[i64, 2] = [1, 2]
+mut edit = Edit(&mut a)
+edit.update(1)
+print(edit.data[1]).unwrap()
+print(a[1]).unwrap()
+"#,
+        "10\n10\n",
+    );
+    reject_views(
+        r#"
+class Edit:
+    data: &mut array[i64, 2]
+    def bad(self: &Edit) -> ():
+        self.data[0] = 9
+"#,
+        "shared",
+    );
+    reject_views(
+        r#"
+class Edit:
+    data: &mut array[i64, 2]
+mut a: array[i64, 2] = [1, 2]
+mut b: array[i64, 2] = [3, 4]
+mut edit = Edit(&mut a)
+edit.data = &mut b
+"#,
+        "fixed after initialization",
+    );
+}
+
+#[test]
+fn view_classes_owned_array_fields_cleanup_through_failed_and_wrapped_construction() {
+    run_views(
+        r#"
+enum Problem:
+    Failed
+class Item:
+    id: i64
+    def __del__(self) -> ():
+        print("drop", self.id).unwrap()
+class View:
+    data: &[i64]
+    items: array[Item, 2]
+    def __init__(self, data: &[i64], fail: bool) -> Result[(), Problem]:
+        self.items = [Item(1), Item(2)]
+        self.data = data
+        if fail:
+            return Err(Problem.Failed)
+        Ok(())
+xs = [9].unwrap()
+drop(View(&xs, True))
+v = View(&xs, False).unwrap()
+w = v
+print(w.data[0]).unwrap()
+drop(w)
+"#,
+        "drop 1\ndrop 2\n9\ndrop 1\ndrop 2\n",
+    );
+}

@@ -1411,7 +1411,7 @@ impl Lower<'_> {
     }
     pub(super) fn place_type(&self, e: &Expr) -> Option<Ty> {
         match &ungroup(e).kind {
-            Expression::Index(base, index) => match self.place_type(base)? {
+            Expression::Index(base, index) => match self.place_type(base)?.referent_or_self() {
                 // Elements are reached through the content, as `(*handle)[i]`.
                 Ty::Shared(_) => self.place_type(&Expr {
                     at: e.at.clone(),

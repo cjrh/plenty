@@ -451,6 +451,14 @@ impl Ty {
             _ => false,
         }
     }
+    /// The value reached by a reference, for classifying indexed places.
+    /// Borrow lowering still checks the reference's actual permission.
+    pub fn referent_or_self(self) -> Self {
+        match self {
+            Self::Ref(inner, _) => (*inner).clone(),
+            ty => ty,
+        }
+    }
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {

@@ -4,9 +4,9 @@
 the step-2 decision requested by issue #945 and comment #2869. The
 [view-class reference](../design/language/05-ownership/view-classes.md) describes
 implemented behavior. Its [qualification record](view-classes/implementation.md)
-records implementation boundaries and the explicit-initializer qualification
-limit for multiple shared fields; the broader generated-constructor proof is
-not delivered. Approval and implementation do not include
+records implementation boundaries and the user-accepted explicit-initializer
+contract for multiple shared fields. Generated constructors do not infer
+relationships between independent borrowed inputs. Approval and implementation do not include
 the separate iterator protocol in step 3; remaining work stays in B11 in the
 [backlog](../backlog.md).
 

@@ -3958,7 +3958,8 @@ impl Lower<'_> {
         }
         if matches!(
             self.place_type(base)
-                .or_else(|| self.expression_type_hint(base)),
+                .or_else(|| self.expression_type_hint(base))
+                .map(Ty::referent_or_self),
             Some(Ty::Array(..))
         ) || matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
         {
@@ -3967,7 +3968,7 @@ impl Lower<'_> {
                 unreachable!()
             };
             if value.affine() {
-                return Err(index.at.error(if matches!(self.place_type(base).or_else(|| self.expression_type_hint(base)),Some(Ty::Array(..))) {
+                return Err(index.at.error(if matches!(self.place_type(base).or_else(|| self.expression_type_hint(base)).map(Ty::referent_or_self),Some(Ty::Array(..))) {
                     "cannot move out of an array index; borrow the element or copy it explicitly"
                 } else { "cannot move out of a tuple index; unpack the tuple instead" }));
             }

@@ -151,13 +151,13 @@ even when their source is a caller referent that ordinary builtin views could
 keep across a yield. Pipeline map outputs and C exports reject view classes
 explicitly. Owned fields continue through the existing class cleanup path.
 
-## Conservative qualification limit
+## Accepted constructor qualification
 
 The implemented fieldwise constructor supports one borrowed field. Several
 shared fields require an explicit initializer taking one borrowed parent;
 its body derives every field from that parent. Distinct formal fieldwise
 inputs remain independent origins even when a particular caller supplies
-same-source projections. The approved contract's broader fieldwise-constructor
-relationship check is not delivered: accepting it needs a separate call-site
-proof and a corresponding callee-origin producer rule. PR #1254 explicitly
-presents this scope gap for review; it does not claim those proofs exist.
+same-source projections. The user accepted the explicit one-parent initializer
+as the step-2 contract in issue #945 comment #3037. No caller-alias equivalence
+proof is implemented or required by that accepted contract. The separate
+step-3 iterator protocol remains outstanding.
