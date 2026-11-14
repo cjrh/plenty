@@ -1,0 +1,870 @@
+commit 7d63dc32d326a0a260aa6dae03010bfd1321d091
+Author:     Caleb Hattingh <caleb.hattingh@gmail.com>
+AuthorDate: Sat Nov 14 23:55:01 2026 +0100
+Commit:     Caleb Hattingh <caleb.hattingh@gmail.com>
+CommitDate: Sat Nov 14 23:55:01 2026 +0100
+
+    x64: reuse countdown flags and hoist dead-on-exit edge copies
+
+diff --git a/cranelift/codegen/src/isa/x64/inst.isle b/cranelift/codegen/src/isa/x64/inst.isle
+index c2cac77255..f8724e94b1 100644
+--- a/cranelift/codegen/src/isa/x64/inst.isle
++++ b/cranelift/codegen/src/isa/x64/inst.isle
+@@ -3897,6 +3897,17 @@
+ (rule 2 (is_nonzero (band _ a @ (value_type (ty_int (fits_in_64 ty))) b))
+       (is_nonzero_band ty a b))
+ 
++;; A branch can consume arithmetic flags and opportunistically define the
++;; still-live result. Restrict to a same-block branch without earlier uses,
++;; so this never duplicates arithmetic to replace a test.
++(decl branch_arithmetic_result (Value) Value)
++(extern extractor branch_arithmetic_result branch_arithmetic_result)
++
++(rule 10 (is_nonzero (branch_arithmetic_result sum @ (def_inst (iadd (fits_in_64 ty) x y))))
++      (CondResult.CC (produces_flags_opportunistic_def (x64_add_with_flags_paired ty x y) sum) (CC.NZ)))
++(rule 10 (is_nonzero (branch_arithmetic_result diff @ (def_inst (isub (fits_in_64 ty) x y))))
++      (CondResult.CC (produces_flags_opportunistic_def (x64_sub_with_flags_paired ty x y) diff) (CC.NZ)))
++
+ ;; Using the flags output of `uadd_overflow`, `usub_overflow`, `sadd_overflow`
+ ;; or `ssub_overflow` can produce a `CC` and give an opportunistic def of the
+ ;; other output. The `add`/`sub` itself sets the flags: CF is the carry or
+diff --git a/cranelift/codegen/src/isa/x64/inst/mod.rs b/cranelift/codegen/src/isa/x64/inst/mod.rs
+index fe3215735e..ec00a28eee 100644
+--- a/cranelift/codegen/src/isa/x64/inst/mod.rs
++++ b/cranelift/codegen/src/isa/x64/inst/mod.rs
+@@ -1549,6 +1549,10 @@ impl MachInst for Inst {
+         true
+     }
+ 
++    fn hoists_edge_moves() -> bool {
++        true
++    }
++
+     fn call_temp(&self) -> Option<RealReg> {
+         match self {
+             Inst::CallKnown { info } => Some(info.callee_conv),
+diff --git a/cranelift/codegen/src/isa/x64/lower/isle.rs b/cranelift/codegen/src/isa/x64/lower/isle.rs
+index ac9d7c5048..0c6c92a000 100644
+--- a/cranelift/codegen/src/isa/x64/lower/isle.rs
++++ b/cranelift/codegen/src/isa/x64/lower/isle.rs
+@@ -288,6 +288,10 @@ pub(crate) fn lower_branch(
+ include!("isle_ymm.rs");
+ 
+ impl Context for IsleContext<'_, '_, MInst, X64Backend> {
++    fn branch_arithmetic_result(&mut self, value: Value) -> Option<Value> {
++        self.lower_ctx.pair_branch_result(value)
++    }
++
+     ymm_isle_helpers!();
+ 
+     isle_lower_prelude_methods!();
+diff --git a/cranelift/codegen/src/machinst/lower.rs b/cranelift/codegen/src/machinst/lower.rs
+index c67adf3135..b4fd2cf5b6 100644
+--- a/cranelift/codegen/src/machinst/lower.rs
++++ b/cranelift/codegen/src/machinst/lower.rs
+@@ -721,6 +721,35 @@ impl<'func, I: VCodeInst> Lower<'func, I> {
+             .any(|&result| self.value_lowered_uses[result] > 0)
+     }
+ 
++    /// Whether `value` can be computed at the current branch without
++    /// duplicating it for a preceding use in the same block. The branch's
++    /// successor arguments may still need the arithmetic result.
++    #[cfg(feature = "x86")]
++    pub(crate) fn pair_branch_result(&self, value: Value) -> Option<Value> {
++        let branch = self.cur_inst?;
++        let InstructionData::Brif { arg, .. } = self.f.dfg.insts[branch] else {
++            return None;
++        };
++        if arg != value {
++            return None;
++        }
++        let def = self.f.dfg.value_def(value).inst()?;
++        if self.f.layout.inst_block(def) != self.f.layout.inst_block(branch) {
++            return None;
++        }
++        let mut next = self.f.layout.next_inst(def);
++        while let Some(inst) = next {
++            if inst == branch {
++                return Some(value);
++            }
++            if self.f.dfg.inst_values(inst).any(|arg| arg == value) {
++                return None;
++            }
++            next = self.f.layout.next_inst(inst);
++        }
++        None
++    }
++
+     /// Record an "opportunistic def" of `val` into `regs` at the current scan
+     /// position.
+     ///
+diff --git a/cranelift/codegen/src/machinst/mod.rs b/cranelift/codegen/src/machinst/mod.rs
+index 12a41f9eab..13c9091cb4 100644
+--- a/cranelift/codegen/src/machinst/mod.rs
++++ b/cranelift/codegen/src/machinst/mod.rs
+@@ -425,6 +425,12 @@ pub trait MachInst: Clone + Debug {
+         false
+     }
+ 
++    /// Whether register-to-register allocator moves preserve condition flags
++    /// and all physical-register inputs/outputs are declared to regalloc.
++    fn hoists_edge_moves() -> bool {
++        false
++    }
++
+     /// A register this instruction may write although it is neither a def
+     /// nor a clobber of it. The one case is a call's
+     /// [`ABIMachineSpec::retval_temp_reg`], written when the call copies a
+diff --git a/cranelift/codegen/src/machinst/vcode.rs b/cranelift/codegen/src/machinst/vcode.rs
+index dc482888d0..36826c3642 100644
+--- a/cranelift/codegen/src/machinst/vcode.rs
++++ b/cranelift/codegen/src/machinst/vcode.rs
+@@ -728,6 +728,184 @@ impl<I: VCodeInst> VCode<I> {
+         self.insts.len()
+     }
+ 
++    // Critical edges exist before allocation, but some of their register
++    // copies can execute on both outgoing paths. Hoist a whole edge's sequence
++    // only when none of its destinations is live on the alternate edge or
++    // read by the predecessor terminator. Preserve sequential edit order.
++    fn hoist_edge_moves(
++        &self,
++        regalloc: &regalloc2::Output,
++        first_edits: &[usize],
++        rewritten: &FxHashMap<usize, EditFold>,
++    ) -> (FxHashMap<InsnIndex, Vec<Edit>>, Vec<bool>) {
++        let mut candidates = Vec::new();
++        for (index, block) in self.block_order.lowered_order().iter().enumerate() {
++            let LoweredBlock::CriticalEdge { succ, .. } = block else {
++                continue;
++            };
++            let edge = BlockIndex::new(index);
++            let [pred] = self.block_preds(edge) else {
++                continue;
++            };
++            let target = self.block_order.lowered_index_for_block(*succ).unwrap();
++            if target.index() <= pred.index()
++                && regalloc
++                    .edits
++                    .get(first_edits[index])
++                    .is_some_and(|(point, _)| {
++                        point.inst().index() < self.block_ranges.get(index).end
++                    })
++            {
++                candidates.push(index);
++            }
++        }
++        if candidates.is_empty() {
++            return (FxHashMap::default(), Vec::new());
++        }
++        // Summarize each block once, then solve physical-register liveness.
++        let mut uses = vec![PRegSet::empty(); self.num_blocks()];
++        let mut defs = uses.clone();
++        for index in 0..self.num_blocks() {
++            // Keep the transfer independent of instruction positions: uses
++            // precede defs within one instruction, including tied operands.
++            let mut edit_index = first_edits[index];
++            for item in regalloc.block_insts_and_edits(self, BlockIndex::new(index)) {
++                match item {
++                    InstOrEdit::Edit(Edit::Move { from, to }) => {
++                        let edit = edit_index;
++                        edit_index += 1;
++                        let from = match rewritten.get(&edit) {
++                            Some(EditFold::Skip) => continue,
++                            Some(EditFold::MoveFrom(reg)) => Allocation::reg(*reg),
++                            None => *from,
++                        };
++                        if let Some(from) = from.as_reg() {
++                            if !defs[index].contains(from) {
++                                uses[index].add(from);
++                            }
++                        }
++                        if let Some(to) = to.as_reg() {
++                            defs[index].add(to);
++                        }
++                    }
++                    InstOrEdit::Inst(inst) => {
++                        let operands = self.inst_operands(inst);
++                        let allocs = regalloc.inst_allocs(inst);
++                        for (operand, alloc) in operands.iter().zip(allocs) {
++                            if let Some(reg) = alloc.as_reg() {
++                                let bytes = self.abi.canonical_type_for_rc(reg.class()).bytes();
++                                if (operand.kind() == OperandKind::Use
++                                    || self.insts[inst.index()].def_keeps_bits(reg.into(), bytes))
++                                    && !defs[index].contains(reg)
++                                {
++                                    uses[index].add(reg);
++                                }
++                            }
++                        }
++                        defs[index].union_from(self.inst_clobbers(inst));
++                        for (operand, alloc) in operands.iter().zip(allocs) {
++                            if operand.kind() == OperandKind::Def {
++                                if let Some(reg) = alloc.as_reg() {
++                                    defs[index].add(reg);
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        let mut liveins = uses.clone();
++        loop {
++            let mut changed = false;
++            for index in (0..self.num_blocks()).rev() {
++                let mut live = PRegSet::empty();
++                for &succ in self.block_succs(BlockIndex::new(index)) {
++                    live.union_from(liveins[succ.index()]);
++                }
++                live.intersect_from(defs[index].invert());
++                live.union_from(uses[index]);
++                if live != liveins[index] {
++                    liveins[index] = live;
++                    changed = true;
++                }
++            }
++            if !changed {
++                break;
++            }
++        }
++        let mut hoisted = FxHashMap::default();
++        let mut skipped = vec![false; regalloc.edits.len()];
++        for index in candidates {
++            let block = BlockIndex::new(index);
++            let preds = self.block_preds(block);
++            let [pred] = preds else {
++                continue;
++            };
++            let succs = self.block_succs(*pred);
++            let [left, right] = succs else {
++                continue;
++            };
++            let other = if *left == block { *right } else { *left };
++            let term = self.block_insns(*pred).last();
++            // Hoisting cannot precede a call/try-call that creates or clobbers
++            // edge sources, nor a terminator with physical-register defs.
++            if self.insts[term.index()].call_type() != CallType::None
++                || self.insts[term.index()].is_safepoint()
++                || self.inst_clobbers(term) != PRegSet::empty()
++                || self
++                    .inst_operands(term)
++                    .iter()
++                    .any(|op| op.kind() == OperandKind::Def)
++            {
++                continue;
++            }
++            let mut forbidden = liveins[other.index()];
++            for (operand, alloc) in self
++                .inst_operands(term)
++                .iter()
++                .zip(regalloc.inst_allocs(term))
++            {
++                if operand.kind() == OperandKind::Use {
++                    if let Some(reg) = alloc.as_reg() {
++                        forbidden.add(reg);
++                    }
++                }
++            }
++            let mut edits = Vec::new();
++            let mut valid = true;
++            for item in regalloc.block_insts_and_edits(self, block) {
++                match item {
++                    InstOrEdit::Inst(inst) => {
++                        if self.insts[inst.index()].is_term() != MachTerminator::Branch
++                            || self.block_succs(block).len() != 1
++                        {
++                            valid = false;
++                            break;
++                        }
++                    }
++                    InstOrEdit::Edit(edit @ Edit::Move { from, to }) => {
++                        if from.as_reg().is_none()
++                            || to.as_reg().is_none_or(|reg| forbidden.contains(reg))
++                        {
++                            valid = false;
++                            break;
++                        }
++                        edits.push(edit.clone());
++                    }
++                }
++            }
++            if !valid || edits.is_empty() || hoisted.contains_key(&term) {
++                continue;
++            }
++            let first = first_edits[index];
++            for skip in &mut skipped[first..first + edits.len()] {
++                *skip = true;
++            }
++            hoisted.insert(term, edits);
++        }
++        (hoisted, skipped)
++    }
++
+     /// Apply the allocations of every instruction in `block` and remove
+     /// reloads of spilled values that the code does not need.
+     ///
+@@ -1024,6 +1202,31 @@ impl<I: VCodeInst> VCode<I> {
+         // The register allocator's checker ran before these rewrites.
+         let check_reload_folds = flags.regalloc_checker() || cfg!(debug_assertions);
+ 
++        // Finish block-local reload rewrites before solving physical liveness
++        // for edge hoists. Forwarding can introduce a new register source.
++        // The original operand sets overestimate any removed register reads;
++        // effective edits below account for every newly introduced source.
++        let mut rewritten_edits = FxHashMap::default();
++        if fold_reloads {
++            for &block in &final_order {
++                let first_edit = block_first_edit[block.index()];
++                self.fold_reloads(regalloc, block, first_edit, &mut reload_folds);
++                if check_reload_folds {
++                    self.check_reload_folds(regalloc, block, first_edit, &reload_folds);
++                }
++                rewritten_edits.extend(reload_folds.edits.drain());
++            }
++        }
++
++        let (hoisted_moves, skipped_moves) = if I::hoists_edge_moves()
++            && self.debug_value_labels.is_empty()
++            && flags.opt_level() != settings::OptLevel::None
++        {
++            self.hoist_edge_moves(regalloc, &block_first_edit, &rewritten_edits)
++        } else {
++            (FxHashMap::default(), Vec::new())
++        };
++
+         let is_forward_edge_cfi_enabled = self.abi.is_forward_edge_cfi_enabled();
+         let mut bb_padding = match flags.bb_padding_log2_minus_one() {
+             0 => Vec::new(),
+@@ -1037,14 +1240,6 @@ impl<I: VCodeInst> VCode<I> {
+             // Call the new block hook for state
+             state.on_new_block();
+ 
+-            if fold_reloads {
+-                let first_edit = block_first_edit[block.index()];
+-                self.fold_reloads(regalloc, block, first_edit, &mut reload_folds);
+-                if check_reload_folds {
+-                    self.check_reload_folds(regalloc, block, first_edit, &reload_folds);
+-                }
+-            }
+-
+             // Emit NOPs to align the block.
+             let new_offset = I::align_basic_block(buffer.cur_offset());
+             while new_offset > buffer.cur_offset() {
+@@ -1122,6 +1317,19 @@ impl<I: VCodeInst> VCode<I> {
+             for inst_or_edit in regalloc.block_insts_and_edits(&self, block) {
+                 match inst_or_edit {
+                     InstOrEdit::Inst(iix) => {
++                        if let Some(edits) = hoisted_moves.get(&iix) {
++                            for Edit::Move { from, to } in edits {
++                                let from = from.as_reg().unwrap();
++                                let to = to.as_reg().unwrap();
++                                let ty = self.abi.canonical_type_for_rc(from.class());
++                                let mv = I::gen_move(
++                                    Writable::from_reg(Reg::from(to)),
++                                    Reg::from(from),
++                                    ty,
++                                );
++                                do_emit(&mv, &mut disasm, &mut buffer, &mut state);
++                            }
++                        }
+                         if !self.debug_value_labels.is_empty() {
+                             // If we need to produce debug info,
+                             // record the offset of each instruction
+@@ -1263,10 +1471,13 @@ impl<I: VCodeInst> VCode<I> {
+                     InstOrEdit::Edit(Edit::Move { from, to }) => {
+                         let this_edit = edit_idx;
+                         edit_idx += 1;
+-                        let from = if reload_folds.edits.is_empty() {
++                        if skipped_moves.get(this_edit).copied().unwrap_or(false) {
++                            continue;
++                        }
++                        let from = if rewritten_edits.is_empty() {
+                             *from
+                         } else {
+-                            match reload_folds.edits.get(&this_edit) {
++                            match rewritten_edits.get(&this_edit) {
+                                 Some(EditFold::Skip) => continue,
+                                 Some(EditFold::MoveFrom(reg)) => Allocation::reg(*reg),
+                                 None => *from,
+diff --git a/cranelift/filetests/filetests/isa/x64/counted-escape-latch.clif b/cranelift/filetests/filetests/isa/x64/counted-escape-latch.clif
+new file mode 100644
+index 0000000000..a388633b03
+--- /dev/null
++++ b/cranelift/filetests/filetests/isa/x64/counted-escape-latch.clif
+@@ -0,0 +1,446 @@
++test compile precise-output
++set opt_level=speed
++set regalloc_checker=true
++set regalloc_fold_reloads=true
++set regalloc_forward_spills=true
++target x86_64
++
++; Signed countdown: dead-on-exit backedge copies may precede its branch.
++function %a(f64, f64) -> i8 tail {
++    const0 = 0x00000000000000004010000000000000
++
++block0(v0: f64, v1: f64):
++    jump block2
++
++block3:
++    v4 = f64const 0.0
++    v9 = iconst.i64 50
++    v30 = vconst.f64x2 const0
++    v31 = extractlane v30, 0
++    v10 = iconst.i64 1
++    v2 = iconst.i64 0
++    jump block4(v4, v4, v4, v4, v9)
++
++block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
++    v28 = fadd v26, v27
++    v32 = fcmp le v28, v31
++    brif v32, block7, block8
++
++block7:
++    jump block6
++
++block8:
++    jump block1(v26, v27)
++
++block6:
++    jump block5
++
++block5:
++    v105 = iconst.i64 1
++    v106 = isub.i64 v45, v105
++    v107 = iconst.i64 0
++    v108 = icmp sgt v106, v107
++    v40 = fsub.f64 v26, v27
++    v42 = fadd v40, v0
++    v43 = fmul v42, v42
++    v35 = fadd.f64 v34, v34
++    v37 = fmul v35, v36
++    v39 = fadd v37, v1
++    v44 = fmul v39, v39
++    brif v108, block4(v43, v44, v42, v39, v106), block1(v43, v44)
++
++block2:
++    jump block3
++
++block1(v61: f64, v62: f64):
++    v63 = fadd v61, v62
++    v67 = fcmp le v63, v31
++    return v67
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   jmp     label1
++; block1:
++;   jmp     label2
++; block2:
++;   uninit  %xmm2
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movupd (%rip), %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   movdqa %xmm2, %xmm7
++;   jmp     label3
++; block3:
++;   movdqa %xmm2, %xmm6
++;   addsd %xmm5, %xmm6
++;   ucomisd %xmm6, %xmm3
++;   jnb     label5; j label4
++; block4:
++;   jmp     label10
++; block5:
++;   jmp     label6
++; block6:
++;   jmp     label7
++; block7:
++;   subsd %xmm5, %xmm2
++;   addsd %xmm0, %xmm2
++;   movdqa %xmm2, %xmm6
++;   mulsd %xmm2, %xmm6
++;   addsd %xmm4, %xmm4
++;   mulsd %xmm7, %xmm4
++;   addsd %xmm1, %xmm4
++;   movdqa %xmm4, %xmm5
++;   mulsd %xmm4, %xmm5
++;   subq $0x1, %rax
++;   testq %rax, %rax
++;   movdqa %xmm4, %xmm7
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm6, %xmm2
++;   jnle    label8; j label9
++; block8:
++;   jmp     label3
++; block9:
++;   movdqa %xmm6, %xmm2
++;   jmp     label10
++; block10:
++;   addsd %xmm5, %xmm2
++;   ucomisd %xmm2, %xmm3
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movupd 0x7b(%rip), %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   movdqa %xmm2, %xmm7
++; block2: ; offset 0x21
++;   movdqa %xmm2, %xmm6
++;   addsd %xmm5, %xmm6
++;   ucomisd %xmm6, %xmm3
++;   jb 0x74
++; block3: ; offset 0x33
++;   subsd %xmm5, %xmm2
++;   addsd %xmm0, %xmm2
++;   movdqa %xmm2, %xmm6
++;   mulsd %xmm2, %xmm6
++;   addsd %xmm4, %xmm4
++;   mulsd %xmm7, %xmm4
++;   addsd %xmm1, %xmm4
++;   movdqa %xmm4, %xmm5
++;   mulsd %xmm4, %xmm5
++;   subq $1, %rax
++;   testq %rax, %rax
++;   movdqa %xmm4, %xmm7
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm6, %xmm2
++;   jg 0x21
++; block4: ; offset 0x70
++;   movdqa %xmm6, %xmm2
++; block5: ; offset 0x74
++;   addsd %xmm5, %xmm2
++;   ucomisd %xmm2, %xmm3
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   adcb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   .byte 0x00
++
++function %c(f64, f64) -> i8 tail {
++    const0 = 0x00000000000000004010000000000000
++
++block0(v0: f64, v1: f64):
++    jump block2
++
++block3:
++    v4 = f64const 0.0
++    v9 = iconst.i64 50
++    v30 = vconst.f64x2 const0
++    v31 = extractlane v30, 0
++    v10 = iconst.i64 1
++    v2 = iconst.i64 0
++    jump block4(v4, v4, v4, v4, v9)
++
++block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
++    v28 = fadd v26, v27
++    v32 = fcmp le v28, v31
++    brif v32, block7, block8
++
++block7:
++    jump block6
++
++block8:
++    jump block1(v26, v27)
++
++block6:
++    jump block5
++
++block5:
++    v105 = iconst.i64 1
++    v106 = isub.i64 v45, v105
++    v107 = iconst.i64 0
++    v108 = icmp ne v106, v107
++    v40 = fsub.f64 v26, v27
++    v42 = fadd v40, v0
++    v43 = fmul v42, v42
++    v35 = fadd.f64 v34, v34
++    v37 = fmul v35, v36
++    v39 = fadd v37, v1
++    v44 = fmul v39, v39
++    brif v108, block4(v43, v44, v42, v39, v106), block1(v43, v44)
++
++block2:
++    jump block3
++
++block1(v61: f64, v62: f64):
++    v63 = fadd v61, v62
++    v67 = fcmp le v63, v31
++    return v67
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   jmp     label1
++; block1:
++;   jmp     label2
++; block2:
++;   uninit  %xmm2
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movupd (%rip), %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   movdqa %xmm2, %xmm6
++;   jmp     label3
++; block3:
++;   movdqa %xmm2, %xmm7
++;   addsd %xmm5, %xmm7
++;   ucomisd %xmm7, %xmm3
++;   jnb     label5; j label4
++; block4:
++;   jmp     label10
++; block5:
++;   jmp     label6
++; block6:
++;   jmp     label7
++; block7:
++;   subsd %xmm5, %xmm2
++;   addsd %xmm0, %xmm2
++;   movdqa %xmm2, %xmm7
++;   mulsd %xmm2, %xmm7
++;   addsd %xmm4, %xmm4
++;   mulsd %xmm6, %xmm4
++;   addsd %xmm1, %xmm4
++;   movdqa %xmm4, %xmm5
++;   mulsd %xmm4, %xmm5
++;   subq $0x1, %rax
++;   movdqa %xmm4, %xmm6
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm7, %xmm2
++;   jnz     label8; j label9
++; block8:
++;   jmp     label3
++; block9:
++;   movdqa %xmm7, %xmm2
++;   jmp     label10
++; block10:
++;   addsd %xmm5, %xmm2
++;   ucomisd %xmm2, %xmm3
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movupd 0x7b(%rip), %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   movdqa %xmm2, %xmm6
++; block2: ; offset 0x21
++;   movdqa %xmm2, %xmm7
++;   addsd %xmm5, %xmm7
++;   ucomisd %xmm7, %xmm3
++;   jb 0x71
++; block3: ; offset 0x33
++;   subsd %xmm5, %xmm2
++;   addsd %xmm0, %xmm2
++;   movdqa %xmm2, %xmm7
++;   mulsd %xmm2, %xmm7
++;   addsd %xmm4, %xmm4
++;   mulsd %xmm6, %xmm4
++;   addsd %xmm1, %xmm4
++;   movdqa %xmm4, %xmm5
++;   mulsd %xmm4, %xmm5
++;   subq $1, %rax
++;   movdqa %xmm4, %xmm6
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm7, %xmm2
++;   jne 0x21
++; block4: ; offset 0x6d
++;   movdqa %xmm7, %xmm2
++; block5: ; offset 0x71
++;   addsd %xmm5, %xmm2
++;   ucomisd %xmm2, %xmm3
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %dl, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++
++function %earlier_use(i64, i64) -> i64 {
++block0(v0: i64, v1: i64):
++    v2 = iadd v0, v1
++    v3 = imul v2, v0
++    brif v2, block1(v3), block1(v1)
++block1(v4: i64):
++    return v4
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   leaq (%rdi, %rsi), %r8
++;   movq %r8, %rax
++;   imulq %rdi, %rax
++;   testq %r8, %r8
++;   jnz     label1; j label2
++; block1:
++;   jmp     label3
++; block2:
++;   movq %rsi, %rax
++;   jmp     label3
++; block3:
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   leaq (%rdi, %rsi), %r8
++;   movq %r8, %rax
++;   imulq %rdi, %rax
++;   testq %r8, %r8
++;   jne 0x1b
++; block2: ; offset 0x18
++;   movq %rsi, %rax
++; block3: ; offset 0x1b
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++
++function %cross_block(i64, i64) -> i64 {
++block0(v0: i64, v1: i64):
++    v2 = isub v0, v1
++    brif v0, block1, block2
++block1:
++    brif v2, block3(v0), block3(v1)
++block2:
++    return v2
++block3(v3: i64):
++    return v3
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   testq %rdi, %rdi
++;   jnz     label2; j label1
++; block1:
++;   movq %rdi, %rax
++;   subq %rsi, %rax
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++; block2:
++;   movq %rdi, %r8
++;   subq %rsi, %r8
++;   jnz     label3; j label4
++; block3:
++;   movq %rdi, %rax
++;   jmp     label5
++; block4:
++;   movq %rsi, %rax
++;   jmp     label5
++; block5:
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   testq %rdi, %rdi
++;   jne 0x18
++; block2: ; offset 0xd
++;   movq %rdi, %rax
++;   subq %rsi, %rax
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++; block3: ; offset 0x18
++;   movq %rdi, %r8
++;   subq %rsi, %r8
++;   je 0x2c
++; block4: ; offset 0x24
++;   movq %rdi, %rax
++;   jmp 0x2f
++; block5: ; offset 0x2c
++;   movq %rsi, %rax
++; block6: ; offset 0x2f
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++
+diff --git a/cranelift/filetests/filetests/isa/x64/ymm-spill.clif b/cranelift/filetests/filetests/isa/x64/ymm-spill.clif
+index 194dd0ba4d..159b546ce8 100644
+--- a/cranelift/filetests/filetests/isa/x64/ymm-spill.clif
++++ b/cranelift/filetests/filetests/isa/x64/ymm-spill.clif
+@@ -228,7 +228,6 @@ block2:
+ ; block1:
+ ;   vaddpd %ymm6, %ymm4, %ymm0
+ ;   subq $0x1, %rsi
+-;   testq %rsi, %rsi
+ ;   jnz     label2; j label3
+ ; block2:
+ ;   vmovapd %ymm6, %ymm4
+@@ -250,13 +249,12 @@ block2:
+ ; block2: ; offset 0xd
+ ;   vaddpd %ymm6, %ymm4, %ymm0
+ ;   subq $1, %rsi
+-;   testq %rsi, %rsi
+-;   je 0x2b
+-; block3: ; offset 0x1e
++;   je 0x28
++; block3: ; offset 0x1b
+ ;   vmovapd %ymm6, %ymm4
+ ;   vmovapd %ymm0, %ymm6
+ ;   jmp 0xd
+-; block4: ; offset 0x2b
++; block4: ; offset 0x28
+ ;   vmovupd %ymm4, (%rdi) ; trap: heap_oob
+ ;   movq %rbp, %rsp
+ ;   popq %rbp

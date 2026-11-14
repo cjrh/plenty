@@ -1774,3 +1774,23 @@ work under issue #972. The original escape loop remains at 20 instructions; its 
 scope and issue #978's scalar-copy scope remain open. Issue #980 separately
 tracks the remaining matrix floating-load instruction. The benchmark rewrite
 under issue #972 awaits production adoption of the qualified scheduling change.
+
+
+## Counted escape latch experiment (issue #977)
+
+The original escape kernel now has a qualified local candidate that uses 18
+instructions per pass against the published d27 backend's 20 and C's 15. A
+positive-entry private countdown in a loop with an early `break` uses a nonzero
+latch; x64 reuses its decrement
+flags and hoists dead-on-exit critical-backedge register copies, allowing the
+empty edge's unconditional jump to collapse. The three remaining scalar copies
+belong to issue #978. Zero/final counts, early exits and unordered floating
+comparisons retain their behavior.
+
+The candidate is recorded in `experiments/kernels/escape-latch/`, including the
+local fork patch, baseline/candidate assembly and all 38 source-program loop
+counts. It is separate from issue #972's production adoption of d27 (local PR
+#1271), and excludes the unpublished issue #980 changes. This milestone records
+local implementation and qualification, not publication or production backend
+adoption: no lockfile changes ship here. Issue #977 remains open for those
+steps; the fork needs user-authorized publication before its production pin.

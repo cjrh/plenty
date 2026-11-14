@@ -1,0 +1,28 @@
+diff --git i/cranelift/codegen/src/egraph/elaborate.rs w/cranelift/codegen/src/egraph/elaborate.rs
+index 20fb56988f..535002cc79 100644
+--- i/cranelift/codegen/src/egraph/elaborate.rs
++++ w/cranelift/codegen/src/egraph/elaborate.rs
+@@ -835,7 +835,8 @@ impl<'a> Elaborator<'a> {
+ 
+             elab_values.extend(self.func.dfg.inst_values(inst));
+             // A loop's integer latch test often increments a loop-carried
+-            // counter. Compute the backedge arguments first, before that
++            // counter, including a direct nonzero test of its arithmetic
++            // result. Compute the backedge arguments first, before that
+             // increment: their old-counter uses can then finish before its
+             // register is updated, avoiding a copy on a split backedge.
+             let condition_last = match self.func.dfg.insts[inst] {
+@@ -843,8 +844,11 @@ impl<'a> Elaborator<'a> {
+                     let condition = self.value_to_best_value[arg].1;
+                     matches!(
+                         self.func.dfg.value_def(condition),
+-                        ValueDef::Result(compare, 0)
+-                            if self.func.dfg.insts[compare].opcode() == crate::ir::Opcode::Icmp
++                        ValueDef::Result(test, 0)
++                            if self.func.dfg.insts[test].opcode() == crate::ir::Opcode::Icmp
++                                || (matches!(self.func.dfg.insts[test].opcode(),
++                                    crate::ir::Opcode::Iadd | crate::ir::Opcode::Isub)
++                                    && self.func.dfg.value_type(condition).bits() <= 64)
+                     ) && blocks.iter().any(|target| {
+                         self.domtree
+                             .block_dominates(target.block(&self.func.dfg.value_lists), block)

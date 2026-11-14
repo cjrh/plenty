@@ -1,0 +1,3044 @@
+[
+  {
+    "file": "experiments/kernels/accessor-tail/fasta_tail.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "write_lines",
+        "instructions": 78,
+        "head": 201,
+        "tail": 987
+      },
+      {
+        "function": "repeat_fasta",
+        "instructions": 15,
+        "head": 205,
+        "tail": 278
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 436,
+        "tail": 456
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 8098,
+        "tail": 8170
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "write_lines",
+        "instructions": 78,
+        "head": 201,
+        "tail": 987
+      },
+      {
+        "function": "repeat_fasta",
+        "instructions": 15,
+        "head": 205,
+        "tail": 278
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 436,
+        "tail": 456
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 8098,
+        "tail": 8170
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/accessor-tail/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "fill",
+        "instructions": 12,
+        "head": 16,
+        "tail": 71
+      },
+      {
+        "function": "sum_accessor",
+        "instructions": 6,
+        "head": 26,
+        "tail": 45
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 909,
+        "tail": 970
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 1080,
+        "tail": 1099
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "fill",
+        "instructions": 12,
+        "head": 16,
+        "tail": 71
+      },
+      {
+        "function": "sum_accessor",
+        "instructions": 6,
+        "head": 26,
+        "tail": 45
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 909,
+        "tail": 970
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 1080,
+        "tail": 1099
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bounded-arguments/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "a_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "at_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 1481,
+        "tail": 1543
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 1706,
+        "tail": 1768
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "a_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "at_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 1481,
+        "tail": 1543
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 1706,
+        "tail": 1768
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bounded-arguments/spectral_norm.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "a_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "at_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 15,
+        "head": 62,
+        "tail": 124
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 15,
+        "head": 226,
+        "tail": 288
+      },
+      {
+        "function": "filled",
+        "instructions": 19,
+        "head": 258,
+        "tail": 388
+      },
+      {
+        "function": "main",
+        "instructions": 60,
+        "head": 1041,
+        "tail": 1293
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 1406,
+        "tail": 1460
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 1500,
+        "tail": 1536
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "a_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "at_times_u",
+        "instructions": 15,
+        "head": 57,
+        "tail": 118
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 15,
+        "head": 62,
+        "tail": 124
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 15,
+        "head": 226,
+        "tail": 288
+      },
+      {
+        "function": "filled",
+        "instructions": 19,
+        "head": 258,
+        "tail": 388
+      },
+      {
+        "function": "main",
+        "instructions": 60,
+        "head": 1041,
+        "tail": 1293
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 1406,
+        "tail": 1460
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 1500,
+        "tail": 1536
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bytes/growing.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "transform",
+        "instructions": 39,
+        "head": 53,
+        "tail": 253
+      },
+      {
+        "function": "main",
+        "instructions": 40,
+        "head": 827,
+        "tail": 1059
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "transform",
+        "instructions": 39,
+        "head": 53,
+        "tail": 253
+      },
+      {
+        "function": "main",
+        "instructions": 40,
+        "head": 827,
+        "tail": 1059
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bytes/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "transform",
+        "instructions": 6,
+        "head": 51,
+        "tail": 74
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 917,
+        "tail": 940
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "transform",
+        "instructions": 6,
+        "head": 51,
+        "tail": 74
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 917,
+        "tail": 940
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bytes-literals/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "fill",
+        "instructions": 15,
+        "head": 91,
+        "tail": 164
+      },
+      {
+        "function": "checksum",
+        "instructions": 6,
+        "head": 17,
+        "tail": 46
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 599,
+        "tail": 676
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 824,
+        "tail": 853
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "fill",
+        "instructions": 15,
+        "head": 91,
+        "tail": 164
+      },
+      {
+        "function": "checksum",
+        "instructions": 6,
+        "head": 17,
+        "tail": 46
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 599,
+        "tail": 676
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 824,
+        "tail": 853
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-12-1000000.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-12-2000000.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-3-1000000.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-3-2000000.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 55,
+        "head": 900,
+        "tail": 1260
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/clist/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "velocity",
+        "instructions": 66,
+        "head": 539,
+        "tail": 862
+      },
+      {
+        "function": "velocity",
+        "instructions": 58,
+        "head": 998,
+        "tail": 1279
+      },
+      {
+        "function": "positions",
+        "instructions": 18,
+        "head": 166,
+        "tail": 249
+      },
+      {
+        "function": "potential",
+        "instructions": 28,
+        "head": 161,
+        "tail": 290
+      },
+      {
+        "function": "potential",
+        "instructions": 24,
+        "head": 314,
+        "tail": 425
+      },
+      {
+        "function": "main",
+        "instructions": 97,
+        "head": 639,
+        "tail": 1534
+      },
+      {
+        "function": "main",
+        "instructions": 19,
+        "head": 9835,
+        "tail": 9930
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "velocity",
+        "instructions": 66,
+        "head": 539,
+        "tail": 862
+      },
+      {
+        "function": "velocity",
+        "instructions": 58,
+        "head": 998,
+        "tail": 1279
+      },
+      {
+        "function": "positions",
+        "instructions": 18,
+        "head": 166,
+        "tail": 249
+      },
+      {
+        "function": "potential",
+        "instructions": 28,
+        "head": 161,
+        "tail": 290
+      },
+      {
+        "function": "potential",
+        "instructions": 24,
+        "head": 314,
+        "tail": 425
+      },
+      {
+        "function": "main",
+        "instructions": 97,
+        "head": 639,
+        "tail": 1534
+      },
+      {
+        "function": "main",
+        "instructions": 19,
+        "head": 9835,
+        "tail": 9930
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/clist-zip/scan.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "scan_loop",
+        "instructions": 8,
+        "head": 108,
+        "tail": 142
+      },
+      {
+        "function": "scan_fold",
+        "instructions": 8,
+        "head": 222,
+        "tail": 256
+      },
+      {
+        "function": "scan_index",
+        "instructions": 7,
+        "head": 80,
+        "tail": 110
+      },
+      {
+        "function": "main",
+        "instructions": 122,
+        "head": 280,
+        "tail": 1161
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 1317,
+        "tail": 1357
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 1614,
+        "tail": 1654
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 1733,
+        "tail": 1769
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "scan_loop",
+        "instructions": 8,
+        "head": 108,
+        "tail": 142
+      },
+      {
+        "function": "scan_fold",
+        "instructions": 8,
+        "head": 222,
+        "tail": 256
+      },
+      {
+        "function": "scan_index",
+        "instructions": 7,
+        "head": 80,
+        "tail": 110
+      },
+      {
+        "function": "main",
+        "instructions": 122,
+        "head": 280,
+        "tail": 1161
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 1317,
+        "tail": 1357
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 1614,
+        "tail": 1654
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 1733,
+        "tail": 1769
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/field-rng/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "fill",
+        "instructions": 24,
+        "head": 19,
+        "tail": 121
+      },
+      {
+        "function": "fill_bounded",
+        "instructions": 12,
+        "head": 16,
+        "tail": 71
+      },
+      {
+        "function": "fill_local",
+        "instructions": 10,
+        "head": 72,
+        "tail": 121
+      },
+      {
+        "function": "fill_arms",
+        "instructions": 19,
+        "head": 72,
+        "tail": 171
+      },
+      {
+        "function": "fill_inner",
+        "instructions": 10,
+        "head": 88,
+        "tail": 137
+      },
+      {
+        "function": "fill_unbounded",
+        "instructions": 23,
+        "head": 69,
+        "tail": 171
+      },
+      {
+        "function": "fill_product",
+        "instructions": 10,
+        "head": 72,
+        "tail": 118
+      },
+      {
+        "function": "time",
+        "instructions": 19,
+        "head": 304,
+        "tail": 447
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 720,
+        "tail": 913
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 964,
+        "tail": 1157
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 1426,
+        "tail": 1616
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 1670,
+        "tail": 1860
+      },
+      {
+        "function": "time",
+        "instructions": 15,
+        "head": 1992,
+        "tail": 2044
+      },
+      {
+        "function": "time",
+        "instructions": 18,
+        "head": 2196,
+        "tail": 2361
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "fill",
+        "instructions": 24,
+        "head": 19,
+        "tail": 121
+      },
+      {
+        "function": "fill_bounded",
+        "instructions": 12,
+        "head": 16,
+        "tail": 71
+      },
+      {
+        "function": "fill_local",
+        "instructions": 10,
+        "head": 72,
+        "tail": 121
+      },
+      {
+        "function": "fill_arms",
+        "instructions": 19,
+        "head": 72,
+        "tail": 171
+      },
+      {
+        "function": "fill_inner",
+        "instructions": 10,
+        "head": 88,
+        "tail": 137
+      },
+      {
+        "function": "fill_unbounded",
+        "instructions": 23,
+        "head": 69,
+        "tail": 171
+      },
+      {
+        "function": "fill_product",
+        "instructions": 10,
+        "head": 72,
+        "tail": 118
+      },
+      {
+        "function": "time",
+        "instructions": 19,
+        "head": 304,
+        "tail": 447
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 720,
+        "tail": 913
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 964,
+        "tail": 1157
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 1426,
+        "tail": 1616
+      },
+      {
+        "function": "time",
+        "instructions": 35,
+        "head": 1670,
+        "tail": 1860
+      },
+      {
+        "function": "time",
+        "instructions": 15,
+        "head": 1992,
+        "tail": 2044
+      },
+      {
+        "function": "time",
+        "instructions": 18,
+        "head": 2196,
+        "tail": 2361
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "sum_index",
+        "instructions": 7,
+        "head": 33,
+        "tail": 62
+      },
+      {
+        "function": "sum_index",
+        "instructions": 5,
+        "head": 89,
+        "tail": 108
+      },
+      {
+        "function": "sum_iter",
+        "instructions": 5,
+        "head": 20,
+        "tail": 40
+      },
+      {
+        "function": "sum_f32",
+        "instructions": 7,
+        "head": 32,
+        "tail": 61
+      },
+      {
+        "function": "sum_f32",
+        "instructions": 5,
+        "head": 87,
+        "tail": 106
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2234,
+        "tail": 2262
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2289,
+        "tail": 2309
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2524,
+        "tail": 2544
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2770,
+        "tail": 2799
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2825,
+        "tail": 2844
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "sum_index",
+        "instructions": 7,
+        "head": 33,
+        "tail": 62
+      },
+      {
+        "function": "sum_index",
+        "instructions": 5,
+        "head": 89,
+        "tail": 108
+      },
+      {
+        "function": "sum_iter",
+        "instructions": 5,
+        "head": 20,
+        "tail": 40
+      },
+      {
+        "function": "sum_f32",
+        "instructions": 7,
+        "head": 32,
+        "tail": 61
+      },
+      {
+        "function": "sum_f32",
+        "instructions": 5,
+        "head": 87,
+        "tail": 106
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2234,
+        "tail": 2262
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2289,
+        "tail": 2309
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2524,
+        "tail": 2544
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2770,
+        "tail": 2799
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2825,
+        "tail": 2844
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/indexed-conditions/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "find_view",
+        "instructions": 5,
+        "head": 29,
+        "tail": 49
+      },
+      {
+        "function": "find_list",
+        "instructions": 5,
+        "head": 52,
+        "tail": 72
+      },
+      {
+        "function": "select_all",
+        "instructions": 6,
+        "head": 77,
+        "tail": 101
+      },
+      {
+        "function": "select_all",
+        "instructions": 7,
+        "head": 196,
+        "tail": 224
+      },
+      {
+        "function": "total",
+        "instructions": 6,
+        "head": 19,
+        "tail": 42
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 2989,
+        "tail": 3013
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 3097,
+        "tail": 3121
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 3203,
+        "tail": 3224
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 3276,
+        "tail": 3297
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 3370,
+        "tail": 3393
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "find_view",
+        "instructions": 5,
+        "head": 29,
+        "tail": 49
+      },
+      {
+        "function": "find_list",
+        "instructions": 5,
+        "head": 49,
+        "tail": 69
+      },
+      {
+        "function": "select_all",
+        "instructions": 6,
+        "head": 77,
+        "tail": 101
+      },
+      {
+        "function": "select_all",
+        "instructions": 7,
+        "head": 196,
+        "tail": 224
+      },
+      {
+        "function": "total",
+        "instructions": 6,
+        "head": 19,
+        "tail": 42
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 2989,
+        "tail": 3013
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 3097,
+        "tail": 3121
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 3203,
+        "tail": 3224
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 3273,
+        "tail": 3294
+      },
+      {
+        "function": "main",
+        "instructions": 6,
+        "head": 3367,
+        "tail": 3390
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/intervals/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "masked",
+        "instructions": 10,
+        "head": 29,
+        "tail": 74
+      },
+      {
+        "function": "masked",
+        "instructions": 8,
+        "head": 102,
+        "tail": 137
+      },
+      {
+        "function": "widened",
+        "instructions": 9,
+        "head": 29,
+        "tail": 64
+      },
+      {
+        "function": "widened",
+        "instructions": 7,
+        "head": 87,
+        "tail": 113
+      },
+      {
+        "function": "negated",
+        "instructions": 20,
+        "head": 35,
+        "tail": 116
+      },
+      {
+        "function": "negated",
+        "instructions": 18,
+        "head": 142,
+        "tail": 215
+      },
+      {
+        "function": "main",
+        "instructions": 10,
+        "head": 2825,
+        "tail": 2872
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 2901,
+        "tail": 2936
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 3208,
+        "tail": 3243
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 3266,
+        "tail": 3292
+      },
+      {
+        "function": "main",
+        "instructions": 20,
+        "head": 3564,
+        "tail": 3645
+      },
+      {
+        "function": "main",
+        "instructions": 18,
+        "head": 3668,
+        "tail": 3740
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "masked",
+        "instructions": 10,
+        "head": 29,
+        "tail": 74
+      },
+      {
+        "function": "masked",
+        "instructions": 8,
+        "head": 102,
+        "tail": 137
+      },
+      {
+        "function": "widened",
+        "instructions": 9,
+        "head": 29,
+        "tail": 64
+      },
+      {
+        "function": "widened",
+        "instructions": 7,
+        "head": 87,
+        "tail": 113
+      },
+      {
+        "function": "negated",
+        "instructions": 20,
+        "head": 35,
+        "tail": 116
+      },
+      {
+        "function": "negated",
+        "instructions": 18,
+        "head": 142,
+        "tail": 215
+      },
+      {
+        "function": "main",
+        "instructions": 10,
+        "head": 2825,
+        "tail": 2872
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 2901,
+        "tail": 2936
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 3208,
+        "tail": 3243
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 3266,
+        "tail": 3292
+      },
+      {
+        "function": "main",
+        "instructions": 20,
+        "head": 3564,
+        "tail": 3645
+      },
+      {
+        "function": "main",
+        "instructions": 18,
+        "head": 3668,
+        "tail": 3740
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "reverse",
+        "instructions": 13,
+        "head": 34,
+        "tail": 84
+      },
+      {
+        "function": "reverse_swap",
+        "instructions": 8,
+        "head": 66,
+        "tail": 96
+      },
+      {
+        "function": "rotate_left",
+        "instructions": 11,
+        "head": 45,
+        "tail": 87
+      },
+      {
+        "function": "rotate_left",
+        "instructions": 6,
+        "head": 104,
+        "tail": 126
+      },
+      {
+        "function": "copy_row",
+        "instructions": 7,
+        "head": 29,
+        "tail": 56
+      },
+      {
+        "function": "copy_row",
+        "instructions": 5,
+        "head": 79,
+        "tail": 97
+      },
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 104,
+        "tail": 134
+      },
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 250,
+        "tail": 280
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 2392,
+        "tail": 2422
+      },
+      {
+        "function": "main",
+        "instructions": 11,
+        "head": 2603,
+        "tail": 2646
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2654,
+        "tail": 2679
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2788,
+        "tail": 2815
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2838,
+        "tail": 2856
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 2992,
+        "tail": 3022
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 3137,
+        "tail": 3167
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "reverse",
+        "instructions": 13,
+        "head": 34,
+        "tail": 84
+      },
+      {
+        "function": "reverse_swap",
+        "instructions": 8,
+        "head": 66,
+        "tail": 96
+      },
+      {
+        "function": "rotate_left",
+        "instructions": 11,
+        "head": 45,
+        "tail": 87
+      },
+      {
+        "function": "rotate_left",
+        "instructions": 6,
+        "head": 104,
+        "tail": 126
+      },
+      {
+        "function": "copy_row",
+        "instructions": 7,
+        "head": 29,
+        "tail": 56
+      },
+      {
+        "function": "copy_row",
+        "instructions": 5,
+        "head": 79,
+        "tail": 97
+      },
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 104,
+        "tail": 134
+      },
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 250,
+        "tail": 280
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 2392,
+        "tail": 2422
+      },
+      {
+        "function": "main",
+        "instructions": 11,
+        "head": 2603,
+        "tail": 2646
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2654,
+        "tail": 2679
+      },
+      {
+        "function": "main",
+        "instructions": 7,
+        "head": 2788,
+        "tail": 2815
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2838,
+        "tail": 2856
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 2992,
+        "tail": 3022
+      },
+      {
+        "function": "main",
+        "instructions": 8,
+        "head": 3137,
+        "tail": 3167
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/loop-reloads/forwarded-count.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "checksum",
+        "instructions": 12,
+        "head": 68,
+        "tail": 111
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 357,
+        "tail": 377
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 12,
+        "head": 491,
+        "tail": 539
+      },
+      {
+        "function": "main",
+        "instructions": 67,
+        "head": 3097,
+        "tail": 3489
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 4958,
+        "tail": 4978
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 5080,
+        "tail": 5145
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "checksum",
+        "instructions": 11,
+        "head": 68,
+        "tail": 105
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 357,
+        "tail": 377
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 12,
+        "head": 491,
+        "tail": 539
+      },
+      {
+        "function": "main",
+        "instructions": 67,
+        "head": 3097,
+        "tail": 3489
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 4958,
+        "tail": 4978
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 5080,
+        "tail": 5145
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/loop-reloads/more-values.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "checksum",
+        "instructions": 12,
+        "head": 68,
+        "tail": 111
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 367,
+        "tail": 387
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 12,
+        "head": 507,
+        "tail": 555
+      },
+      {
+        "function": "main",
+        "instructions": 67,
+        "head": 3250,
+        "tail": 3659
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "checksum",
+        "instructions": 11,
+        "head": 68,
+        "tail": 105
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 367,
+        "tail": 387
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 12,
+        "head": 507,
+        "tail": 555
+      },
+      {
+        "function": "main",
+        "instructions": 67,
+        "head": 3250,
+        "tail": 3659
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/scalar-captures/semantics.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 253,
+        "head": 878,
+        "tail": 2341
+      },
+      {
+        "function": "main",
+        "instructions": 114,
+        "head": 5455,
+        "tail": 6169
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 253,
+        "head": 878,
+        "tail": 2341
+      },
+      {
+        "function": "main",
+        "instructions": 114,
+        "head": 5455,
+        "tail": 6169
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/template-quote/scan.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "before",
+        "instructions": 65,
+        "head": 159,
+        "tail": 497
+      },
+      {
+        "function": "after",
+        "instructions": 37,
+        "head": 187,
+        "tail": 376
+      },
+      {
+        "function": "main",
+        "instructions": 63,
+        "head": 435,
+        "tail": 770
+      },
+      {
+        "function": "main",
+        "instructions": 36,
+        "head": 1073,
+        "tail": 1281
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "before",
+        "instructions": 65,
+        "head": 159,
+        "tail": 497
+      },
+      {
+        "function": "after",
+        "instructions": 37,
+        "head": 187,
+        "tail": 376
+      },
+      {
+        "function": "main",
+        "instructions": 63,
+        "head": 435,
+        "tail": 770
+      },
+      {
+        "function": "main",
+        "instructions": 36,
+        "head": 1073,
+        "tail": 1281
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/text-set-scan/scan.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 40,
+        "head": 304,
+        "tail": 528
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 40,
+        "head": 304,
+        "tail": 528
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "gather",
+        "instructions": 11,
+        "head": 33,
+        "tail": 78
+      },
+      {
+        "function": "gather",
+        "instructions": 9,
+        "head": 105,
+        "tail": 141
+      },
+      {
+        "function": "main",
+        "instructions": 11,
+        "head": 1806,
+        "tail": 1851
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 1892,
+        "tail": 1928
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "gather",
+        "instructions": 11,
+        "head": 33,
+        "tail": 78
+      },
+      {
+        "function": "gather",
+        "instructions": 9,
+        "head": 105,
+        "tail": 141
+      },
+      {
+        "function": "main",
+        "instructions": 11,
+        "head": 1806,
+        "tail": 1851
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 1892,
+        "tail": 1928
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/unused-range/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "unused",
+        "instructions": 5,
+        "head": 23,
+        "tail": 46
+      },
+      {
+        "function": "escape",
+        "instructions": 20,
+        "head": 33,
+        "tail": 112
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 31,
+        "tail": 54
+      },
+      {
+        "function": "main",
+        "instructions": 20,
+        "head": 89,
+        "tail": 176
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "unused",
+        "instructions": 5,
+        "head": 23,
+        "tail": 46
+      },
+      {
+        "function": "escape",
+        "instructions": 18,
+        "head": 33,
+        "tail": 103
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 31,
+        "tail": 54
+      },
+      {
+        "function": "main",
+        "instructions": 18,
+        "head": 89,
+        "tail": 167
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/value-bounds/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "a_times_u",
+        "instructions": 14,
+        "head": 39,
+        "tail": 98
+      },
+      {
+        "function": "escape",
+        "instructions": 20,
+        "head": 71,
+        "tail": 154
+      },
+      {
+        "function": "select",
+        "instructions": 5,
+        "head": 166,
+        "tail": 186
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2821,
+        "tail": 2841
+      },
+      {
+        "function": "main",
+        "instructions": 14,
+        "head": 3810,
+        "tail": 3869
+      },
+      {
+        "function": "main",
+        "instructions": 20,
+        "head": 4031,
+        "tail": 4154
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "a_times_u",
+        "instructions": 14,
+        "head": 39,
+        "tail": 98
+      },
+      {
+        "function": "escape",
+        "instructions": 19,
+        "head": 71,
+        "tail": 148
+      },
+      {
+        "function": "select",
+        "instructions": 5,
+        "head": 166,
+        "tail": 186
+      },
+      {
+        "function": "main",
+        "instructions": 5,
+        "head": 2821,
+        "tail": 2841
+      },
+      {
+        "function": "main",
+        "instructions": 14,
+        "head": 3810,
+        "tail": 3869
+      },
+      {
+        "function": "main",
+        "instructions": 19,
+        "head": 4031,
+        "tail": 4148
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/binary-trees/plenty/binarytrees.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "main",
+        "instructions": 90,
+        "head": 4378,
+        "tail": 4997
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "main",
+        "instructions": 90,
+        "head": 4378,
+        "tail": 4997
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/fannkuch-redux/plenty/fannkuchredux.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 95,
+        "tail": 125
+      },
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 227,
+        "tail": 257
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 53,
+        "head": 877,
+        "tail": 1606
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 11,
+        "head": 1826,
+        "tail": 1869
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 10,
+        "head": 2192,
+        "tail": 2236
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 9,
+        "head": 2304,
+        "tail": 2352
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 8,
+        "head": 2467,
+        "tail": 2497
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 8,
+        "head": 2585,
+        "tail": 2615
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 11,
+        "head": 3034,
+        "tail": 3076
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 7,
+        "head": 3093,
+        "tail": 3117
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 95,
+        "tail": 125
+      },
+      {
+        "function": "count_flips",
+        "instructions": 8,
+        "head": 227,
+        "tail": 257
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 53,
+        "head": 877,
+        "tail": 1606
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 11,
+        "head": 1826,
+        "tail": 1869
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 10,
+        "head": 2192,
+        "tail": 2236
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 9,
+        "head": 2304,
+        "tail": 2352
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 8,
+        "head": 2467,
+        "tail": 2497
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 8,
+        "head": 2585,
+        "tail": 2615
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 11,
+        "head": 3034,
+        "tail": 3076
+      },
+      {
+        "function": "fannkuch",
+        "instructions": 7,
+        "head": 3093,
+        "tail": 3117
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/fasta/plenty/fasta.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "write_lines",
+        "instructions": 78,
+        "head": 201,
+        "tail": 987
+      },
+      {
+        "function": "repeat_fasta",
+        "instructions": 15,
+        "head": 205,
+        "tail": 278
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 436,
+        "tail": 456
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 8098,
+        "tail": 8170
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "cumulative",
+        "instructions": 67,
+        "head": 327,
+        "tail": 696
+      },
+      {
+        "function": "write_lines",
+        "instructions": 78,
+        "head": 201,
+        "tail": 987
+      },
+      {
+        "function": "repeat_fasta",
+        "instructions": 15,
+        "head": 205,
+        "tail": 278
+      },
+      {
+        "function": "random_fasta",
+        "instructions": 5,
+        "head": 436,
+        "tail": 456
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 8098,
+        "tail": 8170
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/k-nucleotide/plenty/knucleotide.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "third_sequence",
+        "instructions": 32,
+        "head": 994,
+        "tail": 1228
+      },
+      {
+        "function": "count_frames",
+        "instructions": 24,
+        "head": 415,
+        "tail": 627
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 201,
+        "head": 1039,
+        "tail": 2442
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 669,
+        "head": 3832,
+        "tail": 7989
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 303,
+        "tail": 817
+      },
+      {
+        "function": "main",
+        "instructions": 436,
+        "head": 2975,
+        "tail": 5546
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "third_sequence",
+        "instructions": 32,
+        "head": 994,
+        "tail": 1228
+      },
+      {
+        "function": "count_frames",
+        "instructions": 24,
+        "head": 415,
+        "tail": 627
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 201,
+        "head": 1039,
+        "tail": 2442
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 669,
+        "head": 3832,
+        "tail": 7989
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 303,
+        "tail": 817
+      },
+      {
+        "function": "main",
+        "instructions": 436,
+        "head": 2975,
+        "tail": 5546
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/k-nucleotide/plenty/knucleotide_parallel.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "third_sequence",
+        "instructions": 32,
+        "head": 994,
+        "tail": 1228
+      },
+      {
+        "function": "count_frames",
+        "instructions": 24,
+        "head": 462,
+        "tail": 703
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 198,
+        "head": 896,
+        "tail": 2279
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 669,
+        "head": 3455,
+        "tail": 7577
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 477,
+        "tail": 1050
+      },
+      {
+        "function": "main",
+        "instructions": 393,
+        "head": 9625,
+        "tail": 12504
+      },
+      {
+        "function": "main",
+        "instructions": 460,
+        "head": 15149,
+        "tail": 22680
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "third_sequence",
+        "instructions": 32,
+        "head": 994,
+        "tail": 1228
+      },
+      {
+        "function": "count_frames",
+        "instructions": 24,
+        "head": 462,
+        "tail": 703
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 198,
+        "head": 896,
+        "tail": 2279
+      },
+      {
+        "function": "print_frequencies",
+        "instructions": 669,
+        "head": 3455,
+        "tail": 7577
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 477,
+        "tail": 1050
+      },
+      {
+        "function": "main",
+        "instructions": 393,
+        "head": 9625,
+        "tail": 12504
+      },
+      {
+        "function": "main",
+        "instructions": 460,
+        "head": 15149,
+        "tail": 22680
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/mandelbrot/plenty/mandelbrot.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "in_set",
+        "instructions": 20,
+        "head": 25,
+        "tail": 108
+      },
+      {
+        "function": "render_row",
+        "instructions": 20,
+        "head": 304,
+        "tail": 387
+      },
+      {
+        "function": "main",
+        "instructions": 31,
+        "head": 1678,
+        "tail": 2033
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "in_set",
+        "instructions": 18,
+        "head": 25,
+        "tail": 99
+      },
+      {
+        "function": "render_row",
+        "instructions": 18,
+        "head": 304,
+        "tail": 378
+      },
+      {
+        "function": "main",
+        "instructions": 31,
+        "head": 1678,
+        "tail": 2033
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/n-body/plenty/nbody.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "offset_momentum",
+        "instructions": 15,
+        "head": 68,
+        "tail": 133
+      },
+      {
+        "function": "energy",
+        "instructions": 79,
+        "head": 637,
+        "tail": 1118
+      },
+      {
+        "function": "advance",
+        "instructions": 70,
+        "head": 913,
+        "tail": 1488
+      },
+      {
+        "function": "advance",
+        "instructions": 35,
+        "head": 2017,
+        "tail": 2194
+      },
+      {
+        "function": "advance",
+        "instructions": 28,
+        "head": 2264,
+        "tail": 2401
+      },
+      {
+        "function": "advance",
+        "instructions": 29,
+        "head": 2683,
+        "tail": 2825
+      },
+      {
+        "function": "advance",
+        "instructions": 18,
+        "head": 2867,
+        "tail": 2945
+      },
+      {
+        "function": "advance",
+        "instructions": 69,
+        "head": 3300,
+        "tail": 3680
+      },
+      {
+        "function": "advance",
+        "instructions": 58,
+        "head": 3760,
+        "tail": 4068
+      },
+      {
+        "function": "advance",
+        "instructions": 24,
+        "head": 4210,
+        "tail": 4323
+      },
+      {
+        "function": "advance",
+        "instructions": 22,
+        "head": 4362,
+        "tail": 4466
+      },
+      {
+        "function": "advance",
+        "instructions": 471,
+        "head": 6471,
+        "tail": 9558
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 3381,
+        "tail": 3446
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "offset_momentum",
+        "instructions": 15,
+        "head": 68,
+        "tail": 133
+      },
+      {
+        "function": "energy",
+        "instructions": 79,
+        "head": 637,
+        "tail": 1118
+      },
+      {
+        "function": "advance",
+        "instructions": 70,
+        "head": 913,
+        "tail": 1488
+      },
+      {
+        "function": "advance",
+        "instructions": 35,
+        "head": 2017,
+        "tail": 2194
+      },
+      {
+        "function": "advance",
+        "instructions": 28,
+        "head": 2264,
+        "tail": 2401
+      },
+      {
+        "function": "advance",
+        "instructions": 29,
+        "head": 2683,
+        "tail": 2825
+      },
+      {
+        "function": "advance",
+        "instructions": 18,
+        "head": 2867,
+        "tail": 2945
+      },
+      {
+        "function": "advance",
+        "instructions": 69,
+        "head": 3300,
+        "tail": 3680
+      },
+      {
+        "function": "advance",
+        "instructions": 58,
+        "head": 3760,
+        "tail": 4068
+      },
+      {
+        "function": "advance",
+        "instructions": 24,
+        "head": 4210,
+        "tail": 4323
+      },
+      {
+        "function": "advance",
+        "instructions": 22,
+        "head": 4362,
+        "tail": 4466
+      },
+      {
+        "function": "advance",
+        "instructions": 471,
+        "head": 6471,
+        "tail": 9558
+      },
+      {
+        "function": "main",
+        "instructions": 15,
+        "head": 3381,
+        "tail": 3446
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/n-body/plenty/nbody_clist.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "offset_momentum",
+        "instructions": 13,
+        "head": 151,
+        "tail": 209
+      },
+      {
+        "function": "energy",
+        "instructions": 28,
+        "head": 322,
+        "tail": 450
+      },
+      {
+        "function": "energy",
+        "instructions": 24,
+        "head": 514,
+        "tail": 624
+      },
+      {
+        "function": "advance",
+        "instructions": 70,
+        "head": 927,
+        "tail": 1498
+      },
+      {
+        "function": "advance",
+        "instructions": 41,
+        "head": 2314,
+        "tail": 2538
+      },
+      {
+        "function": "advance",
+        "instructions": 29,
+        "head": 2833,
+        "tail": 2975
+      },
+      {
+        "function": "advance",
+        "instructions": 18,
+        "head": 3017,
+        "tail": 3095
+      },
+      {
+        "function": "advance",
+        "instructions": 73,
+        "head": 3865,
+        "tail": 4266
+      },
+      {
+        "function": "advance",
+        "instructions": 21,
+        "head": 4746,
+        "tail": 4851
+      },
+      {
+        "function": "advance",
+        "instructions": 19,
+        "head": 4890,
+        "tail": 4986
+      },
+      {
+        "function": "advance",
+        "instructions": 480,
+        "head": 6939,
+        "tail": 10057
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "offset_momentum",
+        "instructions": 13,
+        "head": 151,
+        "tail": 209
+      },
+      {
+        "function": "energy",
+        "instructions": 28,
+        "head": 322,
+        "tail": 450
+      },
+      {
+        "function": "energy",
+        "instructions": 24,
+        "head": 514,
+        "tail": 624
+      },
+      {
+        "function": "advance",
+        "instructions": 70,
+        "head": 927,
+        "tail": 1498
+      },
+      {
+        "function": "advance",
+        "instructions": 41,
+        "head": 2314,
+        "tail": 2538
+      },
+      {
+        "function": "advance",
+        "instructions": 29,
+        "head": 2833,
+        "tail": 2975
+      },
+      {
+        "function": "advance",
+        "instructions": 18,
+        "head": 3017,
+        "tail": 3095
+      },
+      {
+        "function": "advance",
+        "instructions": 73,
+        "head": 3865,
+        "tail": 4266
+      },
+      {
+        "function": "advance",
+        "instructions": 21,
+        "head": 4746,
+        "tail": 4851
+      },
+      {
+        "function": "advance",
+        "instructions": 19,
+        "head": 4890,
+        "tail": 4986
+      },
+      {
+        "function": "advance",
+        "instructions": 480,
+        "head": 6939,
+        "tail": 10057
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/regex-redux/plenty/regexredux.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "count_matches",
+        "instructions": 79,
+        "head": 674,
+        "tail": 1325
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 548,
+        "tail": 1115
+      },
+      {
+        "function": "main",
+        "instructions": 82,
+        "head": 7789,
+        "tail": 8459
+      },
+      {
+        "function": "main",
+        "instructions": 164,
+        "head": 15984,
+        "tail": 17909
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "count_matches",
+        "instructions": 79,
+        "head": 674,
+        "tail": 1325
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 548,
+        "tail": 1115
+      },
+      {
+        "function": "main",
+        "instructions": 82,
+        "head": 7789,
+        "tail": 8459
+      },
+      {
+        "function": "main",
+        "instructions": 164,
+        "head": 15984,
+        "tail": 17909
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/regex-redux/plenty/regexredux_parallel.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "count_matches",
+        "instructions": 78,
+        "head": 789,
+        "tail": 1444
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 647,
+        "tail": 1207
+      },
+      {
+        "function": "main",
+        "instructions": 480,
+        "head": 7763,
+        "tail": 11901
+      },
+      {
+        "function": "main",
+        "instructions": 155,
+        "head": 16172,
+        "tail": 17583
+      },
+      {
+        "function": "main",
+        "instructions": 413,
+        "head": 18233,
+        "tail": 28444
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "count_matches",
+        "instructions": 78,
+        "head": 789,
+        "tail": 1444
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 647,
+        "tail": 1207
+      },
+      {
+        "function": "main",
+        "instructions": 480,
+        "head": 7763,
+        "tail": 11901
+      },
+      {
+        "function": "main",
+        "instructions": 155,
+        "head": 16172,
+        "tail": 17583
+      },
+      {
+        "function": "main",
+        "instructions": 413,
+        "head": 18233,
+        "tail": 28444
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/reverse-complement/plenty/revcomp.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "complement_table",
+        "instructions": 22,
+        "head": 428,
+        "tail": 530
+      },
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "process",
+        "instructions": 72,
+        "head": 545,
+        "tail": 942
+      },
+      {
+        "function": "process",
+        "instructions": 31,
+        "head": 1109,
+        "tail": 1270
+      },
+      {
+        "function": "main",
+        "instructions": 22,
+        "head": 484,
+        "tail": 586
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 1056,
+        "tail": 1589
+      },
+      {
+        "function": "main",
+        "instructions": 32,
+        "head": 2471,
+        "tail": 2908
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "complement_table",
+        "instructions": 22,
+        "head": 428,
+        "tail": 530
+      },
+      {
+        "function": "read_all_stdin",
+        "instructions": 78,
+        "head": 243,
+        "tail": 741
+      },
+      {
+        "function": "process",
+        "instructions": 72,
+        "head": 542,
+        "tail": 939
+      },
+      {
+        "function": "process",
+        "instructions": 31,
+        "head": 1106,
+        "tail": 1267
+      },
+      {
+        "function": "main",
+        "instructions": 22,
+        "head": 484,
+        "tail": 586
+      },
+      {
+        "function": "main",
+        "instructions": 79,
+        "head": 1056,
+        "tail": 1589
+      },
+      {
+        "function": "main",
+        "instructions": 31,
+        "head": 2471,
+        "tail": 2902
+      }
+    ]
+  },
+  {
+    "file": "benchmarks/game/spectral-norm/plenty/spectralnorm.plenty",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "a_times_u",
+        "instructions": 16,
+        "head": 47,
+        "tail": 114
+      },
+      {
+        "function": "at_times_u",
+        "instructions": 16,
+        "head": 47,
+        "tail": 114
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 16,
+        "head": 57,
+        "tail": 124
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 16,
+        "head": 197,
+        "tail": 264
+      },
+      {
+        "function": "filled",
+        "instructions": 19,
+        "head": 258,
+        "tail": 388
+      },
+      {
+        "function": "main",
+        "instructions": 60,
+        "head": 1041,
+        "tail": 1293
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 1406,
+        "tail": 1460
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 1500,
+        "tail": 1536
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "a_times_u",
+        "instructions": 16,
+        "head": 47,
+        "tail": 114
+      },
+      {
+        "function": "at_times_u",
+        "instructions": 16,
+        "head": 47,
+        "tail": 114
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 16,
+        "head": 57,
+        "tail": 124
+      },
+      {
+        "function": "ata_times_u",
+        "instructions": 16,
+        "head": 197,
+        "tail": 264
+      },
+      {
+        "function": "filled",
+        "instructions": 19,
+        "head": 258,
+        "tail": 388
+      },
+      {
+        "function": "main",
+        "instructions": 60,
+        "head": 1041,
+        "tail": 1293
+      },
+      {
+        "function": "main",
+        "instructions": 13,
+        "head": 1406,
+        "tail": 1460
+      },
+      {
+        "function": "main",
+        "instructions": 9,
+        "head": 1500,
+        "tail": 1536
+      }
+    ]
+  }
+]

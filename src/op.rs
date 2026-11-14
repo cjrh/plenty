@@ -1551,7 +1551,7 @@ pub fn forever_condition(condition: &[Op]) -> bool {
 
 /// Whether `body` has a `break` for the loop that runs it. Nested loops are
 /// skipped. An explicit work list keeps deep nesting off the call stack.
-fn breaks_out(body: &[Op]) -> bool {
+pub(crate) fn breaks_out(body: &[Op]) -> bool {
     let mut pending = vec![body];
     while let Some(ops) = pending.pop() {
         for op in ops {
