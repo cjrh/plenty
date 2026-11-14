@@ -1,0 +1,152 @@
+{
+  "base": "58e5a09b",
+  "cpu": 3,
+  "cache": "off",
+  "scope": "previous backend+original benchmark versus published backend+bounded rewrite; whole compiler process including linker",
+  "samples": [
+    {
+      "round": 0,
+      "variant": "baseline",
+      "command": [
+        "perf",
+        "stat",
+        "-x",
+        ";",
+        "-e",
+        "instructions:u,task-clock:u",
+        "taskset",
+        "-c",
+        "3",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/baseline-plenty",
+        "--no-cache",
+        "--compile",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/original-spectralnorm.plenty",
+        "-o",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/compile-output"
+      ],
+      "perf_csv": "384897196;;instructions:u;73194521;100.00;;\n73.19;msec;task-clock:u;73194521;100.00;;\n",
+      "instructions:u": 384897196.0,
+      "task-clock:u": 73.19
+    },
+    {
+      "round": 0,
+      "variant": "candidate",
+      "command": [
+        "perf",
+        "stat",
+        "-x",
+        ";",
+        "-e",
+        "instructions:u,task-clock:u",
+        "taskset",
+        "-c",
+        "3",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/candidate-plenty",
+        "--no-cache",
+        "--compile",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/benchmarks/game/spectral-norm/plenty/spectralnorm.plenty",
+        "-o",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/compile-output"
+      ],
+      "perf_csv": "385589740;;instructions:u;74449676;100.00;;\n74.45;msec;task-clock:u;74449676;100.00;;\n",
+      "instructions:u": 385589740.0,
+      "task-clock:u": 74.45
+    },
+    {
+      "round": 1,
+      "variant": "candidate",
+      "command": [
+        "perf",
+        "stat",
+        "-x",
+        ";",
+        "-e",
+        "instructions:u,task-clock:u",
+        "taskset",
+        "-c",
+        "3",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/candidate-plenty",
+        "--no-cache",
+        "--compile",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/benchmarks/game/spectral-norm/plenty/spectralnorm.plenty",
+        "-o",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/compile-output"
+      ],
+      "perf_csv": "385561330;;instructions:u;72970974;100.00;;\n72.97;msec;task-clock:u;72970974;100.00;;\n",
+      "instructions:u": 385561330.0,
+      "task-clock:u": 72.97
+    },
+    {
+      "round": 1,
+      "variant": "baseline",
+      "command": [
+        "perf",
+        "stat",
+        "-x",
+        ";",
+        "-e",
+        "instructions:u,task-clock:u",
+        "taskset",
+        "-c",
+        "3",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/baseline-plenty",
+        "--no-cache",
+        "--compile",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/original-spectralnorm.plenty",
+        "-o",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/compile-output"
+      ],
+      "perf_csv": "384930944;;instructions:u;73753182;100.00;;\n73.75;msec;task-clock:u;73753182;100.00;;\n",
+      "instructions:u": 384930944.0,
+      "task-clock:u": 73.75
+    },
+    {
+      "round": 2,
+      "variant": "baseline",
+      "command": [
+        "perf",
+        "stat",
+        "-x",
+        ";",
+        "-e",
+        "instructions:u,task-clock:u",
+        "taskset",
+        "-c",
+        "3",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/baseline-plenty",
+        "--no-cache",
+        "--compile",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/original-spectralnorm.plenty",
+        "-o",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/compile-output"
+      ],
+      "perf_csv": "384942001;;instructions:u;72630207;100.00;;\n72.63;msec;task-clock:u;72630207;100.00;;\n",
+      "instructions:u": 384942001.0,
+      "task-clock:u": 72.63
+    },
+    {
+      "round": 2,
+      "variant": "candidate",
+      "command": [
+        "perf",
+        "stat",
+        "-x",
+        ";",
+        "-e",
+        "instructions:u,task-clock:u",
+        "taskset",
+        "-c",
+        "3",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/candidate-plenty",
+        "--no-cache",
+        "--compile",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/benchmarks/game/spectral-norm/plenty/spectralnorm.plenty",
+        "-o",
+        "/home/caleb/Documents/repos/plenty/.worktrees/issue-972-adoption/target/issue-972-validation/compile-output"
+      ],
+      "perf_csv": "385576505;;instructions:u;72944455;100.00;;\n72.94;msec;task-clock:u;72944455;100.00;;\n",
+      "instructions:u": 385576505.0,
+      "task-clock:u": 72.94
+    }
+  ]
+}

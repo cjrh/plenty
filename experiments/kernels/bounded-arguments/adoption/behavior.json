@@ -1,0 +1,290 @@
+[
+  {
+    "cpu": "x86-64",
+    "argument": "-1",
+    "variant": "original",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "-1",
+    "variant": "bounded",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "0",
+    "variant": "original",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "0",
+    "variant": "bounded",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "1",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.000000000\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "1",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.000000000\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "2",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.183350177\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "2",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.183350177\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "3",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.233644501\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "3",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.233644501\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "10",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.271844019\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "10",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.271844019\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "100",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.274219991\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "100",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.274219991\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "1000001",
+    "variant": "original",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "1000001",
+    "variant": "bounded",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "bad",
+    "variant": "original",
+    "status": 1,
+    "stdout": "",
+    "stderr": "error: main returned ParseError.Invalid\n"
+  },
+  {
+    "cpu": "x86-64",
+    "argument": "bad",
+    "variant": "bounded",
+    "status": 1,
+    "stdout": "",
+    "stderr": "error: main returned ParseError.Invalid\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "-1",
+    "variant": "original",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "-1",
+    "variant": "bounded",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "0",
+    "variant": "original",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "0",
+    "variant": "bounded",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "1",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.000000000\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "1",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.000000000\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "2",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.183350177\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "2",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.183350177\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "3",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.233644501\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "3",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.233644501\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "10",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.271844019\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "10",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.271844019\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "100",
+    "variant": "original",
+    "status": 0,
+    "stdout": "1.274219991\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "100",
+    "variant": "bounded",
+    "status": 0,
+    "stdout": "1.274219991\n",
+    "stderr": ""
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "1000001",
+    "variant": "original",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "1000001",
+    "variant": "bounded",
+    "status": 2,
+    "stdout": "",
+    "stderr": "N must be in 1..=1000000\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "bad",
+    "variant": "original",
+    "status": 1,
+    "stdout": "",
+    "stderr": "error: main returned ParseError.Invalid\n"
+  },
+  {
+    "cpu": "x86-64-v3",
+    "argument": "bad",
+    "variant": "bounded",
+    "status": 1,
+    "stdout": "",
+    "stderr": "error: main returned ParseError.Invalid\n"
+  }
+]

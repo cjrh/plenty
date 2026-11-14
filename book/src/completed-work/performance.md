@@ -1628,8 +1628,9 @@ The isolated spectral-norm helper drops its 32-byte borrowing frame and its
 integer loads/stores. Both bounded matrix inner loops fall from 22 to 17
 instructions on baseline x86-64; the equivalent C loops use 14.
 
-The existing unchecked spectral-norm benchmark is retained. A measured bounded
-rewrite has 17/17 instructions against the original's 16/18, so it fails the
+The initial spill-fix delivery retained the unchecked spectral-norm benchmark.
+Its measured bounded rewrite had 17/17 instructions against the original's
+16/18, failing the
 individual-loop nonregression gate even though total retired instructions at
 `n = 2000` fall slightly (2,724.495M to 2,724.415M). Nine interleaved pinned-core
 samples give median CPU times of 162.05/160.58 ms, with overlapping ranges;
@@ -1638,7 +1639,8 @@ The remaining latch move/jump is tracked by issue #977. The checked-in
 kernels, IR variants, raw samples and reproduction instructions in
 `experiments/kernels/bounded-arguments/README.md` record the attribution and
 x86-64-v3 comparison. This delivery removes the
-compiler spill; it does not deliver the benchmark rewrite.
+compiler spill. The [benchmark adoption](#bounded-spectral-norm-benchmark-issue-972)
+uses the subsequently qualified latch scheduling.
 
 
 ## Terminal accessor inlining (issue #958)
@@ -1769,8 +1771,34 @@ kernels, raw samples and reproduction instructions are retained in
 `experiments/kernels/counted-latch/`.
 
 This milestone delivers qualification and the user-authorized publication of
-`d27f16528a` to the Cranelift fork. Production lockfile adoption is separate
-work under issue #972. The original escape loop remains at 20 instructions; its issue #977
+`d27f16528a` to the Cranelift fork. The [issue #972 adoption](#bounded-spectral-norm-benchmark-issue-972)
+selects it in the production and harness lockfiles. The original escape loop
+remains at 20 instructions; its issue #977
 scope and issue #978's scalar-copy scope remain open. Issue #980 separately
 tracks the remaining matrix floating-load instruction. The benchmark rewrite
-under issue #972 awaits production adoption of the qualified scheduling change.
+under issue #972 uses this scheduling change.
+
+
+## Bounded spectral-norm benchmark (issue #972)
+
+The production and CLIF harness lockfiles select the published Cranelift
+`d27f16528a`. Spectral-norm uses `Bounded[i64, 0, MAX_N]` arguments and proved
+`Index.from` conversions, removing its `unchecked:` arithmetic suite. Matrix
+helpers guard their lengths to establish the argument bounds; command-line
+validation and the algorithm's floating operation/reduction order are unchanged.
+
+On x86-64, the bounded A/AT inner loops use 15/15 instructions versus the
+previous production benchmark's 16/18, and the same new backend's unchecked
+16/16. On x86-64-v3, the corresponding counts are 14/14, 15/17 and 15/15.
+The experiment in `experiments/kernels/bounded-arguments/adoption/` retains
+instruction lists and separate production/rewrite comparisons.
+Nine alternating samples at `n = 2000` reduce whole-program instructions
+2,724.604M→2,404.684M against production; median CPU times are 155.70/154.49 ms.
+Against the unchecked benchmark on the same new backend, instructions fall
+2,564.684M→2,404.684M and medians are 155.83/154.11 ms. CPU ranges overlap,
+so this meets the measured nonregression gate without establishing a reliable
+CPU speedup. Uncached source-compilation instructions rise 0.168%; raw samples
+and ranges are retained with the experiment.
+This adopts only the published integer-backedge scheduling; issue #980's
+separate floating-load folding experiment remains unadopted, and issue #977's
+original escape-loop gap remains open.
