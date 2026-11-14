@@ -1300,6 +1300,38 @@ pub(super) struct Subject {
     pub(super) borrowed: Option<(usize, bool)>,
     /// The loan an owned reference-carrying `Option` or `Result` holds.
     pub(super) carried: Option<usize>,
+    /// The element slots of a matched tuple literal, which is never built.
+    pub(super) parts: Option<Box<Parts>>,
+}
+
+/// A matched tuple literal held as its elements, `slots[i]` holding element
+/// `i` (issue #944). A path into the tuple starts at the element's slot.
+pub(super) struct Parts {
+    pub(super) tuple: Nominal<EnumType>,
+    pub(super) slots: Vec<u8>,
+}
+
+impl Subject {
+    /// Release what the match left of the value: a tuple literal's elements
+    /// in field order, as the tuple releases them.
+    #[inline(never)]
+    fn release(&self, ops: &mut Vec<Op>) {
+        match &self.parts {
+            Some(parts) => ops.extend(parts.slots.iter().map(|&slot| Op::DropLocal(slot))),
+            None => ops.push(Op::DropLocal(self.source)),
+        }
+    }
+
+    /// The slot holding the value at `steps`, and the steps that remain
+    /// within it.
+    fn locate<'a>(&self, steps: &'a [Step]) -> (u8, &'a [Step]) {
+        match (&self.parts, steps) {
+            (Some(parts), [Step::Field(t, 0, field), rest @ ..]) if *t == parts.tuple => {
+                (parts.slots[*field], rest)
+            }
+            _ => (self.source, steps),
+        }
+    }
 }
 
 impl Lower<'_> {
@@ -2200,7 +2232,7 @@ impl Lower<'_> {
             self.emit_tree(&tree, &subject, &mut inline, ops);
         }
         if !matches!(tail, Tail::Function) && joined.is_some() {
-            ops.push(Op::DropLocal(subject.source));
+            subject.release(ops);
         }
         Ok(joined.map_or(BlockResult::Exits, BlockResult::Continues))
     }
@@ -2213,13 +2245,17 @@ impl Lower<'_> {
             let mutable = project(steps, mutable, ops);
             ops.push(Op::Enum(EnumOp::TagRef(t.clone(), mutable)));
             ops.push(Op::UseLoan(loan));
-        } else if steps.is_empty() {
-            ops.push(Op::LoadLocal(subject.source));
+        } else if steps.is_empty() && subject.parts.is_some() {
+            // A tuple has one variant.
+            ops.push(Op::PushInt(Value::I64(0)));
+        } else if let (source, []) = subject.locate(steps) {
+            ops.push(Op::LoadLocal(source));
             ops.push(Op::Enum(EnumOp::Tag(t.clone())));
         } else {
             // The reference is consumed by the tag read, so nothing can observe
             // the hidden slot through it and no loan is recorded.
-            ops.push(Op::BorrowLocal(subject.source, false));
+            let (source, steps) = subject.locate(steps);
+            ops.push(Op::BorrowLocal(source, false));
             let mutable = project(steps, false, ops);
             ops.push(Op::Enum(EnumOp::TagRef(t.clone(), mutable)));
         }
@@ -2234,11 +2270,12 @@ impl Lower<'_> {
             project(steps, mutable, ops);
             ops.push(Op::ReadRef(ty.clone()));
             ops.push(Op::UseLoan(loan));
-        } else if steps.is_empty() {
-            ops.push(Op::LoadLocal(subject.source));
+        } else if let (source, []) = subject.locate(steps) {
+            ops.push(Op::LoadLocal(source));
         } else {
             // As in `peek`: the read consumes the reference.
-            ops.push(Op::BorrowLocal(subject.source, false));
+            let (source, steps) = subject.locate(steps);
+            ops.push(Op::BorrowLocal(source, false));
             project(steps, false, ops);
             ops.push(Op::ReadRef(ty.clone()));
         }
@@ -2254,6 +2291,20 @@ impl Lower<'_> {
         match tree {
             Tree::Leaf(row) => ops.extend(leaf(*row)),
             Tree::Fail => unreachable!("a non-exhaustive match is rejected before lowering"),
+            // The one variant of a matched tuple literal needs no test.
+            Tree::Switch {
+                steps,
+                branches,
+                default,
+                ..
+            } if steps.is_empty() && subject.parts.is_some() => {
+                let tree = match (branches.as_slice(), default) {
+                    ([(_, tree)], _) => tree,
+                    ([], Some(tree)) => &**tree,
+                    _ => unreachable!("a tuple has one variant"),
+                };
+                self.emit_tree(tree, subject, leaf, ops);
+            }
             Tree::Switch {
                 steps,
                 t,
@@ -2400,13 +2451,13 @@ impl Lower<'_> {
                 }
             }
         } else if single {
-            borrowed_through(&alternatives[0], subject.source, slots, body);
-            owned_root(&alternatives[0], subject.source, slots, true, body);
+            borrowed_through(&alternatives[0], subject, slots, body);
+            owned_root(&alternatives[0], subject, slots, true, body);
         } else if !bound.is_empty() {
             for pattern in alternatives {
                 let mut fill = Vec::new();
-                borrowed_through(pattern, subject.source, slots, &mut fill);
-                owned_root(pattern, subject.source, slots, false, &mut fill);
+                borrowed_through(pattern, subject, slots, &mut fill);
+                owned_root(pattern, subject, slots, false, &mut fill);
                 fills.push(fill);
             }
         }
@@ -2503,13 +2554,19 @@ fn numbered(bodies: Vec<Vec<Op>>) -> Arc<[MatchArm]> {
 
 /// Bind each name below a payload reference in an owned matched value to a
 /// reference into the referent, before [`owned_root`] moves the value.
-fn borrowed_through(pattern: &Checked, source: u8, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) {
+fn borrowed_through(
+    pattern: &Checked,
+    subject: &Subject,
+    slots: &HashMap<&str, u8>,
+    ops: &mut Vec<Op>,
+) {
     let mut paths = Vec::new();
     pattern.paths(&mut Vec::new(), &mut paths);
     for (name, steps) in paths {
         if steps.iter().any(|step| matches!(step, Step::Deref(_))) {
+            let (source, steps) = subject.locate(&steps);
             ops.push(Op::BorrowLocal(source, false));
-            project(&steps, false, ops);
+            project(steps, false, ops);
             ops.push(Op::StoreLocal(slots[name]));
         }
     }
@@ -2521,11 +2578,32 @@ fn borrowed_through(pattern: &Checked, source: u8, slots: &HashMap<&str, u8>, op
 /// dropped immediately.
 fn owned_root(
     pattern: &Checked,
-    source: u8,
+    subject: &Subject,
     slots: &HashMap<&str, u8>,
     single: bool,
     ops: &mut Vec<Op>,
 ) {
+    let source = subject.source;
+    if let Some(parts) = &subject.parts {
+        match pattern {
+            // `_ as name` takes the whole value, built only here.
+            Checked::Binding(name) => {
+                ops.extend(parts.slots.iter().map(|&slot| Op::MoveLocal(slot)));
+                ops.push(Op::Enum(EnumOp::New(parts.tuple.clone(), 0)));
+                ops.push(Op::StoreLocal(slots[name.as_str()]));
+            }
+            // As `owned_variant` splits a tuple: every element is moved out,
+            // the last first.
+            Checked::Variant { fields, .. } if pattern.binds() || (single && fields.len() > 1) => {
+                for (field, &slot) in fields.iter().zip(&parts.slots).rev() {
+                    ops.push(Op::MoveLocal(slot));
+                    owned(field, slots, ops);
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
     // `_ as name` takes the whole value.
     if let Checked::Binding(name) = pattern {
         ops.extend([Op::MoveLocal(source), Op::StoreLocal(slots[name.as_str()])]);
