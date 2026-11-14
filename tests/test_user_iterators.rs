@@ -409,3 +409,44 @@ fn chain_requires_owned_items_from_user_iterators() {
         "chain cannot combine strict streaming",
     );
 }
+
+#[test]
+fn wrapped_source_and_managed_view_items_keep_full_records_and_cleanup() {
+    run(
+        &format!(
+            "{CURSOR}\ndef cursor(data: &[i64]) -> Result[Cursor[i64], str]:\n    Ok(Cursor(data, 0))\nfor n in cursor(&[7, 9].unwrap()).unwrap():\n    print(*n).unwrap()"
+        ),
+        "7\n9\n",
+    );
+    run(
+        r#"
+class Item:
+    value: i64
+    def __del__(self: &mut Item) -> ():
+        print(self.value).unwrap()
+class Part:
+    data: &[i64]
+    state: array[Item, 2]
+class Parts:
+    data: &[i64]
+    done: bool
+    def next(self: &mut Parts) -> Option[Part]:
+        if self.done:
+            return Nothing
+        self.done = True
+        Some(Part(self.data, [Item(11), Item(13)]))
+xs = [2, 4].unwrap()
+for part in Parts(&xs, False):
+    print(part.data[0], part.state[-1].value).unwrap()
+    break
+print(99).unwrap()
+"#,
+        "2 13\n11\n13\n99\n",
+    );
+    reject(
+        &format!(
+            "{CURSOR}\nxs = [2, 4].unwrap()\nmut c = Cursor(&xs, 0)\nmut saved: Option[&i64] = Nothing\nfor n in range(2):\n    print(saved).unwrap()\n    for x in &mut c:\n        saved = Some(x)\n        break\nprint(saved).unwrap()"
+        ),
+        "borrow",
+    );
+}
