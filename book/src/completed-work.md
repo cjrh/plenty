@@ -30,6 +30,9 @@ records the removal of the remaining immutable fold-capture reloads.
 record the first-reference-origin return subset of issue #945, including
 optional and fallible view results.
 
+The [Rust-source backend decision](completed-work/language-and-tooling.md#rust-source-backend-proposal-rejected)
+records the proposal's rejection on 2026-11-14; its experiments remain historical.
+
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that
 B item is implemented. Mixed items keep their remaining scope only in the

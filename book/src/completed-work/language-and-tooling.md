@@ -1626,3 +1626,12 @@ must leave no callbacks, background work or registrations behind. Other targets,
 generators, thread facilities, IO/native engines and Plenty's resident generated
 loaders remain outside this increment. See the [contract](../design/facilities/04-interop/unloading.md).
 
+
+## Rust-source backend proposal rejected
+
+The [Rust-source backend proposal](../proposals/completed/rust-source-backend.md)
+was closed at the user's direction on 2026-11-14, with no further
+implementation planned. Its checked scalar emitter, hand-lowered probes and
+measurements remain a historical experiment; no production backend was
+adopted. Experiment sources and the developer spike are retained. B20 keeps
+the GCC assessment, and Rust dependency integration remains B17.

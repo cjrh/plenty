@@ -1,5 +1,11 @@
 # Rust-source probe evidence and adoption criteria
 
+> **Historical record: rejected proposal (2026-11-14).**
+> The [Rust-source backend proposal](../rust-source-backend.md#decision) was
+> closed at the user's direction. Design requirements, adoption criteria and
+> recommendations below describe that exploration; no further implementation
+> is planned. Existing experiments and the developer spike are retained.
+
 This accompanies the [proposal](../rust-source-backend.md) and
 [semantic contract](contract.md). Results are bounded evidence, not a completed
 backend or a performance comparison.
@@ -10,7 +16,7 @@ below remain separate evidence; they are not implemented by that scalar emitter.
 
 ## What is already generated
 
-The [Rust dependency experiment](../rust-crate-dependencies/evidence.md) has
+The [Rust dependency experiment](../../rust-crate-dependencies/evidence.md) has
 an actual restricted emitter in `experiments/rust-crates/run.py`. It checks
 Plenty against declared API stubs, reparses a small accepted subset and emits
 calls, borrows and checked arithmetic to Rust source. A real regex owner and
@@ -82,5 +88,5 @@ If useful native APIs require broadly changing Plenty's semantics or pervasive
 unchecked lowering, stop expansion and prefer the generated-adapter route.
 If safe monomorphic library exports work with a small support layer, that alone
 can be worthwhile without committing to a whole-language compiler replacement.
-This gate describes the technical decision; scheduling remains in
-[B20](../../backlog.md).
+This gate records the technical criteria considered before rejection; it is
+not scheduled work. [B20](../../../backlog.md) retains the separate GCC assessment.

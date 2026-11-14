@@ -1,5 +1,11 @@
 # Checked emitter and Rust build costs
 
+> **Historical record: rejected proposal (2026-11-14).**
+> The [Rust-source backend proposal](../rust-source-backend.md#decision) was
+> closed at the user's direction. Design requirements, adoption criteria and
+> recommendations below describe that exploration; no further implementation
+> is planned. Existing experiments and the developer spike are retained.
+
 This follows the [Rust-source proposal](../rust-source-backend.md). The experiment
 in `experiments/rust-source-backend/emitter/` generates Rust from the real checked
 frontend. It is deliberately smaller than the ownership-rich [hand-lowered
@@ -162,13 +168,12 @@ hardware regimes are not pooled. The fresh samples support practical subsecond
 builds for these small Rust libraries, while the native path remains faster.
 These two small synthetic workloads do not set a general build-time budget.
 
-**Recommendation:** continue the Rust-hosted library experiment with compact
-monomorphic helpers and an explicit development/optimized emission policy.
-Small libraries can have practical build times, and stable function grouping
-can prevent very expensive optimization. This evidence does not make rustc a
-replacement for Cranelift's fast build path. Native ownership-bearing API
-emission remains the next semantic gate; more backend breadth should not be
-inferred from the scalar benchmark.
+**Historical assessment:** compact monomorphic helpers and explicit
+development/optimized emission policies gave the small libraries practical
+build times; stable function grouping avoided very expensive optimization.
+This evidence did not establish rustc as a replacement for Cranelift's fast
+build path, or qualify native ownership-bearing API emission. The proposal
+was subsequently rejected; no further implementation is planned.
 
 ## Validation and limits
 
@@ -191,5 +196,6 @@ unsupported recursion are rejected. A default unwinding Rust build is rejected.
 
 These measurements cannot establish owner cleanup, native Rust borrowing,
 fallible allocation, collection interoperability or arbitrary crate support.
-They qualify a restricted compiler experiment; the broader proposal's adoption
-criteria remain open. Scheduling stays in [B20](../../backlog.md).
+They qualify a restricted compiler experiment. The broader proposal's adoption
+criteria remain historical after rejection; no follow-up is planned. Other backend
+work remains in [B20](../../../backlog.md).

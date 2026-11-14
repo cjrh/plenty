@@ -20,6 +20,7 @@ Companion pages identify their parent and whether their examples are hypothetica
 | Partly implemented | Some of it shipped. The block says which parts. |
 | Not implemented | Nothing shipped. The page is the design record for future work. |
 | Investigation complete | An assessment reached a decision; it does not imply feature implementation. |
+| Rejected | A decision closed the proposal without further implementation planned; its design and evidence remain historical. |
 
 Proposal text retains its original wording: it may describe shipped features as
 future work or show syntax that never shipped. Proposal code is not compiled by
@@ -27,8 +28,8 @@ the test suite.
 
 When a change implements or alters a design, update its status note. Move a
 proposal to [completed/](completed/index.md) when its agreed scope ships or its
-investigation concludes without an implementation commitment;
-retain its rationale and update links and book navigation. Alternatives and
+investigation concludes without an implementation commitment, including an
+explicit rejection; retain its rationale and update links and book navigation. Alternatives and
 future extensions need not ship for the agreed scope to be complete. Keep
 partly implemented and unimplemented proposals here; retain superseded or
 abandoned designs separately in `archived/` when needed.
@@ -70,7 +71,9 @@ Companion examples and evidence do not imply additional implementation commitmen
 ## Completed
 
 See [Completed proposals](completed/index.md) for shipped designs and their
-reference pages. Further extensions remain tracked in the backlog.
+reference pages, concluded investigations, and rejected designs. Further
+extensions remain tracked in the backlog; a rejected proposal does not imply
+an implementation commitment.
 
 The 2026-11-08 classification review moved derived serialization (B77),
 structural keys (B74), checked-default arithmetic (B14), and the Polars
@@ -109,7 +112,6 @@ records and local merge metadata; it did not rerun their feature suites.
 | [Cosmopolitan and Actually Portable Executables](cosmopolitan.md) — bounded compatibility experiment before any runtime/platform commitment | B18, B17 |
 | [Package language editions](language-editions.md) — exploratory compatibility mechanism; no editions implemented | B17 |
 | [Using Rust crates in Plenty](rust-crate-dependencies.md) — three prototypes favor generated C adapters over a Cargo/rustc graph; production integration remains | B17, related B20 |
-| [Compiling Plenty to Rust source](rust-source-backend.md) — checked-IR scalar emitter, native companion round-trip and Rust build-cost measurements; ownership probes remain hand-lowered, no production backend | B20, related B17 |
 | [Linear obligations](linear-obligations.md), including [aggregate and error rules](linear-obligations/values-and-errors.md) — opt-in non-abandonment | B72 (issue #149) |
 | [Synchronous resolution scopes](linear-scope-resolution.md) — consuming scope policy; depends on linear obligations | B72 (issue #149) |
 | [Linearity, typestate, and execution responsibility](linear-integration.md) — shared boundaries and deferred worker/async contracts | B72 (issue #149) |

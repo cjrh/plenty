@@ -1,5 +1,11 @@
 # Rust-source semantic and interoperability contract
 
+> **Historical record: rejected proposal (2026-11-14).**
+> The [Rust-source backend proposal](../rust-source-backend.md#decision) was
+> closed at the user's direction. Design requirements, adoption criteria and
+> recommendations below describe that exploration; no further implementation
+> is planned. Existing experiments and the developer spike are retained.
+
 This is the proposed contract for the [Rust-source backend](../rust-source-backend.md),
 not implemented behavior. Preserve the language first; make unsupported slices
 explicit rather than accepting a program with different semantics.
@@ -17,7 +23,7 @@ explicit rather than accepting a program with different semantics.
 | Plenty immutable strings | Preserve share/retain behavior in a wrapper and borrow UTF-8 as `&str` where valid. `String` is not a transparent replacement. |
 | Arbitrary Rust owners | Native Rust values only for explicitly admitted APIs with known loan/drop/effect contracts. Rust generic/trait declarations require more than an ABI signature. |
 
-Do not transmute current [runtime values](../../design/toolchain/02-architecture/values.md)
+Do not transmute current [runtime values](../../../design/toolchain/02-architecture/values.md)
 to native Rust enums or collections. Plenty's sum tags, owner handles, string
 headers and inline relocation rules are private representations. A source
 backend may choose different internal layouts, but std/runtime helpers must
@@ -82,7 +88,7 @@ recoverable-allocation policy.
 
 ## Panics, recursion and suspension
 
-Plenty [fatal traps](../../design/language/05-ownership/07-destruction.md) do not
+Plenty [fatal traps](../../../design/language/05-ownership/07-destruction.md) do not
 unwind. The probe's default Rust panic runs a destructor that Plenty's overflow
 trap does not. Emit an aborting trap helper. For the initial foreign-call slice,
 require an explicitly agreed
@@ -94,7 +100,7 @@ callbacks and destructor panics. Wrapping a whole generated function in
 is insufficient: cleanup may already have run before the catch, and aborting
 panics are not caught.
 
-Plenty also has [required direct recursive tail transfers](../../design/language/06-functions/06-tail-calls.md).
+Plenty also has [required direct recursive tail transfers](../../../design/language/06-functions/06-tail-calls.md).
 An ordinary generated Rust call cannot be assumed to preserve that guarantee.
 Translate admitted self-tail recursion to a loop, use an explicit dispatch
 machine for supported mutual cycles, or reject the subset until implemented.

@@ -90,9 +90,11 @@ Several unimplemented plans meet these boundaries:
   recorder whose lifetime is explicit.
 - B19 module caching needs the replay contract in
   [replayable module results](compiler-refactoring/module-results.md).
-- B20's [GCC](../codegen-gcc.md) and [Rust-source](../rust-source-backend.md)
-  backends consume checked operations; a separate checker module and, later,
-  function IDs in the IR affect what a second backend must reimplement.
+- B20's [GCC proposal](../codegen-gcc.md) would consume checked operations;
+  a separate checker module and, later, function IDs in the IR affect what a
+  second backend must reimplement. The [Rust-source exploration](rust-source-backend.md)
+  also examined this boundary, but was rejected on 2026-11-14 with no further
+  implementation planned.
 - [Language editions](../language-editions.md) would need per-module options to
   flow through lowering, which explicit lowering state makes easier.
 
