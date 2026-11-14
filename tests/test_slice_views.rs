@@ -658,20 +658,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "slice views cannot be stored in tuples yet (backlog B11)"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\no = Some(&xs[:])",
-    "slice views cannot be stored in enum payloads yet (backlog B11)"
-)]
-#[case(
-    "def f(o: Option[&[i64]]) -> ():\n    pass",
-    "slice views cannot be stored in enum payloads yet (backlog B11)"
-)]
-#[case(
     "xs = [1, 2].unwrap()\nys = [&xs[:]].unwrap()",
     "slice views cannot be stored in collections yet (backlog B11)"
-)]
-#[case(
-    "def tail(xs: &list[i64]) -> &[i64]:\n    &xs[1:]",
-    "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
     "def total(v: &[i64]) -> i64:\n    0\nn = total(5)",

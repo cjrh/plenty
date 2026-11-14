@@ -263,10 +263,6 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "slice views cannot be stored in collections yet"
 )]
 #[case(
-    "def f(s: &str) -> &strview:\n    &s[1:]",
-    "a function cannot return a slice view yet (backlog B11)"
-)]
-#[case(
     "def g(x: &strview, owner: &mut str) -> ():\n    pass\n\nmut s = \"abc\"\ng(s, &mut s)",
     "conflicting borrow"
 )]
