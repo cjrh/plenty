@@ -1741,6 +1741,25 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     let mut offline = std::ffi::OsString::from(&stubs);
     offline.push(":");
     offline.push(&path);
+    // Printed nominal errors identify the exact resolved package instance.
+    let graph_file = dir.path().join("graph.toml");
+    std::fs::write(
+        &graph_file,
+        plenty(&offline, &["graph", "--offline", "--locked"]).stdout,
+    )
+    .unwrap();
+    let graph = plenty::project::SourceGraph::read(&graph_file).unwrap();
+    let stock_identity = &graph
+        .packages
+        .iter()
+        .find(|package| {
+            package
+                .provenance
+                .as_ref()
+                .is_some_and(|p| p.name == "stock")
+        })
+        .unwrap()
+        .identity;
     // Unstripped, so `backends` below can read the symbol table.
     plenty(&offline, &["build", "--no-strip", "--offline", "--locked"]);
     let ran = plenty(
@@ -1786,7 +1805,7 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     assert_eq!(
         String::from_utf8_lossy(&invalid.stderr),
         format!(
-            "error: summarize {:?}: stock::lib.SummaryError.Count(3, ParseError.Invalid)\n",
+            "error: summarize {:?}: {stock_identity}::lib.SummaryError.Count(3, ParseError.Invalid)\n",
             bad.display().to_string()
         )
     );
@@ -1801,7 +1820,7 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     assert_eq!(
         String::from_utf8_lossy(&malformed_output.stderr),
         format!(
-            "error: summarize {:?}: stock::lib.SummaryError.Csv(std.csv.CsvError.Width(2, 2, 3))\n",
+            "error: summarize {:?}: {stock_identity}::lib.SummaryError.Csv(std.csv.CsvError.Width(2, 2, 3))\n",
             malformed.display().to_string()
         )
     );
@@ -1817,7 +1836,7 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     assert_eq!(
         String::from_utf8_lossy(&overflow_output.stderr),
         format!(
-            "error: summarize {:?}: stock::lib.SummaryError.Arithmetic(3, OverflowError[i64](wrapped=-9223372036854775808))\n",
+            "error: summarize {:?}: {stock_identity}::lib.SummaryError.Arithmetic(3, OverflowError[i64](wrapped=-9223372036854775808))\n",
             overflow.display().to_string()
         )
     );
@@ -1828,7 +1847,7 @@ fn an_installed_toolchain_builds_a_cli_tool_and_a_service_offline() {
     assert_eq!(
         String::from_utf8_lossy(&absent.stderr),
         format!(
-            "error: summarize {:?}: stock::lib.SummaryError.Open(std.io.StreamError.Io(IoError.System(2)))\n",
+            "error: summarize {:?}: {stock_identity}::lib.SummaryError.Open(std.io.StreamError.Io(IoError.System(2)))\n",
             missing.display().to_string()
         )
     );

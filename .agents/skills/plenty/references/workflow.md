@@ -213,7 +213,18 @@ A Git dependency names exactly one of `tag` or `rev` (a commit), and
 optionally `subdir`. The first build fetches into `.pkg/` and locks the commit
 in `plenty.lock`; later builds use the locked commit until `plenty update`.
 `--offline` never fetches; `--locked` fails rather than change the lockfile.
-Dependencies are not transitive: import only what your manifest declares.
+Dependencies are not transitively importable: import only what your manifest
+explicitly declares. Different transitive versions can coexist; each manifest
+may directly use only one distinct source identity per declared package name.
+Identical sources share nominal types, while different sources or Git commits
+keep distinct types. `plenty update a/c` updates that incoming edge and preserves
+unrelated pins; updating a shared package's outgoing edge affects every consumer.
+Inspect instances and paths with `plenty graph --duplicates` and
+`plenty graph --why NAME_OR_ID_OR_PATH`. See the
+[package reference](../../../../book/src/design/toolchain/01-building/packages.md)
+for explicit edge selectors and shared-resource restrictions. Older version-1
+locks require `plenty fetch` without `--locked` to migrate their existing pins
+before targeted updates.
 
 ## Finding APIs
 

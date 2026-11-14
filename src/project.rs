@@ -6,6 +6,12 @@
 //! package and each package's direct dependency aliases. Dependency resolution
 //! and fetching never happen while evaluating imports.
 mod fingerprint;
+mod identity;
+mod inspection;
+mod lock;
+pub use identity::PackageIdentity;
+pub use inspection::inspect;
+use lock::{Pins, read_pins};
 mod git;
 pub mod manifest;
 mod toml;
@@ -23,59 +29,223 @@ pub const LOCKFILE: &str = "plenty.lock";
 /// Generated dependency sources, beside the lockfile.
 pub const PACKAGE_CACHE: &str = ".pkg";
 
+/// Readable provenance, separate from the compiler's nominal package key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PackageProvenance {
+    pub name: String,
+    pub version: String,
+    pub source: String,
+    /// A dependency chain from a selected root, using import aliases.
+    pub reached: String,
+}
+
 /// One package's source tree as the compiler sees it.
 #[derive(Clone, Debug)]
 pub struct SourcePackage {
-    /// Unique within a graph. Qualifies the declarations of every package
-    /// except the entry package, so it must not be a caller's alias.
+    /// Stable declaration qualifier, independent of the importing alias.
     pub identity: String,
-    /// Imports in this package resolve below this directory.
+    /// Full source identity. Digests are checked against this value.
+    pub source_identity: String,
+    pub provenance: Option<PackageProvenance>,
+    /// Explicit owner for a synthetic integration-test package.
+    pub test_of: Option<String>,
     pub root: PathBuf,
-    /// The package directory, which holds its `plenty.toml`; a graph file
-    /// names none, so there it is the source root's parent. `include_str`
-    /// and `include_bytes` read files below it, except inside a nested
-    /// package's directory. `None` for a single file or script: its includes
-    /// stay below `root`, and it owns no directory.
+    /// Bounds imports/includes; absent for single-file programs and scripts.
     pub directory: Option<PathBuf>,
-    /// The module that `import ALIAS` names, when another package depends on
-    /// this one.
     pub library: Option<PathBuf>,
     /// `(alias, index into SourceGraph::packages)` for direct dependencies.
     pub dependencies: Vec<(String, usize)>,
 }
 
-/// The packages of one compilation. `packages[0]` contains the entry file;
-/// its modules keep their unqualified source names.
+impl SourcePackage {
+    pub(crate) fn display_name(&self) -> &str {
+        self.provenance.as_ref().map_or(&self.identity, |p| &p.name)
+    }
+
+    /// Include the complete digest, and retain its full preimage in the graph.
+    pub fn resolved_identity(name: &str, version: &str, source_identity: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = crate::hash_hex::encode(&Sha256::digest(source_identity.as_bytes()));
+        format!("{name}@{version}#{digest}")
+    }
+}
+
+/// The packages of one compilation; package zero contains the entry file.
 #[derive(Clone, Debug)]
 pub struct SourceGraph {
     pub packages: Vec<SourcePackage>,
 }
 
-/// The format version of the file that `plentyc --package-graph` reads.
-const GRAPH_VERSION: i64 = 1;
+const GRAPH_VERSION: i64 = 2;
 
 impl SourceGraph {
-    /// The `--package-graph` file: TOML naming each package's identity,
-    /// source root, optional library entry, and dependencies by identity.
+    /// Reject duplicate identities, digest/preimage mismatches, invalid edges,
+    /// and forged synthetic-test ownership before loading any source files.
+    pub(crate) fn validate(&self) -> Result<()> {
+        let mut identities = BTreeMap::new();
+        let mut sources = BTreeMap::new();
+        if self.packages.is_empty() {
+            return Err("package graph requires at least one package".into());
+        }
+        for package in &self.packages {
+            if package.provenance.is_some() && package.source_identity.is_empty() {
+                return Err(format!(
+                    "package `{}` declares provenance without a full source identity",
+                    package.identity
+                )
+                .into());
+            }
+            if let Some(previous) = identities.insert(&package.identity, &package.source_identity) {
+                return Err(if previous != &package.source_identity {
+                    format!("package identity digest collision for `{}`: distinct full source identities", package.identity)
+                } else {
+                    format!("identity `{}` appears twice", package.identity)
+                }.into());
+            }
+            if !package.source_identity.is_empty()
+                && let Some(previous) = sources.insert(&package.source_identity, &package.identity)
+                && previous != &package.identity
+            {
+                return Err("one source identity has multiple compiler identities".into());
+            }
+            if !package.source_identity.is_empty() {
+                use sha2::{Digest, Sha256};
+                let digest =
+                    crate::hash_hex::encode(&Sha256::digest(package.source_identity.as_bytes()));
+                if package.identity.rsplit_once('#').map(|(_, suffix)| suffix)
+                    != Some(digest.as_str())
+                {
+                    return Err(format!("package `{}` has an identity digest that does not match its full source identity", package.identity).into());
+                }
+                if let Some(provenance) = &package.provenance
+                    && (package.source_identity.is_empty()
+                        || package.identity
+                            != SourcePackage::resolved_identity(
+                                &provenance.name,
+                                &provenance.version,
+                                &package.source_identity,
+                            ))
+                {
+                    return Err(format!("package `{}` has an identity digest that does not match its full source identity", package.identity).into());
+                }
+            }
+            let mut aliases = BTreeSet::new();
+            for (alias, target) in &package.dependencies {
+                if !manifest::valid_name(alias) || alias == "std" || !aliases.insert(alias) {
+                    return Err(format!("invalid or repeated dependency alias `{alias}`").into());
+                }
+                if *target >= self.packages.len() {
+                    return Err(format!("dependency `{alias}` has an invalid package index").into());
+                }
+            }
+        }
+        for package in &self.packages {
+            if let Some(owner) = &package.test_of {
+                let Some(owner) = self.packages.iter().find(|p| &p.identity == owner) else {
+                    return Err(format!(
+                        "test package `{}` names an unknown owner",
+                        package.identity
+                    )
+                    .into());
+                };
+                if owner.test_of.is_some()
+                    || owner.identity == package.identity
+                    || package.directory.is_none()
+                    || package.directory != owner.directory
+                    || package.root != owner.directory.as_ref().unwrap().join("tests")
+                {
+                    return Err(format!(
+                        "test package `{}` has invalid ownership",
+                        package.identity
+                    )
+                    .into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Origins of repeated names, shared by command-line and IDE diagnostics.
+    pub(crate) fn origin_notes(&self) -> String {
+        let mut names = BTreeMap::<&str, usize>::new();
+        for package in &self.packages {
+            if let Some(p) = &package.provenance {
+                *names.entry(&p.name).or_default() += 1;
+            }
+        }
+        let mut notes = String::new();
+        for package in &self.packages {
+            if let Some(p) = &package.provenance
+                && names.get(p.name.as_str()).copied().unwrap_or(0) > 1
+            {
+                notes.push_str(&format!(
+                    "\n  package `{}`: {} {}, source {}, reached through {} (full identity {})",
+                    package.identity,
+                    p.name,
+                    p.version,
+                    p.source,
+                    p.reached,
+                    package.source_identity,
+                ));
+            }
+        }
+        notes
+    }
+
+    /// Keep structured source positions and attribution when adding origins.
+    pub(crate) fn explain_error(&self, error: Box<dyn Error>) -> Box<dyn Error> {
+        let notes = self.origin_notes();
+        if notes.is_empty() {
+            return error;
+        }
+        let mut diagnostic = crate::diagnostic::Diagnostic::from_boxed(error);
+        diagnostic.message += &notes;
+        diagnostic
+    }
+
+    /// Versioned compiler input, retaining full source and display metadata.
     pub fn to_toml(&self) -> String {
         let mut out = format!(
             "# Generated by `plenty graph` for `plentyc --package-graph`.\ngraph-version = {GRAPH_VERSION}\n"
         );
         for package in &self.packages {
             out.push_str(&format!(
-                "\n[[package]]\nidentity = {}\nroot = {}\n",
+                "\n[[package]]\nidentity = {}\nsource-identity = {}\n",
                 toml::quote(&package.identity),
-                toml::quote(&package.root.to_string_lossy())
+                toml::quote(&package.source_identity)
             ));
-            if let Some(library) = &package.library {
+            let mut path = |key: &str, path: &Path| {
+                let (bytes, text) = identity::encode_path(path);
                 out.push_str(&format!(
-                    "library = {}\n",
-                    toml::quote(&library.to_string_lossy())
+                    "{key}{} = {}\n",
+                    if bytes { "-bytes" } else { "" },
+                    toml::quote(&text)
                 ));
+            };
+            path("root", &package.root);
+            if let Some(directory) = &package.directory {
+                path("directory", directory);
             }
-            let dependencies = package
-                .dependencies
-                .iter()
+            if let Some(library) = &package.library {
+                path("library", library);
+            }
+            if let Some(p) = &package.provenance {
+                for (key, value) in [
+                    ("name", &p.name),
+                    ("version", &p.version),
+                    ("source", &p.source),
+                    ("reached", &p.reached),
+                ] {
+                    out.push_str(&format!("{key} = {}\n", toml::quote(value)));
+                }
+            }
+            if let Some(owner) = &package.test_of {
+                out.push_str(&format!("test-of = {}\n", toml::quote(owner)));
+            }
+            let mut edges: Vec<_> = package.dependencies.iter().collect();
+            edges.sort_by(|(left, _), (right, _)| left.cmp(right));
+            let dependencies = edges
+                .into_iter()
                 .map(|(alias, target)| {
                     format!(
                         "{alias} = {}",
@@ -93,8 +263,8 @@ impl SourceGraph {
         out
     }
 
-    /// Read a `--package-graph` file. Relative paths are relative to the
-    /// file's directory; the first package contains the entry file.
+    /// Version one is adapted as a graph with caller-supplied opaque identities
+    /// and no provenance or synthetic ownership. Version two checks metadata.
     pub fn read(path: &Path) -> Result<SourceGraph> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("reading {}: {e}", path.display()))?;
@@ -107,13 +277,10 @@ impl SourceGraph {
                 return Err(error(entry.line, &format!("unknown key `{key}`")).into());
             }
         }
-        match document.get("graph-version") {
-            Some(toml::Entry {
-                value: toml::Value::Integer(GRAPH_VERSION),
-                ..
-            }) => {}
-            _ => return Err(format!("{name}: requires `graph-version = {GRAPH_VERSION}`").into()),
-        }
+        let version = match document.get("graph-version").map(|e| &e.value) {
+            Some(toml::Value::Integer(version @ (1 | GRAPH_VERSION))) => *version,
+            _ => return Err(format!("{name}: unsupported graph-version; this compiler reads versions 1 and {GRAPH_VERSION}").into()),
+        };
         let tables = match document.get("package").map(|e| &e.value) {
             Some(toml::Value::Array(items)) if !items.is_empty() => items,
             _ => return Err(format!("{name}: requires at least one [[package]]").into()),
@@ -130,14 +297,82 @@ impl SourceGraph {
                 None => Ok(None),
                 Some(_) => Err(error(line, &format!("`{key}` must be a string"))),
             };
+            let required = |key| {
+                string(key)?.ok_or_else(|| error(line, &format!("[[package]] requires `{key}`")))
+            };
             for key in table.keys() {
-                if !["identity", "root", "library", "dependencies"].contains(&key.as_str()) {
+                let legacy = ["identity", "root", "library", "dependencies"];
+                let current = [
+                    "source-identity",
+                    "root-bytes",
+                    "directory-bytes",
+                    "library-bytes",
+                    "directory",
+                    "name",
+                    "version",
+                    "source",
+                    "reached",
+                    "test-of",
+                ];
+                if !legacy.contains(&key.as_str())
+                    && !(version == GRAPH_VERSION && current.contains(&key.as_str()))
+                {
                     return Err(error(line, &format!("unknown key `{key}` in [[package]]")).into());
                 }
             }
-            let identity = string("identity")?
-                .ok_or_else(|| error(line, "[[package]] requires `identity`"))?;
-            let root = string("root")?.ok_or_else(|| error(line, "[[package]] requires `root`"))?;
+            let path_field = |key: &str| -> Result<Option<PathBuf>> {
+                match (string(key)?, string(&format!("{key}-bytes"))?) {
+                    (Some(_), Some(_)) => Err(error(
+                        line,
+                        &format!("choose `{key}` or `{key}-bytes`, not both"),
+                    )
+                    .into()),
+                    (Some(path), None) => Ok(Some(base.join(path))),
+                    (None, Some(bytes)) => Ok(Some(base.join(
+                        identity::decode_path(true, &bytes).ok_or_else(|| {
+                            error(
+                                line,
+                                &format!("invalid native path encoding in `{key}-bytes`"),
+                            )
+                        })?,
+                    ))),
+                    (None, None) => Ok(None),
+                }
+            };
+            let identity = required("identity")?;
+            let root = path_field("root")?
+                .ok_or_else(|| error(line, "[[package]] requires `root` or `root-bytes`"))?;
+            let directory = if version == 1 {
+                Some(
+                    match root.parent() {
+                        Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
+                        Some(parent) => parent,
+                        None => &root,
+                    }
+                    .to_path_buf(),
+                )
+            } else {
+                path_field("directory")?
+            };
+            let source_identity = if version == 1 {
+                String::new()
+            } else {
+                required("source-identity")?
+            };
+            let provenance = if table.contains_key("name")
+                || table.contains_key("version")
+                || table.contains_key("source")
+                || table.contains_key("reached")
+            {
+                Some(PackageProvenance {
+                    name: required("name")?,
+                    version: required("version")?,
+                    source: required("source")?,
+                    reached: required("reached")?,
+                })
+            } else {
+                None
+            };
             let mut dependencies = vec![];
             match table.get("dependencies").map(|e| &e.value) {
                 None => {}
@@ -155,26 +390,14 @@ impl SourceGraph {
                 }
                 Some(_) => return Err(error(line, "`dependencies` must be a table").into()),
             }
-            if packages
-                .iter()
-                .any(|p: &SourcePackage| p.identity == identity)
-            {
-                return Err(error(line, &format!("identity `{identity}` appears twice")).into());
-            }
-            let root = base.join(root);
-            // The lexical parent, as for a manifest: a dependency's symbolic
-            // `src` must not choose its own package directory.
-            let directory = match root.parent() {
-                Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
-                Some(parent) => parent,
-                None => &root,
-            }
-            .to_path_buf();
             packages.push(SourcePackage {
                 identity,
-                directory: Some(directory),
+                source_identity,
+                provenance,
+                test_of: string("test-of")?,
+                directory,
                 root,
-                library: string("library")?.map(|library| base.join(library)),
+                library: path_field("library")?,
                 dependencies: vec![],
             });
             edges.push(dependencies);
@@ -198,7 +421,9 @@ impl SourceGraph {
                 packages[index].dependencies.push((alias, target));
             }
         }
-        Ok(SourceGraph { packages })
+        let graph = SourceGraph { packages };
+        graph.validate().map_err(|e| format!("{name}: {e}"))?;
+        Ok(graph)
     }
 }
 
@@ -228,7 +453,7 @@ pub enum PackageSource {
     Git {
         url: String,
         /// The package's directory inside the repository, if not its root.
-        subdir: Option<String>,
+        subdir: Option<PathBuf>,
         commit: String,
         /// The tags and revisions that dependents requested; all name `commit`.
         selectors: BTreeSet<GitSelector>,
@@ -241,6 +466,7 @@ pub enum PackageSource {
 /// A resolved package and its direct dependencies.
 #[derive(Clone, Debug)]
 pub struct Package {
+    pub identity: PackageIdentity,
     pub manifest: Manifest,
     /// Canonical package directory, containing `plenty.toml`.
     pub directory: PathBuf,
@@ -402,196 +628,13 @@ fn layout(start: &Path) -> Result<Layout> {
     })
 }
 
-/// Commits that the existing `plenty.lock` pins, by package name and by
-/// `(url, subdir, selector)`.
-#[derive(Default)]
-struct Pins {
-    /// Whether `plenty.lock` exists, for `--locked` diagnostics.
-    exists: bool,
-    commits: BTreeMap<(String, String, String), String>,
-    names: BTreeMap<String, String>,
-}
-
-fn read_pins(path: &Path) -> Result<Pins> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Pins::default()),
-        Err(e) => return Err(format!("reading {}: {e}", path.display()).into()),
-    };
-    let invalid = || {
-        format!(
-            "{} is malformed; delete it to resolve every dependency again",
-            path.display()
-        )
-    };
-    let document = toml::parse(&text, &path.display().to_string())
-        .map_err(|e| format!("{e}\n{}", invalid()))?;
-    let mut pins = Pins {
-        exists: true,
-        ..Pins::default()
-    };
-    let Some(entry) = document.get("package") else {
-        return Ok(pins);
-    };
-    let toml::Value::Array(packages) = &entry.value else {
-        return Err(invalid().into());
-    };
-    for package in packages {
-        let toml::Value::Table(table) = package else {
-            return Err(invalid().into());
-        };
-        let string = |key: &str| match table.get(key).map(|e| &e.value) {
-            Some(toml::Value::String(text)) => Some(text.clone()),
-            _ => None,
-        };
-        let Some(url) = string("source").and_then(|s| s.strip_prefix("git+").map(str::to_owned))
-        else {
-            continue;
-        };
-        let (Some(name), Some(commit)) = (string("name"), string("commit")) else {
-            return Err(invalid().into());
-        };
-        // Diagnostics abbreviate commits to 12 characters, and Git accepts
-        // short prefixes, so only a full commit ID may enter the resolver.
-        if commit.len() != 40
-            || !commit
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(invalid().into());
-        }
-        let subdir = string("subdir").unwrap_or_default();
-        if let Some(toml::Entry {
-            value: toml::Value::Array(selectors),
-            ..
-        }) = table.get("selectors")
-        {
-            for selector in selectors {
-                let toml::Value::String(selector) = selector else {
-                    return Err(invalid().into());
-                };
-                pins.commits.insert(
-                    (url.clone(), subdir.clone(), selector.clone()),
-                    commit.clone(),
-                );
-            }
-        }
-        pins.names.insert(name, commit);
-    }
-    Ok(pins)
-}
-
 /// Validate locally knowable lock changes before any Git checkout can fetch.
 /// Git manifests at pinned immutable commits are checked during resolution.
 fn script_lock_preflight(manifest: &Manifest, directory: &Path, lockfile: &Path) -> Result<()> {
-    let stale = || {
-        format!(
-            "{} is missing or stale; --locked forbids changing it",
-            lockfile.display()
-        )
-    };
-    let text = match std::fs::read_to_string(lockfile) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound && manifest.dependencies.is_empty() => {
-            return Ok(());
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(stale().into()),
-        Err(e) => return Err(e.into()),
-    };
-    let doc = toml::parse(&text, &lockfile.display().to_string())?;
-    let Some(toml::Value::Array(packages)) = doc.get("package").map(|e| &e.value) else {
-        return Err(stale().into());
-    };
-    let string = |table: &toml::Table, key: &str| -> Option<String> {
-        match table.get(key).map(|e| &e.value) {
-            Some(toml::Value::String(s)) => Some(s.clone()),
-            _ => None,
-        }
-    };
-    let tables: Vec<_> = packages
-        .iter()
-        .filter_map(|p| match p {
-            toml::Value::Table(t) => Some(t),
-            _ => None,
-        })
-        .collect();
-    let Some(root) = tables
-        .iter()
-        .find(|t| string(t, "source").as_deref() == Some("root"))
-    else {
-        return Err(stale().into());
-    };
-    let mut pending = vec![(manifest.clone(), directory.to_path_buf(), *root)];
-    let mut seen = BTreeSet::new();
-    while let Some((manifest, base, table)) = pending.pop() {
-        if !seen.insert(base.clone()) {
-            continue;
-        }
-        if string(table, "name").as_deref() != Some(&manifest.name)
-            || string(table, "version").as_deref() != Some(&manifest.version)
-        {
-            return Err(stale().into());
-        }
-        let Some(toml::Value::Array(edges)) = table.get("dependencies").map(|e| &e.value) else {
-            return Err(stale().into());
-        };
-        if edges.len() != manifest.dependencies.len() {
-            return Err(stale().into());
-        }
-        for (alias, dependency) in &manifest.dependencies {
-            let target = edges
-                .iter()
-                .find_map(|edge| match edge {
-                    toml::Value::Table(t) if string(t, "alias").as_deref() == Some(alias) => {
-                        string(t, "package")
-                    }
-                    _ => None,
-                })
-                .ok_or_else(stale)?;
-            let target = tables
-                .iter()
-                .find(|t| string(t, "name").as_deref() == Some(&target))
-                .ok_or_else(stale)?;
-            if let Some(requirement) = &dependency.version
-                && !string(target, "version")
-                    .and_then(|s| manifest::parse_version(&s))
-                    .is_some_and(|v| requirement.matches(v))
-            {
-                return Err(stale().into());
-            }
-            match &dependency.source {
-                Source::Path(path) => {
-                    let path = base.join(path).canonicalize()?;
-                    let expected = format!("path+{}", relative_path(directory, &path));
-                    if string(target, "source").as_deref() != Some(&expected) {
-                        return Err(stale().into());
-                    }
-                    pending.push((read_manifest(&path)?, path, *target));
-                }
-                Source::Git {
-                    url,
-                    subdir,
-                    selector,
-                } => {
-                    let expected = format!("git+{url}");
-                    if string(target, "source").as_deref() != Some(&expected)
-                        || string(target, "subdir") != *subdir
-                    {
-                        return Err(stale().into());
-                    }
-                    let Some(toml::Value::Array(selectors)) =
-                        target.get("selectors").map(|e| &e.value)
-                    else {
-                        return Err(stale().into());
-                    };
-                    if !selectors.contains(&toml::Value::String(selector.to_string())) {
-                        return Err(stale().into());
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
+    let mut pins = lock::read_pins_at(lockfile, directory)?;
+    pins.script_root(manifest, directory);
+    pins.require_current_format(true)?;
+    pins.preflight(manifest, directory)
 }
 
 /// The resolution state of one `Project::load`.
@@ -599,6 +642,11 @@ struct Resolver {
     options: ResolveOptions,
     pins: Pins,
     cache: git::Cache,
+    identities: BTreeMap<PackageIdentity, usize>,
+    visiting: BTreeSet<PackageIdentity>,
+    fresh: BTreeMap<(String, String, String), String>,
+    selected_edges: BTreeSet<(String, String)>,
+    used_updates: BTreeSet<(String, String)>,
 }
 
 impl Project {
@@ -619,11 +667,14 @@ impl Project {
         if options.locked {
             script_lock_preflight(&manifest, directory, lockfile)?;
         }
-        let mut resolver = Resolver {
-            options: options.clone(),
-            pins: read_pins(lockfile)?,
-            cache: git::Cache::new(storage.join(PACKAGE_CACHE), options.offline),
-        };
+        let mut pins = lock::read_pins_at(lockfile, directory)?;
+        pins.script_root(&manifest, directory);
+        pins.require_current_format(options.locked)?;
+        let mut resolver = Resolver::new(
+            options,
+            pins,
+            git::Cache::new(storage.join(PACKAGE_CACHE), options.offline),
+        );
         let mut project = Project {
             packages: vec![],
             root: directory.to_path_buf(),
@@ -636,7 +687,9 @@ impl Project {
             PackageSource::Local,
             &mut vec![],
             &mut resolver,
+            None,
         )?;
+        project.validate_resources(0)?;
         Ok(project)
     }
 
@@ -651,25 +704,18 @@ impl Project {
             .canonicalize()
             .map_err(|e| format!("{}: {e}", start.display()))?;
         let layout = layout(&start)?;
-        let mut pins = if options.update == Update::All {
-            Pins::default()
-        } else {
-            read_pins(&layout.root.join(LOCKFILE))?
-        };
-        if let Update::Packages(names) = &options.update {
-            pins.commits.retain(|_, commit| {
-                !names
-                    .iter()
-                    .any(|name| pins.names.get(name) == Some(commit))
-            });
-        }
-        let mut resolver = Resolver {
-            options: options.clone(),
+        let pins = read_pins(&layout.root.join(LOCKFILE))?;
+        pins.require_current_format(options.locked)?;
+        let selected_edges =
+            pins.select_updates(&options.update, &layout.root, &layout.selected)?;
+        let mut resolver = Resolver::new(
+            options,
             pins,
-            cache: cache.unwrap_or_else(|| {
+            cache.unwrap_or_else(|| {
                 git::Cache::new(layout.root.join(PACKAGE_CACHE), options.offline)
             }),
-        };
+        );
+        resolver.selected_edges = selected_edges;
         let mut project = Project {
             packages: vec![],
             root: layout.root.clone(),
@@ -683,7 +729,17 @@ impl Project {
                 PackageSource::Local,
                 &mut vec![],
                 &mut resolver,
+                None,
             )?;
+            if project.members.iter().any(|i: &usize| {
+                project.packages[*i].manifest.name == project.packages[index].manifest.name
+            }) {
+                return Err(format!(
+                    "workspace members have duplicate name `{}`",
+                    project.packages[index].manifest.name
+                )
+                .into());
+            }
             project.members.push(index);
         }
         project.selected = layout
@@ -697,12 +753,15 @@ impl Project {
                     .unwrap()
             })
             .collect();
-        if let Update::Packages(names) = &options.update {
-            for name in names {
-                if !project.packages.iter().any(|p| &p.manifest.name == name) {
-                    return Err(format!("no package named `{name}` in the dependency graph").into());
-                }
-            }
+        for &member in &project.selected {
+            project.validate_resources(member)?;
+        }
+        if let Some((owner, alias)) = resolver
+            .selected_edges
+            .difference(&resolver.used_updates)
+            .next()
+        {
+            return Err(format!("selected dependency edge {owner}::{alias} is no longer declared in this graph; run `plenty fetch` to reconcile the lock before choosing an update").into());
         }
         Ok(project)
     }
@@ -716,41 +775,45 @@ impl Project {
         source: PackageSource,
         chain: &mut Vec<String>,
         resolver: &mut Resolver,
+        previous: Option<String>,
     ) -> Result<usize> {
-        // Callers report cycles before revisiting, so a known directory here
-        // is a finished diamond dependency.
-        if let Some(index) = self.packages.iter().position(|p| p.directory == directory) {
+        let identity = supplied
+            .as_ref()
+            .and_then(|m| m.binaries.first())
+            .map(|(_, path)| PackageIdentity::Script(path.clone()))
+            .unwrap_or_else(|| PackageIdentity::new(&directory, &source));
+        if resolver.visiting.contains(&identity) {
+            let name = &self.packages[resolver.identities[&identity]].manifest.name;
+            return Err(format!(
+                "dependency cycle: {} -> {name} ({})",
+                chain.join(" -> "),
+                describe_location(&directory, &source)
+            )
+            .into());
+        }
+        if let Some(&index) = resolver.identities.get(&identity) {
+            if let (
+                PackageSource::Git { selectors, .. },
+                PackageSource::Git { selectors: old, .. },
+            ) = (&source, &mut self.packages[index].source)
+            {
+                old.extend(selectors.iter().cloned());
+            }
             return Ok(index);
         }
         let manifest = match supplied {
             Some(manifest) => manifest,
             None => read_manifest(&directory)?,
         };
-        if chain.contains(&manifest.name) {
-            return Err(format!(
-                "dependency cycle: {} -> {}",
-                chain.join(" -> "),
-                manifest.name
-            )
-            .into());
-        }
-        if let Some(other) = self
-            .packages
-            .iter()
-            .find(|p| p.manifest.name == manifest.name)
-        {
-            return Err(format!(
-                "two different packages are named `{}`: {} (reached through {}) and {} (reached through {}); a graph may contain one package per name",
-                manifest.name,
-                describe_source(other),
-                other.reached,
-                describe_location(&directory, &source),
-                chain.join(" -> ")
-            )
-            .into());
-        }
+        resolver.visiting.insert(identity.clone());
+        resolver
+            .identities
+            .insert(identity.clone(), self.packages.len());
+        let id = identity.serialized(&self.root);
+        let previous = resolver.pins.prior_owner(&id, previous.as_deref());
         let index = self.packages.len();
         self.packages.push(Package {
+            identity: identity.clone(),
             manifest: manifest.clone(),
             directory: directory.clone(),
             dependencies: vec![],
@@ -758,15 +821,28 @@ impl Project {
             reached: if chain.is_empty() {
                 manifest.name.clone()
             } else {
-                chain.join(" -> ")
+                format!("{} -> {}", chain.join(" -> "), manifest.name)
             },
         });
         chain.push(manifest.name.clone());
         let mut dependencies = vec![];
+        let mut direct_names = BTreeMap::new();
         for (alias, dependency) in &manifest.dependencies {
-            let target =
-                self.dependency(&directory, &source, alias, dependency, chain, resolver)?;
+            let target = self.dependency(
+                index,
+                alias,
+                dependency,
+                chain,
+                resolver,
+                previous.as_deref(),
+            )?;
             let package = &self.packages[target];
+            if let Some((other, old_alias)) =
+                direct_names.insert(package.manifest.name.clone(), (target, alias.clone()))
+                && other != target
+            {
+                return Err(format!("package `{}`: two different packages are named `{}` in its direct dependencies `{old_alias}` and `{alias}`: {} and {}; each manifest may directly use one resolved instance per declared package name", manifest.name, package.manifest.name, describe_source(&self.packages[other]), describe_source(package)).into());
+            }
             if package.manifest.library.is_none() {
                 return Err(format!(
                     "package `{}`: dependency `{alias}` (package `{}`) has no library target",
@@ -790,21 +866,39 @@ impl Project {
         }
         chain.pop();
         self.packages[index].dependencies = dependencies;
+        resolver.visiting.remove(&identity);
         Ok(index)
     }
 
     /// Locate one dependency, then visit it.
     fn dependency(
         &mut self,
-        directory: &Path,
-        source: &PackageSource,
+        owner_index: usize,
         alias: &str,
         dependency: &Dependency,
         chain: &mut Vec<String>,
         resolver: &mut Resolver,
+        previous: Option<&str>,
     ) -> Result<usize> {
         let owner = chain.last().unwrap().clone();
-        let (path, target_source) = match (&dependency.source, source) {
+        let directory = self.packages[owner_index].directory.clone();
+        let source = self.packages[owner_index].source.clone();
+        let owner_id = self.packages[owner_index].identity.serialized(&self.root);
+        let old_target =
+            resolver
+                .pins
+                .edge_target(previous.unwrap_or(&owner_id), alias, dependency);
+        let old_context =
+            resolver
+                .pins
+                .edge_context(previous.unwrap_or(&owner_id), alias, dependency);
+        let selected = (previous.unwrap_or(&owner_id).to_owned(), alias.to_owned());
+        let explicitly_updated = resolver.selected_edges.contains(&selected);
+        if explicitly_updated {
+            resolver.used_updates.insert(selected);
+        }
+        let update = resolver.options.update == Update::All || explicitly_updated;
+        let (path, mut target_source) = match (&dependency.source, &source) {
             (Source::Path(path), PackageSource::Local) => {
                 (directory.join(path), PackageSource::Local)
             }
@@ -830,12 +924,12 @@ impl Project {
                     )
                     .into());
                 };
-                let subdir = relative.to_string_lossy().replace('\\', "/");
+                let subdir = relative;
                 (
                     path,
                     PackageSource::Git {
                         url: url.clone(),
-                        subdir: (!subdir.is_empty()).then_some(subdir),
+                        subdir: (!subdir.as_os_str().is_empty()).then_some(subdir),
                         commit: commit.clone(),
                         selectors: BTreeSet::new(),
                         snapshot: snapshot.clone(),
@@ -850,7 +944,8 @@ impl Project {
                 },
                 _,
             ) => {
-                let commit = resolver.commit(url, subdir.as_deref(), selector, &owner, alias)?;
+                let commit =
+                    resolver.commit(dependency, &owner, alias, old_target.as_deref(), update)?;
                 let snapshot = resolver.cache.checkout(url, &commit)?;
                 let path = match subdir {
                     Some(subdir) => snapshot.join(subdir),
@@ -862,7 +957,7 @@ impl Project {
                     path,
                     PackageSource::Git {
                         url: url.clone(),
-                        subdir: subdir.clone(),
+                        subdir: subdir.as_ref().map(PathBuf::from),
                         commit,
                         selectors,
                         snapshot,
@@ -886,84 +981,14 @@ impl Project {
             )
             .into());
         }
-        // Check the chain first: a Git package still being visited is also
-        // found by `same_git_package`, which would accept the cycle.
-        if chain_directories(self, chain).contains(&path) {
-            let name = self
-                .packages
-                .iter()
-                .find(|p| p.directory == path)
-                .map(|p| p.manifest.name.clone())
-                .unwrap_or_default();
-            return Err(format!("dependency cycle: {} -> {name}", chain.join(" -> ")).into());
+        if let PackageSource::Git {
+            subdir, snapshot, ..
+        } = &mut target_source
+        {
+            let relative = path.strip_prefix(snapshot)?;
+            *subdir = (!relative.as_os_str().is_empty()).then(|| relative.to_path_buf());
         }
-        if let Some(existing) = self.same_git_package(&target_source) {
-            return self.merge_git(existing, &target_source, chain);
-        }
-        self.visit(None, path, target_source, chain, resolver)
-    }
-
-    /// A package already in the graph from the same repository directory.
-    fn same_git_package(&self, source: &PackageSource) -> Option<usize> {
-        let PackageSource::Git { url, subdir, .. } = source else {
-            return None;
-        };
-        self.packages.iter().position(|p| {
-            matches!(&p.source, PackageSource::Git { url: u, subdir: s, .. } if u == url && s == subdir)
-        })
-    }
-
-    /// Share one package among dependents whose selectors name the same
-    /// commit; different commits are a conflict this resolver cannot settle.
-    fn merge_git(
-        &mut self,
-        existing: usize,
-        source: &PackageSource,
-        chain: &[String],
-    ) -> Result<usize> {
-        let PackageSource::Git {
-            commit, selectors, ..
-        } = source
-        else {
-            unreachable!()
-        };
-        let package = &mut self.packages[existing];
-        let PackageSource::Git {
-            url,
-            commit: existing_commit,
-            selectors: existing_selectors,
-            ..
-        } = &mut package.source
-        else {
-            unreachable!()
-        };
-        if existing_commit != commit {
-            let describe = |selectors: &BTreeSet<GitSelector>, commit: &str| {
-                let commit = &commit[..12];
-                if selectors.is_empty() {
-                    // Reached by a path inside another package's snapshot.
-                    format!("commit {commit} through a path in the same repository")
-                } else {
-                    let list = selectors
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("{list} (commit {commit})")
-                }
-            };
-            return Err(format!(
-                "conflicting requirements for package `{}` from {url}:\n  {} requires {}\n  {} requires {}\na graph may contain one commit per package",
-                package.manifest.name,
-                package.reached,
-                describe(existing_selectors, existing_commit),
-                chain.join(" -> "),
-                describe(selectors, commit),
-            )
-            .into());
-        }
-        existing_selectors.extend(selectors.iter().cloned());
-        Ok(existing)
+        self.visit(None, path, target_source, chain, resolver, old_context)
     }
 
     pub fn member(&self, index: usize) -> &Package {
@@ -972,8 +997,21 @@ impl Project {
 
     fn source_package(&self, index: usize) -> SourcePackage {
         let package = &self.packages[index];
+        let source_identity = package.identity.serialized(&self.root);
         SourcePackage {
-            identity: package.manifest.name.clone(),
+            identity: SourcePackage::resolved_identity(
+                &package.manifest.name,
+                &package.manifest.version,
+                &source_identity,
+            ),
+            source_identity,
+            provenance: Some(PackageProvenance {
+                name: package.manifest.name.clone(),
+                version: package.manifest.version.clone(),
+                source: describe_source(package),
+                reached: package.reached.clone(),
+            }),
+            test_of: None,
             root: package.directory.join("src"),
             directory: Some(package.directory.clone()),
             library: package
@@ -1027,10 +1065,19 @@ impl Project {
                 *target += 1;
             }
         }
+        let owner = graph.packages[0].identity.clone();
+        let source_identity = format!("tests:{}", package.identity.serialized(&self.root));
         graph.packages.insert(
             0,
             SourcePackage {
-                identity: format!("{}-tests", package.manifest.name),
+                identity: SourcePackage::resolved_identity(
+                    &format!("{}_tests", package.manifest.name),
+                    &package.manifest.version,
+                    &source_identity,
+                ),
+                source_identity,
+                provenance: None,
+                test_of: Some(owner),
                 root: package.directory.join("tests"),
                 directory: Some(package.directory.clone()),
                 library: None,
@@ -1043,77 +1090,7 @@ impl Project {
     /// The lockfile text for this graph: deterministic, and independent of
     /// where the project is checked out.
     pub fn lockfile(&self) -> String {
-        let mut order: Vec<usize> = (0..self.packages.len()).collect();
-        order.sort_by(|a, b| {
-            let key = |i: usize| {
-                (
-                    self.packages[i].directory != self.root,
-                    &self.packages[i].manifest.name,
-                )
-            };
-            key(*a).cmp(&key(*b))
-        });
-        let mut out = String::from(
-            "# Generated by `plenty`. Commit this file; do not edit it by hand.\nlock-version = 1\n",
-        );
-        for index in order {
-            let package = &self.packages[index];
-            let mut source = String::new();
-            match &package.source {
-                PackageSource::Local if package.directory == self.root => {
-                    source.push_str("source = \"root\"\n");
-                }
-                PackageSource::Local => source.push_str(&format!(
-                    "source = {}\n",
-                    toml::quote(&format!(
-                        "path+{}",
-                        relative_path(&self.root, &package.directory)
-                    ))
-                )),
-                PackageSource::Git {
-                    url,
-                    subdir,
-                    commit,
-                    selectors,
-                    ..
-                } => {
-                    source.push_str(&format!(
-                        "source = {}\n",
-                        toml::quote(&format!("git+{url}"))
-                    ));
-                    if let Some(subdir) = subdir {
-                        source.push_str(&format!("subdir = {}\n", toml::quote(subdir)));
-                    }
-                    source.push_str(&format!("commit = {}\n", toml::quote(commit)));
-                    if !selectors.is_empty() {
-                        let list = selectors
-                            .iter()
-                            .map(|s| toml::quote(&s.to_string()))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        source.push_str(&format!("selectors = [{list}]\n"));
-                    }
-                }
-            }
-            let dependencies = package
-                .dependencies
-                .iter()
-                .map(|(alias, target)| {
-                    format!(
-                        "{{ alias = {}, package = {} }}",
-                        toml::quote(alias),
-                        toml::quote(&self.packages[*target].manifest.name)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-            out.push_str(&format!(
-                "\n[[package]]\nname = {}\nversion = {}\n{source}dependencies = [{dependencies}]\n",
-                toml::quote(&package.manifest.name),
-                toml::quote(&package.manifest.version),
-            ));
-        }
-        out
+        lock::serialize(self)
     }
 
     /// Bring `plenty.lock` up to date, or with `locked` require that it is.
@@ -1142,37 +1119,62 @@ impl Project {
 }
 
 impl Resolver {
-    /// The commit for a Git requirement: the lockfile's pin when it has
-    /// one, otherwise a fresh resolution, which `--locked` forbids.
+    fn new(options: &ResolveOptions, pins: Pins, cache: git::Cache) -> Self {
+        Self {
+            options: options.clone(),
+            pins,
+            cache,
+            identities: BTreeMap::new(),
+            visiting: BTreeSet::new(),
+            fresh: BTreeMap::new(),
+            selected_edges: BTreeSet::new(),
+            used_updates: BTreeSet::new(),
+        }
+    }
+
     fn commit(
         &mut self,
-        url: &str,
-        subdir: Option<&str>,
-        selector: &GitSelector,
+        dependency: &Dependency,
         owner: &str,
         alias: &str,
+        old_target: Option<&str>,
+        update: bool,
     ) -> Result<String> {
+        let Source::Git {
+            url,
+            subdir,
+            selector,
+        } = &dependency.source
+        else {
+            unreachable!()
+        };
+        if !update
+            && let Some(commit) = old_target
+                .and_then(|id| self.pins.packages.get(id))
+                .and_then(|p| p.commit.as_ref())
+        {
+            return Ok(commit.clone());
+        }
         let key = (
             url.to_owned(),
-            subdir.unwrap_or_default().to_owned(),
+            subdir.clone().unwrap_or_default(),
             selector.to_string(),
         );
-        if let Some(commit) = self.pins.commits.get(&key) {
+        if let Some(commit) = self.fresh.get(&key) {
             return Ok(commit.clone());
         }
         if self.options.locked && !self.pins.exists {
             return Err(format!("{LOCKFILE} is missing and --locked forbids creating it").into());
         }
         if self.options.locked {
-            return Err(format!(
-                "{LOCKFILE} pins no commit for dependency `{alias}` of `{owner}` ({url} {selector}), and --locked forbids resolving it"
-            )
-            .into());
+            return Err(format!("{LOCKFILE} pins no commit for dependency `{alias}` of `{owner}` ({url} {selector}), and --locked forbids resolving it").into());
         }
-        Ok(self
+        let commit = self
             .cache
             .resolve(url, selector)
-            .map_err(|e| format!("dependency `{alias}` of `{owner}`: {e}"))?)
+            .map_err(|e| format!("dependency `{alias}` of `{owner}`: {e}"))?;
+        self.fresh.insert(key, commit.clone());
+        Ok(commit)
     }
 }
 
@@ -1188,7 +1190,7 @@ fn describe_location(directory: &Path, source: &PackageSource) -> String {
             "{url}{} at {}",
             subdir
                 .as_ref()
-                .map(|s| format!(" ({s})"))
+                .map(|s| format!(" ({})", s.display()))
                 .unwrap_or_default(),
             &commit[..12]
         ),
@@ -1197,15 +1199,6 @@ fn describe_location(directory: &Path, source: &PackageSource) -> String {
 
 fn describe_source(package: &Package) -> String {
     describe_location(&package.directory, &package.source)
-}
-
-fn chain_directories(project: &Project, chain: &[String]) -> Vec<PathBuf> {
-    project
-        .packages
-        .iter()
-        .filter(|p| chain.contains(&p.manifest.name))
-        .map(|p| p.directory.clone())
-        .collect()
 }
 
 /// `to` relative to `from`, both canonical, with `/` separators.
@@ -2077,7 +2070,7 @@ pub fn update(
     packages: &[String],
     offline: bool,
 ) -> Result<Vec<(String, String, String)>> {
-    let before = read_pins(&layout(directory)?.root.join(LOCKFILE))?.names;
+    let before = read_pins(&layout(directory)?.root.join(LOCKFILE))?;
     let project = Project::load(
         directory,
         &ResolveOptions {
@@ -2093,15 +2086,39 @@ pub fn update(
     project.sync_lockfile(false)?;
     let mut changes = vec![];
     for package in &project.packages {
-        if let PackageSource::Git { commit, .. } = &package.source {
-            let old = before.get(&package.manifest.name);
-            if old != Some(commit) {
-                changes.push((
-                    package.manifest.name.clone(),
-                    old.map(|c| c[..12].to_owned()).unwrap_or_default(),
-                    commit[..12].to_owned(),
-                ));
+        let owner = package.identity.serialized(&project.root);
+        for (alias, target) in &package.dependencies {
+            let target_package = &project.packages[*target];
+            if let PackageSource::Git { commit, .. } = &target_package.source {
+                let old = before
+                    .packages
+                    .get(&owner)
+                    .and_then(|p| p.edges.get(alias))
+                    .and_then(|e| before.packages.get(&e.target))
+                    .and_then(|p| p.commit.as_ref());
+                if old != Some(commit) {
+                    eprintln!(
+                        "Edge {owner}::{alias} now uses {} {} ({})",
+                        target_package.manifest.name,
+                        target_package.manifest.version,
+                        target_package.identity.serialized(&project.root)
+                    );
+                    changes.push((
+                        target_package.manifest.name.clone(),
+                        old.map(|c| c[..12].to_owned()).unwrap_or_default(),
+                        commit[..12].to_owned(),
+                    ));
+                }
             }
+        }
+    }
+    for (id, package) in &before.packages {
+        if !project
+            .packages
+            .iter()
+            .any(|p| p.identity.serialized(&project.root) == *id)
+        {
+            eprintln!("Removing unreachable {} ({id})", package.name);
         }
     }
     Ok(changes)
@@ -2291,6 +2308,9 @@ mod tests {
             packages: vec![
                 SourcePackage {
                     identity: "app".into(),
+                    source_identity: String::new(),
+                    provenance: None,
+                    test_of: None,
                     root: dir.path().join("app/src"),
                     directory: Some(dir.path().join("app")),
                     library: None,
@@ -2298,6 +2318,9 @@ mod tests {
                 },
                 SourcePackage {
                     identity: "shapes".into(),
+                    source_identity: String::new(),
+                    provenance: None,
+                    test_of: None,
                     root: dir.path().join("shapes/src"),
                     directory: Some(dir.path().join("shapes")),
                     library: Some(dir.path().join("shapes/src/lib.plenty")),

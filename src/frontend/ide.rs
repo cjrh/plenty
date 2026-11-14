@@ -670,7 +670,14 @@ pub fn analyze(
     if let Err(error) = result {
         recover(&*error);
     }
-    finish(recording.finish())
+    let mut analysis = finish(recording.finish());
+    if let Some(graph) = graph {
+        let notes = graph.origin_notes();
+        for diagnostic in &mut analysis.diagnostics {
+            diagnostic.message += &notes;
+        }
+    }
+    analysis
 }
 
 fn check(path: &Path, graph: Option<&crate::project::SourceGraph>) -> Result<()> {

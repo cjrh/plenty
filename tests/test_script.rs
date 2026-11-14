@@ -236,7 +236,7 @@ fn path_dependencies_locks_and_sibling_modules_are_isolated() {
     );
     let lock = std::fs::read_to_string(f.root().join("durable.lock")).unwrap();
     assert!(lock.contains("path+../util"), "{lock}");
-    assert!(lock.contains("source = \"root\""), "{lock}");
+    assert!(lock.contains("source = \"script+app.plenty\""), "{lock}");
     assert_eq!(
         f.ok(&[
             "script",

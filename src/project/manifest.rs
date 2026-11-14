@@ -16,6 +16,8 @@ pub struct Manifest {
     pub license: Option<String>,
     /// The minimum toolchain version the package supports.
     pub plenty_version: Option<String>,
+    /// Stable resource contracts requiring one resolved instance per linked program.
+    pub shared_resources: Vec<String>,
     /// Library entry relative to the package directory, if any.
     pub library: Option<PathBuf>,
     /// `(name, entry)` executables relative to the package directory.
@@ -422,6 +424,7 @@ fn read_document(
             "authors",
             "license",
             "plenty-version",
+            "shared-resources",
         ],
     )?;
     let required = |key: &str| -> Result<String, String> {
@@ -462,6 +465,39 @@ fn read_document(
             format!("plenty-version {minimum:?} must be MAJOR.MINOR.PATCH"),
         );
     }
+    let shared_resources = match package.get("shared-resources") {
+        None => vec![],
+        Some(entry) => {
+            let Value::Array(items) = &entry.value else {
+                return reader.error(
+                    entry,
+                    "`shared-resources` must be an array of resource keys",
+                );
+            };
+            let mut keys = Vec::new();
+            for item in items {
+                let Value::String(key) = item else {
+                    return reader.error(
+                        entry,
+                        "`shared-resources` must be an array of resource keys",
+                    );
+                };
+                if key.is_empty()
+                    || key.len() > 128
+                    || !key
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"._-/".contains(&c))
+                {
+                    return reader.error(entry, "a shared-resource key must contain 1 to 128 ASCII letters, digits, dots, underscores, hyphens or slashes");
+                }
+                if keys.contains(key) {
+                    return reader.error(entry, format!("duplicate shared-resource key `{key}`"));
+                }
+                keys.push(key.clone());
+            }
+            keys
+        }
+    };
     let authors = match package.get("authors") {
         None => vec![],
         Some(entry) => match &entry.value {
@@ -711,6 +747,7 @@ fn read_document(
             authors,
             license: optional("license")?,
             plenty_version,
+            shared_resources,
             library,
             binaries,
             dependencies,

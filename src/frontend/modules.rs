@@ -1170,6 +1170,9 @@ pub(super) fn file_graph(
     let graph = crate::project::SourceGraph {
         packages: vec![crate::project::SourcePackage {
             identity: String::new(),
+            source_identity: String::new(),
+            provenance: None,
+            test_of: None,
             directory: None,
             root,
             library: None,
@@ -1578,7 +1581,7 @@ impl Loader {
                 let library = dependency.library.clone().ok_or_else(|| {
                     import.at.error(format!(
                         "dependency `{first}` (package `{}`) has no library target",
-                        dependency.identity
+                        dependency.display_name()
                     ))
                 })?;
                 return Ok((ModuleSource::File(library), owner));
@@ -1597,7 +1600,7 @@ impl Loader {
                     let mut e = Diagnostic::from_boxed(e);
                     e.message += &format!(
                         "\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
-                        if current.identity.is_empty() { "<entry>" } else { &current.identity }
+                        if current.identity.is_empty() { "<entry>" } else { current.display_name() }
                     );
                     e
                 } else {
@@ -1789,11 +1792,10 @@ pub(super) fn included_file(
             ));
         }
     };
-    // A package and its tests share a directory. The tests package is named
-    // after the package and rooted at the directory's `tests/`, so a package
-    // that only borrows the name is not exempt.
+    // A package and its explicitly owned tests share one package directory.
+    // Merely copying an identity spelling grants no include exemption.
     let tests_of = |tests: &crate::project::SourcePackage, of: &crate::project::SourcePackage| {
-        tests.identity == format!("{}-tests", of.identity)
+        tests.test_of.as_deref() == Some(of.identity.as_str())
             && tests.directory.as_ref().is_some_and(|directory| {
                 directory.join("tests").canonicalize().ok().as_ref() == Some(&tests.root)
             })
@@ -1815,7 +1817,7 @@ pub(super) fn included_file(
                     && (other.root == directory || other.directory.as_deref() == Some(directory))
             });
             match other {
-                Some((_, other)) => Some(format!("package `{}`", other.identity)),
+                Some((_, other)) => Some(format!("package `{}`", other.display_name())),
                 None => directory
                     .join(crate::project::manifest::MANIFEST)
                     .is_file()
@@ -1828,7 +1830,7 @@ pub(super) fn included_file(
             if includer.identity.is_empty() {
                 "a file".to_string()
             } else {
-                format!("package `{}`", includer.identity)
+                format!("package `{}`", includer.display_name())
             }
         )),
         None => Ok(file),
@@ -1840,6 +1842,7 @@ pub(super) fn included_file(
 fn prepare_packages(
     graph: &crate::project::SourceGraph,
 ) -> Result<Vec<crate::project::SourcePackage>> {
+    graph.validate()?;
     let mut packages = graph.packages.clone();
     for package in &mut packages {
         // A package's `src` (or `tests`) is judged where it is, not where a
