@@ -107,6 +107,35 @@ plenty add tz --git https://github.com/plentylang/tz.git --tag v0.3.0
 Several related packages can share one lockfile and `target/` as a
 [workspace](../../design/toolchain/01-building/packages.md#workspaces).
 
+Different dependency branches may keep different versions of a library. For
+example, one dependency can use `codec` 1.0 while another uses 2.0. Each package
+may directly declare only one distinct instance of a given package name;
+aliasing two versions does not bypass that rule. A direct dependency in your
+application does not replace a library's own dependency. Identical sources at
+the same commit share their types; different instances have distinct classes
+and enums, even when their names match.
+
+Inspect the resolved sources before choosing an update:
+
+```text
+plenty graph --duplicates
+plenty graph --why codec
+plenty update geometry
+plenty update geometry/codec
+```
+
+`geometry/codec` selects that dependency edge without moving another branch's
+pin. A bare transitive name is accepted only when it identifies one instance;
+an ambiguous update lists the full source IDs to choose from. Updating a
+shared package's own outgoing dependency changes it for all consumers and
+reports them. A path inside a Git repository moves with its owning Git
+snapshot; the tool identifies that boundary when it cannot update the path
+independently. See [targeted updates](../../design/toolchain/01-building/packages.md#targeted-updates).
+
+New locks use `lock-version = 2`. An older lock migrates while keeping its
+commits. If `--locked` refuses migration, run `plenty fetch` without `--locked`,
+review and commit the changed lock, then retry the locked command.
+
 A dependency's name belongs only to the package that declares it. `app` cannot
 import what `shapes` depends on without declaring it too, and a local module
 named `geometry` would be an error. Two packages may each define `Square`;

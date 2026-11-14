@@ -81,6 +81,8 @@ pub(super) fn digest(
     }
     for package in &graph.packages {
         field(&package.identity);
+        field(&package.source_identity);
+        field(&format!("{:?} {:?}", package.provenance, package.test_of));
         field(&package.root.display().to_string());
         field(&format!(
             "{:?} {:?} {:?}",

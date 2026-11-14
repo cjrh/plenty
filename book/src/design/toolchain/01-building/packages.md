@@ -17,8 +17,8 @@ graph; imports never fetch or resolve packages.
 | `plenty test [--fast-compile] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
 | `plenty add [ALIAS] SOURCE [--version REQ] [--offline]` | Add a [dependency](#adding-dependencies) to the manifest and lock it |
 | `plenty fetch [--locked] [--offline]` | Resolve, download, and lock every dependency without compiling |
-| `plenty update [PACKAGE...] [--offline]` | Move [Git dependencies](#git-dependencies) to the commits their tags and revisions name now |
-| `plenty graph [--locked] [--offline]` | Print the [package graph file](#package-graph-files) for `plentyc --package-graph` |
+| `plenty update [SELECTOR...] [--offline]` | Update all Git dependencies or only [selected edges](#targeted-updates) |
+| `plenty graph [--duplicates | --why SELECTOR] [--locked] [--offline]` | Print the [package graph file](#package-graph-files), or [explain resolved instances](#inspecting-dependencies) |
 | `plenty clean` | Remove `target/` |
 | `plenty lsp` | Serve the [language server](language-server.md) on stdin and stdout |
 
@@ -331,11 +331,22 @@ accepts `0.2.5` but not `0.3.0`), `=X.Y.Z` accepts only that version, and
 error: package `app` requires `util` ^2.0.0, but /work/util is version 1.4.0
 ```
 
-Resolution reads every manifest before compiling. A graph contains one package
-per name: two dependency paths reaching the same directory share one package
-and its types, whatever their aliases; two different directories with the same
-package name are an error that names both paths. Package cycles are errors.
+Resolution reads every manifest before compiling and shares packages by
+resolved source identity. Different transitive branches may use different
+versions or sources of the same declared package name. Each manifest may
+directly depend on only one distinct instance of a declared name; several
+aliases to that same instance are allowed. A root's direct dependency does
+not override another package's transitive dependency. Workspace member names
+remain unique. Cycles are checked by identity, not by repeated names.
 Dependencies are not transitive: a package imports only what it declares.
+
+A Git identity includes the exact repository locator, normalized subdirectory,
+and full commit; tags resolving to the same commit share an instance. A local
+identity uses its canonical directory. A path within a Git snapshot inherits
+that snapshot's repository, commit and subdirectory identity. Equal names,
+versions or contents do not merge distinct sources. One source identity has
+one outgoing dependency mapping in the graph; inconsistent retained mappings
+are errors, rather than private copies for each consumer.
 
 Each package's sources live in its own `src/` directory and cannot import files
 of another package except through a declared alias. A package's `src/`, and the
@@ -351,8 +362,13 @@ Imports and includes are bounded by where the source root really is, so a linked
 files from any directory it pointed to. Links below `src/` are allowed; an
 import that resolves outside the source root through one is an error. The same module path in two
 packages names two modules, so `Point` in two packages is two distinct types.
-Diagnostics name a dependency's declarations as `PACKAGE::MODULE.Name`, such
-as `util::lib.Point`; the root package's names are unqualified.
+Nominal declarations, generic instances and boxed protocol identities retain
+resolved package identity. Two versions' `Point` classes remain distinct even
+when spelled alike; aliases cannot convert between them. Structural protocol
+matching keeps its existing method-signature rules. Diagnostics and IDE results
+include readable package versions, source distinctions and paths from the root
+alongside opaque compiler qualification, instead of relying on a package name
+alone.
 
 ## Git dependencies
 
@@ -379,22 +395,20 @@ place, so an interrupted fetch never leaves a partial snapshot. `.pkg/` is
 generated: the `.gitignore` that `plenty new` writes excludes it.
 
 `plenty update` resolves every tag and revision again and rewrites the
-lockfile; `plenty update NAME...` resolves only the named packages. It prints
-each changed commit.
+lockfile. [Targeted updates](#targeted-updates) preserve unrelated edge pins
+and print changed commits.
 
 A `path` dependency inside a Git package names another package of the same
 commit, and cannot leave the repository. Neither can a `subdir` that is a
 symbolic link in the repository: the error says the dependency leaves its
-repository snapshot. A graph contains one commit per
-package: if two dependents reach the same repository directory at different
-commits, resolution fails and names both chains:
-
-```text
-error: conflicting requirements for package `geo` from https://example.com/mono.git:
-  app requires tag=v2 (commit c25fe24762e9)
-  app -> shapes requires commit 421b7a9fd85a through a path in the same repository
-a graph may contain one commit per package
-```
+repository snapshot. Different branches may keep different commits of the
+same repository package. Updating a parent Git package recomputes its
+snapshot-relative path dependencies, including chains of such paths, at the
+new commit. Independent Git dependencies retain matching pins when their
+alias and source requirement are unchanged. The optional version guard is
+checked separately: changing only that guard retains the source pin and
+validates the locked package version, without refreshing a moved tag. Local
+paths remain live directories.
 
 | Situation | Behavior |
 |---|---|
@@ -404,6 +418,62 @@ a graph may contain one commit per package
 | A locked `commit` is not 40 lowercase hexadecimal digits | Error: the lockfile is malformed; delete it to resolve again |
 | The tag or revision does not exist | Error naming the URL and tag or revision |
 | `git` is not installed | Error saying Git dependencies need `git` on `PATH` |
+
+### Targeted updates
+
+Select one direct alias, a root-to-edge alias path, or a full owner source
+identity followed by `::ALIAS`:
+
+```text
+plenty update a
+plenty update a/c
+plenty update 'OWNER_SOURCE_ID::c'
+```
+
+`OWNER_SOURCE_ID` stands for the full identity shown by
+[`plenty graph --why`](#inspecting-dependencies), not a package name or short
+hash. A bare transitive package name works only when it identifies one
+resolved instance; ambiguities list the candidate identities.
+
+Selecting an independent Git edge can split it from another edge that retained
+its old commit. Updating an outgoing edge of a shared instance changes that
+mapping for every consumer; the command reports those consumers. A path edge
+inside a Git snapshot cannot be updated independently: the error identifies
+the owning Git boundary to update. Failed resolution leaves the lockfile
+unchanged; updates do not silently move unrelated edges to resolve conflicts.
+
+### Inspecting dependencies
+
+`plenty graph --duplicates` lists reachable instances with duplicate declared
+names. `plenty graph --why SELECTOR` explains a package name, full source
+identity, or root-to-package alias path such as `a/c`. Both show names,
+versions, full identities, sources, full commits for Git packages, and all
+root-to-instance paths. They are human-readable reports; the default graph
+command retains its machine-readable output.
+
+### Explicit shared resources
+
+A package requiring one linked instance of a resource declares stable keys:
+
+```toml
+[package]
+name = "native_runtime"
+version = "1.0.0"
+shared-resources = ["org.example.runtime"]
+```
+
+Keys contain 1–128 ASCII letters, digits, `.`, `_`, `-`, or `/`, and cannot
+repeat within one manifest. Two distinct package identities claiming the same
+key in a member's linked dependency closure fail before compilation, with both
+sources and dependency paths. Several edges to one identity are fine.
+Independent workspace programs may retain different instances in their shared
+lockfile; the lockfile itself is not one linked program.
+
+Use the same key across versions that must share the resource, including
+separately named wrappers where applicable. The resolver selects no winner
+and does not infer metadata for old or unmarked packages. This check does not
+isolate native symbols or process-global state, or coordinate separately built
+plugins and dynamically loaded libraries; those need their own host contract.
 
 ## Adding dependencies
 
@@ -446,16 +516,34 @@ the shared lockfile and outputs. `plenty add` and `plenty graph` need a member.
 
 ## Lockfile
 
-Every project command writes `plenty.lock` beside the root manifest (or in the
-workspace directory) when it is missing or out of date. It lists each
-package's name, version, source, and dependencies as alias/package pairs: the
-root package first, then the others sorted by name. A source is `root`,
-`path+RELATIVE` from the lockfile's directory, or `git+URL` with the `subdir`,
-the full `commit`, and the `selectors` (such as `tag=v1.2.0`) that resolved to
-it. It contains no absolute paths, so a checkout can move. Writes replace the
-file atomically. `--locked` fails instead of creating or changing it. A
-lockfile that cannot be read is an error; deleting it resolves every
-dependency again.
+Project commands write `plenty.lock` beside the root manifest (or in the
+workspace directory) when missing or out of date. `lock-version = 2` records
+full package identities, names, versions, member roles and sources. Each
+owner's dependency entry records its alias, exact source requirement and target
+identity. Equal mutable tags reached through different owners can retain
+different commits. One resolved identity still has one outgoing mapping.
+
+The root package comes first and other entries sort by full identity. Local
+identities and source locations are relative to the lock root; Git entries
+retain exact locators, normalized subdirectories and full commits. No absolute
+local paths are persisted, so the checkout can move. Embedded script roots
+have a separate `script:RELATIVE_PATH` identity and
+`script+RELATIVE_PATH` source record, distinct from package identity. This does
+not permit overlapping script and dependency source roots; those must remain
+disjoint. Non-Unicode local and script paths use `path-bytes:` and
+`script-bytes:` identities with hex-encoded `path-bytes+HEX` and `script-bytes+HEX` source
+records. Git subdirectories with non-Unicode paths use a `git-bytes:` identity
+and a hex `subdir-bytes` field. These encodings preserve native path bytes
+(native code units on Windows); ordinary UTF-8 paths keep their existing format.
+Local paths are live, with source changes covered by build fingerprints, not
+frozen by the lock.
+
+Writes replace the file atomically. `--locked` fails rather than creating or
+changing it. A valid version-1 lock migrates without refreshing its existing
+commits; `--locked` refuses that migration and directs you to run `plenty fetch`
+without `--locked`, then retry. Targeted updates likewise require this migration
+before selecting an edge. Unknown format versions and malformed locks
+fail explicitly. Deleting the lock resolves every dependency again.
 
 ## Package graph files
 
@@ -463,30 +551,54 @@ dependency again.
 `plentyc --package-graph FILE` reads in place of `--module-root`:
 
 ```toml
-graph-version = 1
+graph-version = 2
 
 [[package]]
-identity = "app"
+identity = "app@0.1.0#e8a12a9b8366b3a97dfe8cc215dcb5469603411efaf0abe5e8ae11fab6bdc3ca"
+source-identity = "path:."
+name = "app"
+version = "0.1.0"
+source = "path /work/app"
+reached = "app"
+directory = "/work/app"
 root = "/work/app/src"
-dependencies = { util = "util" }
+dependencies = { util = "util@1.0.0#aa6182e2ca4a5574bbe9ec17e13c35589d2bc22a38ce6a4f7822f02ea880b4a9" }
 
 [[package]]
-identity = "util"
+identity = "util@1.0.0#aa6182e2ca4a5574bbe9ec17e13c35589d2bc22a38ce6a4f7822f02ea880b4a9"
+source-identity = "path:../util"
+name = "util"
+version = "1.0.0"
+source = "path /work/util"
+reached = "app/util"
+directory = "/work/util"
 root = "/work/util/src"
 library = "/work/util/src/lib.plenty"
 dependencies = {}
 ```
 
-The first package contains the entry file. `identity` is unique and qualifies
-the package's declarations in diagnostics; `dependencies` maps each alias to an
-identity whose package has a `library`. A graph names no package directory: each
-package's is the directory containing its `root` as written, before symbolic
-links are resolved, as for a manifest, whether or not it holds a `plenty.toml`.
-As for a manifest, a graph `root` must not be a symbolic link, and its real path
-must lie inside that directory.
-Its [included files](#included-files) come from there. So a package whose root
-is `/work/src` may include any file below `/work`, except inside another
-package's directory or source root, or a directory holding a `plenty.toml`.
+The first package contains the entry file. `identity` is a unique opaque
+compiler ID in the form `NAME@VERSION#FULL_SHA256`, where `FULL_SHA256` is the
+SHA-256 digest of the complete `source-identity` string. When provenance is
+present, the compiler checks that the identity matches its name, version and
+source key. The example includes these full calculated identities.
+`dependencies` maps each alias to an identity with a `library`. Display metadata
+(`name`, `version`, `source`, `reached`) explains provenance separately from
+identity. A synthetic test package uses `test-of` to name its owning package
+explicitly; identity spelling never grants test ownership.
+
+`directory` identifies the package directory for included-file containment.
+In version 2, omitting it means the entry owns no package directory, as for a
+single-file program or script; included files must stay within its source
+root. With a package directory, the source root must be a real directory
+whose real path stays inside that package directory. Included files cannot
+cross another package's directory or source root, or a nested manifest boundary.
+
+Version-1 graph input remains supported through an adapter preserving its
+opaque identities and path containment. Only this adapter infers an omitted
+package directory from the parent of `root`. It never infers synthetic-test
+ownership from a name suffix. Unknown graph versions fail explicitly.
+
 Relative paths are relative to the file. `--package-graph` works with `FILE`,
 `--check`, `--check-module`, and `--compile`. It lets another build system
 compile a package without `plenty.toml`, and makes the compiler's input visible

@@ -1010,12 +1010,16 @@ Remaining inference/value candidates stay **B16** in the [backlog](../backlog.md
 
 ## B17: Tooling and packaging
 
-The [multiple-version dependency proposal](../proposals/multiversion-dependencies.md)
-records the design for independent transitive upgrades, direct-name uniqueness,
-structural protocol boundaries, shared-instance restrictions and edge-specific
-locks. It includes Node/npm evidence and a source-based implementation sketch.
-This delivers the design document only; resolver/compiler behavior is unchanged,
-and implementation remains in B17.
+[Multiple transitive dependency versions](../proposals/completed/multiversion-dependencies.md)
+are implemented with exact source identities, one outgoing mapping per source,
+per-owner direct-name uniqueness and distinct compiler nominal/generic/boxed
+identities. Version-2 locks preserve edge-specific pins and migrate old locks
+without refreshing commits. Targeted alias/path/owner-edge updates, duplicate
+and provenance inspection, explicit graph/test ownership, and per-linked-closure
+`shared-resources` checks complete this design's scope. Independent workspace
+programs can retain different instances in one lock; path sources remain live.
+There is no registry solver, implicit upgrade policy or global runtime isolation.
+See [packages](../design/toolchain/01-building/packages.md#dependencies).
 
 [`plenty script`](../design/toolchain/01-building/scripts.md) delivers executable
 shebang scripts, lossless Unix argument forwarding, strict optional embedded

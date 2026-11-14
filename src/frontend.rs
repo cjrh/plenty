@@ -4859,7 +4859,8 @@ pub(crate) fn compile_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(modules::load_graph(path, graph, require_main)?, heap, check)
+    (|| lower(modules::load_graph(path, graph, require_main)?, heap, check))()
+        .map_err(|error| graph.explain_error(error))
 }
 
 /// The test file at `path` as `plenty test` builds it, for checking without
@@ -4872,11 +4873,14 @@ pub(crate) fn compile_test_graph(
     heap: &mut Heap,
     check: crate::CheckOptions,
 ) -> Result<Program> {
-    lower(
-        modules::load_graph_with(path, graph, true, appendix, false)?,
-        heap,
-        check,
-    )
+    (|| {
+        lower(
+            modules::load_graph_with(path, graph, true, appendix, false)?,
+            heap,
+            check,
+        )
+    })()
+    .map_err(|error| graph.explain_error(error))
 }
 
 pub(crate) fn compile_script(
@@ -4884,11 +4888,14 @@ pub(crate) fn compile_script(
     graph: &crate::project::SourceGraph,
     heap: &mut Heap,
 ) -> Result<Program> {
-    lower(
-        modules::load_graph_with(path, graph, true, None, true)?,
-        heap,
-        crate::CheckOptions::default(),
-    )
+    (|| {
+        lower(
+            modules::load_graph_with(path, graph, true, None, true)?,
+            heap,
+            crate::CheckOptions::default(),
+        )
+    })()
+    .map_err(|error| graph.explain_error(error))
 }
 
 /// The sources of one application build, as the program cache names them.
@@ -4932,11 +4939,14 @@ impl<'a> Sources<'a> {
                 graph,
                 appendix,
                 script,
-            } => lower(
-                modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
-                heap,
-                crate::CheckOptions::default(),
-            ),
+            } => (|| {
+                lower(
+                    modules::load_graph_with(entry, graph, true, appendix.as_deref(), *script)?,
+                    heap,
+                    crate::CheckOptions::default(),
+                )
+            })()
+            .map_err(|error| graph.explain_error(error)),
         }
     }
 
