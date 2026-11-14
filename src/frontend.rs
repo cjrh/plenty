@@ -81,6 +81,7 @@ mod tail_calls;
 mod target;
 mod text_methods;
 mod threads;
+mod user_iteration;
 mod value_generics;
 mod view_methods;
 mod views;

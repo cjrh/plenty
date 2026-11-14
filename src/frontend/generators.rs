@@ -939,6 +939,9 @@ impl Lower<'_> {
         }
     }
     pub(super) fn next(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {
+        if let Some(output) = self.user_next(args, at, ops)? {
+            return Ok(Some(output));
+        }
         if let [arg] = args {
             let mut place = ungroup(arg);
             if let Expression::Unary(op, base) = &place.kind

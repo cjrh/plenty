@@ -130,6 +130,10 @@ Rules:
   borrowed field and always move. No heap storage, nested borrowing records,
   generator suspension, lifecycle hooks or owned captures. See
   [view classes](../../../../book/src/design/language/05-ownership/view-classes.md).
+  An exclusive `next(self: &mut Cursor) -> Option[T]` method supplies the
+  [user iterator protocol](../../../../book/src/design/language/09-iteration/08-user-iterators.md).
+  Use `for item in &mut cursor` to preserve progress. A borrowed item keeps
+  both cursor and source loaned until last use; another advance conflicts.
 - Other references cannot be stored in user enums, tuples or collections.
 - A function returning `&T` borrows the result from its first reference
   parameter; it cannot return a reference to a local or an owned parameter.

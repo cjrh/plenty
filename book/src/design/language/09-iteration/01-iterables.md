@@ -26,6 +26,7 @@ one frame resume.
 | [`bytes`](../03-types/bytes.md) | Byte as `u8` |
 | [`std.bytes.Bytes`](../../stdlib/bytes.md#index-syntax-and-iteration) | Byte as `u8` |
 | Generator | Declared yielded value |
+| [User iterator](08-user-iterators.md) | Its `next` method's `Option` payload |
 
 Consuming list iteration transfers affine elements. `for item in &list`
 preserves the list and always yields `&T`, including scalars and strings.
@@ -93,8 +94,9 @@ the element, so `swap(n, s)` under `for n, s in &mut pairs` passes both as
 `&mut` loop. Borrowing the list or another element while they are live
 conflicts. Iteration itself, including string
 scalar production and generator `next`, adds no allocation; iterable creation
-and body expressions keep their own contracts. There is no arbitrary user
-iterator protocol, special-method dispatch, or async iteration.
+and body expressions keep their own contracts. Classes use the ordinary
+exclusive [`next` method protocol](08-user-iterators.md); there is no dunder
+special-method dispatch or async iteration.
 [Generator expressions](03-generators.md#generator-expressions) construct
 lazy owned frames and follow the generator iteration rules.
 

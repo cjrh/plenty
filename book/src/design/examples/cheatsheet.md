@@ -745,6 +745,10 @@ Trusted interfaces can also declare [initialized C data exports](../facilities/0
 A [view class](../language/05-ownership/view-classes.md) stores one borrowed
 origin together with ordinary state. Borrowed fields are fixed after
 initialization; method results keep both receiver and source borrowed.
+An ordinary `next(self: &mut Cursor) -> Option[T]` method makes a class a
+[user iterator](../language/09-iteration/08-user-iterators.md): loop over the
+owned cursor or lend `&mut cursor`. Borrowed items keep the iterator borrowed
+until their last use, so advancing while an earlier item lives is rejected.
 
 ```plenty
 class Cursor:

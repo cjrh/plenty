@@ -78,6 +78,10 @@ pub(super) struct State {
     pub(super) callbacks: HashMap<u8, (Token, Option<String>)>,
     /// Loans of the reference items of lent pipelines this borrower received.
     pub(super) lent_item_loans: HashSet<usize>,
+    /// Strict receiver-bound items from structural user iterators. `chain`
+    /// currently joins both origins before polling either source, which cannot
+    /// represent a per-poll receiver loan. Mapping to an owned value removes it.
+    pub(super) streaming_items: HashSet<usize>,
     /// Generator bridges made so far in this function; the count keeps their
     /// helper names distinct.
     pub(super) generators: usize,
@@ -431,6 +435,9 @@ impl Lower<'_> {
                                 return Err(e
                                     .at
                                     .error("pipeline map callbacks cannot return references yet"));
+                            }
+                            if ty.carries_loan() {
+                                return Err(e.at.error("pipeline map callbacks cannot return borrowed values, including views or Option/Result carrying a borrow; map to owned values instead"));
                             }
                             let slot = self.slot(ty.clone(), &e.at)?;
                             plan.iteration.body.push(Op::StoreLocal(slot));
@@ -1102,6 +1109,12 @@ impl Lower<'_> {
                 .iter()
                 .filter_map(|slot| self.reference_locals.get(slot).copied())
                 .collect();
+            if origins
+                .iter()
+                .any(|origin| self.strict_streaming_origin(*origin))
+            {
+                return Err(at.error("chain cannot combine strict streaming user-iterator items; map to owned values first"));
+            }
             if let Some(&first) = origins.first() {
                 // A reborrow of the first origin, not a loan of the shared
                 // slot, so the slot can be reassigned for the next item.

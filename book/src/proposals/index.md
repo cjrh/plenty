@@ -54,7 +54,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](completed/library-owned-operations.md) |
 | Heterogeneous protocol objects | [Boxed protocols](completed/boxed-protocols.md) | [Explicit ownership and method contract](completed/boxed-protocols/contract.md), [implementation design](completed/boxed-protocols/implementation.md), [research evidence](completed/boxed-protocols/evidence.md) |
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
-| Classes carrying borrowed data | [View classes with one borrowed origin](view-classes.md) | [Ownership contract](view-classes/contract.md), [qualification gates](view-classes/implementation.md), [returned builtin views](../design/language/05-ownership/04-returned-references.md#returning-views) |
+| Classes carrying borrowed data | [View classes with one borrowed origin](completed/view-classes.md) | [Ownership contract](completed/view-classes/contract.md), [qualification gates](completed/view-classes/implementation.md), [returned builtin views](../design/language/05-ownership/04-returned-references.md#returning-views) |
 | Borrowed text and substrings | [One borrowed text type](unified-borrowed-text.md) | [Representation and migration](unified-borrowed-text/representation.md), [evidence and naming](unified-borrowed-text/evidence.md), [current text contract](../design/facilities/01-builtins/text.md) |
 | Bounds checks removed by types | [Value-dependent types for check elimination](value-dependent-types.md) | [`Bounded`](../design/language/03-types/bounded.md), [value generics](value-generics.md), [unchecked blocks](../design/language/03-types/numbers.md#unchecked-blocks) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
@@ -80,7 +80,7 @@ reference pages, concluded investigations, and rejected designs. Further
 extensions remain tracked in the backlog; a rejected proposal does not imply
 an implementation commitment.
 
-Issue #945 step 2 delivers [single-origin view classes](../design/language/05-ownership/view-classes.md) under the [approved contract](view-classes.md), including explicit one-parent initializers for multiple shared fields. The user iterator protocol remains separate B11/B12/B49 work.
+Issue #945 step 2 delivers [single-origin view classes](../design/language/05-ownership/view-classes.md) under the [approved contract](completed/view-classes.md), including explicit one-parent initializers for multiple shared fields. Step 3 adds [streaming user iterators](../design/language/09-iteration/08-user-iterators.md) under the same strict receiver lifetime. Broader borrowing remains B11/B12/B49 work.
 
 The 2026-11-08 classification review moved derived serialization (B77),
 structural keys (B74), checked-default arithmetic (B14), and the Polars

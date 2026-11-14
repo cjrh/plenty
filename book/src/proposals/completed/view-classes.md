@@ -2,13 +2,14 @@
 
 **Status: Approved and implemented in local PR #1254, 2026-11-14.** This is
 the step-2 decision requested by issue #945 and comment #2869. The
-[view-class reference](../design/language/05-ownership/view-classes.md) describes
+[view-class reference](../../design/language/05-ownership/view-classes.md) describes
 implemented behavior. Its [qualification record](view-classes/implementation.md)
 records implementation boundaries and the user-accepted explicit-initializer
 contract for multiple shared fields. Generated constructors do not infer
-relationships between independent borrowed inputs. Approval and implementation do not include
-the separate iterator protocol in step 3; remaining work stays in B11 in the
-[backlog](../backlog.md).
+relationships between independent borrowed inputs. The step-2 approval did
+not include the separate iterator protocol; the subsequently authorized
+[step-3 protocol](../../design/language/09-iteration/08-user-iterators.md) now
+uses these records. Broader borrowing remains B11 in the [backlog](../../backlog.md).
 
 ## The decision
 
