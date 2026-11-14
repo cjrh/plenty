@@ -62,6 +62,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Allocation and parallel execution | [Memory, parallelism, and SIMD](memory-parallelism-and-simd.md) | [Allocation audit](completed/allocation-audit.md), [shipped concurrency](completed/native-concurrency.md) |
 | Cooperative suspension and owned tasks | [Async/await exploration](async-await.md), [Go-style scoped tasks](stackful-tasks.md) | [Async ownership and cleanup](async-await/ownership.md), [async spike evidence](async-await/evidence.md), [stackful runtime choices](stackful-tasks/runtime.md), [stackful spike evidence](stackful-tasks/evidence.md), [linear execution responsibility](linear-integration.md) |
 | Iteration and adapter chains | [Fluent iterator pipelines](completed/fluent-iterators.md) | [Shipped generators](completed/generators.md), [parallel execution](memory-parallelism-and-simd.md) |
+| Declared geometric vectors | [Declared vectors for related floating components](declared-vectors.md) | [Numeric/layout contract](declared-vectors/contract.md), [evidence gates](declared-vectors/evidence.md), [inline arrays](value-generics.md) |
 | Portable vector operations and automatic SIMD | [Portable `std.simd`](std-simd.md) | [API contract](std-simd/api.md), [pipeline recognition](std-simd/automatic.md), [backend evidence](std-simd/evidence.md) |
 | Columnar record storage | [Columnar lists](columnar-list.md) | [Ownership and API](columnar-list/contract.md), [chunks and deletion](columnar-list/chunks.md), [layout evidence](columnar-list/evidence.md), [Plenty implementation spike](columnar-list/implementation-spike.md) |
 | Analytical dataframes | [Polars embedding](completed/polars-dataframes.md) | [Native interface and measured costs](completed/polars-dataframes/evidence.md) |
@@ -107,6 +108,7 @@ records and local merge metadata; it did not rerun their feature suites.
 
 | Proposal | Backlog |
 | --- | --- |
+| [Declared vectors for floating components](declared-vectors.md) — issue #967 candidate comparison; prototype follows inline arrays and approval | B23/B83 |
 | [Stronger safety boundaries](trusted-safety-boundaries.md) — trusted modules, checked foreign owners, actor abandonment certification, transitive trust policy, and callback guarantees | B98; related B17, B22, B85 |
 | [One borrowed text type](unified-borrowed-text.md) — exploratory unification of `&str` and `&substr`; representation and generic-reference semantics remain adoption gates | B12; returned text relates to B11 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |
