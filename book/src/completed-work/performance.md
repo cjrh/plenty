@@ -209,7 +209,7 @@ uses borrowed keys and is unchanged within measurement spread. Removing the
 outer scope around a single-site `Bytes.to_text_range` additionally requires
 issue #958's terminal-call inlining; the combination drops 148 to 103 and
 393 to 348 instructions in the range-construction kernels. The three-site
-dictionary kernel and larger k-nucleotide graph still retain that scope under
+dictionary kernel and larger owned-key k-nucleotide variant still retain that scope under
 the existing inlining budgets, so issue #948 remains open. Measurements,
 exclusions and reproduction commands
 are in `experiments/kernels/caller-context/README.md`.
@@ -1440,8 +1440,11 @@ Compile time, `compile_bench 1000 10 --workload aot` on cores 0-7, five
 interleaved runs: 442 to 469 ms before, 438 to 470 ms after (medians 448 and
 445); 64.45 against 64.69 billion instructions (+0.4%).
 
-A method whose final expression is a call is not inlined (issue #958), so
-fasta's generator returns the local it stored.
+At the time of these measurements, a method ending in a call stayed out of
+the inline plan, so fasta's generator returned the local it stored.
+[Terminal accessor inlining](#terminal-accessor-inlining-issue-958) now removes
+that boundary for cleanup-free wrappers whose terminal targets also inline;
+the benchmark keeps its equivalent local-return idiom.
 
 ## CPU levels (issue #962, stage 1)
 

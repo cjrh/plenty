@@ -87,4 +87,3 @@ block0(v8: i64, v14: i64):
     v36 = fdiv v35, v33
     return v36
 }
-

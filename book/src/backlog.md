@@ -239,14 +239,15 @@ dispatcher, the general key comparison and the streaming hasher
 (`experiments/dictionary-hits/`); a heap key's hit is one runtime function.
 `dict[str, V].get_or_insert_bytes` looks a key up by borrowed bytes and builds
 it only on a miss (issue #949), which k-nucleotide now uses; its remaining hit
-cost outside the hash is the cache miss on the bucket load, and a byte view
-taken in a loop still calls `plenty_byte_view` on every pass. Not delivered:
+cost outside the hash is the cache miss on the bucket load. Its counting loops
+now use shared windows (issue #950); ordinary range slices constructed inside
+other loops still call `plenty_byte_view` on every pass. Not delivered:
 borrowed-key `get`, `get_ref`, `get_mut` and `in` for `str` keys, a `&strview`
 form, and a borrowed form for `dict[bytes, V]`.
 [Transitive caller-context proofs](completed-work/performance.md#transitive-caller-context-proofs-issue-948)
 are delivered in part (issue #948). Combined with terminal-call inlining
 (issue #958), a single-site `Bytes.to_text_range` drops its outer context scope.
-The three-site dictionary kernel and larger k-nucleotide graph still retain
+The three-site dictionary kernel and larger owned-key k-nucleotide variant still retain
 that scope under the existing inlining budgets; this remains issue #948.
 Issue #931 records the earlier key-construction measurements.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
