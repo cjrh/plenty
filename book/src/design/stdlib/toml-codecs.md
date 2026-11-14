@@ -61,8 +61,7 @@ its decoding hook to consume the complete selected value. The optional
 `tree_encoder` and `tree_decoder` expose the same adapters for handwritten
 hooks. Call `finish()` after successful encoding or decoding; an unclosed
 container, pending member value, absent root, or unread value reports
-`InvalidState`. Discard an adapter after any error. The decoder owns its input
-because Plenty classes cannot retain borrowed references.
+`InvalidState`. Discard an adapter after any error. The decoder owns its input and consumes each selected value exactly once.
 
 `CodecOptions` combines the existing TOML `limits`, `tree_limits`, and unknown
 field policy. `tree_limits()` defaults to depth 64, 1,048,576 nodes, and 64 MiB

@@ -151,6 +151,7 @@ pub enum StorageBarrier {
     GeneratorClosure,
     /// An `Option`/`Result` whose success payload is a reference.
     CarriedReference,
+    ViewClass,
 }
 
 impl StorageBarrier {
@@ -167,6 +168,7 @@ impl StorageBarrier {
                 );
             }
             Self::Reference => "references",
+            Self::ViewClass => "view classes",
             Self::Generator => "generators",
             Self::ScopedTask => "scoped tasks",
             Self::BorrowedClosure => "closures with borrowed captures",
@@ -408,7 +410,11 @@ impl Ty {
             | Self::KeyView(_)
             | Self::DictView(..)
             | Self::View(..) => true,
-            Self::Enum(t) => t.try_get().is_some_and(|t| t.restricted_storage),
+            Self::Class(_) if self.is_view_class() => true,
+            Self::Enum(t) => {
+                t.try_get().is_some_and(|t| t.restricted_storage)
+                    || self.carried_reference().is_some()
+            }
             _ => false,
         }
     }
@@ -462,13 +468,31 @@ impl Ty {
             Self::Closure(_) if self.contains_generator_frame() => {
                 Some(StorageBarrier::GeneratorClosure)
             }
+            Self::Class(_) if self.is_view_class() => Some(StorageBarrier::ViewClass),
+            // Nominal forward declarations can be completed after a container
+            // is formed. Validate their now-visible storage restriction too.
+            Self::List(inner)
+            | Self::Clist(inner)
+            | Self::Set(inner)
+            | Self::Box(inner)
+            | Self::Shared(inner)
+            | Self::Future(inner)
+            | Self::Channel(inner, _)
+            | Self::Atomic(inner) => inner.storage_barrier(),
+            Self::Dict(key, value) => key.storage_barrier().or_else(|| value.storage_barrier()),
             _ if self.carried_reference().is_some() => Some(StorageBarrier::CarriedReference),
-            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
-                .get()
-                .variants
-                .iter()
-                .flat_map(|v| &v.fields)
-                .find_map(Self::storage_barrier),
+            Self::Enum(t)
+                if t.try_get()
+                    .is_some_and(|definition| definition.restricted_storage)
+                    || t.tuple()
+                    || t.propagatable() =>
+            {
+                t.get()
+                    .variants
+                    .iter()
+                    .flat_map(|v| &v.fields)
+                    .find_map(Self::storage_barrier)
+            }
             _ => None,
         }
     }
@@ -605,15 +629,21 @@ impl Ty {
     pub fn lends_frame(&self) -> bool {
         matches!(self, Self::Generator(t) if t.lends)
     }
-    /// The reference or builtin view that a borrowing `Option` or `Result`
-    /// holds in its success payload, directly or through further
-    /// `Option`/`Result` success payloads. Error payloads never carry one.
-    /// See book/src/design/language/05-ownership/05-optional-references.md.
+    /// An inline class whose direct borrowed fields carry one checked origin.
+    pub fn is_view_class(&self) -> bool {
+        matches!(self, Self::Class(t) if t.try_get().is_some_and(|t| t.borrows()))
+    }
+    /// The view class itself, or a reference, builtin view or view class held
+    /// by standard Option/Result success payloads. Error payloads never carry
+    /// loans. Source validation separately restricts view classes to one wrapper.
     pub fn carried_reference(&self) -> Option<Ty> {
+        if self.is_view_class() {
+            return Some(self.clone());
+        }
         let Self::Enum(t) = self else {
             return None;
         };
-        if !t.propagatable() || !t.try_get().is_some_and(|t| t.restricted_storage) {
+        if !t.propagatable() || t.try_get().is_none() {
             return None;
         }
         match &t.get().variants[usize::from(t.is_option())].fields[0] {
@@ -630,10 +660,10 @@ impl Ty {
     pub fn carries_mutable_loan(&self) -> bool {
         match self {
             Self::Ref(_, mutable) | Self::View(_, mutable) => *mutable,
-            ty => matches!(
-                ty.carried_reference(),
-                Some(Self::Ref(_, true) | Self::View(_, true))
-            ),
+            Self::Class(t) => t.try_get().is_some_and(|t| t.borrows_mutably()),
+            ty => ty
+                .carried_reference()
+                .is_some_and(|held| held.carries_mutable_loan()),
         }
     }
     pub fn dictionary_view(&self) -> bool {

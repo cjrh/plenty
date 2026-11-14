@@ -123,7 +123,14 @@ Rules:
 
 - A borrow lasts until its last use. Mutating the owner while a later use of a
   borrow remains is a `conflicting borrow` error.
-- References cannot be stored in classes, enums, tuples, or collections.
+- Direct borrowed fields form a single-origin view class. Fields are fixed
+  after initialization; methods returning a borrow keep the receiver and source
+  alive. Use locals/calls, one Option/Result success wrapper or scoped worker
+  inputs. Shared `@copy` classes may copy; exclusive classes have exactly one
+  borrowed field and always move. No heap storage, nested borrowing records,
+  generator suspension, lifecycle hooks or owned captures. See
+  [view classes](../../../../book/src/design/language/05-ownership/view-classes.md).
+- Other references cannot be stored in user enums, tuples or collections.
 - A function returning `&T` borrows the result from its first reference
   parameter; it cannot return a reference to a local or an owned parameter.
   When in doubt, return an owned value.

@@ -45,7 +45,7 @@ Create an owning adapter with `codec_reader(reader)`, then pass a mutable borrow
 of it to `load_from`. Its public `inner: R` retains the stream owner on success
 and failure. The infallible factory does not allocate or read; parser allocation
 happens inside `load_from` while the adapter is borrowed. This ownership follows
-[`std.io` stream adapters](io.md): Plenty classes cannot store a borrowed reader.
+[`std.io` stream adapters](io.md); the adapter retains its reader between calls.
 
 `load_from` decodes directly from events, retaining the requested result, a
 4096-byte read window, the current token, and the bounded parser stack. It

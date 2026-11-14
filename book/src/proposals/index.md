@@ -54,6 +54,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](completed/library-owned-operations.md) |
 | Heterogeneous protocol objects | [Boxed protocols](completed/boxed-protocols.md) | [Explicit ownership and method contract](completed/boxed-protocols/contract.md), [implementation design](completed/boxed-protocols/implementation.md), [research evidence](completed/boxed-protocols/evidence.md) |
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
+| Classes carrying borrowed data | [View classes with one borrowed origin](view-classes.md) | [Ownership contract](view-classes/contract.md), [qualification gates](view-classes/implementation.md), [returned builtin views](../design/language/05-ownership/04-returned-references.md#returning-views) |
 | Borrowed text and substrings | [One borrowed text type](unified-borrowed-text.md) | [Representation and migration](unified-borrowed-text/representation.md), [evidence and naming](unified-borrowed-text/evidence.md), [current text contract](../design/facilities/01-builtins/text.md) |
 | Bounds checks removed by types | [Value-dependent types for check elimination](value-dependent-types.md) | [`Bounded`](../design/language/03-types/bounded.md), [value generics](value-generics.md), [unchecked blocks](../design/language/03-types/numbers.md#unchecked-blocks) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
@@ -107,6 +108,7 @@ records and local merge metadata; it did not rerun their feature suites.
 
 | Proposal | Backlog |
 | --- | --- |
+| [View classes with one borrowed origin](view-classes.md) — issue #945 step 2; proposal approval required before implementation | B11; iterator protocol remains separate B12/B49 work |
 | [Stronger safety boundaries](trusted-safety-boundaries.md) — trusted modules, checked foreign owners, actor abandonment certification, transitive trust policy, and callback guarantees | B98; related B17, B22, B85 |
 | [One borrowed text type](unified-borrowed-text.md) — exploratory unification of `&str` and `&substr`; representation and generic-reference semantics remain adoption gates | B12; returned text relates to B11 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |

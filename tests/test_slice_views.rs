@@ -650,8 +650,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "conflicting borrow"
 )]
 #[case(
-    "class Holder:\n    v: &[i64]",
-    "slice views cannot be stored in class fields yet (backlog B11)"
+    "class Window:\n    v: &[i64]\nclass Holder:\n    window: Window",
+    "view classes cannot be stored in class fields"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nt = (&xs[:], 1)",

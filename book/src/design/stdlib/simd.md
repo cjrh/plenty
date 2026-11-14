@@ -199,9 +199,9 @@ def main() -> Result[(), AllocError | IoError]:
 (1.5, 2.0, 2.5, 3.0)
 ```
 
-Plenty cannot yet keep a reference in a class field (backlog B11), so there is
-no separate view class with a `len()` method: the builtin slice view carries
-the borrow and `len_<vector>` counts its vectors.
+These helpers use builtin slice views: the view carries the borrow and
+`len_<vector>` counts its vectors. The module does not supply a separate
+[view class](../language/05-ownership/view-classes.md).
 
 ## Rust relationship and initial limits
 

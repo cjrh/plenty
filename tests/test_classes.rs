@@ -670,8 +670,11 @@ print(Crate(Option[i64].Nothing)).unwrap()
 }
 
 #[test]
-fn stored_references_and_duplicate_members_are_rejected() {
-    reject("class C:\n    field: &i64", "cannot be stored");
+fn nested_view_storage_and_duplicate_members_are_rejected() {
+    reject(
+        "class C:\n    field: &i64\nclass Owner:\n    view: C",
+        "view classes cannot be stored",
+    );
     reject("class C:\n    field: Generator[i64]", "cannot be stored");
     reject(
         "class C:\n    x: i64\n    def x(self) -> i64:\n        0",

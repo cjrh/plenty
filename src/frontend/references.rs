@@ -2,14 +2,15 @@
 use super::*;
 
 /// Whether `ty` may be the success payload of an `Option` or `Result`: a
-/// reference to a value that holds no loan of its own, a builtin view, or
-/// a further `Option`/`Result` carrying an ordinary reference.
+/// reference to a value that holds no loan of its own, a builtin view, a
+/// view class, or a further `Option`/`Result` carrying an ordinary reference.
 /// A reference to a reference-carrying
 /// value would be a reference to a reference, which Plenty does not have.
 pub(super) fn carriable(ty: &Ty) -> bool {
     match ty {
         Ty::Ref(inner, _) => !inner.contains_reference() && inner.storage_barrier().is_none(),
         Ty::View(..) => true,
+        ty if ty.is_view_class() => true,
         // One sum tag fits in the unused sign bit of a view's count.
         // A second would truncate a valid length in the packed ABI.
         ty => matches!(ty.carried_reference(), Some(Ty::Ref(..))),
@@ -348,6 +349,11 @@ impl Lower<'_> {
             let loan = self.lending_frame_binding(value, ops);
             return Ok((ty, loan));
         }
+        if matches!(&ungroup(value).kind, Expression::ClassNew(_)) {
+            // The synthesized constructor attaches its checked origin only
+            // after initialization succeeds. The zeroed record has none.
+            return Ok((ty, None));
+        }
         if ty.carried_reference().is_some() {
             if loan_free(value) {
                 let loan = self.empty_holder_loan(&ty, &value.at, ops)?;
@@ -377,6 +383,7 @@ impl Lower<'_> {
                 | Expression::Method(..)
                 | Expression::GenericMethod(..)
                 | Expression::Try(..)
+                | Expression::Member(..)
         ) {
             return Err(value.at.error(
                 "reference bindings require a named reference, a direct borrow, a reference-returning call, or an `if`, `match` or conditional value",
@@ -827,7 +834,9 @@ impl Lower<'_> {
                     | Expression::GenericMethod(..)
                     | Expression::Invoke(..)
                     | Expression::Try(..)
-            ))
+            )
+            || matches!(&ungroup(e).kind, Expression::Member(..))
+                && matches!(self.place_type(e), Some(Ty::Ref(..) | Ty::View(..))))
             && let Some(id) = ops.iter().rev().find_map(|op| {
                 if let Op::Loan(l) = op {
                     Some(l.id)
@@ -1259,17 +1268,30 @@ impl Lower<'_> {
         if let Some(output) = sig.outputs.first().filter(|ty| ty.carries_loan()) {
             // The signature check guarantees an origin parameter, and each
             // call path records its argument's loan (issue #921).
-            let Some(&parent) = loans.first() else {
+            let origin = self
+                .generics
+                .return_origin_parameter(name, &sig.inputs)
+                .map(|index| {
+                    sig.inputs[..index]
+                        .iter()
+                        .filter(|(_, ty)| returns_through(ty))
+                        .count()
+                })
+                .unwrap_or(0);
+            let Some(&parent) = loans.get(origin) else {
                 return Err(at.error(
                     "internal compiler error: a reference-returning call has no origin argument loan",
                 ));
             };
             let mutable = output.carries_mutable_loan();
             let id = self.new_loan(self.loans[parent].root, mutable, Some(parent), ops);
+            let strict_receiver = sig.inputs.first().is_some_and(|(parameter, ty)| {
+                parameter == "self" && matches!(ty, Ty::Ref(inner, _) if inner.is_view_class())
+            });
             if let Some(fields) = self
                 .sigs
                 .returned_fields(name)
-                .filter(|_| self.loans[id].precise)
+                .filter(|_| self.loans[id].precise && !strict_receiver)
             {
                 self.loans[id].fields.extend(fields);
             } else {
@@ -1327,11 +1349,13 @@ impl Lower<'_> {
                 .and_then(|ty| match ty {
                     Ty::Closure(t) => self.closure_loans.get(&t.name).cloned(),
                     // Borrowing a generator that borrows keeps its loan.
-                    ty if ty.lends_frame() => self.reference_locals.get(&root).map(|&loan| {
-                        let mut loans = vec![loan];
-                        loans.extend_from_slice(&self.loans[loan].dependencies);
-                        loans
-                    }),
+                    ty if ty.lends_frame() || ty.is_view_class() => {
+                        self.reference_locals.get(&root).map(|&loan| {
+                            let mut loans = vec![loan];
+                            loans.extend_from_slice(&self.loans[loan].dependencies);
+                            loans
+                        })
+                    }
                     _ => None,
                 })
                 .unwrap_or_default()
@@ -1755,7 +1779,43 @@ impl Lower<'_> {
                     break;
                 }
             }
-            let result = Ty::Ref(Arc::new(class.get().fields[index].1.clone()), mutable);
+            let field = class.get().fields[index].1.clone();
+            if let Ty::Ref(content, writable) | Ty::View(content, writable) = &field {
+                if mutable && !writable {
+                    return Err(e.at.error("cannot mutably borrow a shared borrowed field"));
+                }
+                let result = match &field {
+                    Ty::Ref(..) => Ty::Ref(content.clone(), mutable),
+                    Ty::View(..) => Ty::View(content.clone(), mutable),
+                    _ => unreachable!(),
+                };
+                // Borrow the receiver for the result's entire lifetime; its
+                // loan dependencies retain the stored descriptor's source.
+                ops.push(Op::Class(crate::record::ClassOp::FieldRef(
+                    class.clone(),
+                    index,
+                    mutable,
+                )));
+                ops.push(Op::ReadRef(field));
+                ops.push(Op::Reborrow(result.clone()));
+                if let Expression::Name(name) = &ungroup(base).kind
+                    && let Some(local) = self.names.get(name)
+                    && local.ty.is_view_class()
+                    && let Some(&origin) = self.reference_locals.get(&local.slot)
+                {
+                    // A by-value view's data belongs to its carried origin,
+                    // whereas an ordinary field belongs to the record itself.
+                    let projected =
+                        self.new_loan(self.loans[origin].root, mutable, Some(origin), ops);
+                    self.loans[projected].dependencies.push(loan);
+                    if let Some(Op::Loan(fact)) = ops.last_mut() {
+                        *fact = self.loans[projected].clone();
+                    }
+                    return Ok((result, projected));
+                }
+                return Ok((result, loan));
+            }
+            let result = Ty::Ref(Arc::new(field), mutable);
             ops.push(Op::Class(crate::record::ClassOp::FieldRef(
                 class.clone(),
                 index,
@@ -2303,6 +2363,9 @@ impl Lower<'_> {
         };
         if op != "*" {
             return Err(target.at.error("invalid assignment target"));
+        }
+        if self.place_type(target).is_some_and(|ty| ty.is_view_class()) {
+            return Err(target.at.error("cannot replace a view-class instance through a reference; reassign a named holder with the same origin"));
         }
         if reference_call(base) {
             return self.write_returned_reference(target, base, value, ops);

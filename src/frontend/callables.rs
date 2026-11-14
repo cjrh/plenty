@@ -119,7 +119,7 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
     if let Some(Ty::Ref(inner, _)) = sig
         .inputs
         .iter()
-        .find(|ty| matches!(ty, Ty::Ref(inner, _) if inner.carried_reference().is_some()))
+        .find(|ty| matches!(ty, Ty::Ref(inner, _) if inner.carried_reference().is_some() && !inner.is_view_class()))
     {
         return Err(at.error(format!(
             "callable parameters cannot borrow {inner}: take the {inner} itself, which lends its borrow to the call"

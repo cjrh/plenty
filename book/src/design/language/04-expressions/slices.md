@@ -454,9 +454,12 @@ Views may be passed to [scoped workers](../../facilities/03-concurrency/index.md
 A function may return a view under the
 [returned-reference origin rule](../05-ownership/04-returned-references.md#returning-views).
 A single `Option` or `Result` success payload may carry it under the same
-rule. A view cannot be stored in a class field, tuple, collection, or user enum
-payload, or captured by an anonymous function. Store an owned copy or bounds
-when the data must outlive its owner's loan (backlog B11).
+rule. A direct view field makes its class a
+[single-origin view class](../05-ownership/view-classes.md), subject to fixed
+fields and checked source/receiver lifetimes. A view cannot be stored in a
+tuple, collection or user enum payload, or captured by an anonymous function.
+Store an owned copy or bounds when the data must outlive its owner's loan
+(backlog B11).
 
 ### Substring views
 
@@ -594,12 +597,15 @@ that loan in the caller; storing it in a class or collection remains unsupported
 class Window:
     rows: &[i64]
 
+class Owner:
+    window: Window
+
 def main() -> ():
     pass
 ```
 
 ```error
-slice views cannot be stored in class fields yet (backlog B11)
+view classes cannot be stored in class fields
 ```
 
 First-class `slice(...)` values are not implemented. The [slice syntax proposal](../../../proposals/completed/slice-syntax.md)

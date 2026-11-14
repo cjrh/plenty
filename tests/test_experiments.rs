@@ -10,7 +10,7 @@ mod support;
 /// Stored inputs that must fail, with the diagnostic they demonstrate.
 const REJECTED: &[(&str, &str)] = &[(
     "columnar-list/reject-row-reference.plenty",
-    "references cannot be stored in class fields",
+    "clist requires nonempty primitive scalar fields",
 )];
 
 /// Stored inputs checked only through a generated program.

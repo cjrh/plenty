@@ -39,7 +39,9 @@ whole Result, are substituted before validating that output. Unit class type
 arguments remain unsupported; a concrete unit alias can still name an
 initializer output in an otherwise valid generic class.
 Fields may contain classes, enums, tuples, collections, and resolved owned
-closures, but not references, generators, or unit.
+closures, but not generators or unit. Direct references and builtin views
+make a [single-origin view class](../05-ownership/view-classes.md), with scoped
+storage and fixed borrowed fields.
 
 Every successful initializer exit must initialize every field. Branches merge
 their definitely initialized fields; a loop alone cannot establish initialization

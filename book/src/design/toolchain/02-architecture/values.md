@@ -173,3 +173,11 @@ Ranges contain 32 bytes of bounds, step, and length. Stored ranges use 48-byte
 slots: ordinary value storage plus inline range data. Collection relocation and
 frame/result moves repair embedded addresses. Range creation and return need no
 separate owner allocation; see [ranges](../../facilities/01-builtins/ranges.md).
+
+## Borrowed class records
+
+[View classes](../../language/05-ownership/view-classes.md) retain the private
+inline class ABI. Even a one-field view class keeps a record, so an enclosing
+`Option` or `Result` stores its tag outside the complete borrowed descriptor.
+Borrowed fields do not retain or release their referents. Ordinary owned fields
+keep normal relocation and cleanup; a view class itself has no lifecycle hook.

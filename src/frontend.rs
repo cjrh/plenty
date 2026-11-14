@@ -2049,6 +2049,30 @@ impl Lower<'_> {
                 Some(output)
             }
             Expression::ClassReady(t, receiver) => {
+                if t.get().borrows() {
+                    let Expression::Unary(_, instance) = &ungroup(receiver).kind else {
+                        unreachable!()
+                    };
+                    let Expression::Name(name) = &ungroup(instance).kind else {
+                        unreachable!()
+                    };
+                    let slot = self.names[name].slot;
+                    let origin = self.return_origin.ok_or_else(|| {
+                        e.at.error("a view-class constructor requires a borrowed origin parameter")
+                    })?;
+                    let parent = self
+                        .reference_locals
+                        .iter()
+                        .filter(|(slot, _)| usize::from(**slot) < self.parameters)
+                        .find_map(|(_, &loan)| (self.loans[loan].root == origin).then_some(loan))
+                        .ok_or_else(|| {
+                            e.at.error(
+                                "a view-class constructor requires a borrowed origin parameter",
+                            )
+                        })?;
+                    let loan = self.new_loan(origin, t.get().borrows_mutably(), Some(parent), ops);
+                    self.reference_locals.insert(slot, loan);
+                }
                 self.value(receiver, ops)?;
                 ops.push(Op::Class(crate::record::ClassOp::ArmDrop(t.clone())));
                 ops.push(Op::Drop);
@@ -2357,7 +2381,9 @@ impl Lower<'_> {
                             false,
                         ));
                     }
-                    Self::end_reads(loans, ops);
+                    if !ty.carries_loan() {
+                        Self::end_reads(loans, ops);
+                    }
                     Some(ty)
                 }
             }
@@ -3681,18 +3707,20 @@ impl Lower<'_> {
         let marker = self.returning(at, &returned);
         let ty = self.join_returned_frame(ty, &mut returned);
         let lends_frame = ty.as_ref().is_some_and(Ty::lends_frame);
+        let carries_loan = ty.as_ref().is_some_and(Ty::carries_loan);
         self.refine_return(ty, at)?;
-        let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
-            // A value from a started-empty holder names no real loan; the
-            // return check confined each value assigned to it to the origin
-            // parameter, which cleanup cannot reach.
-            Some(self.check_return_reference(e.unwrap(), &returned)?)
-                .filter(|loan| !self.absent_loan(*loan))
-        } else if lends_frame {
-            Some(self.check_returned_frame(e.unwrap(), &returned)?)
-        } else {
-            None
-        };
+        let returned_loan =
+            if self.return_origin.is_some() && carries_loan && !references::loan_free(e.unwrap()) {
+                // A value from a started-empty holder names no real loan; the
+                // return check confined each value assigned to it to the origin
+                // parameter, which cleanup cannot reach.
+                Some(self.check_return_reference(e.unwrap(), &returned)?)
+                    .filter(|loan| !self.absent_loan(*loan))
+            } else if lends_frame {
+                Some(self.check_returned_frame(e.unwrap(), &returned)?)
+            } else {
+                None
+            };
         // A returned reference normally stays borrowed across this
         // frame's cleanup. A forwarding call returns it from storage
         // that cleanup cannot reach, so it may still be a tail call.
@@ -5070,6 +5098,7 @@ fn check_carried_parameters(f: &Function, inputs: &[(String, Ty)]) -> Result<()>
     for ((name, ty), (_, written)) in inputs.iter().zip(&f.inputs) {
         if let Ty::Ref(inner, _) = ty
             && inner.carried_reference().is_some()
+            && !inner.is_view_class()
         {
             return Err(written.at.error(format!(
                 "parameter `{name}` cannot be {ty}: pass the {inner} itself, which lends its borrow to the call"
@@ -5101,7 +5130,7 @@ fn register_resolved(
     aliases: &TypeAliases,
     sigs: &mut functions::Functions,
 ) -> Result<Arc<FnSig>> {
-    register_with_body(symbol, f, &f.body, resolved, aliases, sigs)
+    register_with_body(symbol, f, &f.body, resolved, aliases, sigs, None)
 }
 
 /// [`register_resolved`] reading whether `f` yields, and what reference it
@@ -5115,6 +5144,7 @@ fn register_with_body(
     resolved: Option<generics::Signature>,
     aliases: &TypeAliases,
     sigs: &mut functions::Functions,
+    parameter_order: Option<&[usize]>,
 ) -> Result<Arc<FnSig>> {
     if f.inputs.len() > 256 {
         return Err(f
@@ -5191,9 +5221,16 @@ fn register_with_body(
     if let Some(output) = output.as_ref().filter(|ty| ty.carries_loan()) {
         // The first reference or view parameter is the result's origin; later ones
         // are ordinary inputs whose loans end with the call.
-        let Some((_, origin)) = inputs
+        let Some((_, (_, origin))) = inputs
             .iter()
-            .find(|(_, ty)| references::returns_through(ty))
+            .enumerate()
+            .filter(|(_, (_, ty))| references::returns_through(ty))
+            .min_by_key(|(index, _)| {
+                parameter_order
+                    .and_then(|order| order.get(*index))
+                    .copied()
+                    .unwrap_or(*index)
+            })
         else {
             return Err(f.at.error(no_origin(output)));
         };
@@ -5370,6 +5407,7 @@ fn lower_body(
             } else {
                 None
             };
+            let declared_origin = generics.return_origin_parameter(&f.name, &sig.inputs);
             let mut lower = Lower {
                 function_name: f.name.clone(),
                 symbol,
@@ -5438,11 +5476,18 @@ fn lower_body(
                 connectives: HashSet::default(),
                 accessors: Vec::new(),
                 contexts: Vec::new(),
-                return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
+                return_origin: if f.name.ends_with(".__init__")
+                    && sig.inputs.first().is_some_and(
+                        |(_, ty)| matches!(ty, Ty::Ref(inner, _) if inner.is_view_class()),
+                    ) {
                     sig.inputs
                         .iter()
-                        .position(|(_, ty)| references::returns_through(ty))
-                        .map(|i| i as u8)
+                        .enumerate()
+                        .skip(1)
+                        .find(|(_, (_, ty))| references::returns_through(ty))
+                        .map(|(i, _)| i as u8)
+                } else if sig.outputs.first().is_some_and(Ty::carries_loan) {
+                    declared_origin.map(|i| i as u8)
                 } else {
                     None
                 },
@@ -5478,6 +5523,17 @@ fn lower_body(
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
             for (i, (name, ty)) in sig.inputs.iter().enumerate() {
+                if yield_type.is_some()
+                    && (ty.is_view_class()
+                        || ty
+                            .carried_reference()
+                            .is_some_and(|inner| inner.is_view_class())
+                        || matches!(ty, Ty::Ref(inner, _) if inner.is_view_class()))
+                {
+                    return Err(f
+                        .at
+                        .error("view classes cannot be stored in generator frames"));
+                }
                 // A generator frame keeps reference, view and carried-reference
                 // parameters and borrowing generators, whose loans its caller
                 // holds while the frame lives (issues #899, #913). A lent

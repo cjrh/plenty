@@ -174,6 +174,13 @@ A borrow that may be absent or may fail is returned as `Option[&T]` or
 origin rule; see
 [optional and fallible references](05-optional-references.md).
 
+[View classes](view-classes.md) carry one checked origin through local records,
+ordinary calls and one standard success wrapper. Their borrowed method results
+keep the whole named receiver and its data source borrowed. Consuming
+parameters can forward borrowed data but cannot return their record's address.
+Named arguments preserve the declaration's origin parameter while evaluating
+in written order.
+
 ## Returning views
 
 Returning a view copies its pointer and length, without allocating or copying

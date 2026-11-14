@@ -1025,15 +1025,21 @@ print(xs).unwrap()
 fn reject_views(source: &str, expected: &str) {
     for optimize in [false, true] {
         let dir = tempfile::tempdir().unwrap();
+        let program = if source.lines().any(|line| line.starts_with("export def ")) {
+            format!("{source}\ndef main() -> ():\n    pass\n")
+        } else {
+            support::program(source)
+        };
         let error = plenty::compile_source_to_executable_with_options(
-            &support::program(source),
+            &program,
             &dir.path().join("program"),
             &plenty::CompileOptions {
                 optimize,
                 ..Default::default()
             },
         )
-        .unwrap_err()
+        .err()
+        .unwrap_or_else(|| panic!("optimize={optimize}: unexpectedly accepted: {source}"))
         .to_string();
         assert!(
             error.contains(expected),
@@ -1067,4 +1073,644 @@ fn run_views(source: &str, expected: &str) {
             "optimize={optimize}"
         );
     }
+}
+
+#[test]
+fn view_classes_borrow_fields_and_forward_one_checked_origin() {
+    run_views(
+        r#"
+class Cursor:
+    data: &[i64]
+    position: i64
+    def remaining(self: &Cursor) -> &[i64]:
+        &self.data[self.position:]
+def forward(data: &[i64]) -> Cursor:
+    Cursor(data, 1)
+xs = [7, 8, 9].unwrap()
+cursor = forward(&xs)
+print(cursor.data[0], cursor.remaining()[0]).unwrap()
+"#,
+        "7 8\n",
+    );
+}
+
+#[test]
+fn view_class_fields_require_the_constructor_origin() {
+    reject_views(
+        r#"
+class Wrong:
+    data: &[i64]
+    def __init__(self, first: &[i64], second: &[i64]) -> ():
+        self.data = second
+"#,
+        "must originate",
+    );
+}
+
+#[test]
+fn view_classes_consuming_parameters_forward_data_not_record_state() {
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+def consume(view: View) -> &[i64]:
+    view.data
+xs = [5, 6].unwrap()
+print(consume(View(&xs))[1]).unwrap()
+"#,
+        "6\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+    position: i64
+def consume(view: View) -> &i64:
+    &view.position
+"#,
+        "must originate",
+    );
+}
+
+#[test]
+fn view_class_rejections_protect_origin_receiver_and_fixed_fields() {
+    let declaration = "class View:\n    data: &[i64]\n    position: i64\n    def remaining(self: &View) -> &[i64]:\n        self.data\n";
+    for (body, expected) in [
+        (
+            "xs = [1].unwrap()\nv = View(&xs, 0)\ndrop(xs)\nprint(v.data[0]).unwrap()",
+            "moved binding",
+        ),
+        (
+            "xs = [1].unwrap()\nv = View(&xs, 0)\nr = v.remaining()\ndrop(v)\nprint(r[0]).unwrap()",
+            "conflicting borrow",
+        ),
+        (
+            "xs = [1].unwrap()\nmut v = View(&xs, 0)\nv.data = &xs\n",
+            "fixed after initialization",
+        ),
+        (
+            "xs = [1].unwrap()\nmut v = View(&xs, 0)\nr = replace(v.data, &xs)\n",
+            "fixed after initialization",
+        ),
+        (
+            "xs = [1].unwrap()\nv = View(&xs, 0)\nitems = [v].unwrap()\n",
+            "view classes",
+        ),
+        (
+            "def suspend(v: View) -> Generator[i64]:\n    yield v.position\n",
+            "generator frames",
+        ),
+    ] {
+        reject_views(&format!("{declaration}{body}"), expected);
+    }
+    for source in [
+        "class Wrong:\n    data: &[i64]\n    def __init__(self, data: &[i64]) -> ():\n        self.data = data\n        self.data = data\n",
+        "class Wrong:\n    data: &[i64]\n    def __init__(self, data: &[i64]) -> ():\n        for i in range(2):\n            self.data = data\n",
+    ] {
+        reject_views(source, "borrowed fields");
+    }
+}
+
+#[test]
+fn view_classes_exclusive_fields_reborrow_without_rebinding() {
+    run_views(
+        r#"
+class Edit:
+    data: &mut [i64]
+    def update(self: &mut Edit) -> ():
+        self.data[0] = 9
+mut xs = [1, 2].unwrap()
+mut view = Edit(&mut xs)
+view.update()
+print(view.data[0]).unwrap()
+print(xs[0]).unwrap()
+"#,
+        "9\n9\n",
+    );
+}
+
+#[test]
+fn view_classes_standard_success_wrappers_preserve_complete_records() {
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+    label: str
+def optional(data: &[i64]) -> Option[View]:
+    Some(View(data, "payload"))
+def fallible(data: &[i64]) -> Result[View, IoError]:
+    Ok(View(data, "fallible"))
+xs = [3, 4].unwrap()
+v = optional(&xs).unwrap()
+print(v.data[1], v.label).unwrap()
+w = fallible(&xs).unwrap()
+print(w.data[0], w.label).unwrap()
+"#,
+        "4 payload\n3 fallible\n",
+    );
+    for (result, expression) in [
+        ("Option[Option[View]]", "Some(Some(View(data, 0)))"),
+        ("Result[(), View]", "Err(View(data, 0))"),
+    ] {
+        reject_views(
+            &format!(
+                "class View:\n    data: &[i64]\n    n: i64\ndef bad(data: &[i64]) -> {result}:\n    {expression}\n"
+            ),
+            "references",
+        );
+    }
+}
+
+#[test]
+fn view_classes_shared_copy_generic_forwarding_and_same_origin_holders() {
+    run_views(
+        r#"
+@copy
+class View:
+    data: &[i64]
+    position: i64
+def identity[T](value: T) -> T:
+    value
+xs = [5, 6].unwrap()
+mut v = identity(View(&xs, 0))
+w = v
+v = View(&xs, 1)
+print(w.data[w.position], v.data[v.position]).unwrap()
+"#,
+        "5 6\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+a = [1].unwrap()
+b = [2].unwrap()
+mut v = View(&a)
+v = View(&b)
+print(v.data[0]).unwrap()
+"#,
+        "owner it first borrowed",
+    );
+}
+
+#[test]
+fn view_classes_strict_method_results_borrow_the_whole_receiver() {
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+    position: i64
+    def remaining(self: &View) -> &[i64]:
+        self.data
+xs = [1].unwrap()
+mut v = View(&xs, 0)
+r = v.remaining()
+v.position = 1
+print(r[0]).unwrap()
+"#,
+        "conflicting borrow",
+    );
+}
+
+#[test]
+fn view_classes_scoped_workers_hold_the_external_source_until_scope_exit() {
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+def worker(v: View) -> i64:
+    v.data[0]
+xs = [7].unwrap()
+with spawn(worker, View(&xs)).unwrap() as task:
+    print(task.join()).unwrap()
+print(xs[0]).unwrap()
+"#,
+        "7\n7\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+def worker(v: View) -> i64:
+    v.data[0]
+mut xs = [7].unwrap()
+with spawn(worker, View(&xs)).unwrap() as task:
+    task.join()
+    xs.append(8).unwrap()
+"#,
+        "borrow",
+    );
+}
+
+#[test]
+fn view_classes_owned_fields_cleanup_on_success_and_partial_failure() {
+    run_views(
+        r#"
+enum Problem:
+    Failed
+class Token:
+    name: str
+    def __del__(self) -> ():
+        print(self.name).unwrap()
+class View:
+    data: &[i64]
+    token: Token
+    def __init__(self, data: &[i64], fail: bool) -> Result[(), Problem]:
+        self.token = Token("drop")
+        self.data = data
+        if fail:
+            return Err(Problem.Failed)
+        Ok(())
+xs = [3].unwrap()
+drop(View(&xs, True))
+v = View(&xs, False).unwrap()
+print(v.data[0]).unwrap()
+drop(v)
+print(xs[0]).unwrap()
+"#,
+        "drop\n3\ndrop\n3\n",
+    );
+}
+
+#[test]
+fn view_classes_two_shared_fields_and_direct_projection_bindings() {
+    run_views(
+        r#"
+class Pair:
+    left: &[i64]
+    right: &[i64]
+    def __init__(self, data: &mut [i64]) -> ():
+        self.left = &data[:1]
+        self.right = &data[1:]
+mut xs = [1, 2].unwrap()
+pair = Pair(&mut xs)
+r = pair.right
+print(pair.left[0], r[0]).unwrap()
+xs[0] = 9
+print(xs[0]).unwrap()
+"#,
+        "1 2\n9\n",
+    );
+}
+
+#[test]
+fn view_classes_reject_temporary_storage_and_suspended_locals() {
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+def owned() -> list[i64]:
+    [1].unwrap()
+v = View(&owned())
+print(v.data[0]).unwrap()
+"#,
+        "temporary cannot be stored",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+def suspended(data: &[i64]) -> Generator[i64]:
+    v = View(data)
+    yield 0
+    yield v.data[0]
+"#,
+        "across yield",
+    );
+}
+
+#[test]
+fn view_classes_forbidden_storage_and_permissions_are_explicit() {
+    for ty in [
+        "list[View]",
+        "dict[i64, View]",
+        "tuple[View, i64]",
+        "Box[View]",
+        "Shared[View]",
+    ] {
+        reject_views(
+            &format!("class View:\n    data: &[i64]\ndef bad(value: {ty}) -> ():\n    pass\n"),
+            "view classes",
+        );
+    }
+    for body in [
+        "class Owner:\n    view: View\n",
+        "class Owner:\n    view: Box[View]\n",
+        "class Owner:\n    view: Option[View]\n",
+        "class Owner:\n    view: tuple[View, i64]\n",
+        "class Owner:\n    view: Option[tuple[View, i64]]\n",
+        "enum Choice:\n    One(View)\n",
+        "class Indirect:\n    data: &View\n",
+    ] {
+        reject_views(
+            &format!("class View:\n    data: &[i64]\n{body}"),
+            if body.contains("&View") {
+                "ordinary non-borrowing"
+            } else if body.contains("Option[View]") {
+                "cannot be stored"
+            } else {
+                "view classes"
+            },
+        );
+    }
+    reject_views(
+        "class Bad:\n    left: &mut [i64]\n    right: &[i64]\n",
+        "exactly one exclusive",
+    );
+    reject_views(
+        "class Pair:\n    left: &[i64]\n    right: &[i64]\n",
+        "explicit initializer taking one borrowed origin",
+    );
+    reject_views(
+        "@copy\nclass Bad:\n    data: &mut [i64]\n",
+        "cannot be @copy",
+    );
+    reject_views(
+        "class Bad:\n    data: &[i64]\n    def __del__(self) -> ():\n        pass\n",
+        "lifecycle hooks",
+    );
+    reject_views("@serial\nclass Bad:\n    data: &[i64]\n", "serialization");
+    reject_views(
+        "class View:\n    data: &[i64]\nexport def bad(view: View) -> () = \"view_bad\":\n    pass\n",
+        "C export",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &mut [i64]
+def change(view: &View) -> ():
+    view.data[0] = 2
+"#,
+        "shared",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+def change(view: &mut View, data: &[i64]) -> ():
+    *view = View(data)
+"#,
+        "through a reference",
+    );
+}
+
+#[test]
+fn view_classes_constructor_origin_uses_parameter_order_and_later_loans_end() {
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+    def __init__(self, data: &[i64], unused: &[i64]) -> ():
+        self.data = data
+a = [4].unwrap()
+b = [9].unwrap()
+v = View(unused=&b, data=&a)
+drop(b)
+print(v.data[0]).unwrap()
+"#,
+        "4\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+    def __init__(self, first: &[i64], other: &[i64]) -> ():
+        self.data = &other[index(first):]
+def index(data: &[i64]) -> i64:
+    0
+"#,
+        "must originate",
+    );
+}
+
+#[test]
+fn view_classes_borrowed_closures_keep_receiver_and_source() {
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+xs = [4].unwrap()
+v = View(&xs)
+job = def [&v]() -> i64:
+    v.data[0]
+print(job()).unwrap()
+"#,
+        "4\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+xs = [4].unwrap()
+v = View(&xs)
+job = def [v]() -> i64:
+    v.data[0]
+print(job()).unwrap()
+"#,
+        "cannot be captured",
+    );
+}
+
+#[test]
+fn view_classes_exclusive_named_constructor_keeps_declared_origin_permission() {
+    run_views(
+        r#"
+class Edit[T]:
+    data: &mut [T]
+    def __init__(self, data: &mut [T], unused: &[T]) -> ():
+        self.data = data
+mut a = [4].unwrap()
+b = [9].unwrap()
+mut v = Edit[i64](unused=&b, data=&mut a)
+drop(b)
+v.data[0] = 8
+print(a[0]).unwrap()
+"#,
+        "8\n",
+    );
+}
+
+#[test]
+fn view_classes_text_and_nonflat_wrapped_records_relocate_owned_state() {
+    run_views(
+        r#"
+class Text:
+    data: &strview
+class View:
+    data: &[i64]
+    state: range
+def make(data: &[i64]) -> Option[View]:
+    Some(View(data, range(3)))
+text = "aé界"
+t = Text(&text)
+print(t.data).unwrap()
+xs = [8].unwrap()
+v = make(&xs).unwrap()
+for n in v.state:
+    print(n, v.data[0]).unwrap()
+"#,
+        "aé界\n0 8\n1 8\n2 8\n",
+    );
+    reject_views(
+        r#"
+class Text:
+    data: &strview
+mut text = "abc"
+v = Text(&text)
+text = "def"
+print(v.data).unwrap()
+"#,
+        "borrow",
+    );
+}
+
+#[test]
+fn view_classes_wrapped_receivers_and_indirect_writes_keep_stability() {
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+    position: i64
+    def remaining(self: &View) -> &[i64]:
+        self.data
+def make(data: &[i64]) -> Option[View]:
+    Some(View(data, 0))
+xs = [1].unwrap()
+mut v = make(&xs).unwrap()
+r = v.remaining()
+v.position = 2
+print(r[0]).unwrap()
+"#,
+        "conflicting borrow",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+def identity(view: &mut View) -> &mut View:
+    view
+xs = [1].unwrap()
+mut v = View(&xs)
+*identity(&mut v) = View(&xs)
+"#,
+        "whole class through a reference",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+    state: i64
+def choose(view: View, external: bool) -> &i64:
+    if external:
+        return &view.data[0]
+    &view.state
+"#,
+        "must originate",
+    );
+}
+
+#[test]
+fn view_classes_failed_constructor_preserves_sibling_source_loan() {
+    reject_views(
+        r#"
+enum Problem:
+    Failed
+@copy
+class View:
+    data: &[i64]
+    def __init__(self, data: &[i64], fail: bool) -> Result[(), Problem]:
+        self.data = data
+        if fail:
+            return Err(Problem.Failed)
+        Ok(())
+mut xs = [1].unwrap()
+v = View(&xs, False).unwrap()
+w = v
+drop(View(&xs, True))
+drop(v)
+xs.append(2).unwrap()
+print(w.data[0]).unwrap()
+"#,
+        "borrow",
+    );
+}
+
+#[test]
+fn view_classes_methods_forward_new_records_and_reject_temporary_receivers() {
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+    def suffix(self: &View) -> Option[View]:
+        Some(View(&self.data[1:]))
+xs = [3, 5].unwrap()
+v = View(&xs)
+w = v.suffix().unwrap()
+print(w.data[0]).unwrap()
+"#,
+        "5\n",
+    );
+    reject_views(
+        r#"
+class View:
+    data: &[i64]
+    def remaining(self: &View) -> &[i64]:
+        self.data
+def make(data: &[i64]) -> Option[View]:
+    Some(View(data))
+xs = [1].unwrap()
+r = make(&xs).unwrap().remaining()
+print(r[0]).unwrap()
+"#,
+        "temporary cannot be stored",
+    );
+}
+
+#[test]
+fn view_classes_constructor_tracks_possible_writes_across_branch_joins() {
+    for body in [
+        "        if flag:\n            self.data = data\n        self.data = data\n",
+        "        match flag:\n            case True:\n                self.data = data\n            case False:\n                pass\n        self.data = data\n",
+        "        n = if flag:\n            self.data = data\n            1\n        else:\n            0\n        self.data = data\n",
+        "        n = match flag:\n            case True:\n                self.data = data\n                1\n            case False:\n                0\n        self.data = data\n",
+        "        result = checked:\n            self.data = data\n            1 // (1 if flag else 0)\n        self.data = data\n",
+    ] {
+        reject_views(
+            &format!(
+                "class View:\n    data: &[i64]\n    def __init__(self, data: &[i64], flag: bool) -> ():\n{body}"
+            ),
+            "initialized exactly once",
+        );
+    }
+    run_views(
+        r#"
+class View:
+    data: &[i64]
+    def __init__(self, data: &[i64], flag: bool) -> ():
+        if flag:
+            self.data = data
+        else:
+            self.data = data
+class Early:
+    data: &[i64]
+    def __init__(self, data: &[i64], flag: bool) -> ():
+        if flag:
+            self.data = data
+            return
+        self.data = data
+class Fallible:
+    data: &[i64]
+    def __init__(self, data: &[i64]) -> Result[(), IoError]:
+        self.data = data
+        return Ok(())
+xs = [3].unwrap()
+a = View(&xs, True)
+b = View(&xs, False)
+c = Early(&xs, True)
+d = Early(&xs, False)
+e = Fallible(&xs).unwrap()
+print(a.data[0], b.data[0], c.data[0], d.data[0], e.data[0]).unwrap()
+"#,
+        "3 3 3 3 3\n",
+    );
 }

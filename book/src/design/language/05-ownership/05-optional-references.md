@@ -504,7 +504,11 @@ borrow must come from `f`. Put `found` first.
 A parameter cannot borrow a holder, as in `&Option[&T]`; pass the holder
 itself. Generators cannot take one.
 
-A reference-carrying value is never stored. Tuples, lists and other
+[View classes](view-classes.md) separately allow one `Option[View]` or
+`Result[View, E]` success layer and scoped worker inputs. They retain their
+source and receiver loans and cannot be nested in these wrappers.
+
+The reference-carrying sums described here are never stored. Tuples, lists and other
 collections, class fields, enum payloads, generic type arguments, closure
 captures, scoped workers, and values live across `yield` all reject it. Match
 it first and store an owned copy or an index instead.

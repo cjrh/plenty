@@ -168,3 +168,35 @@ access begins when the method starts. Arguments may read the receiver, but
 cannot mutate or move it, or pass a reference into it that remains live during
 the call. For nested mutations, compute the inner result in a separate local
 before calling the outer method.
+
+## Keep borrowed data with state
+
+Use a view class when a borrowed source needs state and several operations.
+Its borrowed fields are fixed at construction, while ordinary state can change
+through a mutable receiver:
+
+```plenty
+class Cursor:
+    data: &[i64]
+    position: i64
+    def remaining(self: &Cursor) -> &[i64]:
+        &self.data[self.position:]
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [2, 4, 6]?
+    cursor = Cursor(&values, 1)
+    rest = cursor.remaining()
+    print(rest[0])?
+    Ok(())
+```
+```output
+4
+```
+
+`cursor` keeps `values` borrowed. The returned `rest` also keeps `cursor`
+borrowed until its last use; moving or changing the cursor before then is
+rejected. For a single stateless operation, a free function taking `&[i64]`
+is simpler. View classes stay local or travel through ordinary calls and
+scoped worker inputs; use owning data when it must be stored independently.
+See [view classes](../../design/language/05-ownership/view-classes.md) for
+exclusive fields, copy rules and storage limits.
