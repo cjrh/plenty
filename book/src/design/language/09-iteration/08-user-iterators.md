@@ -89,9 +89,10 @@ copy their contents explicitly when building an owning collection, for example
 `[*item for item in &mut cursor]?`. Collection storage of references or view
 classes remains rejected. The direct collection constructors retain their
 builtin input contracts; use a comprehension or a typed pipeline `collect`
-to collect user sources. `chain` currently requires user-iterator items to be
-owned: map a borrowed item to an owned value before chaining. Its origin join
-cannot represent the receiver loan created separately by each poll.
+to collect user sources. `chain` accepts matching borrowed items from user
+iterators. Each item retains the selected iterator's receiver and source loans;
+chaining does not allow retaining it across another advance. The second source
+is constructed immediately and starts advancing after the first ends.
 
 Owned iterator state may enter an owned pipeline's `.generator()` conversion.
 The existing [generator suspension rules](03-generators.md) still apply:

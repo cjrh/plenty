@@ -395,18 +395,18 @@ fn skipped_polls_preserve_retained_item_loans() {
 }
 
 #[test]
-fn chain_requires_owned_items_from_user_iterators() {
+fn chain_supports_owned_and_borrowed_items_from_user_iterators() {
     run(
         &format!(
             "{COUNTER}\nfor n in iter(Counter(0, 2)).chain(Counter(2, 4)):\n    print(n).unwrap()"
         ),
         "0\n1\n2\n3\n",
     );
-    reject(
+    run(
         &format!(
             "{CURSOR}\nxs = [2, 4].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&xs, 0)\nfor n in iter(&mut a).chain(&mut b):\n    print(*n).unwrap()"
         ),
-        "chain cannot combine strict streaming",
+        "2\n4\n2\n4\n",
     );
 }
 
@@ -466,7 +466,7 @@ fn pipeline_maps_cannot_launder_streaming_items_in_success_wrappers() {
 }
 
 #[test]
-fn lent_plans_preserve_strict_streaming_chain_rejection() {
+fn lent_plans_preserve_strict_streaming_chain_items() {
     let source = r#"
 class Owned:
     data: array[i64, 2]
@@ -485,5 +485,291 @@ mut p = iter(Owned([2, 4], 0))
 mut q = iter(Owned([7, 9], 0))
 consume(&mut p, &mut q)
 "#;
-    reject(source, "chain cannot combine strict streaming");
+    run(source, "2\n4\n7\n9\n");
+}
+
+#[test]
+fn borrowed_user_chain_joins_the_selected_poll() {
+    run(
+        &format!(
+            "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\nfor item in iter(&mut a).chain(&mut b):\n    print(*item).unwrap()"
+        ),
+        "2\n4\n7\n9\n",
+    );
+}
+
+#[test]
+fn borrowed_user_chain_adapters_nested_and_resumed() {
+    for expression in [
+        "iter(&mut a).filter(def(x: &i64) -> bool: *x > 2).chain(iter(&mut b).take(1))",
+        "iter(&mut a).chain(&mut b).filter(def(x: &i64) -> bool: *x > 2).take(2)",
+        "iter(&mut a).skip(1).chain(iter(&mut b).take_while(def(x: &i64) -> bool: *x < 9))",
+    ] {
+        run(
+            &format!(
+                "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\nfor x in {expression}:\n    print(*x).unwrap()"
+            ),
+            "4\n7\n",
+        );
+    }
+    run(
+        &format!(
+            "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nzs = [11].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\nmut c = Cursor(&zs, 0)\nmut p = iter(&mut a).chain(&mut b).chain(&mut c)\nprint(next(p)).unwrap()\nfor x in p:\n    print(*x).unwrap()"
+        ),
+        "Option[&i64].Some(2)\n4\n7\n9\n11\n",
+    );
+}
+
+#[test]
+fn borrowed_user_chain_rejects_retained_items_and_owner_mutation() {
+    let prefix = format!(
+        "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\nmut c = Cursor(&ys, 0)\n"
+    );
+    for expression in [
+        "iter(&mut a).chain(&mut b)",
+        "iter(&mut a).chain(&mut b).chain(&mut c)",
+    ] {
+        run(
+            &format!(
+                "{prefix}mut saved: Option[&i64] = Nothing\nfor x in {expression}:\n    saved = Some(x)\n    break\nprint(saved).unwrap()"
+            ),
+            "Option[&i64].Some(2)\n",
+        );
+    }
+    for expression in [
+        "iter(&mut a).chain(&mut b)",
+        "iter(&mut a).take(1).chain(&mut b)",
+        "iter(&mut a).chain(iter(&mut b).take(0))",
+        "iter(&mut a).filter(def(x: &i64) -> bool: *x > 0).chain(&mut b)",
+        "iter(&mut a).chain(&mut b).chain(&mut c)",
+        "iter(&mut a).chain(iter(&mut b).chain(&mut c))",
+    ] {
+        reject(
+            &format!(
+                "{prefix}mut saved: Option[&i64] = Nothing\nfor x in {expression}:\n    print(saved).unwrap()\n    saved = Some(x)\nprint(saved).unwrap()"
+            ),
+            "borrow",
+        );
+        reject(
+            &format!(
+                "{prefix}mut saved: Option[&i64] = Nothing\nfor x in {expression}:\n    print(saved).unwrap()\n    saved = Some(x)\n    continue\nprint(saved).unwrap()"
+            ),
+            "borrow",
+        );
+    }
+    reject(
+        &format!(
+            "{prefix}mut p = iter(&mut a).chain(&mut b)\nfirst = next(p).unwrap()\nsecond = next(p)\nprint(first, second).unwrap()"
+        ),
+        "borrow",
+    );
+    reject(
+        &format!(
+            "{prefix}for x in iter(&mut a).chain(&mut b):\n    a.position = 0\n    print(*x).unwrap()"
+        ),
+        "borrow",
+    );
+}
+
+const OWNED_CURSOR: &str = r#"
+class Owned:
+    data: array[i64, 2]
+    position: i64
+    def next(self: &mut Owned) -> Option[&i64]:
+        if self.position >= 2:
+            return Nothing
+        index = self.position
+        unchecked:
+            self.position += 1
+        Some(&self.data[index])
+"#;
+
+#[test]
+fn joined_user_chain_can_be_lent_and_relent() {
+    let borrowed = format!(
+        "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\nmut p = iter(&mut a).chain(&mut b)\n"
+    );
+    run(
+        &format!(
+            "{borrowed}def drain(p: &mut Iter[&i64]) -> ():\n    for x in p:\n        print(*x).unwrap()\ndef forward(p: &mut Iter[&i64]) -> ():\n    drain(p)\nforward(&mut p)\nprint(next(p)).unwrap()"
+        ),
+        "2\n4\n7\n9\nOption[&i64].Nothing\n",
+    );
+    reject(
+        &format!(
+            "{borrowed}def retain(p: &mut Iter[&i64]) -> ():\n    mut saved: Option[&i64] = Nothing\n    for x in p:\n        print(saved).unwrap()\n        saved = Some(x)\n    print(saved).unwrap()\nretain(&mut p)"
+        ),
+        "borrow",
+    );
+    reject(
+        &format!(
+            "{OWNED_CURSOR}\ndef take(p: &mut Iter[&i64]) -> &i64:\n    next(p).unwrap()\nmut p = iter(Owned([2, 4], 0)).chain(Owned([7, 9], 0))\nprint(*take(&mut p)).unwrap()"
+        ),
+        "returned reference must originate",
+    );
+    run(
+        &format!(
+            "{OWNED_CURSOR}\ndef drain(p: &mut Iter[&i64]) -> ():\n    for x in p:\n        print(*x).unwrap()\ndef forward(p: &mut Iter[&i64]) -> ():\n    drain(p)\nmut p = iter(Owned([2, 4], 0)).chain(Owned([7, 9], 0))\nforward(&mut p)\nprint(next(p)).unwrap()"
+        ),
+        "2\n4\n7\n9\nOption[&i64].Nothing\n",
+    );
+    reject(
+        &format!(
+            "{OWNED_CURSOR}\ndef retain(p: &mut Iter[&i64]) -> ():\n    mut saved: Option[&i64] = Nothing\n    for x in p:\n        print(saved).unwrap()\n        saved = Some(x)\n    print(saved).unwrap()\nmut p = iter(Owned([2, 4], 0)).chain(Owned([7, 9], 0))\nretain(&mut p)"
+        ),
+        "borrow",
+    );
+}
+
+#[test]
+fn user_chain_shared_with_builtin_and_empty_sources() {
+    for (a, b, expected) in [(2, 0, "7\n9\n"), (0, 2, "2\n4\n"), (2, 2, "")] {
+        run(
+            &format!(
+                "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, {a})\nmut b = Cursor(&ys, {b})\nfor x in iter(&mut a).chain(&mut b):\n    print(*x).unwrap()"
+            ),
+            expected,
+        );
+    }
+    for source in ["iter(&mut a).chain(&ys)", "iter(&ys).chain(&mut a)"] {
+        let expected = if source.starts_with("iter(&ys)") {
+            "7\n9\n2\n4\n"
+        } else {
+            "2\n4\n7\n9\n"
+        };
+        run(
+            &format!(
+                "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nfor x in {source}:\n    print(*x).unwrap()"
+            ),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn mutable_user_chain_preserves_exclusive_items() {
+    let cursor = CURSOR
+        .replace("data: &[T]", "data: &mut [T]")
+        .replace("Option[&T]", "Option[&mut T]")
+        .replace("Some(&self.data[index])", "Some(&mut self.data[index])");
+    let prefix = format!(
+        "{cursor}\nmut xs = [2, 4].unwrap()\nmut ys = [7, 9].unwrap()\nmut a = Cursor(&mut xs, 0)\nmut b = Cursor(&mut ys, 0)\n"
+    );
+    run(
+        &format!(
+            "{prefix}for x in iter(&mut a).chain(&mut b):\n    *x = 8\nprint(xs, ys).unwrap()"
+        ),
+        "[8, 8] [8, 8]\n",
+    );
+    run(
+        &format!(
+            "{prefix}def bump(p: &mut Iter[&mut i64]) -> ():\n    for x in p:\n        *x = 8\nmut p = iter(&mut a).chain(&mut b)\nbump(&mut p)\nprint(xs, ys).unwrap()"
+        ),
+        "[8, 8] [8, 8]\n",
+    );
+    reject(
+        &format!(
+            "{prefix}def retain(p: &mut Iter[&mut i64]) -> ():\n    first = next(p).unwrap()\n    second = next(p).unwrap()\n    *first = 8\n    *second = 9\nmut p = iter(&mut a).chain(&mut b)\nretain(&mut p)"
+        ),
+        "borrow",
+    );
+    reject(
+        &format!(
+            "{prefix}mut p = iter(&mut a).chain(&mut b)\nfirst = next(p).unwrap()\nsecond = next(p).unwrap()\n*first = 8\n*second = 9"
+        ),
+        "borrow",
+    );
+    reject(
+        &format!(
+            "{prefix}for x in iter(&mut a).chain(&mut b):\n    ys.append(3).unwrap()\n    *x = 8"
+        ),
+        "borrow",
+    );
+}
+
+#[test]
+fn borrowed_user_chain_owning_state_cannot_escape_or_cross_repeated_loops() {
+    reject(
+        &format!(
+            "{OWNED_CURSOR}\nmut saved: Option[&i64] = Nothing\nfor x in iter(Owned([2, 4], 0)).chain(Owned([7, 9], 0)):\n    saved = Some(x)\n    break\nprint(saved).unwrap()"
+        ),
+        "borrow",
+    );
+    reject(
+        &format!(
+            "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\nmut saved: Option[&i64] = Nothing\nfor i in range(2):\n    print(saved).unwrap()\n    for x in iter(&mut a).chain(&mut b):\n        saved = Some(x)\n        break\nprint(saved).unwrap()"
+        ),
+        "borrow",
+    );
+}
+
+#[test]
+fn borrowed_user_chain_pair_fields_and_terminals() {
+    let prefix = format!(
+        "{CURSOR}\nxs = [2, 4].unwrap()\nys = [7, 9].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&ys, 0)\n"
+    );
+    run(
+        &format!(
+            "{prefix}for x, i in iter(&mut a).chain(&mut b).zip(range(4)):\n    print(*x, i).unwrap()"
+        ),
+        "2 0\n4 1\n7 2\n9 3\n",
+    );
+    reject(
+        &format!(
+            "{prefix}mut saved: Option[&i64] = Nothing\nfor x, i in iter(&mut a).chain(&mut b).zip(range(4)):\n    print(saved).unwrap()\n    saved = Some(x)\nprint(saved).unwrap()"
+        ),
+        "borrow",
+    );
+    run(
+        &format!(
+            "{prefix}for i, x in iter(&mut a).enumerate().chain(iter(&mut b).enumerate()):\n    print(i, *x).unwrap()"
+        ),
+        "0 2\n1 4\n0 7\n1 9\n",
+    );
+    run(
+        &format!("{prefix}print(iter(&mut a).chain(&mut b).count()).unwrap()"),
+        "4\n",
+    );
+    run(
+        &format!("{prefix}print(iter(&mut a).chain(&mut b).sum().unwrap()).unwrap()"),
+        "22\n",
+    );
+    reject(
+        &format!(
+            "{prefix}mut saved: Option[&i64] = Nothing\nfor i, x in iter(&mut a).enumerate().chain(iter(&mut b).enumerate()):\n    print(saved).unwrap()\n    saved = Some(x)\nprint(saved).unwrap()"
+        ),
+        "borrow",
+    );
+}
+
+#[test]
+fn borrowed_user_chain_view_class_items_preserve_receiver_loans() {
+    let source = r#"
+class Part:
+    data: &[i64]
+class Parts:
+    data: &[i64]
+    done: bool
+    def next(self: &mut Parts) -> Option[Part]:
+        if self.done:
+            return Nothing
+        self.done = True
+        Some(Part(self.data))
+xs = [2, 4].unwrap()
+ys = [7, 9].unwrap()
+mut a = Parts(&xs, False)
+mut b = Parts(&ys, False)
+"#;
+    run(
+        &format!(
+            "{source}\nfor part in iter(&mut a).chain(&mut b):\n    print(part.data[0]).unwrap()"
+        ),
+        "2\n7\n",
+    );
+    reject(
+        &format!(
+            "{source}\nmut saved: Option[Part] = Nothing\nfor part in iter(&mut a).chain(&mut b):\n    print(saved.is_some()).unwrap()\n    saved = Some(part)\nprint(saved.is_some()).unwrap()"
+        ),
+        "borrow",
+    );
 }
