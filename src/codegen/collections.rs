@@ -2020,6 +2020,13 @@ impl Lowerer<'_, '_> {
                 stop.is_some() && super::known::known_signed(&self.bcx.func.dfg, entry.2) == Some(1)
             }
         });
+        // Keep the range-entry proof above: a hand-written while loop can
+        // read its counter after the loop, unlike a scoped range element.
+        let unused_element = range
+            .as_ref()
+            .filter(|range| range.target_private)
+            .map(|range| range.target);
+        self.counters.unused_range_elements.extend(unused_element);
         let unit_steps = range
             .as_ref()
             .map_or(&[][..], |range| &range.unit_steps[..]);
@@ -2188,6 +2195,9 @@ impl Lowerer<'_, '_> {
         }
         if counted.is_some() {
             self.counters.counted.pop();
+        }
+        if unused_element.is_some() {
+            self.counters.unused_range_elements.pop();
         }
         if below.is_some() {
             self.counters.bounds.below_locals.pop();

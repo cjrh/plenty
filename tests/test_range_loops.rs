@@ -389,3 +389,133 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
         "a message longer than inline storage\n15\n",
     );
 }
+
+#[test]
+fn unused_range_elements_keep_counts_and_early_exits() {
+    let source = r#"
+def bound(calls: &mut i64) -> Result[i64, OverflowError[i64]]:
+    *calls += 1
+    Ok(5)
+
+def increment(value: i64) -> i64:
+    value.wrapping_add(1)
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    mut calls = 0
+    mut count = 0
+    for unused in range(bound(&mut calls)?):
+        count = increment(count)
+        if count < 3:
+            continue
+        if count == 4:
+            break
+    print(calls, count)?
+    for _ in range(-5):
+        count = 999
+    for _ in range(5, 5):
+        count = 999
+    for _ in range(10, -10, -3):
+        count = count.wrapping_add(1)
+    stored = range(250u8, 255u8, 2)
+    for _ in stored:
+        count = count.wrapping_add(1)
+    for _ in reversed(range(i64.MIN, i64.MIN + 7, 3)):
+        count = count.wrapping_add(1)
+    print(count)?
+    mut total = 0
+    for _ in range(3):
+        for value in range(4):
+            if value == 1:
+                continue
+            total = total.wrapping_add(value)
+        if total > 9:
+            continue
+    print(total)?
+    # A borrowed or captured element must retain its actual value.
+    mut observed = 0
+    for value in range(3):
+        reference = &value
+        capture = def [value]() -> i64:
+            value
+        observed = observed.wrapping_add(*reference).wrapping_add(capture())
+    print(observed)?
+    # A manually written while counter is observable after its loop.
+    mut remaining = 5
+    mut current = 0
+    advance = 1
+    while remaining > 0:
+        remaining = remaining.wrapping_sub(1)
+        current = current.wrapping_add(advance)
+    print(current)?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("program");
+        plenty::compile_source_to_executable_with_options(
+            source,
+            &path,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = support::output_within(
+            &mut std::process::Command::new(path),
+            &[],
+            std::time::Duration::from_secs(15),
+        );
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "1 4\n17\n15\n6\n5\n"
+        );
+    }
+}
+
+#[test]
+fn unused_range_elements_have_no_cyclic_increment() {
+    let source = r#"
+def unused(n: i64, x: f64) -> f64:
+    mut value = x
+    for unused in range(n):
+        value = value * 1.0000001 + 0.5
+        if value < 4.0:
+            continue
+        if value > 50.0:
+            break
+    value
+
+def main() -> Result[(), IoError]:
+    print(unused(20, 1.0))?
+    Ok(())
+"#;
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("main.plenty");
+    std::fs::write(&file, source).unwrap();
+    let dump = plenty::dump_file(
+        &file,
+        None,
+        &plenty::CompileOptions::default(),
+        &plenty::DumpOptions {
+            stages: vec![plenty::DumpStage::ClifOpt],
+            filter: Some("unused".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let clif = &dump
+        .files
+        .iter()
+        .find(|(name, _)| name == "clif-opt.txt")
+        .unwrap()
+        .1;
+    // A dead cyclic SSA parameter survives Cranelift's DCE (#973), so
+    // the lowerer must omit the element stores, including at continue.
+    assert!(!clif.contains("iadd"), "{clif}");
+    assert!(
+        clif.contains("isub"),
+        "the trip countdown is missing: {clif}"
+    );
+}

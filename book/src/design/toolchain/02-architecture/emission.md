@@ -656,12 +656,21 @@ narrower elements, and range values in locals keep every check.
 
 Such a loop also tests `i < stop` instead of the frontend's trip countdown
 `remaining > 0` when only the condition and the step read the countdown and
-the body reads the variable (`Facts::counted`; issue #933). A `for _ in
-range(n)` loop keeps the countdown, its only live counter. The two tests agree on every pass: the
-variable starts at `start`, the countdown at `stop - start` or zero, and each
-pass moves both by one. The countdown's stores are then not lowered, so a pass
-ends in `add; cmp; jl`. A range longer than `i64.MAX` fails before the loop
-either way.
+the body reads the variable (`Facts::counted`; issue #933). The two tests
+agree on every pass: the variable starts at `start`, the countdown at
+`stop - start` or zero, and each pass moves both by one. The countdown's
+stores are then not lowered, so a pass ends in `add; cmp; jl`.
+
+For the same recognized direct 64-bit unit-step ranges, when the body
+neither reads nor borrows the element, as in `for _ in range(n)`, the
+lowerer instead omits the element's stores and updates and keeps only the
+countdown (issue #973). The length, start and step must match the validated
+range-entry facts; this distinguishes the scoped range slots from a manual
+`while` counter that could be read after the loop. Stored ranges, reversed
+ranges, narrower elements and other steps retain their existing lowering.
+The iterable is still evaluated once, the count is computed and validated
+before entry, and `break` and `continue` retain their usual behavior. A range
+longer than `i64.MAX` fails before the loop with either lowering.
 
 Counters in memory, borrowed locals and generator frames, are not analyzed.
 `for` loops over ranges step with wrapping arithmetic. A range over

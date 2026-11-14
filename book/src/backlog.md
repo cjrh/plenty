@@ -191,7 +191,9 @@ Value bounds, positive-divisor floor division and counter checks in `and`
 conditions are delivered (spectral-norm, mandelbrot and fasta kernels in
 `experiments/kernels/value-bounds/`), as are rotated list-index conditions,
 countdown-free unit-step range loops (issues #932 and #933;
-`experiments/kernels/indexed-conditions/`) and inline `bytes` value reads
+`experiments/kernels/indexed-conditions/`), [countdown-only loops for unused
+range elements](completed-work/performance.md#unused-range-elements-issue-973)
+(issue #973), and inline `bytes` value reads
 (`experiments/kernels/bytes-literals/`), and x86-64 branches on the flags of
 every checked add and subtract (issue #934, in the Cranelift fork); the
 remaining per-pass costs are issue #935 (loads not folded into branch

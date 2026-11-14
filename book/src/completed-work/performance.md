@@ -1506,3 +1506,20 @@ each lane into the 256-bit value instead (`vbroadcastsd` and `vblendpd`) measure
 211.2 cycles per step with the `f64x2` tail and 210.5 with the scalar tail, so
 neither form is better for both variants; the halves match the lowering below
 x86-64-v3.
+
+## Unused range elements (issue #973)
+
+Recognized direct 64-bit unit-step range loops whose body neither reads nor
+borrows their element omit its stores and updates, retaining only the
+remaining-iterations counter. Their length, start and step must match the
+validated range-entry facts, so manual `while` counters that could be read
+after the loop are unaffected. Stored ranges, reversed ranges, narrower
+elements and other steps retain their existing lowering. The iterable's
+evaluation, count validation and early-exit behavior are unchanged. Mandelbrot's `in_set` now uses `for _ in range(ITERATIONS)`
+with an escape `break`, replacing the manual `while` counter and its
+`unchecked:` increment.
+
+The retained kernels, C comparison and instruction evidence are in
+`experiments/kernels/unused-range/`. See [loop counter
+checks](../design/toolchain/02-architecture/emission.md#loop-counter-checks)
+for the lowering's restrictions.

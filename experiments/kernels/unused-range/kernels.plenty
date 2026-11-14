@@ -1,0 +1,25 @@
+# Kept as standalone functions in dumps, including when inlined into main.
+def unused(n: i64, x: f64) -> f64:
+    mut value = x
+    for _ in range(n):
+        value = value * 1.0000001 + 0.5
+    value
+
+def escape(cr: f64, ci: f64) -> bool:
+    mut zr = 0.0
+    mut zi = 0.0
+    mut tr = 0.0
+    mut ti = 0.0
+    for _ in range(50):
+        if tr + ti <= 4.0:
+            zi = 2.0 * zr * zi + ci
+            zr = tr - ti + cr
+            tr = zr * zr
+            ti = zi * zi
+        else:
+            break
+    tr + ti <= 4.0
+
+def main() -> Result[(), IoError]:
+    print(unused(20, 1.0), escape(-0.2, 0.4))?
+    Ok(())
