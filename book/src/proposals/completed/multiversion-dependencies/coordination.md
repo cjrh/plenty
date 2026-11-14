@@ -1,7 +1,8 @@
 # Shared instances and Node experience
 
 Companion to the [multiple-version proposal](../multiversion-dependencies.md).
-The Plenty behavior here is proposed, not implemented. External documentation
+The shared-resource restriction described here is implemented; see the
+[package contract](../../../design/toolchain/01-building/packages.md#explicit-shared-resources). External documentation
 was checked on 2026-11-09; the evidence demonstrates failure modes, not their
 frequency across an ecosystem.
 
@@ -35,10 +36,10 @@ explicit sharing relationships. Node does not make this problem disappear,
 and Plenty's static typing catches only its type-visible forms. Two functions
 using separate registries can have perfectly compatible signatures.
 
-## Proposed explicit restriction
+## Explicit shared-resource restriction
 
-A package that requires one instance should be able to declare a shared-instance
-constraint. Proposed semantics: at most one resolved package identity may claim
+A package requiring one linked instance declares `[package] shared-resources`,
+a list of stable resource keys. At most one resolved package identity may claim
 a given shared-resource key within the graph linked into one program. Several
 edges reaching that same identity are fine. Two identities claiming the key
 fail before compilation, with both dependency chains. Do not pick a winner,
@@ -48,10 +49,9 @@ requirements when sharing is essential.
 The key identifies the resource contract, not necessarily the package name:
 two differently named wrappers may both claim one native runtime. A package
 requiring a single copy across versions must use a stable key across those
-versions. Exact manifest spelling, key naming conventions and how historical
-versions without metadata are handled need an implementation design review;
-this proposal commits to the restriction's semantics, not an existing field.
-No unmarked historical package is inferred safe, and no annotation can discover
+versions. Keys contain 1–128 ASCII letters, digits, `.`, `_`, `-`, or `/` and
+must be unique in the manifest. Historical versions without metadata are not
+assigned an inferred key. No unmarked historical package is inferred safe, and no annotation can discover
 all conflicts with unrelated unannotated code.
 
 Check this per executable/library link closure. A workspace lock can retain

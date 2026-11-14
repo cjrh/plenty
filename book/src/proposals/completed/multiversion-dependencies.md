@@ -1,10 +1,11 @@
 # Multiple versions of transitive dependencies
 
-**Status: Not implemented.** This proposes replacing graph-wide package-name
-uniqueness with resolved package identity. The [package reference](../design/toolchain/01-building/packages.md#dependencies)
-remains authoritative: today two packages with the same name, or two commits
-of one Git package, conflict. Implementation scope belongs to **B17** in the
-[backlog](../backlog.md). This proposal changes no compiler behavior.
+> **Status: Implemented (2026-11-14).**
+> Resolved source identities, edge-specific version-2 locks, targeted updates,
+> graph inspection and explicit shared-resource restrictions are implemented.
+> The [package reference](../../design/toolchain/01-building/packages.md#dependencies)
+> describes current behavior. Registry selection and automatic semver solving
+> remain separate B17 work; this design adds neither.
 
 ## Motivation
 
@@ -40,7 +41,7 @@ have the same rules when built independently or used as a dependency.
 Multiple aliases for the same instance remain valid; aliases do not change
 identity. Aliasing two versions as `c_old` and `c_new` does not bypass the rule.
 
-| Shape | Proposed result |
+| Shape | Result |
 | --- | --- |
 | P directly uses A and B; A uses C 1.1, B uses C 1.2 | Allowed |
 | P directly uses C 1.2 and A; A uses C 1.1 | Allowed; P's C does not override A's |
@@ -67,6 +68,7 @@ import alias, and the resolved source identity used by the compiler.
 | Git | Repository locator, normalized package subdirectory, full commit ID |
 | Local path | Canonical package directory within this build |
 | Workspace member | Its local package identity, with a distinct member role |
+| Embedded script | Explicit `script:RELATIVE_PATH`, separate from package identity; source-root disjointness still applies |
 
 For Git, initially preserve the resolver's exact repository locator semantics;
 do not guess that SSH and HTTPS URLs or mirrors are equivalent. A path inside
@@ -78,9 +80,8 @@ with content changes handled by build fingerprints, not by pretending that a
 version string pins their content.
 
 Use a structured internal key and a deterministic serialized identity. Display
-names and short hashes are labels, not equality keys. A digest used in symbols
-or graph files must be checked against its full identity, not silently trusted
-when it collides. Persist local locations relative to the lock root, preserving
+names and short hashes are labels, not equality keys. Compiler qualification uses `NAME@VERSION#FULL_SHA256`, checked against its
+full source identity rather than silently trusting a digest collision. Persist local locations relative to the lock root, preserving
 checkout relocation without merging distinct directories during a build.
 
 One source identity has one dependency mapping within a resolved graph.
@@ -93,11 +94,11 @@ under the same identity. Context-dependent instances are outside this proposal.
 
 A class declared by C 1.1 differs from the class with the same spelling declared
 by C 1.2. This applies through generic arguments, errors, enum payloads and
-protocol method signatures; aliases cannot erase it. Diagnostics should show
-both versions, source/revision distinctions when needed, and paths from the
-root to each declaration. Avoid an unexplained “expected Point, found Point.”
+protocol method signatures; aliases cannot erase it. Diagnostics and IDE results show
+both versions, source/revision distinctions and paths from the root to each
+declaration. Avoid an unexplained “expected Point, found Point.”
 
-[Plenty protocols](../design/language/07-generics/protocols.md) already match
+[Plenty protocols](../../design/language/07-generics/protocols.md) already match
 accessible inherent methods structurally, including exact receivers, parameter
 and result types. A concrete class from either version can satisfy a consumer's
 protocol when its methods meet that contract. No shared protocol declaration
@@ -106,7 +107,7 @@ for contracts expressed in common builtin or standard-library types.
 
 A method returning C 1.1's Point cannot satisfy a requirement returning C 1.2's
 Point. Distinct protocol declarations likewise do not become interchangeable
-boxed protocol identities: existing [box restrictions](../design/language/07-generics/boxed-protocols.md)
+boxed protocol identities: existing [box restrictions](../../design/language/07-generics/boxed-protocols.md)
 still apply. Multiple-version support changes package identity, not protocol
 matching or implicit conversions. Behavioral compatibility and shared state
 remain outside what signature matching proves.
@@ -122,9 +123,9 @@ no implicit upgrading to deduplicate compatible versions.
 
 Plenty already has this pinned-source approach and no version solver. The
 benefit is preserving that model as the ecosystem grows, not a measured speedup
-over the current compiler. With identity maps and DFS visiting states, graph
-bookkeeping can approach O(V + E), excluding fetching, parsing and hashing;
-the current linear scans do not establish that bound. Extra versions can
+over the current compiler. Identity-based graph traversal excludes fetching, parsing and hashing from
+its bookkeeping. This implementation record makes no asymptotic or measured
+performance claim. Extra versions can
 increase download, compilation and executable costs. SAT solving is not
 inherently required by package management; future registry/range selection is
 separate from this proposal.
@@ -149,7 +150,7 @@ same package instance. Report those consumers; stability cannot promise that
 an explicitly updated shared node changes for only one caller. Selecting an
 independent Git edge to C can move that edge to a different C without moving
 another incoming edge. A snapshot-relative path edge is not independently
-retargetable. The [implementation sketch](multiversion-dependencies/implementation.md)
+retargetable. The [implementation record](multiversion-dependencies/implementation.md)
 distinguishes these update scopes and the required lockfile changes.
 
 ## Alternatives and boundaries
@@ -166,6 +167,6 @@ There is no nested-directory requirement: the existing Git cache is already
 organized by repository and commit.
 
 See [Node experience and shared-instance restrictions](multiversion-dependencies/coordination.md)
-for evidence and limitations, and the [implementation sketch](multiversion-dependencies/implementation.md)
-for current code, format migration and acceptance criteria. Implementation and
+for evidence and limitations, and the [implementation record](multiversion-dependencies/implementation.md)
+for implemented formats, update selection and migration. Further package
 priorities are tracked only in B17, not in a separate proposal work queue.
