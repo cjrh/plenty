@@ -109,31 +109,13 @@ def run_suite(args):
         # Keep the full suite's feature graph while building only the selected
         # integration target, so focused iteration reuses its artifacts.
         base += ["--test", "integration"]
-    if args.runner == "nextest":
-        run = ["cargo", "nextest", "run", "--locked", "--workspace", "--all-features",
-               "--profile", "ci", "--cargo-profile", args.profile]
-        if args.build_jobs is not None:
-            run += ["--build-jobs", str(args.build_jobs)]
-        if args.test_threads is not None:
-            run += ["--test-threads", str(args.test_threads)]
-        if args.filter is not None:
-            run += ["--test", "integration", args.filter]
-        commands = [("Compile tests", base + ["--no-run", "--timings"]),
-                    ("Run tests (nextest)", run)]
-        if args.filter is None:
-            # nextest intentionally does not execute doctests.
-            docs = base + ["--doc"]
-            if args.test_threads is not None:
-                docs += ["--", "--test-threads", str(args.test_threads)]
-            commands.append(("Run doctests", docs))
-    else:
-        run = base + ([args.filter] if args.filter is not None else [])
-        if args.test_threads is not None:
-            run += ["--", "--test-threads", str(args.test_threads)]
-        commands = [("Compile tests", base + ["--no-run", "--timings"]),
-                    ("Run tests and doctests" if args.filter is None else "Run focused tests", run)]
-    label = (f"Full suite ({args.profile}, {args.runner})" if args.filter is None
-             else f"Integration filter {args.filter!r} ({args.profile}, {args.runner})")
+    run = base + ([args.filter] if args.filter is not None else [])
+    if args.test_threads is not None:
+        run += ["--", "--test-threads", str(args.test_threads)]
+    commands = [("Compile tests", base + ["--no-run", "--timings"]),
+                ("Run tests and doctests" if args.filter is None else "Run focused tests", run)]
+    label = (f"Full suite ({args.profile})" if args.filter is None
+             else f"Integration filter {args.filter!r} ({args.profile})")
     started = time.monotonic()
     rows = []
     result = 0
@@ -199,10 +181,9 @@ def main():
     sub = parser.add_subparsers(dest="mode", required=True)
     run = sub.add_parser("suite", help="run and time the full all-features Cargo suite")
     run.add_argument("--profile", choices=["dev", "ci"], default="dev")
-    run.add_argument("--runner", choices=["cargo", "nextest"], default="cargo")
     run.add_argument("--filter", help="run only matching integration tests, keeping full-suite features")
-    run.add_argument("--build-jobs", type=int, help="Cargo build jobs (independent of nextest test threads)")
-    run.add_argument("--test-threads", type=int, help="parallel tests for either runner")
+    run.add_argument("--build-jobs", type=int, help="Cargo build jobs (independent of test threads)")
+    run.add_argument("--test-threads", type=int, help="parallel tests")
     run.add_argument("--output", type=Path)
     local = sub.add_parser("local", help="convert local_ci.sh's TSV into a saved report")
     local.add_argument("input", type=Path)

@@ -43,7 +43,9 @@ compile only; they do not include test execution.
 | Small frontend edit | 42.48 s | 29.83 s | 29.8% | 300.40 / 242.26 billion (19.4% less) |
 
 The integration binary shrinks from 155,913,744 to 151,044,272 bytes (3.1%).
-This measures a narrow source change in this build configuration, not a cold
+Both edit scenarios remove about 58.14 billion user instructions; the
+frontend scenario still rebuilds the compiler itself. This measures a narrow
+source change in this build configuration, not a cold
 checkout, production compiler speedup or general guarantee for every edit.
 
 The raw JSON samples are in [results/duplicated-helpers.json](results/duplicated-helpers.json)
@@ -67,8 +69,65 @@ per-sample commands, wall times and instruction counts under
 
 ## Runner comparison
 
-The timed wrapper now supports focused integration filters with the full suite's
-feature graph, avoiding an accidental second set of build artifacts. Cargo
-remains the default. The optional nextest path retains the repository's test
-groups and runs doctests separately. Full-run measurements and remaining
-execution hotspots are recorded here after validation.
+The timed wrapper supports focused integration filters with the full suite's
+feature graph, avoiding an accidental second set of build artifacts. Build
+jobs and test threads are independently selectable. Cargo remains the runner;
+the optional nextest wrapper experiment was removed after the following result.
+
+At reviewed implementation `86398e28`, both full suites passed on unchanged
+Rust sources. All full-suite artifacts were prepared before either measurement.
+Each runner received a separate, identical copy of the same 216-file Plenty
+cache (693,116 bytes); neither inherited cache entries from the other run.
+Both used six build jobs and sixteen test threads. Order was Cargo then nextest.
+
+| Runner | Compile freshness | Execute including doctests | Total |
+| --- | ---: | ---: | ---: |
+| Cargo | 0.15 s | 263.30 s | 263.51 s |
+| nextest plus separate Cargo doctests | 0.17 s | 261.76 s | 261.98 s |
+
+That 0.6% difference in a single pair is within ordinary timing noise, so there
+is **no demonstrated full-suite execution improvement** and no runner change.
+Nextest used the existing `ci` nextest configuration with Cargo's `dev` build
+profile, preserving the compile-scaling group. It ran the same 7,493 enabled
+tests (nine existing ignored tests skipped), followed by the Cargo doctest
+phase. Cargo passed 315 compiler units, two CLI units, 6,863 integration tests
+(four ignored), nine compile-benchmark tests and 304 runtime units (five ignored).
+Both packages currently have zero doctests; the phase remains part of the full
+Cargo command. Reports are retained in [results/](results/).
+
+The removed wrapper is reproducible at commit `86398e28`:
+
+```sh
+RUSTC_WRAPPER= PLENTY_CACHE_DIR=/absolute/path/cache-cargo just test --build-jobs 6 --test-threads 16
+RUSTC_WRAPPER= PLENTY_CACHE_DIR=/absolute/path/cache-nextest just test --runner nextest --build-jobs 6 --test-threads 16
+```
+
+Make both cache directories from the same seed before either command. The
+ordinary nextest Cargo command remains available as documented in the test
+workflow; this experiment adds no dependency on nextest.
+
+## Remaining execution costs
+
+The nextest JUnit report provides a current diagnostic sample, not isolated
+per-test CPU profiling. Its test durations sum to 3,897.7 seconds under
+16-way contention; the slowest 75 cases (top 1%) contribute 32.8% of that sum.
+The [20 slowest cases](results/execution-hotspots.json) include:
+
+| Case family | Observed duration |
+| --- | ---: |
+| Package relocation with aliases/protocols/conditionals | 133.5 s |
+| Package relocation with shadowed names | 64.2 s |
+| Generic-instance stress | 62.0 s |
+| Package relocation with nested CRLF modules | 55.8 s |
+| Workspace-library relocation | 48.3 s |
+| Exhaustive eight-bit interval proof | 47.5 s |
+| Expanding-generator bound | 36.3 s |
+| Imported-module executable-size check | 34.8 s |
+
+The relocation tests intentionally check every candidate move and rerun
+programs; generics tests intentionally stress termination limits. Their
+coverage is preserved. Large elapsed sums and a nearly unchanged runner pair
+point toward reducing repeated work inside expensive cases, rather than
+replacing the scheduler. Any such changes need separate coverage-equivalence
+and isolated measurements; no test is disabled, sampled or given weaker
+assertions here. Existing CI optimization and cache behavior are unchanged.

@@ -82,21 +82,16 @@ this is command-level attribution, not a compiler or per-test profiler.
 
 ```sh
 just test --filter test_std_url::
-just test --runner nextest
-just test --runner nextest --profile ci
+just test --profile ci
 python3 -B scripts/check_timings.py report target/check-timings/suite-CURRENT/timings.json --baseline target/check-timings/suite-EARLIER/timings.json
 ```
 
 `--filter` selects only matching integration tests, labels the report as a
 filtered run, and keeps the full suite's workspace/features so artifacts can be
-reused. Without a filter, the full suite still runs. The optional `nextest`
-runner requires an installed `cargo-nextest`; it overlaps test binaries and
-runs doctests separately because nextest does not run them. It uses the
-repository's nextest `ci` configuration (including test groups and JUnit),
-independently of the Cargo build profile selected with `--profile`.
+reused. Without a filter, the full suite still runs, including doctests.
 The default remains Cargo with the development build profile.
-`--build-jobs 3 --test-threads 3` limits build and execution concurrency for
-either runner on a shared machine. Reports retain the actual commands and
+`--build-jobs 3 --test-threads 3` limits build and execution concurrency on a
+shared machine. Reports retain the actual commands and
 failure status for each phase.
 
 On Linux, both check commands automatically use an installed ccache for native

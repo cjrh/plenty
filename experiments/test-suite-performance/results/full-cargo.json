@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "kind": "local",
+  "label": "Full suite (dev, cargo)",
+  "created_at": "2026-11-14T19:33:00.804200+00:00",
+  "revision": "86398e281ffe8bbf880955aaa14851256f69a799",
+  "host": "lavender",
+  "platform": "linux x86_64",
+  "elapsed_seconds": 263.5057603640016,
+  "rows": [
+    {
+      "name": "Compile tests",
+      "seconds": 0.1522131739911856,
+      "status": "ok",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--jobs",
+        "6",
+        "--no-run",
+        "--timings"
+      ]
+    },
+    {
+      "name": "Run tests and doctests",
+      "seconds": 263.3032693360001,
+      "status": "ok",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--workspace",
+        "--all-features",
+        "--jobs",
+        "6",
+        "--",
+        "--test-threads",
+        "16"
+      ]
+    }
+  ]
+}
