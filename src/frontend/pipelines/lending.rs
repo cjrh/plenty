@@ -31,6 +31,8 @@ pub(in crate::frontend) struct Lent {
     /// Item slots holding references, with the lender's loan each derives
     /// from. The borrower gives each a loan of its own.
     references: Vec<(u8, usize, bool)>,
+    /// Lender-numbered item origins with strict user-iterator receiver loans.
+    streaming: BTreeSet<usize>,
 }
 
 impl Lent {
@@ -580,6 +582,10 @@ impl Lower<'_> {
         }
         let key = (self.symbol, index);
         let references = self.lent_item_references(plan, at)?;
+        let streaming = references
+            .iter()
+            .filter_map(|(_, loan, _)| self.strict_streaming_origin(*loan).then_some(*loan))
+            .collect();
         let lent = Arc::new(Lent {
             plan: plan.clone(),
             types,
@@ -587,6 +593,7 @@ impl Lower<'_> {
             shared: shared.clone(),
             scratch,
             references,
+            streaming,
         });
         let id = match self.generics.lent_ids.get(&key) {
             Some(&id) => {
@@ -793,6 +800,9 @@ impl Lower<'_> {
                     }
                 };
                 self.pipeline.lent_item_loans.insert(loan);
+                if lent.streaming.contains(&old) {
+                    self.pipeline.streaming_items.insert(loan);
+                }
                 item_loans.push((relocation.slot(slot)?, loan));
             }
             let mut iteration = Iteration {

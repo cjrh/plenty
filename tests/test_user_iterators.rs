@@ -450,3 +450,40 @@ print(99).unwrap()
         "borrow",
     );
 }
+
+#[test]
+fn pipeline_maps_cannot_launder_streaming_items_in_success_wrappers() {
+    for (output, body) in [("Option[&i64]", "Some(x)"), ("Result[&i64, str]", "Ok(x)")] {
+        for source in ["iter(&mut a)", "iter(&xs)"] {
+            reject(
+                &format!(
+                    "{CURSOR}\ndef wrap(x: &i64) -> {output}:\n    {body}\nxs = [2, 4].unwrap()\nmut a = Cursor(&xs, 0)\nmut b = Cursor(&xs, 0)\nfor n in {source}.map(wrap).chain(iter(&mut b).map(wrap)):\n    print(n).unwrap()"
+                ),
+                "map callbacks cannot return borrowed values",
+            );
+        }
+    }
+}
+
+#[test]
+fn lent_plans_preserve_strict_streaming_chain_rejection() {
+    let source = r#"
+class Owned:
+    data: array[i64, 2]
+    position: i64
+    def next(self: &mut Owned) -> Option[&i64]:
+        if self.position >= 2:
+            return Nothing
+        index = self.position
+        unchecked:
+            self.position += 1
+        Some(&self.data[index])
+def consume(p: &mut Iter[&i64], q: &mut Iter[&i64]) -> ():
+    for n in iter(p).chain(q):
+        print(*n).unwrap()
+mut p = iter(Owned([2, 4], 0))
+mut q = iter(Owned([7, 9], 0))
+consume(&mut p, &mut q)
+"#;
+    reject(source, "chain cannot combine strict streaming");
+}

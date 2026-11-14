@@ -436,6 +436,9 @@ impl Lower<'_> {
                                     .at
                                     .error("pipeline map callbacks cannot return references yet"));
                             }
+                            if ty.carries_loan() {
+                                return Err(e.at.error("pipeline map callbacks cannot return borrowed values, including views or Option/Result carrying a borrow; map to owned values instead"));
+                            }
                             let slot = self.slot(ty.clone(), &e.at)?;
                             plan.iteration.body.push(Op::StoreLocal(slot));
                             if ty.managed() {

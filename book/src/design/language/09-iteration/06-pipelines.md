@@ -296,7 +296,8 @@ result type. [Parallel pipelines](#parallel-pipelines) accept a narrower set of
 callback forms.
 One-shot closures are rejected because the pipeline calls the callback once per
 item, and a reference such as `&f` is rejected: pass the function or closure
-itself. `map` cannot currently return references.
+itself. `map` cannot currently return borrowed values: references, builtin views,
+view classes, or `Option`/`Result` carrying one. Map to owned values instead.
 
 A closure literal written directly as a callback is lowered into the consumer's
 loop instead of being called. It behaves as the call would: captures are
