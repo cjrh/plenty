@@ -1,0 +1,21 @@
+import std.simd as simd
+
+def advance(value: simd.f64x4, delta: &simd.f64x4, factor: f64, steps: i64) -> simd.f64x4:
+    mut current = value
+    multiplier = simd.f64x4.Lanes(factor, factor, factor, 1.0)
+    for _ in range(steps):
+        current = current.mul(&multiplier).add(delta)
+    current
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        10000
+    initial = simd.f64x4.Lanes(1.0, 2.0, 3.0, 0.0)
+    delta = simd.f64x4.Lanes(0.0001, -0.0002, 0.0003, 0.0)
+    result = advance(initial, &delta, 0.9999995, steps)
+    a, b, c, padding = result.to_tuple()
+    print(a, b, c)?
+    Ok(())

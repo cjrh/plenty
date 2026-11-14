@@ -1,0 +1,29 @@
+@copy
+class Vec3:
+    x: f64
+    y: f64
+    z: f64
+
+    def scaled(self, factor: f64) -> Vec3:
+        Vec3(self.x * factor, self.y * factor, self.z * factor)
+
+    def add(self, other: &Vec3) -> Vec3:
+        Vec3(self.x + other.x, self.y + other.y, self.z + other.z)
+
+def advance(value: Vec3, delta: &Vec3, factor: f64, steps: i64) -> Vec3:
+    mut current = value
+    for _ in range(steps):
+        current = current.scaled(factor).add(delta)
+    current
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        10000
+    initial = Vec3(1.0, 2.0, 3.0)
+    delta = Vec3(0.0001, -0.0002, 0.0003)
+    result = advance(initial, &delta, 0.9999995, steps)
+    print(result.x, result.y, result.z)?
+    Ok(())

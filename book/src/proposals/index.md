@@ -111,7 +111,7 @@ records and local merge metadata; it did not rerun their feature suites.
 
 | Proposal | Backlog |
 | --- | --- |
-| [Declared vectors for floating components](declared-vectors.md) — approved investigation for issue #967; arrays shipped, separate prototype awaits review, vector adoption remains gated | B23/B83 |
+| [Declared vectors for floating components](declared-vectors.md) — approved investigation for issue #967; arrays and bounded experiment delivered, vector adoption remains gated | B23/B83 |
 | [Stronger safety boundaries](trusted-safety-boundaries.md) — trusted modules, checked foreign owners, actor abandonment certification, transitive trust policy, and callback guarantees | B98; related B17, B22, B85 |
 | [One borrowed text type](unified-borrowed-text.md) — exploratory unification of `&str` and `&substr`; representation and generic-reference semantics remain adoption gates | B12; returned text relates to B11 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |

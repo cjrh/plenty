@@ -3,8 +3,8 @@
 **Status: Approved investigation design; vectors are not implemented, 2026-11-14.**
 Local issue #967 requests this comparison before adopting a vector type.
 The B83 [inline-array prerequisite](../design/language/03-types/arrays.md) has
-shipped in local PR #1262. The separate bounded experiment, local PR #1263,
-awaits review and has not passed its adoption speedup gate. Approval of this
+shipped in local PR #1262. The [bounded experiment](../completed-work/performance.md#declared-vector-prototype-issue-967),
+local PR #1263, is delivered and has not passed its adoption speedup gate. Approval of this
 proposal accepts the investigation contract, not a public API, physical layout
 or production speedup. Current behavior remains the [scalar row heuristic](../design/toolchain/02-architecture/numerical-loops.md#rows)
 and explicit [`std.simd`](../design/stdlib/simd.md). B23/B83 in the
@@ -98,7 +98,7 @@ B83 inline arrays and their construction/layout rules are delivered. This
 approved proposal defines the bounded experiment: compare the candidate
 against those arrays and current scalar/std.simd forms, then review the
 results before committing a public design. The separate experiment PR #1263
-is not merged by approving this proposal. The pairing heuristic for unrelated
+records the bounded candidate and its negative adoption result. The pairing heuristic for unrelated
 plain code remains unchanged.
 
 No new prototype, compiler change, benchmark rewrite, public std declaration

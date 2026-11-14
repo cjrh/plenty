@@ -105,12 +105,15 @@ loads and sum/class/list relocation. Inspect inactive operands before the
 operation; masking a NaN afterward is not acceptance evidence. Explicitly
 show that no uninitialized or out-of-range fourth word is read.
 
-## Separate experiment review status
+## Delivered bounded experiment
 
-Local PR #1263 records a bounded native-SSA experiment and awaits review. Its
+Local PR #1263 delivers a [bounded native-SSA experiment](../../completed-work/performance.md#declared-vector-prototype-issue-967). Its
 reported instruction reduction did not pass the whole-program CPU speedup
-gate. This proposal merge adopts neither that experiment nor a public vector
-API or compiler lowering. Its retained evidence remains in the separate PR.
+gate. The experiment retains raw evidence and reproducibility scripts in
+`experiments/declared-vectors/`; merging it adopts no public vector API or
+production compiler lowering. It preserves scalar ordered reductions and
+sqrt/div without integrating existing adjacent-magnitude pairing, so this
+result does not reject every possible native lowering.
 
 ## Acceptance and user guidance
 

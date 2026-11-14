@@ -29,6 +29,18 @@ fn isa() -> Arc<dyn isa::TargetIsa> {
         panic!("AVX execution experiments require an x86-64 host");
         builder.set("has_avx", "true").unwrap();
     }
+    if std::env::var_os("PLENTY_KERNEL_AVX2").is_some() {
+        #[cfg(target_arch = "x86_64")]
+        assert!(
+            std::arch::is_x86_feature_detected!("avx2")
+                && std::arch::is_x86_feature_detected!("sse4.1")
+        );
+        #[cfg(not(target_arch = "x86_64"))]
+        panic!("AVX2 execution experiments require an x86-64 host");
+        builder.set("has_avx", "true").unwrap();
+        builder.set("has_avx2", "true").unwrap();
+        builder.set("has_sse41", "true").unwrap();
+    }
     builder.finish(settings::Flags::new(flags)).unwrap()
 }
 
