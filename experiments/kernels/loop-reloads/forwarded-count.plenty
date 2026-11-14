@@ -1,0 +1,74 @@
+# Cut-down random_fasta (issue #947): the per-symbol loop with a checksum
+# call in place of write_lines. The per-symbol loop holds 5 stack loads
+# and stores; see README.md.
+import std.bytes
+
+const BLOCK_SIZE: i64 = 61440
+const IM: i64 = 139968
+const SEED_MAX: i64 = IM - 1
+const IA: i64 = 3877
+const IC: i64 = 29573
+const IUB_CODES: bytes = b"acgtBDHKMNRSVWY"
+
+type Seed = Bounded[i64, 0, SEED_MAX]
+
+
+class Rng:
+    seed: Seed
+
+    def next(self: &mut Rng) -> i64:
+        value = (self.seed.get() * IA + IC) % IM
+        self.seed = Seed.from(value)
+        value
+
+
+def cumulative(probabilities: &list[f32]) -> Result[list[i64], AllocError]:
+    mut limits = list[i64].with_capacity(len(probabilities))?
+    mut sum: f32 = 0.0f32
+    for p in probabilities:
+        sum += *p
+        limits.append(i64((sum * f32(IM)).floor()))?
+    Ok(limits)
+
+
+def checksum(block: &std.bytes.Bytes, count: i64) -> i64:
+    mut total = 0
+    for i in range(count):
+        total = total ^ i64(block[i])
+    total
+
+
+def random_fasta(block: &mut std.bytes.Bytes, rng: &mut Rng, codes: &[u8], limits: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
+    mut remaining = n
+    mut total = 0
+    while remaining > 0:
+        count = if remaining < BLOCK_SIZE:
+            remaining
+        else:
+            BLOCK_SIZE
+        for i in range(count):
+            r = rng.next()
+            mut k = 0
+            while limits[k] < r:
+                k += 1
+            block.set(i, codes[k])
+        total = total ^ checksum(block, count)
+        remaining -= count
+    Ok(total)
+
+
+def main() -> Result[i32, AllocError | IoError | ParseError | OverflowError[i64]]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        1000
+    iub = cumulative(&[
+        0.27f32, 0.12f32, 0.12f32, 0.27f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32,
+        0.02f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32,
+    ]?)?
+    mut block = std.bytes.with_capacity(BLOCK_SIZE)?
+    block.resize(BLOCK_SIZE, 0u8)?
+    mut rng = Rng(42)
+    print(random_fasta(&mut block, &mut rng, &IUB_CODES, &iub, n * 3)?)?
+    Ok(0)
