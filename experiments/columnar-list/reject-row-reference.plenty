@@ -1,7 +1,7 @@
 # Expected rejection: borrowed view classes cannot be columnar rows.
 class RowRef:
     x: &i64
-    y: &i64
+    y: i64
 
 def main() -> ():
     rows = clist[RowRef]()
