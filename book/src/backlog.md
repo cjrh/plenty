@@ -261,11 +261,10 @@ are recorded there.
   and 256-bit `ymm` registers for `f64x4` at x86-64-v3 through the Cranelift
   fork (stage 4;
   [measurements](completed-work/performance.md#f64x4-in-ymm-registers-issue-962-stage-4));
-  128-bit spills for narrower values in functions that hold a 256-bit value
-  (issue #969;
-  [measurements](completed-work/performance.md#narrow-spills-beside-256-bit-values-issue-969));
   remaining: a CPU check for shared and static libraries, which reject levels
-  above x86-64 until one is designed.
+  above x86-64 until one is designed. Narrow spills in functions that hold a
+  256-bit value were measured and not adopted (issue #969;
+  [measurements](completed-work/performance.md#narrow-spills-beside-256-bit-values-issue-969-not-adopted)).
   Strict byte-method dispatcher removal (issue #741), loop-cached byte
   access (issue #843), caller sites in inlined byte access (issue #842) and
   one-word reference reads (issue #844) are recorded in the

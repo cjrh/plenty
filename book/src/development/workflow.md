@@ -126,15 +126,12 @@ defect whose cause is in either can be fixed there:
 
 | Crate | Repository | Branch | Base |
 |---|---|---|---|
-| `cranelift-*` | <https://github.com/cjrh/wasmtime> (Cranelift is in `cranelift/`) | `fork` | Wasmtime 50.0.0, Cranelift 0.137.0, with upstream #14717 (issue #934), and optional spill-reload folding and forwarding after register allocation (settings `regalloc_fold_reloads` and `regalloc_forward_spills`, issue #930), and 16-byte spill slots for values of at most 128 bits in functions that hold a 256-bit value (issue #969) |
-| `regalloc2` | <https://github.com/cjrh/regalloc2> | `fork` | 0.15.2 and later upstream commits, with the loop-exit block fix (`docs/cold-exit-block-splits.md` in the fork), split bundles moved into their spill bundle's register (`docs/spill-bundle-registers.md`, issue #939), a spilled value's register extended over its loop when one is free (`docs/loop-extension.md`, issue #939), and a spill slot size per virtual register (`Function::vreg_spillslot_size`, issue #969) |
+| `cranelift-*` | <https://github.com/cjrh/wasmtime> (Cranelift is in `cranelift/`) | `fork` | Wasmtime 50.0.0, Cranelift 0.137.0, with upstream #14717 (issue #934), and optional spill-reload folding and forwarding after register allocation (settings `regalloc_fold_reloads` and `regalloc_forward_spills`, issue #930) |
+| `regalloc2` | <https://github.com/cjrh/regalloc2> | `fork` | 0.15.2 and later upstream commits, with the loop-exit block fix (`docs/cold-exit-block-splits.md` in the fork), split bundles moved into their spill bundle's register (`docs/spill-bundle-registers.md`, issue #939), and a spilled value's register extended over its loop when one is free (`docs/loop-extension.md`, issue #939) |
 
 `Cargo.toml` names the `cranelift-*` crates as Git dependencies. Cranelift
 itself names the crates.io `regalloc2`, so `[patch.crates-io]` replaces it; the
-fork's version must satisfy Cranelift's requirement. The Cranelift fork calls
-regalloc2 interfaces that only the regalloc2 fork has (issue #969), so its own
-workspace carries the same patch, and the two forks' revisions in `Cargo.lock`
-must be updated together. `Cargo.lock` records the
+fork's version must satisfy Cranelift's requirement. `Cargo.lock` records the
 exact revision of each fork, and `--locked` builds use it. Both projects are
 licensed Apache-2.0 WITH LLVM-exception; keep their license files and headers,
 and state changes in commit messages.
