@@ -1,0 +1,201 @@
+From 76470301a2f60737091e71d282c3371ebae5b011 Mon Sep 17 00:00:00 2001
+From: Caleb Hattingh <caleb.hattingh@gmail.com>
+Date: Sat, 14 Nov 2026 21:26:22 +0100
+Subject: [PATCH] Lower register-only uses without propagating operand
+ multiplicity
+
+Keep direct use counts conservative while distinguishing instruction operands from block arguments and exception contexts, which always materialize producers in registers. This permits single-use loads to fold into arithmetic whose result is passed to both successors. Preserve first-result coarsening and side-effect/same-block sinking checks.
+
+Add verifier-checked use-state tests and an x86 rotated-reduction memory-operand regression. Tested: six focused use-state units and 209 x86 filetests. Apache-2.0 WITH LLVM-exception.
+---
+ cranelift/codegen/src/machinst/lower.rs       | 141 ++++++++++++++++--
+ .../isa/x64/block-args-load-folding.clif      |  29 ++++
+ 2 files changed, 159 insertions(+), 11 deletions(-)
+ create mode 100644 cranelift/filetests/filetests/isa/x64/block-args-load-folding.clif
+
+diff --git a/cranelift/codegen/src/machinst/lower.rs b/cranelift/codegen/src/machinst/lower.rs
+index c67adf3135..ada94354df 100644
+--- a/cranelift/codegen/src/machinst/lower.rs
++++ b/cranelift/codegen/src/machinst/lower.rs
+@@ -321 +321 @@ pub struct Lower<'func, I: VCodeInst> {
+-/// tree) become `Multiple`.
++/// tree, when it can be merged) become `Multiple`.
+@@ -323,10 +323,7 @@ pub struct Lower<'func, I: VCodeInst> {
+-/// To define `ValueUseState` more plainly: a value is `Unused` if no references
+-/// exist to it; `Once` if only one other op refers to it, *and* that other op
+-/// is `Unused` or `Once`, *and* no other result of the same instruction is
+-/// used; and `Multiple` otherwise. In
+-/// other words, `Multiple` is contagious: even if an op's result value is
+-/// directly used only once in the CLIF, that value is `Multiple` if the op
+-/// that uses it is itself used multiple times (hence could be codegen'd
+-/// multiple times). In brief, this analysis tells us whether, if every op
+-/// merged all of its operand tree, a given op could be codegen'd in more than
+-/// one place.
++/// Direct uses include instruction operands, block arguments, and exception
++/// contexts. `Multiple` propagates through the producer's operand tree only
++/// when an instruction operand can merge that producer: block arguments and
++/// exception contexts always request registers instead. A producer passed to
++/// two successors is still `Multiple`, but its operands can remain `Once`
++/// when the producer itself is materialized exactly once. Multiple-result
++/// instructions remain conservative by counting against their first result.
+@@ -1427,0 +1425,4 @@ fn compute_use_states(
++    // Block arguments and exception-table contexts are always materialized in
++    // registers. Only instruction-operand uses can merge their producer and
++    // duplicate its operand tree.
++    let mut merged_use: SecondaryMap<Value, bool> = SecondaryMap::with_default(false);
+@@ -1467,0 +1469,3 @@ fn compute_use_states(
++        for &arg in f.dfg.inst_args(inst) {
++            merged_use[map_to_first_result(f, arg)] = true;
++        }
+@@ -1475,0 +1480,6 @@ fn compute_use_states(
++        // `collect_block_call` and `try_call_info` put these values in
++        // registers without merging their producer. The producer may have
++        // several register users, but its operand tree is lowered once.
++        if !merged_use[value] {
++            continue;
++        }
+@@ -1808,0 +1819,109 @@ mod tests {
++    /// Both successors need the arithmetic value in a register; neither can
++    /// merge its instruction tree. The load may merge into the arithmetic.
++    #[test]
++    fn repeated_block_arguments_do_not_duplicate_operand_trees() {
++        branch_uses(false, false);
++    }
++
++    /// One actual instruction use of the arithmetic result restores conservative
++    /// propagation, even though its other use is a register-only block arg.
++    #[test]
++    fn mixed_block_and_instruction_uses_remain_conservative() {
++        branch_uses(true, false);
++    }
++
++    /// A genuinely shared load must never become eligible for sinking.
++    #[test]
++    fn shared_load_remains_multiple() {
++        branch_uses(false, true);
++    }
++
++    fn branch_uses(instruction_use: bool, shared_load: bool) {
++        use crate::ir::{AbiParam, MemFlagsData};
++        let mut func = Function::new();
++        func.signature.params.push(AbiParam::new(types::I64));
++        func.signature.returns.push(AbiParam::new(types::F64));
++        let entry = func.dfg.make_block();
++        let exit = func.dfg.make_block();
++        let ptr = func.dfg.append_block_param(entry, types::I64);
++        let result = func.dfg.append_block_param(exit, types::F64);
++        let mut pos = FuncCursor::new(&mut func);
++        pos.insert_block(entry);
++        let load = pos.ins().load(types::F64, MemFlagsData::new(), ptr, 0);
++        let product = pos.ins().fneg(load);
++        let other = if instruction_use {
++            pos.ins().fabs(product)
++        } else if shared_load {
++            pos.ins().fabs(load)
++        } else {
++            product
++        };
++        let condition = pos.ins().iconst(types::I8, 1);
++        pos.ins()
++            .brif(condition, exit, &[product.into()], exit, &[other.into()]);
++        pos.insert_block(exit);
++        pos.ins().return_(&[result]);
++        let flags = crate::settings::Flags::new(crate::settings::builder());
++        crate::verifier::verify_function(&pos.func, &flags).unwrap();
++        let uses = super::compute_use_states(&pos.func, None);
++        assert_eq!(
++            uses[load],
++            if instruction_use || shared_load {
++                ValueUseState::Multiple
++            } else {
++                ValueUseState::Once
++            }
++        );
++        assert_eq!(
++            uses[product],
++            if shared_load {
++                ValueUseState::Once
++            } else {
++                ValueUseState::Multiple
++            }
++        );
++    }
++
++    #[test]
++    fn exception_context_and_block_arg_are_register_only_uses() {
++        use crate::ir::{AbiParam, BlockCall, ExceptionTableData, ExceptionTableItem};
++        use crate::ir::{MemFlagsData, Signature};
++        use crate::isa::CallConv;
++        let mut func = Function::new();
++        func.signature.call_conv = CallConv::Tail;
++        func.signature.params.extend([AbiParam::new(types::I64); 2]);
++        func.signature.returns.push(AbiParam::new(types::I64));
++        let callee_sig = func.import_signature(Signature::new(CallConv::Tail));
++        let entry = func.dfg.make_block();
++        let exit = func.dfg.make_block();
++        let handler = func.dfg.make_block();
++        let ptr = func.dfg.append_block_param(entry, types::I64);
++        let callee = func.dfg.append_block_param(entry, types::I64);
++        let result = func.dfg.append_block_param(exit, types::I64);
++        let mut pos = FuncCursor::new(&mut func);
++        pos.insert_block(entry);
++        let load = pos.ins().load(types::I64, MemFlagsData::new(), ptr, 0);
++        let context = pos.ins().iadd_imm(load, 1);
++        let normal = BlockCall::new(exit, [context.into()], &mut pos.func.dfg.value_lists);
++        let caught = BlockCall::new(handler, [], &mut pos.func.dfg.value_lists);
++        let table = pos.func.dfg.exception_tables.push(ExceptionTableData::new(
++            callee_sig,
++            normal,
++            [
++                ExceptionTableItem::Context(context),
++                ExceptionTableItem::Default(caught),
++            ],
++        ));
++        pos.ins().try_call_indirect(callee, &[], table);
++        pos.insert_block(exit);
++        pos.ins().return_(&[result]);
++        pos.insert_block(handler);
++        let zero = pos.ins().iconst(types::I64, 0);
++        pos.ins().return_(&[zero]);
++        let flags = crate::settings::Flags::new(crate::settings::builder());
++        crate::verifier::verify_function(&pos.func, &flags).unwrap();
++        let uses = super::compute_use_states(&pos.func, None);
++        assert_eq!(uses[context], ValueUseState::Multiple);
++        assert_eq!(uses[load], ValueUseState::Once);
++    }
++
+diff --git a/cranelift/filetests/filetests/isa/x64/block-args-load-folding.clif b/cranelift/filetests/filetests/isa/x64/block-args-load-folding.clif
+new file mode 100644
+index 0000000000..e8d36280d4
+--- /dev/null
++++ b/cranelift/filetests/filetests/isa/x64/block-args-load-folding.clif
+@@ -0,0 +1,29 @@
++test compile
++set opt_level=speed
++target x86_64
++
++;; A rotated reduction passes its sum to both the backedge and the exit.
++;; Both are register-only uses, so they must not prevent the input load
++;; from merging into the one arithmetic instruction that consumes it.
++function %exit_sum(i64, i64) -> f64 {
++block0(v0: i64, v1: i64):
++    v2 = f64const 0.0
++    v3 = iconst.i64 0
++    v4 = icmp sle v1, v3
++    brif v4, block2(v2), block1(v2, v0, v1)
++
++block1(v10: f64, v11: i64, v12: i64):
++    v13 = load.f64 notrap aligned v11
++    v14 = fadd v10, v13
++    v5 = iconst.i64 8
++    v15 = iadd v11, v5
++    v6 = iconst.i64 1
++    v16 = isub v12, v6
++    v17 = icmp sgt v16, v3
++    brif v17, block1(v14, v15, v16), block2(v14)
++
++block2(v20: f64):
++    return v20
++}
++
++; check: addsd (

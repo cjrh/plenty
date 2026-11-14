@@ -1,0 +1,95 @@
+{
+  "base_revision": "eacaf2019634621a2e42dbc5a1fb8534ee1eedce",
+  "candidate_frontend_patch_sha256": "ec167662fadef5a2ca3061e8de5f11dc186154f7193b97ea700e2248e5b9a995",
+  "candidate_backend_revision": "76470301a2f60737091e71d282c3371ebae5b011",
+  "regalloc2_revision": "b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1",
+  "cache": "PLENTY_CACHE=off",
+  "candidate_working_tree": "temporary source patch plus local path overrides, restored after qualification",
+  "full_suite": {
+    "status": "passed",
+    "elapsed_seconds": 423.7351315559936,
+    "rows": [
+      {
+        "name": "Compile tests",
+        "seconds": 144.8378253550036,
+        "status": "ok",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--workspace",
+          "--all-features",
+          "--no-run",
+          "--timings"
+        ]
+      },
+      {
+        "name": "Run tests and doctests",
+        "seconds": 278.84862785201403,
+        "status": "ok",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--workspace",
+          "--all-features"
+        ]
+      }
+    ],
+    "compiler_units_passed": 316,
+    "integration_passed": 6884,
+    "integration_ignored": 4,
+    "runtime_passed": 304,
+    "runtime_ignored": 5,
+    "allocation_failure_passed": 9
+  },
+  "focused": [
+    "62 loop tests before strengthened f32/f64 parameterization",
+    "2 strengthened f32/f64 cleanup tests",
+    "4 explicit optimized/fast-compile width probes",
+    "68 exact trap-location tests",
+    "2 alias/memory-order tests",
+    "owning-loop continue traversal unit"
+  ],
+  "fork": {
+    "units_passed": 6,
+    "filetests": {
+      "x64": 209,
+      "aarch64": 134,
+      "riscv64": 239,
+      "s390x": 102
+    },
+    "pinned_allocator": "nonzero at both pins: identical 15 precise-output mismatches; see allocator-comparison.json"
+  },
+  "native_matrix_cases": 2048,
+  "native_variants": [
+    "standalone precision",
+    "explicit scheduling+precision integration"
+  ],
+  "corpus_sources": 38,
+  "benchmark_programs": 14,
+  "self_review": "blocker-free after narrowing CFG selection and adding width coverage",
+  "independent_review": "source-only frontend and backend reviews found no blocker; no independent builds",
+  "clippy": "passed actual candidate",
+  "format": "passed actual candidate",
+  "final_docs": {
+    "source_links": "passed",
+    "workflow_units": {
+      "ran": 373,
+      "skipped": 4,
+      "status": "passed after original manifests restored"
+    },
+    "complete_site": {
+      "status": "passed",
+      "default_html_pages": 1648,
+      "dev_html_pages": 824
+    }
+  },
+  "limits": [
+    "Production pins and source unchanged; no publication/adoption",
+    "No standalone CPU speedup established",
+    "Combined 14/14 is CLIF/native evidence, not a qualified full combined compiler",
+    "Allocator check remains nonzero with baseline-identical differences",
+    "Pulley and non-Linux native ABI probe not qualified"
+  ]
+}

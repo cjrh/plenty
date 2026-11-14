@@ -1,0 +1,115 @@
+function %unrotated(i128, i128) tail {
+    ss0 = explicit_slot 16, align = 16
+    gv0 = symbol colocated userextname0 ; .Ldata1 (trap sites: 1)
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:68 sig0 ; plenty_trap_list_index
+    const0 = 0x00000000000000003ff0000000000000
+
+block0(v0: i128, v1: i128):
+    ; line 15
+    v5, v6 = isplit v0
+    ; line 16
+    v7 = iconst.i64 0x000f_4240
+    v8 = icmp sgt v6, v7  ; v7 = 0x000f_4240
+    brif v8, block2, block3
+
+block2:
+    ; line 17
+    return
+
+block3:
+    jump block1
+
+block1:
+    ; line 18
+    jump block5
+
+block5:
+    v2 = iconst.i64 0
+    v132 = icmp.i64 sle v6, v2  ; v2 = 0
+    ; line 19
+    v24 = f64const 0.0
+    ; line 18
+    brif v132, block4, block6(v2)  ; v2 = 0
+
+block6(v39: i64):
+    ; line 20
+    jump block9
+
+block9:
+    v135 = f64const 0.0
+    v136 = iconst.i64 0
+    ; line 21
+    v71 = iconst.i64 3
+    ; line 18
+    v10 = iconst.i64 1
+    ; line 11
+    v64 = vconst.f64x2 const0
+    v65 = extractlane v64, 0  ; v64 = const0
+    ; line 20
+    brif.i8 v132, block8(v135), block10(v135, v136)  ; v135 = 0.0, v135 = 0.0, v136 = 0
+
+block10(v43: f64, v45: i64):
+    ; line 11
+    v148 = icmp slt v45, v6
+    brif v148, block12, block8(v43)
+
+block12:
+    ; line 21
+    v69, v70 = isplit.i128 v0
+    v137 = iconst.i64 3
+    v138 = ishl.i64 v45, v137  ; v137 = 3
+    v73 = iadd v69, v138
+    v75 = load.f64 notrap aligned v73
+    v139 = iconst.i64 1
+    v140 = iadd.i64 v45, v139  ; v139 = 1
+    ; line 20
+    v83 = icmp slt v140, v6
+    ; line 10
+    v51 = iadd.i64 v39, v45
+    v141 = iadd v51, v139  ; v139 = 1
+    ; line 11
+    v55 = imul v51, v141
+    v142 = ushr v55, v139  ; v139 = 1
+    v60 = iadd v142, v39
+    v143 = iadd v60, v139  ; v139 = 1
+    v63 = fcvt_from_sint.f64 v143
+    v66 = fdiv.f64 v65, v63
+    ; line 21
+    v76 = fmul v66, v75
+    v77 = fadd.f64 v43, v76
+    ; line 20
+    jump block10(v77, v140)
+
+block8(v84: f64):
+    ; line 22
+    v90, v91 = isplit.i128 v1
+    v92 = icmp.i64 ult v39, v91
+    brif v92, block14, block13
+
+block13 cold:
+    v93 = stack_addr.i64 ss0
+    store.i64 notrap aligned v39, v93
+    store.i64 notrap aligned v91, v93+8
+    v94 = symbol_value.i64 gv0
+    call fn0(v93, v94)
+    trap user3
+
+block14:
+    v144 = iconst.i64 3
+    v145 = ishl.i64 v39, v144  ; v144 = 3
+    v97 = iadd.i64 v90, v145
+    store.f64 notrap aligned v84, v97
+    jump block7
+
+block7:
+    v146 = iconst.i64 1
+    v147 = iadd.i64 v39, v146  ; v146 = 1
+    ; line 18
+    v109 = icmp slt v147, v6
+    brif v109, block6(v147), block4
+
+block4:
+    ; line 22
+    return
+}

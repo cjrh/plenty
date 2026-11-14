@@ -1,0 +1,191 @@
+diff --git i/book/src/design/toolchain/02-architecture/emission.md w/book/src/design/toolchain/02-architecture/emission.md
+index 21d00479..d0741c46 100644
+--- i/book/src/design/toolchain/02-architecture/emission.md
++++ w/book/src/design/toolchain/02-architecture/emission.md
+@@ -596,0 +597,8 @@ A body that never falls through and has no `continue` gets no latch.
++An optimized x86 scalar reduction with a load feeding a multiply and then an
++add into a loop-carried sum can place its latch test directly in the last body
++block (issue #980). That common block permits the backend to select a floating
++memory operand. This is limited to that instruction-selection opportunity;
++coalescing unrelated loops can increase register spills. A `continue` for the
++loop, including cleanup paths, retains the shared latch. Bounds facts and the
++order of the division, multiplication and addition remain unchanged.
++
+diff --git i/src/codegen/collections.rs w/src/codegen/collections.rs
+index f0a0f0e9..ae0ba444 100644
+--- i/src/codegen/collections.rs
++++ w/src/codegen/collections.rs
+@@ -2394 +2394,12 @@ impl Lowerer<'_, '_> {
+-        if !self.terminated {
++        // With no continue edge, the ordinary fallthrough is the only
++        // route to the next test. Keep that test in the body's last block
++        // so instruction selection can merge its loads into arithmetic
++        // (issue #980). Rotation and its body-only facts stay unchanged.
++        // A continue, including one through a cleanup ladder, still needs
++        // the shared latch. Nested loops have their own continue targets.
++        let coalesced = rotated
++            && self.module.folds_scalar_float_loads()
++            && !self.terminated
++            && !crate::op::continues_loop(body)
++            && self.has_float_reduction_load(iteration);
++        if !self.terminated && !coalesced {
+@@ -2397,3 +2408,6 @@ impl Lowerer<'_, '_> {
+-        // The shared `break` blocks are still inside the iteration.
+-        self.finish_loop_exits()?;
+-        self.loop_targets.pop();
++        // A coalesced fallthrough still needs its condition terminator
++        // before cleanup lowering can switch to the shared break blocks.
++        if !coalesced {
++            self.finish_loop_exits()?;
++            self.loop_targets.pop();
++        }
+@@ -2406 +2420,3 @@ impl Lowerer<'_, '_> {
+-            self.bcx.switch_to_block(latch);
++            if !coalesced {
++                self.bcx.switch_to_block(latch);
++            }
+@@ -2418,0 +2435,4 @@ impl Lowerer<'_, '_> {
++            if coalesced {
++                self.finish_loop_exits()?;
++                self.loop_targets.pop();
++            }
+@@ -2427,0 +2448,36 @@ impl Lowerer<'_, '_> {
++    /// A scalar load feeding a multiply and then an add to a loop-carried
++    /// sum can become a memory operand when the test shares its body block.
++    /// Limit coalescing to that opportunity: doing it for unrelated loops
++    /// changes allocator block order and can add spills (issue #980).
++    fn has_float_reduction_load(&self, iteration: cranelift_codegen::ir::Block) -> bool {
++        use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
++        let Some(block) = self.bcx.current_block() else {
++            return false;
++        };
++        let dfg = &self.bcx.func.dfg;
++        let layout = &self.bcx.func.layout;
++        let def = |value| dfg.value_def(dfg.resolve_aliases(value));
++        let load = |value| {
++            matches!(def(value), ValueDef::Result(inst, _)
++                if dfg.insts[inst].opcode() == Opcode::Load
++                    && layout.inst_block(inst) == Some(block))
++        };
++        let product = |value| match def(value) {
++            ValueDef::Result(inst, _) if layout.inst_block(inst) == Some(block) => {
++                matches!(dfg.insts[inst], InstructionData::Binary {
++                    opcode: Opcode::Fmul, args,
++                } if load(args[0]) || load(args[1]))
++            }
++            _ => false,
++        };
++        let carried = |value| matches!(def(value), ValueDef::Param(owner, _) if owner == iteration);
++        layout.block_insts(block).any(|inst| {
++            matches!(dfg.insts[inst], InstructionData::Binary {
++                opcode: Opcode::Fadd, args,
++            } if (dfg.value_type(args[0]) == cranelift_codegen::ir::types::F64
++                || dfg.value_type(args[0]) == cranelift_codegen::ir::types::F32)
++                && ((carried(args[0]) && product(args[1]))
++                    || (carried(args[1]) && product(args[0]))))
++        })
++    }
++
+diff --git i/src/codegen/symbols.rs w/src/codegen/symbols.rs
+index e03b2d0b..eee1d550 100644
+--- i/src/codegen/symbols.rs
++++ w/src/codegen/symbols.rs
+@@ -218,0 +219,7 @@ impl Symbols {
++    /// x86 scalar arithmetic can consume a floating load directly. Other
++    /// targets retain the ordinary loop blocks until measured separately.
++    pub(super) fn folds_scalar_float_loads(&self) -> bool {
++        self.declared.isa.triple().architecture == target_lexicon::Architecture::X86_64
++            && self.declared.isa.flags().opt_level() != cranelift_codegen::settings::OptLevel::None
++    }
++
+diff --git i/src/op.rs w/src/op.rs
+index 70d234aa..36c4c7ee 100644
+--- i/src/op.rs
++++ w/src/op.rs
+@@ -1554,0 +1555,10 @@ fn breaks_out(body: &[Op]) -> bool {
++    transfers_out(body, false)
++}
++
++/// Whether a continue in this body targets its own loop, including checked
++/// cleanup paths. Continues inside nested loops target only those loops.
++pub(crate) fn continues_loop(body: &[Op]) -> bool {
++    transfers_out(body, true)
++}
++
++fn transfers_out(body: &[Op], continuing: bool) -> bool {
+@@ -1559 +1569,2 @@ fn breaks_out(body: &[Op]) -> bool {
+-                Op::Break => return true,
++                Op::Break if !continuing => return true,
++                Op::Continue if continuing => return true,
+@@ -1694,0 +1706,19 @@ mod tests {
++    #[test]
++    fn loop_continue_targets_skip_nested_loops_but_include_checked_suites() {
++        let inner = Op::Loop {
++            condition: vec![Op::PushBool(true)].into(),
++            body: vec![Op::Continue].into(),
++        };
++        assert!(!continues_loop(&[inner]));
++        assert!(!continues_loop(&[Op::Break]));
++        assert!(continues_loop(&[Op::CheckedBlock {
++            body: vec![Op::If {
++                then: vec![Op::Continue].into(),
++                elifs: vec![].into(),
++                otherwise: vec![].into(),
++            }]
++            .into(),
++            result: Ty::Bool,
++        }]));
++    }
++
+diff --git i/tests/test_loops.rs w/tests/test_loops.rs
+index a370fff8..5aecafdf 100644
+--- i/tests/test_loops.rs
++++ w/tests/test_loops.rs
+@@ -422,0 +423,47 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
++
++/// An outer loop with ordinary fallthrough may share no latch block, even
++/// when nested continues and shared break cleanup introduce other blocks.
++#[rstest]
++#[case(false)]
++#[case(true)]
++fn fallthrough_latch_keeps_nested_continues_and_break_cleanup(#[case] narrow: bool) {
++    let source = r#"
++class Marker:
++    value: i64
++    def __del__(self) -> ():
++        print("drop", self.value).unwrap()
++
++def walk(n: i64, stop: i64, values: &[f64]) -> Result[f64, OverflowError[i64]]:
++    mut i = 0
++    mut total = 0.0
++    while i < n:
++        held = Marker(i)
++        i += 1
++        if i == stop:
++            break
++        if i == 4:
++            break
++        for j in range(2):
++            continue
++        total += values[i - 1] * 2.0
++    Ok(total)
++
++def main() -> Result[(), IoError | AllocError | OverflowError[i64]]:
++    values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]?
++    print(walk(0, 2, &values)? == 0.0)?
++    print(walk(3, 2, &values)? == 2.0)?
++    print(walk(6, 99, &values)? == 12.0)?
++    Ok(())
++"#;
++    let source = if narrow {
++        source.replace("f64", "f32").replace(".0", ".0f32")
++    } else {
++        source.to_owned()
++    };
++    let (code, stdout, stderr) = run_both(&source);
++    assert_eq!(code, Some(0), "{stderr}");
++    assert_eq!(
++        stdout,
++        "True\ndrop 0\ndrop 1\nTrue\ndrop 0\ndrop 1\ndrop 2\ndrop 3\nTrue\n"
++    );
++}
