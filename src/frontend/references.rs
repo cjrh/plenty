@@ -1719,11 +1719,23 @@ impl Lower<'_> {
             return Ok((result, loan));
         }
         if !matches!(ungroup(e).kind, Expression::Name(_))
-            && matches!(self.expression_type_hint(e), Some(Ty::View(..)))
+            && (matches!(self.expression_type_hint(e), Some(Ty::View(..)))
+                || self.expression_type_hint(e).is_none()
+                    && matches!(
+                        ungroup(e).kind,
+                        Expression::Call(..)
+                            | Expression::GenericCall(..)
+                            | Expression::Method(..)
+                            | Expression::GenericMethod(..)
+                            | Expression::Invoke(..)
+                            | Expression::Try(..)
+                            | Expression::If(..)
+                            | Expression::Match(..)
+                    ))
         {
             let ty = self.value(e, ops)?;
             let Ty::View(element, writable) = ty else {
-                unreachable!("view expression")
+                return Err(e.at.error("borrowing requires a named binding; element and temporary references are not supported yet"));
             };
             if mutable && !writable {
                 return Err(e.at.error(SHARED_VIEW_MUTATION));
@@ -1982,11 +1994,14 @@ impl Lower<'_> {
             }
             Expression::Unary(op, inner) if op == "&" => {
                 let (ty, loan) = self.shared_argument(inner, expected, ops)?;
-                let Ty::Ref(inner, _) = ty else {
-                    unreachable!()
-                };
-                ops.push(Op::ReadRef((*inner).clone()));
-                Ok(((*inner).clone(), vec![loan]))
+                match ty {
+                    Ty::Ref(inner, _) => {
+                        ops.push(Op::ReadRef((*inner).clone()));
+                        Ok(((*inner).clone(), vec![loan]))
+                    }
+                    view @ Ty::View(..) => Ok((view, vec![loan])),
+                    _ => unreachable!("shared argument is a reference or view"),
+                }
             }
             Expression::Name(_) => self.observe_name(e, ops),
             Expression::Member(base, _, _) if self.qualified_type(base)?.is_none() => {

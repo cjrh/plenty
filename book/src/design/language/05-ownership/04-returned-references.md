@@ -69,6 +69,9 @@ To return a borrow of a different argument, make it the first reference
 parameter. A function cannot choose between two arguments; that relationship
 needs annotations Plenty does not have. Signatures alone fix the origin, so
 `Callable` types and generic functions follow the same rule.
+Capturing and one-shot closures cannot return loan-carrying values, including
+views and optional/fallible borrows; their environments do not support returned
+loans. Boxed callables have the same return restriction.
 
 The result extends its origin loan until its last use. A body that directly
 returns its parameter or a fixed field projection permits a precise returned

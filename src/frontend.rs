@@ -2394,7 +2394,9 @@ impl Lower<'_> {
             if local.ty.affine() {
                 ops.push(Op::MoveLocal(local.slot));
             } else {
-                if !matches!(local.ty, Ty::Ref(..)) {
+                // Loading a borrow descriptor uses the loan marked above;
+                // a raw access would read its exclusively borrowed root.
+                if !matches!(local.ty, Ty::Ref(..) | Ty::View(..)) {
                     ops.push(Op::Access(local.slot, false, None));
                 }
                 ops.push(Op::LoadLocal(local.slot));

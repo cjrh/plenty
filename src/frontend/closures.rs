@@ -87,7 +87,9 @@ impl Lower<'_> {
             output: function.output.resolve(self.aliases)?,
         };
         callables::validate(&signature, at)?;
-        if matches!(signature.output, Some(Ty::Ref(..))) || generators::yields(&function.body) {
+        if signature.output.as_ref().is_some_and(Ty::carries_loan)
+            || generators::yields(&function.body)
+        {
             return Err(
                 at.error("capturing or one-shot closures cannot return references or yield yet")
             );

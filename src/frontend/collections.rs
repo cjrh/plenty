@@ -2383,7 +2383,7 @@ impl Lower<'_> {
         };
         let reference = self.unbox_reference(reference, ops);
         let Ty::Ref(owner, _) = reference else {
-            unreachable!()
+            return Err(base.at.error("items requires a dictionary"));
         };
         let ty = (*owner).clone();
         let Ty::Dict(key, value) = &ty else {
@@ -2669,32 +2669,37 @@ impl Lower<'_> {
                 _ => iterable,
             };
             let (reference, loan) = self.borrow(base, true, ops)?;
-            let Ty::Ref(ty, _) = reference else {
-                unreachable!()
-            };
-            // A list is iterated through its reference (`borrowed_list_iteration`),
-            // and a lent generator advances through it (`lent_generator_iteration`).
-            if !matches!(*ty, Ty::List(_) | Ty::Generator(_)) {
-                ops.push(Op::ReadRef((*ty).clone()));
+            match reference {
+                Ty::Ref(ty, _) => {
+                    // Lists and lent generators iterate through their reference.
+                    if !matches!(*ty, Ty::List(_) | Ty::Generator(_)) {
+                        ops.push(Op::ReadRef((*ty).clone()));
+                    }
+                    ((*ty).clone(), vec![loan])
+                }
+                view @ Ty::View(..) => (view, vec![loan]),
+                _ => unreachable!("mutable iteration source is a reference or view"),
             }
-            ((*ty).clone(), vec![loan])
         } else if borrowed {
             let base = match &iterable.kind {
                 Expression::Unary(_, base) => &**base,
                 _ => iterable,
             };
             let (reference, loan) = self.shared_argument(base, None, ops)?;
-            let Ty::Ref(ty, writable) = reference else {
-                unreachable!()
-            };
-            if matches!(*ty, Ty::List(_)) {
-                if writable {
-                    ops.push(Op::Reborrow(Ty::Ref(ty.clone(), false)));
+            match reference {
+                Ty::Ref(ty, writable) => {
+                    if matches!(*ty, Ty::List(_)) {
+                        if writable {
+                            ops.push(Op::Reborrow(Ty::Ref(ty.clone(), false)));
+                        }
+                    } else {
+                        ops.push(Op::ReadRef((*ty).clone()));
+                    }
+                    ((*ty).clone(), vec![loan])
                 }
-            } else {
-                ops.push(Op::ReadRef((*ty).clone()));
+                view @ Ty::View(..) => (view, vec![loan]),
+                _ => unreachable!("shared iteration source is a reference or view"),
             }
-            ((*ty).clone(), vec![loan])
         } else {
             let (ty, loan) = self.binding_value(iterable, None, ops)?;
             if let Ty::Ref(inner, writable) = ty {
@@ -2713,6 +2718,15 @@ impl Lower<'_> {
                 (ty, loan.into_iter().collect())
             }
         };
+        if let Ty::View(_, writable) = &ty {
+            // Generic calls and unwrapped results may have no view type hint.
+            // The lowered descriptor determines the same mode as view_source.
+            borrowed = ty != text_view();
+            mutable = *writable;
+            if loans.is_empty() {
+                loans.push(self.reference_origin(iterable, ops)?);
+            }
+        }
         // Checked before the ownership-mode errors, which would otherwise
         // suggest a list or a borrow (issue #574).
         if ty == Ty::File {
@@ -4837,7 +4851,7 @@ impl Lower<'_> {
             let (reference, loan) = self.shared_argument(base, None, ops)?;
             let reference = self.unbox_reference(reference, ops);
             let Ty::Ref(owner, _) = reference else {
-                unreachable!()
+                return Err(base.at.error(format!("{name} requires a dictionary")));
             };
             if classes::inherent_receiver(&owner) {
                 ops.push(Op::ReadRef((*owner).clone()));
