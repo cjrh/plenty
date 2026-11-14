@@ -408,7 +408,7 @@ mod tests {
         );
     }
 
-    fn coff_object(reached: bool, executable: bool, optimize: bool) -> Vec<u8> {
+    fn coff_object(reached: bool, executable: bool, optimize: bool, recursive: bool) -> Vec<u8> {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(
             temp.path().join("native.plentyi"),
@@ -416,9 +416,29 @@ mod tests {
         )
         .unwrap();
         let source = temp.path().join("main.plenty");
-        std::fs::write(&source, format!(
-            "import native\ndef unused() -> ():\n    native.missing()\ndef main() -> ():\n    {}\n",
-            if reached { "unused()" } else { "pass" })).unwrap();
+        // Recursion keeps the reachability fixture's helper out of the inline
+        // planner. An unreferenced inline body may legitimately become a trap
+        // stub even in an inspectable object, removing its foreign import.
+        let (helper, call) = if recursive {
+            (
+                "def unused(recur: bool) -> ():\n    if recur:\n        unused(False)\n    native.missing()\n",
+                "unused(False)",
+            )
+        } else {
+            ("def unused() -> ():\n    native.missing()\n", "unused()")
+        };
+        // This link-only entry recurses so it cannot itself be deferred into
+        // a trap stub. `entry: None` below emits no `plenty_main` to refer to
+        // the user function; exposing its COFF symbol afterward is too late
+        // to make its body live in the deferred-body emission pass.
+        std::fs::write(
+            &source,
+            format!(
+                "import native\n{helper}def main() -> ():\n    {}\n    main()\n",
+                if reached { call } else { "pass" }
+            ),
+        )
+        .unwrap();
         let mut heap = Heap::default();
         let program = Sources::file(&source, None)
             .unwrap()
@@ -533,7 +553,7 @@ mod tests {
     fn coff_executable_omits_unreached_imports_but_keeps_reached_link_errors() {
         use object::{Object, ObjectSymbol};
         for optimize in [false, true] {
-            let inspectable = coff_object(false, false, optimize);
+            let inspectable = coff_object(false, false, optimize, true);
             let output = coff_link(&inspectable);
             assert!(
                 !output.status.success(),
@@ -545,7 +565,7 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr),
                 String::from_utf8_lossy(&output.stdout)
             );
-            let bytes = coff_object(false, true, optimize);
+            let bytes = coff_object(false, true, optimize, true);
             let object = object::File::parse(bytes.as_slice()).unwrap();
             assert!(!object.symbols().any(|symbol| {
                 symbol
@@ -558,10 +578,50 @@ mod tests {
                 "{}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            let output = coff_link(&coff_object(true, true, optimize));
+            let output = coff_link(&coff_object(true, true, optimize, true));
             assert!(
                 !output.status.success(),
                 "reached missing import must remain a linker error"
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("pldf_v1_missing"),
+                "stderr: {} stdout: {}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            );
+        }
+    }
+
+    #[test]
+    fn coff_inlined_tail_wrappers_keep_reached_foreign_imports() {
+        use object::{Object, ObjectSymbol};
+        for executable in [false, true] {
+            let bytes = coff_object(false, executable, true, false);
+            let object = object::File::parse(bytes.as_slice()).unwrap();
+            assert!(
+                !object
+                    .symbols()
+                    .any(|symbol| { symbol.name().is_ok_and(|name| name == "pldf_v1_missing") })
+            );
+            // Inspectable objects retain the unreferenced inline wrapper's
+            // symbol as a trap stub; executable pruning removes it altogether.
+            assert_eq!(
+                object.symbols().any(|symbol| {
+                    symbol.name().is_ok_and(|name| name == "__plenty_fn_unused")
+                        && !symbol.is_undefined()
+                }),
+                !executable
+            );
+            let output = coff_link(&bytes);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let output = coff_link(&coff_object(true, executable, true, false));
+            assert!(
+                !output.status.success(),
+                "a foreign call reached through an inline tail wrapper must remain a link error"
             );
             assert!(
                 String::from_utf8_lossy(&output.stderr).contains("pldf_v1_missing"),
