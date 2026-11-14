@@ -1,0 +1,563 @@
+; a: exact optimized baseline control flow
+function %a(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp le v28, v31
+    brif v32, block7, block8
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp sgt v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block4(v43, v44, v42, v39, v106), block1(v43, v44)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; b: complement latch and put exit successor first
+function %b(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp le v28, v31
+    brif v32, block7, block8
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp sle v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block1(v43, v44), block4(v43, v44, v42, v39, v106)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; c: nonzero countdown, valid after a positive guarded entry
+function %c(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp le v28, v31
+    brif v32, block7, block8
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp ne v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block4(v43, v44, v42, v39, v106), block1(v43, v44)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; d: zero countdown and exit-first latch
+function %d(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp le v28, v31
+    brif v32, block7, block8
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp eq v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block1(v43, v44), block4(v43, v44, v42, v39, v106)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; e: complemented escape compare, exact unordered complement
+function %e(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp ugt v28, v31
+    brif v32, block8, block7
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp sgt v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block4(v43, v44, v42, v39, v106), block1(v43, v44)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; f: complement escape and latch
+function %f(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp ugt v28, v31
+    brif v32, block8, block7
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp sle v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block1(v43, v44), block4(v43, v44, v42, v39, v106)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; g: rotate compound countdown/escape condition around the recurrence.
+function %g(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+block0(v0: f64, v1: f64):
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v3 = fadd v4, v4
+    v5 = fcmp le v3, v31
+    brif v5, block1(v4, v4, v4, v4, v9), block4(v4, v4)
+block1(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v40 = fsub v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    v46 = isub v45, v10
+    v47 = icmp sle v46, v2
+    brif v47, block4(v43, v44), block2
+block2:
+    v48 = fadd v43, v44
+    v49 = fcmp le v48, v31
+    brif v49, block1(v43, v44, v42, v39, v46), block4(v43, v44)
+block4(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; h: compound rotation with zero-count completion
+function %h(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+block0(v0: f64, v1: f64):
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v3 = fadd v4, v4
+    v5 = fcmp le v3, v31
+    brif v5, block1(v4, v4, v4, v4, v9), block4(v4, v4)
+block1(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v40 = fsub v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    v46 = isub v45, v10
+    v47 = icmp eq v46, v2
+    brif v47, block4(v43, v44), block2
+block2:
+    v48 = fadd v43, v44
+    v49 = fcmp le v48, v31
+    brif v49, block1(v43, v44, v42, v39, v46), block4(v43, v44)
+block4(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; i: split exits, no shared FP-result phi
+function %i(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp le v28, v31
+    brif v32, block7, block8
+
+block7:
+    jump block6
+
+block8:
+    v201 = fadd v26, v27
+    v202 = fcmp le v201, v31
+    return v202
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106 = isub.i64 v45, v105
+    v107 = iconst.i64 0
+    v108 = icmp sgt v106, v107
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block4(v43, v44, v42, v39, v106), block1
+
+block2:
+    jump block3
+
+block1:
+    v63 = fadd v43, v44
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; j: rotated compound condition with separate initial exit
+function %j(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+block0(v0: f64, v1: f64):
+    v4 = f64const 0.0
+    v9 = iconst.i64 50
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v3 = fadd v4, v4
+    v5 = fcmp le v3, v31
+    brif v5, block1(v4, v4, v4, v4, v9), block5
+block1(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v40 = fsub v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    v46 = isub v45, v10
+    v47 = icmp sle v46, v2
+    brif v47, block4, block2
+block2:
+    v48 = fadd v43, v44
+    v49 = fcmp le v48, v31
+    brif v49, block1(v43, v44, v42, v39, v46), block4
+block4:
+    v63 = fadd v43, v44
+    v67 = fcmp le v63, v31
+    return v67
+block5:
+    v201 = fadd v4, v4
+    v202 = fcmp le v201, v31
+    return v202
+}
+
+; k: negative countdown reaches zero via unsigned add carry
+function %k(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+
+block0(v0: f64, v1: f64):
+    jump block2
+
+block3:
+    v4 = f64const 0.0
+    v9 = iconst.i64 -50
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    jump block4(v4, v4, v4, v4, v9)
+
+block4(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v28 = fadd v26, v27
+    v32 = fcmp le v28, v31
+    brif v32, block7, block8
+
+block7:
+    jump block6
+
+block8:
+    jump block1(v26, v27)
+
+block6:
+    jump block5
+
+block5:
+    v105 = iconst.i64 1
+    v106, v108 = uadd_overflow.i64 v45, v105
+    v107 = iconst.i64 0
+    v40 = fsub.f64 v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd.f64 v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    brif v108, block1(v43, v44), block4(v43, v44, v42, v39, v106)
+
+block2:
+    jump block3
+
+block1(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}
+
+; l: compound rotation and negative countdown carry
+function %l(f64, f64) -> i8 tail {
+    const0 = 0x00000000000000004010000000000000
+block0(v0: f64, v1: f64):
+    v4 = f64const 0.0
+    v9 = iconst.i64 -50
+    v10 = iconst.i64 1
+    v2 = iconst.i64 0
+    v30 = vconst.f64x2 const0
+    v31 = extractlane v30, 0
+    v3 = fadd v4, v4
+    v5 = fcmp le v3, v31
+    brif v5, block1(v4, v4, v4, v4, v9), block4(v4, v4)
+block1(v26: f64, v27: f64, v34: f64, v36: f64, v45: i64):
+    v40 = fsub v26, v27
+    v42 = fadd v40, v0
+    v43 = fmul v42, v42
+    v35 = fadd v34, v34
+    v37 = fmul v35, v36
+    v39 = fadd v37, v1
+    v44 = fmul v39, v39
+    v46, v47 = uadd_overflow v45, v10
+    brif v47, block4(v43, v44), block2
+block2:
+    v48 = fadd v43, v44
+    v49 = fcmp le v48, v31
+    brif v49, block1(v43, v44, v42, v39, v46), block4(v43, v44)
+block4(v61: f64, v62: f64):
+    v63 = fadd v61, v62
+    v67 = fcmp le v63, v31
+    return v67
+}

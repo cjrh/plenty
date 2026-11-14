@@ -1700,3 +1700,27 @@ candidate preserves scalar ordered reduction/sqrt/div and does not integrate
 current adjacent-magnitude pairing; this result does not reject all possible
 native lowerings.
 [Outstanding SIMD scope](../backlog.md) remains in B23 and issue #967.
+
+
+## Integer latch scheduling experiment (issue #977)
+
+A local Cranelift experiment schedules integer-tested backedge arguments before
+its condition, letting old-counter uses finish before its increment. The bounded
+spectral-norm loops fall from 17/17 to 15/15 instructions, and the unchanged
+unchecked benchmark falls from 16/18 to 16/16. Whole-program counts fall 11.74%
+and 5.87% respectively; CPU samples overlap. The generated 1000-unit AOT
+compilation probe increases 0.036% in instructions. No loop proof, arithmetic
+check, floating operation or trap changes.
+
+The isolated fork commit `d27f16528a` passes the complete cache-disabled Plenty
+suite, focused loop/proof regressions, the fork's egraph and x64/AArch64 tests,
+and native bitwise/escape controls. Pinned-allocator filetests retain precisely
+the same 15 existing expected-output mismatches as the baseline. The patch,
+kernels, raw samples and reproduction instructions are retained in
+`experiments/kernels/counted-latch/`.
+
+This milestone delivers qualification, not publication or a production dependency
+update. The original escape loop remains at 20 instructions; its issue #977
+scope and issue #978's scalar-copy scope remain open. Issue #980 separately
+tracks the remaining matrix floating-load instruction. The benchmark rewrite
+under issue #972 awaits production adoption of the qualified scheduling change.

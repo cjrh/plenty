@@ -1,0 +1,268 @@
+[
+  {
+    "file": "experiments/kernels/accessor-tail/fasta_tail.plenty",
+    "baseline_exit": 0,
+    "baseline": "cumulative loop 0x147-0x2b8: 67 instructions\nwrite_lines loop 0xc9-0x3db: 78 instructions\nrepeat_fasta loop 0xcd-0x116: 15 instructions\nrandom_fasta loop 0x1b4-0x1c8: 5 instructions\nmain loop 0x1fa2-0x1fea: 15 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "cumulative loop 0x147-0x2b8: 67 instructions\nwrite_lines loop 0xc9-0x3db: 78 instructions\nrepeat_fasta loop 0xcd-0x116: 15 instructions\nrandom_fasta loop 0x1b4-0x1c8: 5 instructions\nmain loop 0x1fa2-0x1fea: 15 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/accessor-tail/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "fill loop 0x10-0x47: 12 instructions\nsum_accessor loop 0x1a-0x2d: 6 instructions\nmain loop 0x38d-0x3ca: 13 instructions\nmain loop 0x438-0x44b: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "fill loop 0x10-0x47: 12 instructions\nsum_accessor loop 0x1a-0x2d: 6 instructions\nmain loop 0x38d-0x3ca: 13 instructions\nmain loop 0x438-0x44b: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bounded-arguments/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "a_times_u loop 0x39-0x7d: 17 instructions\nat_times_u loop 0x39-0x7d: 17 instructions\nmain loop 0x5c9-0x60d: 17 instructions\nmain loop 0x6af-0x6f3: 17 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "a_times_u loop 0x39-0x76: 15 instructions\nat_times_u loop 0x39-0x76: 15 instructions\nmain loop 0x5c9-0x607: 15 instructions\nmain loop 0x6aa-0x6e8: 15 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bounded-arguments/spectral_norm.plenty",
+    "baseline_exit": 0,
+    "baseline": "a_times_u loop 0x39-0x7d: 17 instructions\nat_times_u loop 0x39-0x7d: 17 instructions\nata_times_u loop 0x43-0x87: 17 instructions\nata_times_u loop 0xec-0x130: 17 instructions\nfilled loop 0x102-0x184: 19 instructions\nmain loop 0x411-0x50d: 60 instructions\nmain loop 0x57e-0x5b4: 13 instructions\nmain loop 0x5dc-0x600: 9 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "a_times_u loop 0x39-0x76: 15 instructions\nat_times_u loop 0x39-0x76: 15 instructions\nata_times_u loop 0x3e-0x7c: 15 instructions\nata_times_u loop 0xe2-0x120: 15 instructions\nfilled loop 0x102-0x184: 19 instructions\nmain loop 0x411-0x50d: 60 instructions\nmain loop 0x57e-0x5b4: 13 instructions\nmain loop 0x5dc-0x600: 9 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bytes/growing.plenty",
+    "baseline_exit": 0,
+    "baseline": "transform loop 0x35-0xfd: 39 instructions\nmain loop 0x33b-0x423: 40 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "transform loop 0x35-0xfd: 39 instructions\nmain loop 0x33b-0x423: 40 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bytes/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "transform loop 0x33-0x4a: 6 instructions\nmain loop 0x395-0x3ac: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "transform loop 0x33-0x4a: 6 instructions\nmain loop 0x395-0x3ac: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/bytes-literals/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "fill loop 0x5b-0xa4: 15 instructions\nchecksum loop 0x11-0x2e: 6 instructions\nmain loop 0x257-0x2a4: 15 instructions\nmain loop 0x338-0x355: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "fill loop 0x5b-0xa4: 15 instructions\nchecksum loop 0x11-0x2e: 6 instructions\nmain loop 0x257-0x2a4: 15 instructions\nmain loop 0x338-0x355: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-12-1000000.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x384-0x4ec: 55 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x384-0x4ec: 55 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-12-2000000.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x384-0x4ec: 55 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x384-0x4ec: 55 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-3-1000000.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x384-0x4ec: 55 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x384-0x4ec: 55 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/caller-context/view-3-2000000.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x384-0x4ec: 55 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x384-0x4ec: 55 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/clist/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "velocity loop 0x21b-0x35e: 66 instructions\nvelocity loop 0x3e6-0x4ff: 58 instructions\npositions loop 0xa6-0xf9: 18 instructions\npotential loop 0xa1-0x122: 28 instructions\npotential loop 0x13a-0x1a9: 24 instructions\nmain loop 0x27f-0x5fe: 97 instructions\nmain loop 0x266b-0x26ca: 19 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "velocity loop 0x21b-0x35e: 66 instructions\nvelocity loop 0x3e6-0x4ff: 58 instructions\npositions loop 0xa6-0xf9: 18 instructions\npotential loop 0xa1-0x122: 28 instructions\npotential loop 0x13a-0x1a9: 24 instructions\nmain loop 0x27f-0x5fe: 97 instructions\nmain loop 0x266b-0x26ca: 19 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/clist-zip/scan.plenty",
+    "baseline_exit": 0,
+    "baseline": "scan_loop loop 0x6c-0x8e: 8 instructions\nscan_fold loop 0xde-0x100: 8 instructions\nscan_index loop 0x50-0x6e: 7 instructions\nmain loop 0x118-0x489: 122 instructions\nmain loop 0x525-0x54d: 8 instructions\nmain loop 0x64e-0x676: 8 instructions\nmain loop 0x6c5-0x6e9: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "scan_loop loop 0x6c-0x8e: 8 instructions\nscan_fold loop 0xde-0x100: 8 instructions\nscan_index loop 0x50-0x6e: 7 instructions\nmain loop 0x118-0x489: 122 instructions\nmain loop 0x525-0x54d: 8 instructions\nmain loop 0x64e-0x676: 8 instructions\nmain loop 0x6c5-0x6e9: 7 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/field-rng/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "fill loop 0x13-0x79: 24 instructions\nfill_bounded loop 0x10-0x47: 12 instructions\nfill_local loop 0x48-0x79: 10 instructions\nfill_arms loop 0x48-0xab: 19 instructions\nfill_inner loop 0x58-0x89: 10 instructions\nfill_unbounded loop 0x45-0xab: 23 instructions\nfill_product loop 0x48-0x76: 10 instructions\ntime loop 0x130-0x1bf: 19 instructions\ntime loop 0x2d0-0x391: 35 instructions\ntime loop 0x3c4-0x485: 35 instructions\ntime loop 0x592-0x650: 35 instructions\ntime loop 0x686-0x744: 35 instructions\ntime loop 0x7c8-0x7fc: 15 instructions\ntime loop 0x894-0x939: 18 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "fill loop 0x13-0x79: 24 instructions\nfill_bounded loop 0x10-0x47: 12 instructions\nfill_local loop 0x48-0x79: 10 instructions\nfill_arms loop 0x48-0xab: 19 instructions\nfill_inner loop 0x58-0x89: 10 instructions\nfill_unbounded loop 0x45-0xab: 23 instructions\nfill_product loop 0x48-0x76: 10 instructions\ntime loop 0x130-0x1bf: 19 instructions\ntime loop 0x2d0-0x391: 35 instructions\ntime loop 0x3c4-0x485: 35 instructions\ntime loop 0x592-0x650: 35 instructions\ntime loop 0x686-0x744: 35 instructions\ntime loop 0x7c8-0x7fc: 15 instructions\ntime loop 0x894-0x939: 18 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/float-loads/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "sum_index loop 0x21-0x3e: 7 instructions\nsum_index loop 0x59-0x6c: 5 instructions\nsum_iter loop 0x14-0x28: 5 instructions\nsum_f32 loop 0x20-0x3d: 7 instructions\nsum_f32 loop 0x57-0x6a: 5 instructions\nmain loop 0x8ba-0x8d6: 7 instructions\nmain loop 0x8f1-0x905: 5 instructions\nmain loop 0x9dc-0x9f0: 5 instructions\nmain loop 0xad2-0xaef: 7 instructions\nmain loop 0xb09-0xb1c: 5 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "sum_index loop 0x21-0x3e: 7 instructions\nsum_index loop 0x59-0x6c: 5 instructions\nsum_iter loop 0x14-0x28: 5 instructions\nsum_f32 loop 0x20-0x3d: 7 instructions\nsum_f32 loop 0x57-0x6a: 5 instructions\nmain loop 0x8ba-0x8d6: 7 instructions\nmain loop 0x8f1-0x905: 5 instructions\nmain loop 0x9dc-0x9f0: 5 instructions\nmain loop 0xad2-0xaef: 7 instructions\nmain loop 0xb09-0xb1c: 5 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/indexed-conditions/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "find_view loop 0x1d-0x31: 5 instructions\nfind_list loop 0x34-0x48: 5 instructions\nselect_all loop 0x4d-0x65: 6 instructions\nselect_all loop 0xc4-0xe0: 7 instructions\ntotal loop 0x13-0x2a: 6 instructions\nmain loop 0xbad-0xbc5: 6 instructions\nmain loop 0xc19-0xc31: 6 instructions\nmain loop 0xc83-0xc98: 5 instructions\nmain loop 0xccc-0xce1: 5 instructions\nmain loop 0xd2a-0xd41: 6 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "find_view loop 0x1d-0x31: 5 instructions\nfind_list loop 0x34-0x48: 5 instructions\nselect_all loop 0x4d-0x65: 6 instructions\nselect_all loop 0xc4-0xe0: 7 instructions\ntotal loop 0x13-0x2a: 6 instructions\nmain loop 0xbad-0xbc5: 6 instructions\nmain loop 0xc19-0xc31: 6 instructions\nmain loop 0xc83-0xc98: 5 instructions\nmain loop 0xccc-0xce1: 5 instructions\nmain loop 0xd2a-0xd41: 6 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/intervals/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "masked loop 0x1d-0x4a: 10 instructions\nmasked loop 0x66-0x89: 8 instructions\nwidened loop 0x1d-0x40: 9 instructions\nwidened loop 0x57-0x71: 7 instructions\nnegated loop 0x23-0x74: 20 instructions\nnegated loop 0x8e-0xd7: 18 instructions\nmain loop 0xb09-0xb38: 10 instructions\nmain loop 0xb55-0xb78: 8 instructions\nmain loop 0xc88-0xcab: 9 instructions\nmain loop 0xcc2-0xcdc: 7 instructions\nmain loop 0xdec-0xe3d: 20 instructions\nmain loop 0xe54-0xe9c: 18 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "masked loop 0x1d-0x4a: 10 instructions\nmasked loop 0x66-0x89: 8 instructions\nwidened loop 0x1d-0x40: 9 instructions\nwidened loop 0x57-0x71: 7 instructions\nnegated loop 0x23-0x74: 20 instructions\nnegated loop 0x8e-0xd7: 18 instructions\nmain loop 0xb09-0xb38: 10 instructions\nmain loop 0xb55-0xb78: 8 instructions\nmain loop 0xc88-0xcab: 9 instructions\nmain loop 0xcc2-0xcdc: 7 instructions\nmain loop 0xdec-0xe3d: 20 instructions\nmain loop 0xe54-0xe9c: 18 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "reverse loop 0x22-0x54: 13 instructions\nreverse_swap loop 0x42-0x60: 8 instructions\nrotate_left loop 0x2d-0x57: 11 instructions\nrotate_left loop 0x68-0x7e: 6 instructions\ncopy_row loop 0x1d-0x38: 7 instructions\ncopy_row loop 0x4f-0x61: 5 instructions\ncount_flips loop 0x68-0x86: 8 instructions\ncount_flips loop 0xfa-0x118: 8 instructions\nmain loop 0x958-0x976: 8 instructions\nmain loop 0xa2b-0xa56: 11 instructions\nmain loop 0xa5e-0xa77: 7 instructions\nmain loop 0xae4-0xaff: 7 instructions\nmain loop 0xb16-0xb28: 5 instructions\nmain loop 0xbb0-0xbce: 8 instructions\nmain loop 0xc41-0xc5f: 8 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "reverse loop 0x22-0x54: 13 instructions\nreverse_swap loop 0x42-0x60: 8 instructions\nrotate_left loop 0x2d-0x57: 11 instructions\nrotate_left loop 0x68-0x7e: 6 instructions\ncopy_row loop 0x1d-0x38: 7 instructions\ncopy_row loop 0x4f-0x61: 5 instructions\ncount_flips loop 0x68-0x86: 8 instructions\ncount_flips loop 0xfa-0x118: 8 instructions\nmain loop 0x958-0x976: 8 instructions\nmain loop 0xa2b-0xa56: 11 instructions\nmain loop 0xa5e-0xa77: 7 instructions\nmain loop 0xae4-0xaff: 7 instructions\nmain loop 0xb16-0xb28: 5 instructions\nmain loop 0xbb0-0xbce: 8 instructions\nmain loop 0xc41-0xc5f: 8 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/loop-reloads/forwarded-count.plenty",
+    "baseline_exit": 0,
+    "baseline": "cumulative loop 0x147-0x2b8: 67 instructions\nchecksum loop 0x44-0x6f: 12 instructions\nrandom_fasta loop 0x165-0x179: 5 instructions\nrandom_fasta loop 0x1eb-0x21b: 12 instructions\nmain loop 0xc19-0xda1: 67 instructions\nmain loop 0x135e-0x1372: 5 instructions\nmain loop 0x13d8-0x1419: 13 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "cumulative loop 0x147-0x2b8: 67 instructions\nchecksum loop 0x44-0x6f: 12 instructions\nrandom_fasta loop 0x165-0x179: 5 instructions\nrandom_fasta loop 0x1eb-0x21b: 12 instructions\nmain loop 0xc19-0xda1: 67 instructions\nmain loop 0x135e-0x1372: 5 instructions\nmain loop 0x13d8-0x1419: 13 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/loop-reloads/more-values.plenty",
+    "baseline_exit": 0,
+    "baseline": "cumulative loop 0x147-0x2b8: 67 instructions\nchecksum loop 0x44-0x6f: 12 instructions\nrandom_fasta loop 0x16f-0x183: 5 instructions\nrandom_fasta loop 0x1fb-0x22b: 12 instructions\nmain loop 0xcb2-0xe4b: 67 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "cumulative loop 0x147-0x2b8: 67 instructions\nchecksum loop 0x44-0x6f: 12 instructions\nrandom_fasta loop 0x16f-0x183: 5 instructions\nrandom_fasta loop 0x1fb-0x22b: 12 instructions\nmain loop 0xcb2-0xe4b: 67 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/scalar-captures/semantics.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x36e-0x925: 253 instructions\nmain loop 0x154f-0x1819: 114 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x36e-0x925: 253 instructions\nmain loop 0x154f-0x1819: 114 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/template-quote/scan.plenty",
+    "baseline_exit": 0,
+    "baseline": "before loop 0x9f-0x1f1: 65 instructions\nafter loop 0xbb-0x178: 37 instructions\nmain loop 0x1b3-0x302: 63 instructions\nmain loop 0x431-0x501: 36 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "before loop 0x9f-0x1f1: 65 instructions\nafter loop 0xbb-0x178: 37 instructions\nmain loop 0x1b3-0x302: 63 instructions\nmain loop 0x431-0x501: 36 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/text-set-scan/scan.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x130-0x210: 40 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x130-0x210: 40 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "gather loop 0x21-0x4e: 11 instructions\ngather loop 0x69-0x8d: 9 instructions\nmain loop 0x70e-0x73b: 11 instructions\nmain loop 0x764-0x788: 9 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "gather loop 0x21-0x4e: 11 instructions\ngather loop 0x69-0x8d: 9 instructions\nmain loop 0x70e-0x73b: 11 instructions\nmain loop 0x764-0x788: 9 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/unused-range/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "unused loop 0x17-0x2e: 5 instructions\nescape loop 0x21-0x70: 20 instructions\nmain loop 0x1f-0x36: 5 instructions\nmain loop 0x59-0xb0: 20 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "unused loop 0x17-0x2e: 5 instructions\nescape loop 0x21-0x70: 20 instructions\nmain loop 0x1f-0x36: 5 instructions\nmain loop 0x59-0xb0: 20 instructions\n"
+  },
+  {
+    "file": "experiments/kernels/value-bounds/kernels.plenty",
+    "baseline_exit": 0,
+    "baseline": "a_times_u loop 0x27-0x62: 14 instructions\nescape loop 0x47-0x9a: 20 instructions\nselect loop 0xa6-0xba: 5 instructions\nmain loop 0xb05-0xb19: 5 instructions\nmain loop 0xee2-0xf1d: 14 instructions\nmain loop 0xfbf-0x103a: 20 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "a_times_u loop 0x27-0x62: 14 instructions\nescape loop 0x47-0x9a: 20 instructions\nselect loop 0xa6-0xba: 5 instructions\nmain loop 0xb05-0xb19: 5 instructions\nmain loop 0xee2-0xf1d: 14 instructions\nmain loop 0xfbf-0x103a: 20 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/binary-trees/plenty/binarytrees.plenty",
+    "baseline_exit": 0,
+    "baseline": "main loop 0x111a-0x1385: 90 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "main loop 0x111a-0x1385: 90 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/fannkuch-redux/plenty/fannkuchredux.plenty",
+    "baseline_exit": 0,
+    "baseline": "count_flips loop 0x5f-0x7d: 8 instructions\ncount_flips loop 0xe3-0x101: 8 instructions\nfannkuch loop 0x36d-0x646: 53 instructions\nfannkuch loop 0x722-0x74d: 11 instructions\nfannkuch loop 0x890-0x8bc: 10 instructions\nfannkuch loop 0x900-0x930: 9 instructions\nfannkuch loop 0x9a3-0x9c1: 8 instructions\nfannkuch loop 0xa19-0xa37: 8 instructions\nfannkuch loop 0xbda-0xc04: 11 instructions\nfannkuch loop 0xc15-0xc2d: 7 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "count_flips loop 0x5f-0x7d: 8 instructions\ncount_flips loop 0xe3-0x101: 8 instructions\nfannkuch loop 0x36d-0x646: 53 instructions\nfannkuch loop 0x722-0x74d: 11 instructions\nfannkuch loop 0x890-0x8bc: 10 instructions\nfannkuch loop 0x900-0x930: 9 instructions\nfannkuch loop 0x9a3-0x9c1: 8 instructions\nfannkuch loop 0xa19-0xa37: 8 instructions\nfannkuch loop 0xbda-0xc04: 11 instructions\nfannkuch loop 0xc15-0xc2d: 7 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/fasta/plenty/fasta.plenty",
+    "baseline_exit": 0,
+    "baseline": "cumulative loop 0x147-0x2b8: 67 instructions\nwrite_lines loop 0xc9-0x3db: 78 instructions\nrepeat_fasta loop 0xcd-0x116: 15 instructions\nrandom_fasta loop 0x1b4-0x1c8: 5 instructions\nmain loop 0x1fa2-0x1fea: 15 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "cumulative loop 0x147-0x2b8: 67 instructions\nwrite_lines loop 0xc9-0x3db: 78 instructions\nrepeat_fasta loop 0xcd-0x116: 15 instructions\nrandom_fasta loop 0x1b4-0x1c8: 5 instructions\nmain loop 0x1fa2-0x1fea: 15 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/k-nucleotide/plenty/knucleotide.plenty",
+    "baseline_exit": 0,
+    "baseline": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\nthird_sequence loop 0x3e2-0x4cc: 32 instructions\ncount_frames loop 0x19f-0x273: 24 instructions\nprint_frequencies loop 0x40f-0x98a: 201 instructions\nprint_frequencies loop 0xef8-0x1f35: 669 instructions\nmain loop 0x12f-0x331: 79 instructions\nmain loop 0xb9f-0x15aa: 436 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\nthird_sequence loop 0x3e2-0x4cc: 32 instructions\ncount_frames loop 0x19f-0x273: 24 instructions\nprint_frequencies loop 0x40f-0x98a: 201 instructions\nprint_frequencies loop 0xef8-0x1f35: 669 instructions\nmain loop 0x12f-0x331: 79 instructions\nmain loop 0xb9f-0x15aa: 436 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/k-nucleotide/plenty/knucleotide_parallel.plenty",
+    "baseline_exit": 0,
+    "baseline": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\nthird_sequence loop 0x3e2-0x4cc: 32 instructions\ncount_frames loop 0x1ce-0x2bf: 24 instructions\nprint_frequencies loop 0x380-0x8e7: 198 instructions\nprint_frequencies loop 0xd7f-0x1d99: 669 instructions\nmain loop 0x1dd-0x41a: 79 instructions\nmain loop 0x2599-0x30d8: 393 instructions\nmain loop 0x3b2d-0x5898: 460 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\nthird_sequence loop 0x3e2-0x4cc: 32 instructions\ncount_frames loop 0x1ce-0x2bf: 24 instructions\nprint_frequencies loop 0x380-0x8e7: 198 instructions\nprint_frequencies loop 0xd7f-0x1d99: 669 instructions\nmain loop 0x1dd-0x41a: 79 instructions\nmain loop 0x2599-0x30d8: 393 instructions\nmain loop 0x3b2d-0x5898: 460 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/mandelbrot/plenty/mandelbrot.plenty",
+    "baseline_exit": 0,
+    "baseline": "in_set loop 0x19-0x6c: 20 instructions\nrender_row loop 0x130-0x183: 20 instructions\nmain loop 0x68e-0x7f1: 31 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "in_set loop 0x19-0x6c: 20 instructions\nrender_row loop 0x130-0x183: 20 instructions\nmain loop 0x68e-0x7f1: 31 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/n-body/plenty/nbody.plenty",
+    "baseline_exit": 0,
+    "baseline": "offset_momentum loop 0x44-0x85: 15 instructions\nenergy loop 0x27d-0x45e: 79 instructions\nadvance loop 0x391-0x5d0: 70 instructions\nadvance loop 0x7e1-0x892: 35 instructions\nadvance loop 0x8d8-0x961: 28 instructions\nadvance loop 0xa7b-0xb09: 29 instructions\nadvance loop 0xb33-0xb81: 18 instructions\nadvance loop 0xce4-0xe60: 69 instructions\nadvance loop 0xeb0-0xfe4: 58 instructions\nadvance loop 0x1072-0x10e3: 24 instructions\nadvance loop 0x110a-0x1172: 22 instructions\nadvance loop 0x1932-0x2549: 473 instructions\nmain loop 0xd35-0xd76: 15 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "offset_momentum loop 0x44-0x85: 15 instructions\nenergy loop 0x27d-0x45e: 79 instructions\nadvance loop 0x391-0x5d0: 70 instructions\nadvance loop 0x7e1-0x892: 35 instructions\nadvance loop 0x8d8-0x961: 28 instructions\nadvance loop 0xa7b-0xb09: 29 instructions\nadvance loop 0xb33-0xb81: 18 instructions\nadvance loop 0xce4-0xe60: 69 instructions\nadvance loop 0xeb0-0xfe4: 58 instructions\nadvance loop 0x1072-0x10e3: 24 instructions\nadvance loop 0x110a-0x1172: 22 instructions\nadvance loop 0x1947-0x2556: 471 instructions\nmain loop 0xd35-0xd76: 15 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/n-body/plenty/nbody_clist.plenty",
+    "baseline_exit": 0,
+    "baseline": "offset_momentum loop 0x97-0xd1: 13 instructions\nenergy loop 0x142-0x1c2: 28 instructions\nenergy loop 0x202-0x270: 24 instructions\nadvance loop 0x39f-0x5da: 70 instructions\nadvance loop 0x90a-0x9ea: 41 instructions\nadvance loop 0xb11-0xb9f: 29 instructions\nadvance loop 0xbc9-0xc17: 18 instructions\nadvance loop 0xf19-0x10aa: 73 instructions\nadvance loop 0x128a-0x12f3: 21 instructions\nadvance loop 0x131a-0x137a: 19 instructions\nadvance loop 0x1b13-0x2756: 482 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "offset_momentum loop 0x97-0xd1: 13 instructions\nenergy loop 0x142-0x1c2: 28 instructions\nenergy loop 0x202-0x270: 24 instructions\nadvance loop 0x39f-0x5da: 70 instructions\nadvance loop 0x90a-0x9ea: 41 instructions\nadvance loop 0xb11-0xb9f: 29 instructions\nadvance loop 0xbc9-0xc17: 18 instructions\nadvance loop 0xf19-0x10aa: 73 instructions\nadvance loop 0x128a-0x12f3: 21 instructions\nadvance loop 0x131a-0x137a: 19 instructions\nadvance loop 0x1b1b-0x2749: 480 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/regex-redux/plenty/regexredux.plenty",
+    "baseline_exit": 0,
+    "baseline": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\ncount_matches loop 0x2a2-0x52d: 79 instructions\nmain loop 0x224-0x45b: 79 instructions\nmain loop 0x1e6d-0x210b: 82 instructions\nmain loop 0x3e70-0x45f5: 164 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\ncount_matches loop 0x2a2-0x52d: 79 instructions\nmain loop 0x224-0x45b: 79 instructions\nmain loop 0x1e6d-0x210b: 82 instructions\nmain loop 0x3e70-0x45f5: 164 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/regex-redux/plenty/regexredux_parallel.plenty",
+    "baseline_exit": 0,
+    "baseline": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\ncount_matches loop 0x315-0x5a4: 78 instructions\nmain loop 0x287-0x4b7: 79 instructions\nmain loop 0x1e53-0x2e7d: 480 instructions\nmain loop 0x3f2c-0x44af: 155 instructions\nmain loop 0x4739-0x6f1c: 413 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "read_all_stdin loop 0xf3-0x2e5: 78 instructions\ncount_matches loop 0x315-0x5a4: 78 instructions\nmain loop 0x287-0x4b7: 79 instructions\nmain loop 0x1e53-0x2e7d: 480 instructions\nmain loop 0x3f2c-0x44af: 155 instructions\nmain loop 0x4739-0x6f1c: 413 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/reverse-complement/plenty/revcomp.plenty",
+    "baseline_exit": 0,
+    "baseline": "complement_table loop 0x1ac-0x212: 22 instructions\nread_all_stdin loop 0xf3-0x2e5: 78 instructions\nprocess loop 0x221-0x3ae: 72 instructions\nprocess loop 0x455-0x4f6: 31 instructions\nmain loop 0x1e4-0x24a: 22 instructions\nmain loop 0x420-0x635: 79 instructions\nmain loop 0x9a7-0xb5c: 32 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "complement_table loop 0x1ac-0x212: 22 instructions\nread_all_stdin loop 0xf3-0x2e5: 78 instructions\nprocess loop 0x221-0x3ae: 72 instructions\nprocess loop 0x455-0x4f6: 31 instructions\nmain loop 0x1e4-0x24a: 22 instructions\nmain loop 0x420-0x635: 79 instructions\nmain loop 0x9a7-0xb5c: 32 instructions\n"
+  },
+  {
+    "file": "benchmarks/game/spectral-norm/plenty/spectralnorm.plenty",
+    "baseline_exit": 0,
+    "baseline": "a_times_u loop 0x2f-0x72: 16 instructions\nat_times_u loop 0x2f-0x78: 18 instructions\nata_times_u loop 0x39-0x7c: 16 instructions\nata_times_u loop 0xc5-0x10e: 18 instructions\nfilled loop 0x102-0x184: 19 instructions\nmain loop 0x411-0x50d: 60 instructions\nmain loop 0x57e-0x5b4: 13 instructions\nmain loop 0x5dc-0x600: 9 instructions\n",
+    "candidate_exit": 0,
+    "candidate": "a_times_u loop 0x2f-0x72: 16 instructions\nat_times_u loop 0x2f-0x72: 16 instructions\nata_times_u loop 0x39-0x7c: 16 instructions\nata_times_u loop 0xc5-0x108: 16 instructions\nfilled loop 0x102-0x184: 19 instructions\nmain loop 0x411-0x50d: 60 instructions\nmain loop 0x57e-0x5b4: 13 instructions\nmain loop 0x5dc-0x600: 9 instructions\n"
+  }
+]

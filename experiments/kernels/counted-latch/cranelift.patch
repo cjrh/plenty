@@ -1,0 +1,126 @@
+commit d27f16528ab79ae70b6e0f4caca1d5e3a787e92b
+Author:     Caleb Hattingh <caleb.hattingh@gmail.com>
+AuthorDate: Sat Nov 14 21:09:56 2026 +0100
+Commit:     Caleb Hattingh <caleb.hattingh@gmail.com>
+CommitDate: Sat Nov 14 21:09:56 2026 +0100
+
+    Elaborate integer loop branch arguments before their condition
+
+diff --git a/cranelift/codegen/src/egraph/elaborate.rs b/cranelift/codegen/src/egraph/elaborate.rs
+index 8133206634..20fb56988f 100644
+--- a/cranelift/codegen/src/egraph/elaborate.rs
++++ b/cranelift/codegen/src/egraph/elaborate.rs
+@@ -834,6 +834,27 @@ impl<'a> Elaborator<'a> {
+             trace!(" -> inserting before {}", before);
+ 
+             elab_values.extend(self.func.dfg.inst_values(inst));
++            // A loop's integer latch test often increments a loop-carried
++            // counter. Compute the backedge arguments first, before that
++            // increment: their old-counter uses can then finish before its
++            // register is updated, avoiding a copy on a split backedge.
++            let condition_last = match self.func.dfg.insts[inst] {
++                crate::ir::InstructionData::Brif { arg, blocks, .. } => {
++                    let condition = self.value_to_best_value[arg].1;
++                    matches!(
++                        self.func.dfg.value_def(condition),
++                        ValueDef::Result(compare, 0)
++                            if self.func.dfg.insts[compare].opcode() == crate::ir::Opcode::Icmp
++                    ) && blocks.iter().any(|target| {
++                        self.domtree
++                            .block_dominates(target.block(&self.func.dfg.value_lists), block)
++                    })
++                }
++                _ => false,
++            };
++            if condition_last {
++                elab_values.rotate_left(1);
++            }
+             for arg in elab_values.iter_mut() {
+                 trace!(" -> arg {}", *arg);
+                 // Elaborate the arg, placing any newly-inserted insts
+@@ -852,6 +873,9 @@ impl<'a> Elaborator<'a> {
+                 trace!("   -> rewrote arg to {:?}", new_arg);
+                 *arg = new_arg.value;
+             }
++            if condition_last {
++                elab_values.rotate_right(1);
++            }
+             self.func
+                 .dfg
+                 .overwrite_inst_values(inst, elab_values.drain(..));
+diff --git a/cranelift/filetests/filetests/egraph/integer-latch-arguments.clif b/cranelift/filetests/filetests/egraph/integer-latch-arguments.clif
+new file mode 100644
+index 0000000000..89e6b3c05f
+--- /dev/null
++++ b/cranelift/filetests/filetests/egraph/integer-latch-arguments.clif
+@@ -0,0 +1,48 @@
++test optimize
++set opt_level=speed
++target x86_64
++
++;; Elaborate values passed over an integer-tested backedge before its
++;; condition. The backedge value uses the old induction variable; scheduling
++;; the increment first lengthens both live ranges and splits the machine
++;; backedge with an induction-register copy.
++
++function %counter_order(i64, i64, i64) -> f64 tail {
++    const0 = 0x00000000000000003ff0000000000000
++block0(v0: i64, v1: i64, v2: i64):
++    v3 = iconst.i64 0
++    v4 = f64const 0.0
++    v5 = icmp sle v1, v3
++    v6 = vconst.f64x2 const0
++    v7 = extractlane v6, 0
++    brif v5, block3(v4), block1(v4, v3)
++block1(v8: f64, v9: i64):
++    v27 = iconst.i64 3
++    v10 = ishl v9, v27
++    v11 = iadd v0, v10
++    v12 = load.f64 notrap aligned v11
++    jump block2
++block2:
++    v13 = iconst.i64 1
++    v14 = iadd v9, v13
++    v15 = icmp slt v14, v1
++    v16 = iadd v2, v9
++    v17 = iadd v16, v13
++    v18 = imul v16, v17
++    v19 = ushr v18, v13
++    v20 = iadd v19, v2
++    v21 = iadd v20, v13
++    v22 = fcvt_from_sint.f64 v21
++    v23 = fdiv v7, v22
++    v24 = fmul v23, v12
++    v25 = fadd v8, v24
++    brif v15, block1(v25, v14), block3(v25)
++block3(v26: f64):
++    return v26
++}
++
++; check: block2:
++; check:     v25 = fadd.f64 v8, v24
++; nextln:    v34 = iadd.i64 v9, v30
++; nextln:    v15 = icmp slt v34, v1
++; nextln:    brif v15, block1(v25, v34), block3(v25)
+diff --git a/cranelift/filetests/filetests/egraph/licm.clif b/cranelift/filetests/filetests/egraph/licm.clif
+index c291a487ff..3c04ca519f 100644
+--- a/cranelift/filetests/filetests/egraph/licm.clif
++++ b/cranelift/filetests/filetests/egraph/licm.clif
+@@ -24,11 +24,12 @@ block2(v9: i32):
+ 
+ ; check:  block1(v2: i32):
+ ;; constants are rematerialized in each block where used
+-; check:      v10 = iconst.i32 40
+-; check:      v11 = icmp eq v2, v10
+-; check:      v12 = iconst.i32 1
+-; check:      v13 = iadd v2, v12
+-; check:      brif v11, block2, block1(v13)
++;; The integer backedge's argument is elaborated before its condition.
++; check:      v10 = iconst.i32 1
++; check:      v11 = iadd v2, v10
++; check:      v12 = iconst.i32 40
++; check:      v13 = icmp eq v2, v12
++; check:      brif v13, block2, block1(v11)
+ 
+ 
+ ; check:  block2:

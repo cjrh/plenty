@@ -1,0 +1,46 @@
+{
+  "plenty_base": "eacaf2019634621a2e42dbc5a1fb8534ee1eedce",
+  "cranelift_base": "98c03730582a07fe57c027f0e18e821040c68b8c",
+  "cranelift_candidate": "d27f16528ab79ae70b6e0f4caca1d5e3a787e92b",
+  "fork_filetests": {
+    "egraph_x64_aarch64": 420,
+    "registry_allocator_x64_baseline": 208,
+    "registry_allocator_x64_candidate": 208,
+    "plenty_allocator_unchanged_mismatching_files": 15
+  },
+  "fork_egraph_unit_tests": 3,
+  "matrix_native_bitwise_comparisons": 35880,
+  "escape_native_comparisons_per_build": 480000,
+  "source_dump_programs": 38,
+  "committed_clif_files": 25,
+  "artifact_directory": "/home/caleb/Documents/repos/plenty/.worktrees/issue-977/target/issue-977-validation",
+  "adoption": "Candidate qualification passed; publishing the fork and production dependency adoption require further authorization. No publication performed.",
+  "focused_loops_uncached": 61,
+  "full_suite": {
+    "command": "PLENTY_CACHE=off RUSTC_WRAPPER= CARGO_BUILD_JOBS=3 just test",
+    "exit": 0,
+    "integration_passed": 6882,
+    "integration_ignored": 4,
+    "compile_seconds": 110.1,
+    "execution_seconds": 347.9,
+    "timings": "target/check-timings/suite-20261114T202417-3824362/timings.json",
+    "temporary_local_overrides": true
+  },
+  "new_fork_regression_fails_baseline": true,
+  "docs": {
+    "links_exit": 0,
+    "python_exit": 0,
+    "python_tests": 373,
+    "python_skipped": 4,
+    "complete_site_exit": 0,
+    "default_html_pages": 1648,
+    "dev_html_pages": 824
+  },
+  "fork_clippy_exit": 0,
+  "fork_fmt_exit": 0,
+  "independent_source_review": {
+    "reviewer": "pool_performance",
+    "commit": "d27f16528ab79ae70b6e0f4caca1d5e3a787e92b",
+    "scope": "DFG Brif operand positions, best-value Icmp/backedge guard, restoration of rewritten operand positions, unchanged side-effect skeleton; no blockers, read-only/no extra builds."
+  }
+}
