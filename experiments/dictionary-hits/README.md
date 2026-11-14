@@ -213,3 +213,13 @@ After the heap-key steps, hits k=18 is `get_or_insert_heap_text` 222, `main`
   the nested general call cost every other key 54 instructions (388 / 426 /
   346 / 778). Selecting in codegen by key type, with tail calls in the helper,
   removed that cost.
+
+## Caller-context follow-up (issue #948)
+
+The [transitive analysis experiment](../kernels/caller-context/README.md)
+removes 33 instructions per call from byte-view conversion. The `built` kernels
+retain their outer trapping `Bytes.to_text_range` scope even with issue #958:
+their three static sites exceed the current shared-inlining budget. A separate
+single-site range kernel benefits from combining the two fixes. Current
+borrowed-key k-nucleotide bypasses this
+conversion and shows no measurable CPU-time change from the analysis alone.

@@ -852,3 +852,17 @@ fn inlined_standard_traps_name_their_call_site_without_a_caller_scope(
     assert!(asm.contains("plenty_bytes_push"), "{asm}");
     assert!(!asm.contains("plenty_caller_enter"), "{asm}");
 }
+
+/// Issue #948: allocating a code-free value and forwarding its public error
+/// through direct std helpers does not read the caller context.
+#[test]
+fn transitive_byte_conversion_helpers_need_no_caller_context() {
+    let calls = caller_context_calls(
+        "import std.bytes\ndef converted(source: &[u8]) -> Result[str, std.bytes.BytesError]:\n    std.bytes.to_text(source)\ndef main() -> Result[(), IoError | std.bytes.BytesError]:\n    print(converted(b\"abc\")?)?\n    Ok(())\n",
+    );
+    let conversion = calls
+        .iter()
+        .find(|(header, _)| header.starts_with("converted "))
+        .unwrap();
+    assert_eq!(conversion.1, 0, "{calls:?}");
+}

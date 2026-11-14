@@ -193,6 +193,27 @@ whose reversal `while` loop still calls the methods, used 14.3% fewer
 instructions with identical output. Std bodies that call, loop or run
 destructors still use the thread-local context.
 
+### Transitive caller-context proofs (issue #948)
+
+Direct calls now omit caller-site bookkeeping when their complete call graph
+cannot read it. The analysis includes fallible native byte conversion, branches
+and code-free owned values; indirect callbacks, generators, unknown operations,
+traps and cleanup that invokes compiled code remain conservative. Inlined std
+bodies can name their own trap caller in immutable records while calling proven
+context-free helpers. Trap messages, positions and caller notes are preserved.
+
+An isolated byte-view conversion falls from 130 to 97 instructions per call
+for a 3-byte key and from 375 to 342 for a 12-byte key. Pinned CPU measurements
+are about 8.0 to 5.8 ns and 16.7 to 14.5 ns respectively. Current k-nucleotide
+uses borrowed keys and is unchanged within measurement spread. Removing the
+outer scope around a single-site `Bytes.to_text_range` additionally requires
+issue #958's terminal-call inlining; the combination drops 148 to 103 and
+393 to 348 instructions in the range-construction kernels. The three-site
+dictionary kernel and larger k-nucleotide graph still retain that scope under
+the existing inlining budgets, so issue #948 remains open. Measurements,
+exclusions and reproduction commands
+are in `experiments/kernels/caller-context/README.md`.
+
 ### One-word reference reads (issue #844)
 
 A read through a reference of a one-word value, such as the `Bytes` owner the

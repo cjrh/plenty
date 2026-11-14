@@ -1,0 +1,42 @@
+; Isolate the caller scope around an opaque nontrapping conversion.
+; External symbols stand for enter, convert and leave. The conversion is
+; opaque to Cranelift: proving its diagnostic behavior belongs to Plenty.
+function %with_scope(i64, i64, i64) -> i64 system_v {
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64, i64) -> i64 system_v
+    sig2 = (i64) system_v
+    fn0 = colocated u0:0 sig0
+    fn1 = colocated u0:1 sig1
+    fn2 = colocated u0:2 sig2
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v3, v3)
+block1(v4: i64, v5: i64):
+    v6 = call fn0(v0)
+    v7 = call fn1(v0, v1)
+    call fn2(v6)
+    v8 = iadd v5, v7
+    v12 = iconst.i64 1
+    v9 = iadd v4, v12
+    v10 = icmp ult v9, v2
+    brif v10, block1(v9, v8), block2(v8)
+block2(v11: i64):
+    return v11
+}
+
+function %proved_no_scope(i64, i64, i64) -> i64 system_v {
+    sig0 = (i64, i64) -> i64 system_v
+    fn0 = colocated u0:1 sig0
+block0(v0: i64, v1: i64, v2: i64):
+    v3 = iconst.i64 0
+    jump block1(v3, v3)
+block1(v4: i64, v5: i64):
+    v6 = call fn0(v0, v1)
+    v7 = iadd v5, v6
+    v11 = iconst.i64 1
+    v8 = iadd v4, v11
+    v9 = icmp ult v8, v2
+    brif v9, block1(v8, v7), block2(v7)
+block2(v10: i64):
+    return v10
+}

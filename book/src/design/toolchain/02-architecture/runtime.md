@@ -252,13 +252,23 @@ reads the record only when the trap fires and formats the report directly to
 standard error.
 
 For objects containing embedded std functions, user calls into std save and
-restore a thread-local pointer to the nearest user call site, except calls to
-std accessors that only read a field, such as `NonNegative[i64].get`, which
-cannot trap or run other code, and std bodies inlined into user code whose only
-use of the context is their own trap sites (issue #842). The latter are bodies
-of `Bytes` primitives, integer arithmetic, comparisons and branches, with no
-call, loop or release that runs code, such as `Bytes.get`, `Bytes.set` and
-`Bytes.len`. Their inlined trap records name the user call site instead.
+restore a thread-local pointer to the nearest user call site, except when a
+transitive analysis proves that the callee never reads it. This proof admits
+native operations that cannot trap, branches, enum and class operations on
+values whose release runs no compiled code, and direct calls to other proven
+functions. It includes allocation and fallible byte-to-text conversion: returning
+an error does not read the diagnostic context. Recursive components qualify
+only when every operation and every outgoing call qualifies. Unknown operations,
+indirect calls, generators, trapping operations and values whose cleanup can
+invoke user code remain conservative (issues #750 and #948).
+
+A std body inlined into user code can also omit the context scope when only its
+own trap sites read it. Its inlined trap records name the user call site instead
+(issue #842). Such a body may call a proven context-free helper, construct a
+borrowed view, and release code-free owned values. A helper that can itself trap
+does not qualify for that direct-call proof: its source record needs the original
+user caller. Loops remain outside both proofs. These rules preserve trap kinds,
+messages, source positions and caller notes.
 A record's caller field is 0 in user code, 1 in std code that reads the
 thread-local caller, and otherwise the signed byte distance from the record to
 its user caller's record in the same table. User code also
