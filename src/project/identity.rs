@@ -74,7 +74,9 @@ pub(super) fn decode_path(bytes: bool, text: &str) -> Option<PathBuf> {
     }
     let bytes: Option<Vec<u8>> = text
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let digit = |b: u8| match b {
                 b'0'..=b'9' => Some(b - b'0'),
@@ -97,7 +99,9 @@ pub(super) fn decode_path(bytes: bool, text: &str) -> Option<PathBuf> {
             return None;
         }
         let units: Vec<_> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|b| u16::from_le_bytes([b[0], b[1]]))
             .collect();
         Some(std::ffi::OsString::from_wide(&units).into())
