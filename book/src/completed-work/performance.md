@@ -1781,7 +1781,11 @@ kernels, raw samples and reproduction instructions are retained in
 
 This milestone delivers qualification and the user-authorized publication of
 `d27f16528a` to the Cranelift fork. The [issue #972 adoption](#bounded-spectral-norm-benchmark-issue-972)
-selects it in the production and harness lockfiles. The [escape-latch continuation](#counted-escape-latch-experiment-issue-977) qualifies a further local reduction from 20 to 18 instructions; its publication and production adoption remain issue #977, while the remaining scalar copies belong to issue #978. Issue #980 separately
+selects it in the production and harness lockfiles. The
+[escape-latch continuation](#counted-escape-latch-experiment-issue-977) qualifies
+a further local reduction from 20 to 18 instructions; its publication and
+production adoption remain issue #977, while the remaining scalar copies
+belong to issue #978. Issue #980 separately
 tracks the remaining matrix floating-load instruction. The benchmark rewrite
 under issue #972 uses this scheduling change.
 
