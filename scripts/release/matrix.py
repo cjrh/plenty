@@ -35,12 +35,14 @@ def facts(target):
 
 def matrices(select="all"):
     chosen = {target for target, _ in SELECTIONS[select]}
-    builds, smokes, native = [], [], []
+    builds, engines, smokes, native = [], [], [], []
     for target, runner in LINUX:
         if target not in chosen:
             continue
         _, image, smoke = facts(target)
         builds.append({"target": target, "runner": runner, "image": image})
+        engines.extend({"target": target, "runner": runner, "image": image, "engine": name}
+                       for name in ("dataframe", "linalg"))
         smokes.extend({"target": target, "runner": runner, "image": item} for item in smoke)
     for target, runner in NATIVE:
         if target not in chosen:
@@ -50,6 +52,7 @@ def matrices(select="all"):
     targets = [target for target, _ in LINUX + NATIVE if target in chosen]
     return {
         "build_matrix": {"include": builds},
+        "engine_matrix": {"include": engines},
         "smoke_matrix": {"include": smokes},
         "native_matrix": {"include": native},
         "linux": "true" if builds else "false",

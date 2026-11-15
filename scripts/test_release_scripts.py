@@ -493,6 +493,12 @@ class ReleaseMatrices(unittest.TestCase):
         self.assertEqual({row["runner"] for row in builds}, {"ubuntu-24.04", "ubuntu-24.04-arm"})
         self.assertEqual(len({row["target"] for row in builds}), 2)
         self.assertTrue(all("@sha256:" in row["image"] for row in builds))
+        engines = json.loads(values["engine_matrix"])["include"]
+        self.assertEqual(len(engines), 4)
+        self.assertEqual({(row["target"], row["engine"]) for row in engines},
+                         {(row["target"], name) for row in builds for name in ("dataframe", "linalg")})
+        for engine in engines:
+            self.assertIn({key: engine[key] for key in ("target", "runner", "image")}, builds)
         smokes = json.loads(values["smoke_matrix"])["include"]
         arm = [row for row in smokes if row["target"].startswith("aarch64")]
         self.assertEqual({row["image"].split("@", 1)[0] for row in arm}, {"almalinux:8", "debian:13"})
@@ -524,6 +530,7 @@ class ReleaseMatrices(unittest.TestCase):
                                  sorted([r["target"] for r in builds] + [r["target"] for r in rows]))
                 if select == "native":
                     self.assertEqual(json.loads(values["smoke_matrix"])["include"], [])
+                    self.assertEqual(json.loads(values["engine_matrix"])["include"], [])
         self.assertNotEqual(run(["python3", "-B", RELEASE / "matrix.py", "--select", "mac"]).returncode, 0)
 
     def test_workflow_publishes_only_from_tag_pushes(self):
@@ -600,8 +607,10 @@ class ReleasePreparation(unittest.TestCase):
         self.assertEqual(len(shared), 2)
         for key in shared:
             self.assertIn("shared-key: " + key, qualification)
-        self.assertIn(". -> target/release-compiler\n            plenty-dataframe -> target\n            plenty-linalg -> target", job("build"))
-        self.assertIn("--engine-workspace-targets", job("build"))
+        self.assertIn(". -> target/release-compiler", job("build"))
+        self.assertNotIn("plenty-dataframe -> target", job("build"))
+        self.assertIn("plenty-${{ matrix.engine }} -> target", job("engine"))
+        self.assertIn("--engine-workspace-targets", job("engine"))
 
 
 class TargetFacts(unittest.TestCase):
