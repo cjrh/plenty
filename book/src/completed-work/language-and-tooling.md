@@ -161,13 +161,26 @@ not accepted as an alias. Naming policies and aliases remain unsupported.
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)
-now builds the compiler and dataframe engine concurrently, with separate
-stable-qualification, pinned-release compiler and isolated engine dependency
-caches. A dependent native job packages and audits the same-run products and
-runs the existing smoke checks. Local release builds keep their complete
-default behavior; explicit prepare/package phases support the CI split.
-Release baselines and custom-runtime-flag cache safeguards are preserved.
-Hosted cold/warm savings remain to be measured.
+runs three independent preparation jobs on each of macOS ARM64 and Windows
+x86-64, then a dependent packaging job: the `compiler` job qualifies stable
+Rust with boundary checks, build and unit tests, and Darwin stack-probe tests;
+`release-compiler` and `dataframe` jobs independently prepare pinned-release
+compiler and engine with their separate caches; `package` audits and assembles
+the same-run products for smoke checks. Checkout and cache setup ensure LF
+line-ending preservation, consistent `CARGO_TERM_COLOR`, and Rust-version
+participation in cache keys. Pinned jobs no longer upgrade stable before cache
+restoration.
+
+Local release builds keep their complete default behavior; explicit
+prepare/package phases support the CI split. Release baselines and
+custom-runtime-flag cache safeguards are preserved. A measured portability
+run (43647440733 at 6a466afb) spanned 1038 seconds total: macOS compiler 802
+seconds, Windows compiler 641 seconds, Windows engine 127 seconds; the prior
+run (43626875810) spanned 1682 seconds. Cached-condition variations prevent
+speedup attribution; the baseline record is available for warm-run analysis.
+The issue #985 follow-up passed a 381-test local Python suite (four skipped),
+actionlint and the complete docs-site checks. The changed workflow has not
+been run on hosted runners; elapsed savings remain unmeasured.
 
 ## Release build reuse (issue #859)
 

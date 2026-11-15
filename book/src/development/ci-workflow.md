@@ -67,34 +67,58 @@ links with `/usr/libexec/mold/ld` (`scripts/ci_check_mold.sh`); see
 ### Native OS qualification
 
 The experimental macOS ARM64 and Windows x86-64 checks in
-`.github/workflows/portability.yml` build the compiler and dataframe engine
-concurrently. Compiler jobs retain stable-Rust boundary checks, build and unit
-tests, Darwin stack-probe integration tests, and the pinned-release compiler
-build and unit tests. Engine jobs use the pinned release Rust and run the
-baseline engine build, formatting check, tests and clippy.
+`.github/workflows/portability.yml` run three independent preparation jobs,
+then a dependent packaging job. The structure keeps qualification and release
+pipelines isolated and enables parallelism across stable qualification,
+pinned-release compiler and engine preparation.
 
-A dependent packaging job on each native OS downloads both products from the
-same workflow run. Tar artifacts retain executable modes and macOS signatures;
-packaging still audits the executable and engine baselines, installs notices,
-and runs the complete archive smoke checks, including relocation. Packaging
-requires both build matrices to succeed. No new OS is admitted by these checks.
+**Stable qualification:** the `compiler` job runs stable Rust, builds the
+compiler and runtime, executes boundary checks (native tools and ring crypto
+sources), runs the full compiler build and unit tests, and on macOS executes
+AArch64 stack-probe integration tests. Stable qualification dependencies live
+in `target/qualification/` and retain their independent cache key.
 
-Stable qualification dependencies live in `target/qualification/`, pinned
-release compiler dependencies in `target/native-release/`, and engine
-dependencies in `plenty-dataframe/target/`. Separate cache actions keep cleanup
-from removing another workspace's dependencies. Keys distinguish each role,
-target and Rust/compiler environment; release target policy and engine build
-policy also participate. Only successful `main` jobs save caches; PRs restore
-them. Workspace code still rebuilds. The release CPU/runtime flags and macOS
-deployment minimum remain unchanged, and custom `PLENTY_RUNTIME_RUSTFLAGS`
-still bypass embedded-runtime vendor/archive reuse.
+**Pinned release preparation:** `release-compiler` and `dataframe` jobs run
+independently with the pinned Rust version from `scripts/release/toolchain.env`.
+Both use shared-key ingredients (target policy, build-script contents) and
+maintain independent caches: `target/native-release/` for the compiler and
+`plenty-dataframe/target/` for the engine. The compiler job builds, tests and
+preserves the release binaries; the engine job builds, validates and preserves
+the release engine. Neither upgrades stable or touches the other's workspace.
 
-Before this split, successful runs 42350500941 and 42344839963 took 31–41
-minutes on Windows and 29–34 minutes on macOS. In the first run, engine
-compilation alone took 13m31s and 10m50s respectively. Cold runs now overlap
-that work with compiler qualification; warm runs can reuse third-party Rust
-dependencies. Hosted cache transfer, hit rates and resulting elapsed savings
-must still be measured; the first run for each key remains cold.
+**Packaging:** a dependent `package` job on each matrix downloads both compiler
+and engine artifacts from the same run. It installs the pinned Rust toolchain
+for licensing extraction, audits the executables and engine baselines, installs
+notices, and runs the complete archive smoke checks including relocation. Tar
+artifacts retain executable modes and macOS signatures. Packaging requires all
+three preceding jobs to succeed.
+
+**Checkout and cache parity:** native jobs use `core.autocrlf false` before
+checkout so Windows policy-file hashes match Release. Both workflows set valid
+`CARGO_TERM_COLOR: always`; the former empty Release override made Cargo
+metadata discovery and cache cleanup fail. Shared keys retain target-policy/build-script
+identity; the cache action independently fingerprints Rust toolchains,
+environment and lockfiles. Pinned preparation no longer upgrades stable in the
+same job. Preinstalled toolchains can still cause cache misses when runner
+images change.
+
+**Timing reports:** the `timings` job runs after all preparation and packaging
+jobs, whether or not earlier jobs fail, and retains the summary and raw data
+with a 30-day retention. A measured portability run (43647440733 at 6a466afb)
+had a total span of 1038 seconds (17m18): macOS compiler stage 802 seconds,
+Windows compiler stage 641 seconds, Windows engine stage 127 seconds. For
+comparison, the prior run (43626875810) spanned 1682 seconds. Cache conditions
+and host load differ between runs. These are old-pipeline baselines; the
+changed workflow has not been run on hosted runners. Cache reuse is documented in the
+[completed-work record](../completed-work/language-and-tooling.md#native-qualification-build-reuse-issue-850).
+
+No new OS is admitted by these checks. Separate cache actions prevent cleanup
+from removing another workspace's dependencies. Cache keys distinguish each
+role, target and Rust/compiler environment; release target policy and engine
+build policy participate. Only successful `main` jobs save caches; PRs restore
+base-branch entries. Workspace code still rebuilds. The release CPU/runtime
+flags and macOS deployment minimum remain unchanged, and custom
+`PLENTY_RUNTIME_RUSTFLAGS` still bypass embedded-runtime vendor/archive reuse.
 
 ### Dependency cache
 

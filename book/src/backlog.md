@@ -18,8 +18,10 @@ recorded in [completed work](completed-work/libraries.md#windows-x86-64-datafram
 The macOS ARM64 dataframe subset is recorded in
 [completed work](completed-work/libraries.md#macos-arm64-dataframe-packaging).
 Broader native OS qualification remains in B18.7.
-[CI dependency reuse and concurrent native builds](completed-work/language-and-tooling.md#native-qualification-build-reuse-issue-850)
-are delivered by issue #850; hosted cold/warm elapsed savings remain unmeasured.
+[Native qualification build reuse](completed-work/language-and-tooling.md#native-qualification-build-reuse-issue-850)
+(issue #985) delivers concurrent stable/pinned preparation with packaging waiting
+for all three jobs to complete, with measured baselines from run 43647440733
+available for warm-run analysis; further hosted elapsed savings remain unmeasured.
 
 ## Current position
 
