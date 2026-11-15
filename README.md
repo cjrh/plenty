@@ -15,7 +15,7 @@ It draws inspiration from:
 - [Install Plenty](book/src/design/toolchain/01-building/installing.md) and [Learn Plenty](book/src/tutorial/index.md)
 - [Language and standard library reference](book/src/design/index.md)
 - [Development workflow](book/src/development/workflow.md) and [backlog](book/src/backlog.md)
-- [Online documentation](https://plentylang.org/) and [current development documentation](https://plentylang.org/dev/)
+- [Online documentation](https://plentylang.org/docs/) and [current development documentation](https://plentylang.org/docs/dev/)
 
 ## Demo
 

@@ -3,16 +3,70 @@ import io
 from contextlib import redirect_stderr
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import tarfile
 import unittest
 from unittest.mock import patch
 
 from build_book import build_book
-from build_docs_site import add_navigation, destination, extract_release, load_releases, redirect_page
+from check_book_output import SITE_ASSETS, check
+from build_docs_site import add_navigation, assemble, destination, extract_release, load_releases, redirect_page
 
 
 class DocsSiteTests(unittest.TestCase):
+    def test_homepage_docs_versions_and_legacy_links_share_one_checked_artifact(self):
+        def book(source, output, prefix, metadata):
+            output.mkdir(parents=True, exist_ok=True)
+            pages = ["index.html", "404.html", "print.html", "tutorial/index.html",
+                     "tutorial/00-setting-up.html", "design/index.html", "nested/chapter.html"]
+            if metadata["channel"] == "development":
+                pages.append("development-only.html")
+            for chapter in pages:
+                path = output / chapter
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('<html><head><title>Book</title></head><body>'
+                                '<aside>Version</aside><main>Chapter</main></body></html>')
+            for name in ("searchindex-test.js", "searcher-test.js", "highlight-test.js",
+                         "theme/plenty-highlight-test.js", "theme/plenty-highlight-test.css"):
+                path = output / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+
+        manifest = dict(stable="0.1.0", releases=[dict(version="0.1.0", tag="v0.1.0", commit="a" * 40)])
+        for prefix in ("/", "/plenty/"):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory)
+                shutil.copytree(Path(__file__).resolve().parents[1] / "website", repo / "website")
+                shutil.copytree(Path(__file__).resolve().parents[1] / "logos", repo / "logos")
+                output = repo / "site"
+                with patch('build_docs_site.development_metadata', return_value=dict(label="Development", channel="development")), \
+                     patch('build_docs_site.extract_release'), patch('build_docs_site.build_book', side_effect=book):
+                    assemble(repo, output, prefix, manifest)
+                homepage = (output / "index.html").read_text()
+                self.assertIn("Native executables.", homepage)
+                self.assertIn(f'href="{prefix}docs/"', homepage)
+                self.assertNotIn("@SITE_PREFIX@", homepage)
+                self.assertTrue((output / "assets/site.css").is_file())
+                self.assertEqual((output / "assets/plenty.svg").read_bytes(), (repo / "logos/plenty.svg").read_bytes())
+                self.assertEqual((output / "assets/plenty.png").read_bytes(), (repo / "logos/plenty.png").read_bytes())
+                self.assertIn(f'href="{prefix}">Plenty home</a>', (output / "docs/index.html").read_text())
+                versions = json.loads((output / "docs/versions.json").read_text())
+                self.assertEqual([v["url"] for v in versions], [prefix + "docs/", prefix + "docs/0.1.0/", prefix + "docs/dev/"])
+                for chapter in ("nested/chapter.html", "dev/index.html", "0.1.0/index.html"):
+                    text = (output / chapter).read_text()
+                    self.assertIn(f'href="{prefix}docs/{chapter}"', text)
+                    self.assertIn('+location.search+location.hash', text)
+                self.assertIn(f'href="{prefix}docs/dev/development-only.html"',
+                              (output / "docs/development-only.html").read_text())
+                fallback = (output / "404.html").read_text()
+                self.assertIn(prefix + "docs/dev/404.html", fallback)
+                self.assertIn('location.replace(destination + location.search + location.hash)', fallback)
+                self.assertNotIn("@DOCS_ROUTES@", fallback)
+                (output / "assets/plenty.svg").unlink()
+                _, errors = check(output, prefix, required=SITE_ASSETS)
+                self.assertTrue(any("assets/plenty.svg" in error for error in errors))
+
     def test_selector_preserves_chapter_or_falls_back_without_script(self):
         for prefix in ("/", "/plenty/"):
             with self.subTest(prefix=prefix):

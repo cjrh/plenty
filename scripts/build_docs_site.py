@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble stable, tagged and development books into one complete Pages artifact."""
+"""Build the Plenty homepage and versioned documentation as one Pages artifact."""
 
 import argparse
 import html
@@ -14,7 +14,7 @@ import tempfile
 import tomllib
 
 from build_book import build_book, development_metadata, git
-from check_book_output import check
+from check_book_output import SITE_ASSETS, check
 
 
 def load_releases(repo, path=None):
@@ -70,7 +70,7 @@ def destination(version, chapter):
     return version["url"] + (chapter if chapter in version["pages"] else "index.html")
 
 
-def add_navigation(root, current, versions, prefix):
+def add_navigation(root, current, versions, prefix, home=None):
     for chapter in current["pages"]:
         page = root / chapter
         links = []
@@ -83,6 +83,8 @@ def add_navigation(root, current, versions, prefix):
                          + '>' + html.escape(version["label"]) + '</a></li>')
         navigation = ('<details class="docs-versions"><summary>Choose documentation version</summary>'
                       '<ul>' + ''.join(links) + '</ul></details>')
+        if home is not None:
+            navigation = ' · <a href="' + html.escape(home, quote=True) + '">Plenty home</a>' + navigation
         content = page.read_text()
         content = content.replace('</aside>', navigation + '</aside>', 1)
         content = content.replace('</body>', '<script src="' + prefix + 'docs-switcher.js"></script>\n</body>', 1)
@@ -93,13 +95,13 @@ def redirect_page(target):
     safe = html.escape(target, quote=True)
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
             '<title>Documentation moved</title></head><body>'
-            '<p>This page is available in development documentation. '
+            '<p>The documentation has moved. '
             f'<a id="destination" href="{safe}">Continue to the page</a>.</p>'
             '<script>location.replace(document.getElementById("destination").href'
             '+location.search+location.hash);</script></body></html>')
 
 
-def assemble(repo, output, prefix, manifest):
+def assemble_docs(repo, output, prefix, manifest, *, site_root=None, site_prefix=None):
     versions = []
     stable = next((r for r in manifest["releases"] if r["version"] == manifest["stable"]), None)
     development = development_metadata(repo)
@@ -107,7 +109,7 @@ def assemble(repo, output, prefix, manifest):
         build_book(repo, output, prefix, development)
         versions.append(dict(id="default", label=development["label"] + " (default)",
                              url=prefix, pages=page_names(output), root=output))
-    # Root is a complete stable book, so existing chapter URLs keep working.
+    # The docs root is a complete stable book; version URLs stay independent.
     ordered = ([stable] if stable else []) + sorted(manifest["releases"], key=lambda r: tuple(map(int, r["version"].split('.'))), reverse=True)
     with tempfile.TemporaryDirectory(prefix="plenty-docs-sources-") as directory:
         sources = Path(directory)
@@ -129,7 +131,7 @@ def assemble(repo, output, prefix, manifest):
     versions.append(dict(id="dev", label=development["label"], url=prefix + "dev/",
                          pages=page_names(output / "dev"), root=output / "dev"))
     for version in versions:
-        add_navigation(version["root"], version, versions, prefix)
+        add_navigation(version["root"], version, versions, prefix, home=site_prefix)
     # GitHub serves the site's root404 for all missing paths, even inside dev/.
     # Hand off known version prefixes to their own correctly labelled404 page.
     routes = {v["url"]: v["url"] + "404.html" for v in versions if v["id"] != "default"}
@@ -158,24 +160,61 @@ if (document.title.startsWith("Page not found")) {
     catalog = [{k: sorted(v) if k == "pages" else v for k, v in version.items() if k != "root"} for version in versions]
     (output / "versions.json").write_text(json.dumps(catalog, indent=2) + "\n")
     for version in versions:
-        count, errors = check(version["root"], version["url"], site_root=output, site_prefix=prefix)
+        count, errors = check(version["root"], version["url"], site_root=site_root or output, site_prefix=site_prefix or prefix)
         if errors:
             raise ValueError("\n".join(errors[:30]))
         print(f"{version['id']}: checked {count} HTML pages")
+
+
+def assemble(repo, output, prefix, manifest):
+    docs = output / "docs"
+    docs_prefix = prefix + "docs/"
+    source = repo / "website"
+    shutil.copytree(source / "assets", output / "assets")
+    for name in ("plenty.svg", "plenty.png"):
+        shutil.copyfile(repo / "logos" / name, output / "assets" / name)
+    homepage = (source / "index.html").read_text()
+    homepage = homepage.replace("@SITE_PREFIX@", prefix).replace("@DOCS_PREFIX@", docs_prefix)
+    (output / "index.html").write_text(homepage)
+    assemble_docs(repo, docs, docs_prefix, manifest, site_root=output, site_prefix=prefix)
+    catalog = json.loads((docs / "versions.json").read_text())
+    routes = [(version["url"], version["url"] + "404.html") for version in catalog]
+    routes += [(prefix + version["id"] + "/", version["url"] + "404.html")
+               for version in catalog if version["id"] != "default"]
+    routes.sort(key=lambda route: len(route[0]), reverse=True)
+    fallback = (source / "404.html").read_text()
+    fallback = fallback.replace("@SITE_PREFIX@", prefix).replace("@DOCS_PREFIX@", docs_prefix)
+    fallback = fallback.replace("@DOCS_ROUTES@", json.dumps(routes))
+    (output / "404.html").write_text(fallback)
+    # Existing root-level chapter and version links retain their destinations.
+    # Homepage and site-wide404 are deliberately new, rather than redirects.
+    for page in docs.rglob("*.html"):
+        chapter = page.relative_to(docs)
+        if chapter.as_posix() in ("index.html", "404.html"):
+            continue
+        target = output / chapter
+        if target.exists():
+            raise ValueError(f"Legacy documentation redirect collides with site asset: {chapter}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(redirect_page(docs_prefix + chapter.as_posix()))
+    count, errors = check(output, prefix, required=SITE_ASSETS)
+    if errors:
+        raise ValueError("\n".join(errors[:30]))
+    print(f"Complete site: checked {count} HTML pages")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--prefix", default="/")
+    parser.add_argument("--prefix", default="/", help="Site mount path; docs live beneath its docs/ directory")
     parser.add_argument("--manifest", type=Path, help="Alternate release manifest for admission checks")
     args = parser.parse_args()
     repo = args.source.resolve()
     output = (args.output or repo / "book/site").resolve()
     if not re.fullmatch(r"/(?:[A-Za-z0-9_-]+/)*", args.prefix):
         raise ValueError("Prefix must be / or a site path such as /plenty/")
-    if output.exists() and (not (output / "versions.json").is_file()):
+    if output.exists() and not any((output / path).is_file() for path in ("docs/versions.json", "versions.json")):
         raise ValueError("Refusing to replace a directory not built by this helper")
     manifest = load_releases(repo, args.manifest)
     output.parent.mkdir(parents=True, exist_ok=True)
