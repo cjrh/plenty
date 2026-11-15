@@ -1,0 +1,49 @@
+# Extracted production forward kernel; allocation/setup precede repetitions.
+def transform_wide_reduce(low: u64, high: u64, p: u64, inverse: u64) -> u64:
+    unchecked:
+        m = low.wrapping_mul(inverse)
+        (m_low, m_high) = m.widening_mul(p)
+        (_, carry) = low.carrying_add(m_low, False)
+        result = high + m_high + (1u64 if carry else 0u64)
+        result - p if result >= p else result
+
+def transform_wide_multiply(a: u64, b: u64, p: u64, inverse: u64) -> u64:
+    (low, high) = a.widening_mul(b)
+    transform_wide_reduce(low, high, p, inverse)
+
+def transform_wide_forward(data: &mut [u64], roots: &[u64], p: u64, inverse: u64) -> ():
+    unchecked:
+        n = len(data)
+        mut width = n
+        mut step = 1
+        while width >= 2:
+            half = width // 2
+            mut start = 0
+            while start < n:
+                block = &mut data[start:start + width]
+                transform_wide_forward_block(&mut block[:half], &mut block[half:], roots, step, p, inverse)
+                start += width
+            width = half
+            step *= 2
+
+def transform_wide_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64, inverse: u64) -> ():
+    unchecked:
+        mut k = 0
+        for j in range(len(low)):
+            u = low[j]
+            v = high[j]
+            sum = u + v
+            difference = u + p - v
+            low[j] = sum - p if sum >= p else sum
+            high[j] = transform_wide_multiply(difference - p if difference >= p else difference, roots[k], p, inverse)
+            k += step
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    count = i64.parse(argv[1])?
+    mut data = [u64(i) for i in range(1024)]?
+    roots = [2269391999729648u64 for _ in range(512)]?
+    for _ in range(count):
+        transform_wide_forward(&mut data, &roots, 1152779667606863873u64, 1152779667606863871u64)
+    print(data[0])?
+    Ok(())
