@@ -295,3 +295,49 @@ fn unreferenced_inlined_functions_trap_if_called() {
         assert!(symbol.size() <= max_size as u64, "{}", symbol.size());
     }
 }
+
+/// Issue #948: three range-conversion sites must not pull the conversion
+/// chain into every caller to inline their small trapping wrapper. Its
+/// native conversion returns an owned Result into the containing frame.
+#[test]
+fn shared_range_wrappers_retain_context_free_conversion_calls() {
+    let source = include_str!("../experiments/dictionary-hits/built-3-1000000.plenty")
+        .replace("1000000", "20");
+    let calls = calls_in(&source, "main", "20\n");
+    assert!(
+        !calls
+            .iter()
+            .any(|name| name.contains("Bytes.to_text_range")),
+        "{calls:?}"
+    );
+    assert!(
+        calls.iter().any(|name| name.contains("text_in")),
+        "{calls:?}"
+    );
+    let debug = run(&source, &["--fast-compile"]);
+    assert_eq!(debug.0, Some(0), "{}", debug.2);
+    assert_eq!(debug.1, "20\n");
+}
+
+#[test]
+fn retained_terminal_calls_return_inline_results_to_the_containing_caller() {
+    // The typed body exceeds even the single-site bound, although redundant
+    // comparisons disappear later. This forces a retained native callee.
+    let mut source =
+        "def large(value: range[i64], x: i64) -> Result[range[i64], AllocError]:\n    mut flag = True\n".to_string();
+    for _ in 0..60 {
+        source.push_str("    flag = x == x\n");
+    }
+    source.push_str("    Ok(value)\n\ndef wrapper(value: range[i64]) -> Result[range[i64], AllocError]:\n    large(value, 0)\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(list(wrapper(range(3))?)?, list(wrapper(range(4))?)?, list(wrapper(range(2))?)?)?\n    print(\"returned\")?\n    Ok(())\n");
+    let expected = "[0, 1, 2] [0, 1, 2, 3] [0, 1]\nreturned\n";
+    let calls = calls_in(&source, "main", expected);
+    assert!(!calls.iter().any(|name| name == "wrapper"), "{calls:?}");
+    assert_eq!(
+        calls.iter().filter(|name| *name == "large").count(),
+        3,
+        "{calls:?}"
+    );
+    let debug = run(&source, &["--fast-compile"]);
+    assert_eq!(debug.0, Some(0), "{}", debug.2);
+    assert_eq!(debug.1, expected);
+}

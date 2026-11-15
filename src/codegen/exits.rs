@@ -81,6 +81,8 @@ pub(super) struct Exits {
     /// Where the function's returns go when it is lowered into a caller
     /// ([`super::inline_calls`]): a block taking the returned values.
     pub(super) returns_to: Option<Block>,
+    /// This inline copy retains its context-independent calls.
+    pub(super) native_calls: bool,
     /// `break`s and `continue`s of each enclosing loop, innermost last.
     loops: Vec<Ladder>,
     /// Where exits stage their carried values, by their types.
@@ -108,9 +110,10 @@ impl Exits {
     }
 
     /// Exits of `body` lowered into its caller, returning to `block`.
-    pub(super) fn returning_to(block: Block, body: &[Op]) -> Self {
+    pub(super) fn returning_to(block: Block, body: &[Op], native_calls: bool) -> Self {
         Self {
             returns_to: Some(block),
+            native_calls,
             has_loop: Self::for_body(body).has_loop,
             ..Default::default()
         }

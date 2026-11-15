@@ -102,7 +102,7 @@ it is not an analysis-only result. The emitted main body has no call to
 `Bytes.to_text_range` and no context scope at that conversion; the one scope
 remaining in its main body belongs to initial buffer construction.
 
-**Remaining scope of issue #948:** the dictionary `built` kernels have three
+**Scope remaining after the first partial delivery (now addressed below):** the dictionary `built` kernels have three
 static range-conversion sites and exceed the existing shared-inlining budget.
 The larger k-nucleotide graph also prevents the terminal conversion chain from
 being selected for complete inlining. Both keep the native range-wrapper
@@ -123,7 +123,7 @@ A future extension would need to preserve the containing frame while lowering
 a retained terminal callee as an ordinary call plus an inline return; allowing
 an actual tail transfer inside an inlined wrapper would return past its caller.
 That ownership, ABI and diagnostic change is deliberately outside this PR.
-Keep issue #948 open for the retained boundaries. Merge #958 first if reviewing
+At that stage issue #948 stayed open for the retained boundaries. Merge #958 first if reviewing
 the combined single-site range benefit; the analysis itself is independently
 compilable and useful for the view-conversion path.
 
@@ -154,3 +154,109 @@ perf stat -r 7 -e instructions:u,task-clock taskset -c 4 /tmp/c-keys 3 1000000
 For the whole program, generate fasta once, then use a shell redirect inside
 `perf stat -r` so each repetition reopens the file. Do not pass one shared
 stdin descriptor to all repetitions.
+
+## Retained-call wrapper plan (remaining issue #948)
+
+The follow-up uses baseline `6a466afb` (both partial fixes merged), the same
+optimized release flags, CPU 4 and cache-disabled compilation. It keeps every
+existing size limit. Type-only `Reborrow` and `ForwardsReferences` operations
+emit no code and now count as markers. Planning first attempts full expansion;
+when that does not fit, a cleanup-free wrapper can keep its proven
+context-independent direct callees native. A terminal callee then uses a normal
+call followed by the wrapper's inline return, including normal hidden result
+storage. It never tail-transfers out of the containing frame.
+
+| Planning variant | Wrapper operation cost | Three copies | Result |
+|---|---:|---:|---|
+| Original full expansion | No admissible terminal target | — | Native wrapper and caller scope |
+| Retain only the conversion | Above 24 after expanding `within` | — | Native wrapper and caller scope |
+| Retain context-independent predicate and conversion | 22 | 66 of 256 | Inlined wrapper, native helpers, no range caller scope |
+
+The three static sites in `dictionary-hits/built-*` all now inline the range
+wrapper. The owned-key `count_frames` graph also loses its `plenty_caller_enter`
+and `plenty_caller_leave` around `Bytes.to_text_range`, while retaining
+`std.bytes.text_in`. The current borrowed-key benchmark continues to bypass the
+conversion. Managed wrapper inputs/locals, unknown or trapping terminal
+callees, indirect terminal calls and recursive expansion remain excluded.
+Unit tests cover cleanup/context/growth exclusions and recursion; integration
+tests cover three sites and a retained callee returning an inline
+`Result[range[i64], AllocError]` through the containing caller's result area.
+All 68 exact trap-location tests pass, including invalid ranges at all three
+sites, callbacks, generators and destructor paths in both optimization modes.
+
+### Instructions, CPU and attribution
+
+Two alternating rounds, seven repetitions per kernel, N=2M minus N=1M;
+[raw counters](retained-measurements.json) include all outputs and dispersion.
+Randomized dictionary layout changes probe counts between processes, so ranges
+are more honest than a single exact instruction count.
+
+| Kernel | Before instructions/pass | After | Before ns/pass | After |
+|---|---:|---:|---:|---:|
+| Built dictionary key, 3 bytes | 289.7–292.3 | 262.0–267.1 | 13.7–14.1 | 12.2 |
+| Built dictionary key, 18 bytes | 608.7–612.6 | 581.0–583.6 | 27.0–27.9 | 28.3–28.8 |
+| C dictionary-hit floor, 3 bytes | 158 | — | 16.9 | — |
+| C dictionary-hit floor, 18 bytes | 208 | — | 17.7 | — |
+| C key-construction floor, 3 bytes | 87 | — | 6.9 | — |
+| C key-construction floor, 18 bytes | 224 | — | 13.3 | — |
+
+The C floors are the existing `dictionary-hits/hits.c` and
+`key-construction/keys.c`, built with `gcc -O2`; the former omits key
+construction, the latter omits the dictionary and supports ASCII rather than
+full UTF-8. Neither is an equivalent substitute. Their useful work, hashing,
+UTF-8 and ownership differences are unchanged by this compiler change.
+
+| Changed cause | Net instructions per key | Evidence |
+|---|---:|---|
+| Caller-context helper bodies | −21 exactly | 13 in enter, 8 in leave; pair absent in emitted loop |
+| Wrapper frame/argument/result moves, retained helper calls and caller register/layout changes | About −9 together | Range wrapper disappears; predicate and conversion remain native |
+| Native conversion, dictionary hashing/probing and release | Unchanged except randomized probe layout | Same runtime operations and input bytes |
+
+The static innermost-loop heuristic reports 43→50 instructions for the counting
+loop because several operations move from the wrapper into its caller. It
+excludes all called bodies and does not follow every success-path branch;
+the whole-process N-difference is the dynamic total. The newly retained
+predicate adds a call and frame where its comparison used to inline. This
+tradeoff reduces instruction count but explains why heap-key CPU time can be
+slightly worse. This change establishes no uniform runtime-speed improvement.
+The earlier [`variants.clif`](variants.clif) remains the ABI isolation of the
+scope pair; the table above records the independently tested wrapper-plan
+variants rather than attributing their effect to that simpler CLIF model.
+
+For whole programs, five repetitions at fasta 50,000 in two alternating rounds:
+
+| Program | Before instructions | After | Before CPU ms | After |
+|---|---:|---:|---:|---:|
+| Current borrowed keys | 699.89–700.06M | 700.00–700.23M | 67.43–67.74 | 68.39–71.34 |
+| [Owned-key comparison](owned-knucleotide.plenty) | 950.77–951.23M | 901.29–901.86M | 82.63–85.35 | 79.12–82.50 |
+
+At fasta 500,000, seven repetitions each in before/after/after/before order:
+7.332–7.336B→6.843–6.846B instructions (about 6.7% fewer). Paired CPU means
+were 514.54→509.42 ms and 585.84→557.39 ms, with relative dispersion between
+1.21% and 10.26%. These CPU readings do not establish a reliable whole-program
+speedup. Every measured output matches byte for byte. The owned comparison
+intentionally retains per-key allocation; recommended benchmark source still
+uses borrowed dictionary lookup.
+
+After the final recursion-guard audit, complete generated asm dumps of the
+built k=3 kernel and owned whole program match the measured candidate byte for
+byte. The guard rejects every member of a mutual tail cycle and prevents a
+completed recursive branch from enabling the retained-call fallback elsewhere.
+
+Final cache-disabled optimized compilation of the owned comparison, two
+alternating rounds of five repetitions: 432.598–432.611M→432.634–432.658M
+instructions (about +0.01%), 193.51–201.39→198.23–200.94 ms CPU. Earlier
+pre-audit compile counters remain in the raw report for provenance; these final
+rounds supersede them. This is the measured whole-program compile cost, not a
+claim about every compiler workload.
+Stripped executable sizes are 212,248→212,392 bytes for built k=3 and
+396,384→396,448 bytes for the owned comparison.
+
+To reproduce, compile the existing `built-K-N.plenty` programs with each release
+compiler, compile `owned-knucleotide.plenty` and the current borrowed benchmark,
+and use the `perf` commands above with `taskset -c 4`. Generate fasta input with
+`benchmarks/game/fasta/reference/fasta.rs`; reopen the input inside each perf
+repetition. Dump each owned program with `--dump ops,clif-opt,asm --dump-std`
+and inspect `count_frames`; the original range pair is present only before.
+All scope removal here is conditional on the transitive proof, and no trap or
+cleanup operation is removed.

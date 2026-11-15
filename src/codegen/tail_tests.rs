@@ -27,6 +27,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         UserFn {
             inline: None,
             inline_body: None,
+            inline_native_calls: false,
             column_predicate: None,
             standard_library: false,
             drop_callback: None,
@@ -137,6 +138,7 @@ fn an_inlined_body_keeps_rows() {
         UserFn {
             inline: None,
             inline_body: None,
+            inline_native_calls: false,
             column_predicate: None,
             standard_library: false,
             drop_callback: None,

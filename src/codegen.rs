@@ -842,6 +842,7 @@ fn object_module(
             out.address_taken(function.id);
         }
     });
+    sites::mark_context_preserving(&bodies, &mut user_fns);
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
         for name in &protected {
@@ -853,7 +854,6 @@ fn object_module(
         }
         clist_simd::prepare(&bodies, &mut user_fns);
     }
-    sites::mark_context_preserving(&bodies, &mut user_fns);
     runtime.drop_hooks = user_fns
         .iter()
         .filter_map(|(name, f)| Some((name.clone(), f.drop_callback?)))
@@ -1944,6 +1944,8 @@ struct UserFn {
     /// Small constructor body lowered at each call site in optimized builds;
     /// see [`inline_calls`].
     inline_body: Option<Arc<[Op]>>,
+    /// Keep proven context-independent callees native in this inline copy.
+    inline_native_calls: bool,
     column_predicate: Option<Arc<clist_simd::Predicate>>,
     standard_library: bool,
     drop_callback: Option<FuncId>,
@@ -2018,6 +2020,7 @@ fn collect_user_fns(
                     UserFn {
                         inline: None,
                         inline_body: None,
+                        inline_native_calls: false,
                         column_predicate: None,
                         drop_callback: if name.starts_with("__plenty_class_")
                             && name.ends_with(".__del__")
@@ -4468,6 +4471,8 @@ impl Lowerer<'_, '_> {
         let user_fns = self.user_fns;
         let (_, mut args) = self.pop_call_args(name)?;
         let decl: &UserFn = &user_fns[name];
+        let retain_native =
+            decl.reads_no_caller && self.exits.as_ref().is_some_and(|exits| exits.native_calls);
         // A native call or an inlined constructor copies what it keeps of its
         // arguments before the caller runs again; a leaf may return one in
         // place. A move this call does not take stays pending: no callee can
@@ -4493,6 +4498,9 @@ impl Lowerer<'_, '_> {
         } else {
             (decl.standard_library || decl.source.is_none()) && !decl.reads_no_caller
         };
+        if retain_native {
+            return self.lower_native_call(decl, args, false, false);
+        }
         if let Some(simd) = portable_simd::operation(name, decl, optimize) {
             if simd.indexed() {
                 let mut reported = args.clone();
@@ -4628,13 +4636,23 @@ impl Lowerer<'_, '_> {
                 .exits
                 .as_ref()
                 .is_some_and(|exits| exits.single_tail_call);
-        let (decl, mut args) = self.pop_call_args(name)?;
+        let user_fns = self.user_fns;
+        let (_, mut args) = self.pop_call_args(name)?;
+        let decl = &user_fns[name];
         // Only user code sets a site; std would pass null, which changes
         // nothing.
         let track_caller = !caller_standard
             && (decl.standard_library || decl.source.is_none())
             && !decl.reads_no_caller;
         let names_caller = track_caller && decl.names_caller_in_sites;
+        // This is a return from the inlined wrapper, not from its containing
+        // native function. Its retained callee must return into this frame.
+        // Planning admits this only with no owned cleanup and no context read.
+        if decl.reads_no_caller && self.exits.as_ref().is_some_and(|exits| exits.native_calls) {
+            debug_assert!(cleanup_free && decl.reads_no_caller);
+            self.lower_native_call(decl, args, false, false)?;
+            return self.lower(&Op::Return);
+        }
         // A real tail call destroys owned locals before entering its callee.
         // Keep that ordering when the leaf may trap: only substitute callers
         // whose final local cleanup has no observable work.
