@@ -126,6 +126,7 @@ ready_benchmarks! {
     k_nucleotide => "k-nucleotide",
     mandelbrot => "mandelbrot",
     n_body => "n-body",
+    pidigits => "pidigits",
     regex_redux => "regex-redux",
     reverse_complement => "reverse-complement",
     spectral_norm => "spectral-norm",
@@ -133,11 +134,8 @@ ready_benchmarks! {
 
 /// Benchmarks whose Plenty program waits on a missing feature, with the
 /// backlog item that delivers it.
-const BLOCKED: &[(&str, &str)] = &[("pidigits", "B38 std.bigint, issue #481")];
+const BLOCKED: &[(&str, &str)] = &[];
 
-// Phase guard (backlog B38, issue #481): pidigits needs arbitrary-precision
-// integers. When std.bigint lands, write benchmarks/game/pidigits/plenty/,
-// mark the manifest ready, and move pidigits into `ready_benchmarks!`.
 #[test]
 fn blocked_benchmarks_name_their_reason() {
     for (name, waiting_on) in BLOCKED {

@@ -33,7 +33,7 @@ Each manifest names the program's page and contributors.
 | [k-nucleotide](benchmarks-game/k-nucleotide.md) | Rust #1 | 7 | idiomatic (1 thread); parallel (7 pool workers) | ready |
 | [reverse-complement](benchmarks-game/reverse-complement.md) | C #5 | 1 | idiomatic | ready |
 | [binary-trees](benchmarks-game/binary-trees.md) | C #1 | 1 | idiomatic | ready |
-| [pidigits](benchmarks-game/pidigits.md) | C #1 (GMP) | 1 | none | blocked: no arbitrary-precision integers (backlog B38, issue #481) |
+| [pidigits](benchmarks-game/pidigits.md) | C #1 (GMP) | 1 | idiomatic (`std.bigint`) | ready |
 | [regex-redux](benchmarks-game/regex-redux.md) | Rust #1 | 9 | idiomatic (1 thread); parallel (9 pool workers), both with `std.regex` | ready |
 
 Each reference is one C or Rust program from the site. None is marked with an
@@ -118,7 +118,7 @@ the median of three runs pinned to cores `0,2,4,6,8,10,12,14`.
 | [mandelbrot](benchmarks-game/mandelbrot.md) | 16,000 | 11.80 s | 11.92 s | 1.01 |
 | [n-body](benchmarks-game/n-body.md) | 50,000,000 | 1.30 s | 2.60 s | 2.01 |
 | [n-body (clist)](benchmarks-game/n-body.md) | 50,000,000 | 1.30 s | 4.07 s | 3.14 |
-| [pidigits](benchmarks-game/pidigits.md) | 10,000 | blocked | blocked | |
+| [pidigits](benchmarks-game/pidigits.md) | 10,000 | not recorded | not recorded | |
 | [regex-redux](benchmarks-game/regex-redux.md) | 5,000,000 | 0.74 s (9 threads) | 3.40 s | 4.60 |
 | [reverse-complement](benchmarks-game/reverse-complement.md) | 25,000,000 | 0.39 s | 0.41 s | 1.06 |
 | [spectral-norm](benchmarks-game/spectral-norm.md) | 5,500 | 1.18 s | 1.20 s | 1.01 |
@@ -127,7 +127,8 @@ Times are median wall-clock seconds; ratios use the unrounded medians. The
 JSON retains all three samples, CPU time, peak RSS, instruction/cycle counts,
 build commands, tool versions and machine details. Every measured Plenty
 variant passed both the small expected-output check and comparison with its
-reference at the full size. pidigits remains blocked.
+reference at the full size. This timing snapshot predates the pidigits Plenty
+implementation; no timing is recorded for it.
 
 Instruction counts are recorded separately from the three timing repetitions;
 use them to compare generated code across sessions.
@@ -168,8 +169,9 @@ A benchmark whose Plenty program needs a missing feature keeps its reference,
 expected output and sizes, with `"status": "blocked"` and the reason. The
 runner prints the reason instead of timing it, and
 `tests/test_benchmarks_game.rs` asserts it stays blocked with a phase-guard
-comment naming the backlog item. pidigits waits on `std.bigint` (backlog B38,
-issue #481). Its reference also needs GMP's `gmp.h` and `-lgmp`.
+comment naming the backlog item. All current benchmarks have a Plenty program.
+The pidigits C reference additionally needs GMP's `gmp.h` and `-lgmp`;
+the Plenty implementation uses `std.bigint`.
 
 ## Investigating a regression
 

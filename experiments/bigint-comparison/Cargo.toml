@@ -1,0 +1,15 @@
+[package]
+name = "plenty-bigint-comparison"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+malachite-base = "=0.14.0"
+malachite-nz = "=0.14.0"
+
+[profile.release]
+codegen-units = 1
+panic = "abort"

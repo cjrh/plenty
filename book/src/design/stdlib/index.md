@@ -21,6 +21,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.actor.http.server`](actor-http-server.md) | HTTP/1.1 and HTTPS on isolated connection actors, bounded request/response handlers or resumable streaming events, deadlines and draining | `ServerError` |
 | [`std.archive`](archive.md) | TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits | `ArchiveError` |
 | [`std.atomic`](atomic.md) | Inline atomic integers and booleans with compile-time checked orderings, and fences | None |
+| [`std.bigint`](bigint.md) | Signed arbitrary-precision integers, fallible arithmetic, bounded radix conversion and inline small values | `BigIntError` |
 | [`std.bytes`](bytes.md) | Compact owning byte buffers with checked ranges, explicit copies and validated text conversion | `BytesError` |
 | [`std.cache.lru`](cache-lru.md) | Fixed-capacity caches that evict the least recently used entry, with constant-time lookup, promotion and eviction | `AllocError` |
 | [`std.channel`](channel.md) | Bounded channels, endpoints and selection | Channel/send/receive/selection errors |

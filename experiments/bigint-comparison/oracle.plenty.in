@@ -1,0 +1,43 @@
+from std.bigint import BigInt, BigIntError, parse
+from std.fmt import FormatError
+
+def emit(value: &BigInt) -> Result[(), BigIntError | IoError | FormatError]:
+    print(value.to_string(16, 100000)?)
+
+def check(left: &strview, right: &strview, shift: i64) -> Result[(), AllocError | BigIntError | IoError | FormatError]:
+    a = parse(left, 16, 100000)?
+    b = parse(right, 16, 100000)?
+    emit(&a)?
+    emit(&(a + b)?)?
+    emit(&(a - b)?)?
+    emit(&(a * b)?)?
+    if not b.is_zero():
+        (q, r) = a.checked_divmod(&b)?
+        emit(&q)?
+        emit(&r)?
+    emit(&(a & b)?)?
+    emit(&(a | b)?)?
+    emit(&(a ^ b)?)?
+    emit(&(a << shift)?)?
+    emit(&(a >> shift)?)?
+    print(f"float {a.to_f64()}"?)?
+    match a.to_i64():
+        case Ok(n):
+            print(n)?
+        case Err(_):
+            print("range")?
+    match a.to_u64():
+        case Ok(n):
+            print(n)?
+        case Err(_):
+            print("range")?
+    for radix in range(2, 37):
+        text = a.to_string(radix, 100000)?
+        print(text)?
+        emit(&parse(&text, radix, 100000)?)?
+    Ok(())
+
+def main() -> Result[(), AllocError | BigIntError | IoError | FormatError]:
+    # Generated calls use the shared, deterministic corpus.tsv.
+    @CASES@
+    Ok(())

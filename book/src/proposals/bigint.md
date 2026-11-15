@@ -1,14 +1,18 @@
 # Arbitrary-precision integers (`std.bigint`)
 
-**Status: Not implemented.** This page compares ways to provide issue #481's
-`std.bigint` and recommends one. It ships no module, compiler change or API.
-Scheduling belongs to [B38](../backlog.md). The current integer contract is
-[numeric types](../design/language/03-types/numbers.md); library operators are
-[user-defined arithmetic operators](../design/language/04-expressions/operators.md).
+**Status: Implemented.** [`std.bigint`](../design/stdlib/bigint.md) supplies
+inline small values, fallible Plenty limb arithmetic, Karatsuba multiplication,
+Knuth division, bounded divide-and-conquer radix conversion, and `u64` limb
+builtins. The implementation uses direct published algorithms rather than a
+crate port; no native kernel or third-party code is included. The reference
+settles public signatures, errors and limits. This page preserves the design
+comparison for issue #481; scheduling belongs to [B38](../backlog.md).
 
-## Recommendation
+## Original recommendation
 
-Write `std.bigint` in Plenty, in three steps:
+The design comparison recommended these three steps; the implementation
+delivers the first two using direct published algorithms rather than ported
+crate code:
 
 1. **Plenty module.** A `BigInt` with an inline `i64` for small values and
    `u64` limbs for large ones. Schoolbook and Karatsuba multiplication, Knuth
@@ -211,9 +215,9 @@ Rust build.
 | Small values | 8.7 ns measured, no allocation | Native call + handle + 6–8 ns | Same | Same |
 | Large values | Slower until builtins/kernel; 4.6× behind Rust schoolbook today | Fastest above 10⁴ bits | Comparable to each other | Fastest |
 
-## API direction
+## Historical API direction
 
-These signatures are a sketch for the implementation PR to settle.
+The following historical sketch informed the implementation. The [module reference](../design/stdlib/bigint.md) records the settled API (`to_string`, text views and `BigIntError`, among other changes).
 
 ```text
 from std.bigint import BigInt
@@ -248,12 +252,13 @@ def parse(text: &str, radix: i64) -> Result[BigInt, ParseError | AllocError]
   representation is canonical. Every value that fits in `i64` is `Small`, and
   limbs carry no high zeros. Classes have no ordering operators until the
   [user-defined ordering](user-type-ordering.md) proposal's `__cmp__` lands, so
-  `cmp` is a method for now. `BigInt` cannot be a dictionary key until
-  [user-type hashing](completed/user-type-hashing.md) lands.
+  `cmp` is a method for now. The implemented `BigInt` is not a dictionary
+  key because its magnitude storage includes a list, which is not a supported
+  structural key field.
 - **Limits.** Text conversion of attacker-controlled input should either use
   subquadratic algorithms or take a digit limit, like other parsers' `Limits`.
 
-## Open questions
+## Original implementation questions
 
 - `BigInt + i64`. Each operator has one left hook, so `__add__` cannot accept
   both `&BigInt` and `i64`. `i64 + BigInt` works through `__radd__`. For the

@@ -1187,6 +1187,8 @@ pub enum IntegerOp {
     WrappingMul,
     RotateLeft,
     RotateRight,
+    WideningMul,
+    CarryingAdd,
 }
 
 impl IntegerOp {

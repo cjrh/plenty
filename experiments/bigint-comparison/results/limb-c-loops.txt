@@ -1,0 +1,13 @@
+limb loop 0x400580-0x4005a8: 12 instructions
+    400580  mov %r8,%rax
+    400583  mulq (%r10,%rsi,8)
+    400587  xor %edi,%edi
+    400589  add %rax,%rcx
+    40058c  setb %dil
+    400590  cmp %rsi,%rbx
+    400593  je 4003c0 <limb.cold>
+    400599  mov %rcx,(%r11,%rsi,8)
+    40059d  add $0x1,%rsi
+    4005a1  lea (%rdx,%rdi,1),%rcx
+    4005a5  cmp %rsi,%r9
+    4005a8  jne 400580 <limb+0x40>

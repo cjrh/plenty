@@ -127,7 +127,7 @@ records and local merge metadata; it did not rerun their feature suites.
 | [GCC backend (`plenty_codegen_gcc`)](codegen-gcc.md) | B20 |
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
-| [Arbitrary-precision integers](bigint.md) — Plenty limbs with an inline small value; malachite rejected on allocation failure and LGPL | B38 (issue #481) |
+| [Arbitrary-precision integers](bigint.md) — implemented Plenty limbs with an inline small value; malachite rejected on allocation failure and LGPL | B38 (issue #481) |
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
 | [Exact decimal arithmetic](decimal.md) — allocation-free 38-digit `Decimal` in Plenty, scale kept with numeric equality as in Python, exact operators under the integer trap and `checked:` rules, `NonZero[Decimal]` divisors, explicit rounding | None yet; related B76, B37, B74 |
 | [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |

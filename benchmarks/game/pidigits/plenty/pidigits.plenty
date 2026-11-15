@@ -1,0 +1,48 @@
+# The Computer Language Benchmarks Game.
+# Spigot structure adapted from the bundled C #1 reference by Mr Ledrug,
+# under the revised BSD license in benchmarks/game/LICENSE-benchmarks-game.txt.
+from std.bigint import BigInt, BigIntError, from_i64
+from std.fmt import FormatError
+
+def extract(num: &BigInt, acc: &BigInt, den: &BigInt, nth: i64) -> Result[i64, AllocError | BigIntError]:
+    scaled = (num * from_i64(nth))?
+    numerator = (scaled + acc)?
+    (numerator // den)?.to_i64()
+
+def main() -> Result[(), AllocError | BigIntError | IoError | FormatError | ParseError | OverflowError[i64]]:
+    argv = args()?
+    count = i64.parse(argv[1])? if len(argv) > 1 else 10000
+    if count < 0:
+        return Err(ParseError.Invalid)
+    mut acc = from_i64(0)
+    mut den = from_i64(1)
+    mut num = from_i64(1)
+    mut k = 0
+    mut emitted = 0
+    mut line = ""
+    while emitted < count:
+        k += 1
+        factor = from_i64(k * 2 + 1)
+        twice = (num * from_i64(2))?
+        added = (acc + twice)?
+        acc = (added * factor)?
+        den = (den * factor)?
+        num = (num * from_i64(k))?
+        if num.cmp(&acc) > 0:
+            continue
+        digit = extract(&num, &acc, &den, 3)?
+        if digit != extract(&num, &acc, &den, 4)?:
+            continue
+        line = f"{line}{digit}"?
+        emitted += 1
+        if emitted % 10 == 0:
+            print(f"{line}\t:{emitted}"?)?
+            line = ""
+        removed = (den * from_i64(digit))?
+        remainder = (acc - removed)?
+        acc = (remainder * from_i64(10))?
+        num = (num * from_i64(10))?
+    if len(line) > 0:
+        padding = " ".repeat(10 - len(line))?
+        print(f"{line}{padding}\t:{emitted}"?)?
+    Ok(())

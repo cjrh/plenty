@@ -3683,7 +3683,28 @@ impl Lowerer<'_, '_> {
             self.stack.push((result, ty));
             return Ok(());
         }
+        let carry = if kind == IntegerOp::CarryingAdd {
+            Some(self.stack.pop().ok_or("missing carry")?.0)
+        } else {
+            None
+        };
         let (a, b, ty) = self.pop_pair()?;
+        if kind == IntegerOp::WideningMul {
+            let low = self.bcx.ins().imul(a, b);
+            let high = self.bcx.ins().umulhi(a, b);
+            self.stack.extend([(low, Ty::U64), (high, Ty::U64)]);
+            return Ok(());
+        }
+        if let Some(carry) = carry {
+            let sum = self.bcx.ins().iadd(a, b);
+            let first = self.bcx.ins().icmp(IntCC::UnsignedLessThan, sum, a);
+            let carry = self.bcx.ins().uextend(types::I64, carry);
+            let total = self.bcx.ins().iadd(sum, carry);
+            let second = self.bcx.ins().icmp(IntCC::UnsignedLessThan, total, sum);
+            let overflow = self.bcx.ins().bor(first, second);
+            self.stack.extend([(total, Ty::U64), (overflow, Ty::Bool)]);
+            return Ok(());
+        }
         if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
             // Unsigned comparison rejects negative signed counts as well.
             let width = clif_type(ty.clone()).bits();
@@ -3706,7 +3727,7 @@ impl Lowerer<'_, '_> {
             // Cranelift masks the count to the operand width.
             IntegerOp::RotateLeft => self.bcx.ins().rotl(a, b),
             IntegerOp::RotateRight => self.bcx.ins().rotr(a, b),
-            IntegerOp::Not => unreachable!(),
+            IntegerOp::Not | IntegerOp::WideningMul | IntegerOp::CarryingAdd => unreachable!(),
         };
         self.stack.push((result, ty));
         Ok(())

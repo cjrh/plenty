@@ -1,7 +1,6 @@
 {
   "name": "pidigits",
-  "status": "blocked",
-  "blocked_reason": "Plenty's standard library has no arbitrary-precision integer type; the benchmark needs bignum multiply, add and divide. The reference needs GMP (gmp.h and -lgmp).",
+  "status": "ready",
   "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/pidigits.html",
   "reference": {
     "language": "c",
@@ -43,5 +42,11 @@
     "full": 10000,
     "site": 10000
   },
-  "plenty": []
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/pidigits.plenty",
+      "threads": 1
+    }
+  ]
 }
