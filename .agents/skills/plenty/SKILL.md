@@ -54,6 +54,17 @@ Use a package (`plenty new NAME`) for several executables or tests. Single-file
 utilities can declare path/Git dependencies in an optional script header.
 See [workflow and packages](references/workflow.md).
 
+## Porting code
+
+Read only the guide for the current conversion:
+
+- [Rust to Plenty](references/rust-to-plenty.md): translate ownership, numeric
+  contracts, errors, and iterator or trait-based code.
+- [Python to Plenty](references/python-to-plenty.md): choose types and ownership,
+  make failures explicit, and replace Python-only idioms.
+- [C to Plenty](references/c-to-plenty.md): replace pointers with owners/views,
+  preserve integer semantics, and separate algorithms from ABI bindings.
+
 ## Pool schedulers and cancellation
 
 For a loop that submits jobs and receives completions, read
