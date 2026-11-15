@@ -122,6 +122,7 @@ fn structural_aliases_allow_forward_enums_and_preserve_managed_payloads() {
 type Real = Result[f64, Error]
 type Optional = Option[Real]
 type Text = Option[Result[str, Error]]
+@copy
 enum Error:
     Domain
 def main() -> Result[(), AllocError | Error | IoError]:
@@ -208,7 +209,7 @@ fn generic_data_imports_keep_methods_and_constructors_visible() {
         &[
             (
                 "data.plenty",
-                "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n",
+                "pub class Cell[T]:\n    pub value: T\n    pub def get(self) -> T:\n        self.value\n@copy\npub enum Choice[T]:\n    Value(T)\npub def read[T](cell: &Cell[T]) -> T:\n    cell.get()\n",
             ),
             (
                 "main.plenty",
@@ -238,7 +239,7 @@ fn callable_data_constraints_preserve_imports_and_public_type_visibility() {
     );
     for declaration in [
         "pub class Handler[F: Callable[[Hidden], i64]]:\n    value: i64\n",
-        "pub enum Job[F: OnceCallable[[], Hidden]]:\n    Empty\n",
+        "@copy\npub enum Job[F: OnceCallable[[], Hidden]]:\n    Empty\n",
     ] {
         let api = format!("class Hidden:\n    value: i64\n{declaration}");
         let dir = workspace(&[
@@ -539,6 +540,7 @@ fn nominal_and_generator_constructors_resolve_imports() {
                 r#"
 pub class Number:
     pub value: i64
+@copy
 pub enum Message:
     Value(i64)
 pub def numbers() -> Generator[i64]:
@@ -693,7 +695,7 @@ fn public_fields_generated_constructors_and_qualified_enum_patterns() {
             ),
             (
                 "model.plenty",
-                "pub type Count = u32\npub class Point:\n    pub x: i64\npub enum Event:\n    Value(i64)\n    Empty\n",
+                "pub type Count = u32\npub class Point:\n    pub x: i64\n@copy\npub enum Event:\n    Value(i64)\n    Empty\n",
             ),
         ],
         "main.plenty",
@@ -1168,7 +1170,7 @@ fn imported_generators_enums_and_tail_recursion_keep_their_identities() {
             ),
             (
                 "data.plenty",
-                "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        Ok(0)\n    else:\n        count(n - 1)\n",
+                "@copy\npub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        Ok(0)\n    else:\n        count(n - 1)\n",
             ),
         ],
         "main.plenty",
@@ -1530,7 +1532,7 @@ pub def loops(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
         n += *v
     Ok(n)
 pub def counts(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
-    Ok(enumerate(values).count() + zip(values, values).count())
+    Ok(iter(enumerate(values)).count() + iter(zip(values, values)).count())
 pub def any_set(flags: &list[bool]) -> bool:
     iter(flags).any()
 pub def first[T](values: &list[T]) -> i64:

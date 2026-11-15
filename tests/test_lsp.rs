@@ -242,7 +242,7 @@ fn uri(path: &Path) -> String {
 
 const MAIN: &str = r#"from std.math import gcd
 from shapes import Point, area
-
+@copy
 enum Color:
     Red
     Green(i64)
@@ -1747,7 +1747,7 @@ fn references_cover_module_qualified_variants_and_named_arguments() {
         &[
             (
                 "src/shapes.plenty",
-                "pub enum Shape:\n    Circle(i64)\n    Dot\n\npub def area(width: i64) -> i64:\n    width\n",
+                "@copy\npub enum Shape:\n    Circle(i64)\n    Dot\n\npub def area(width: i64) -> i64:\n    width\n",
             ),
             (
                 "src/main.plenty",
@@ -1760,23 +1760,23 @@ fn references_cover_module_qualified_variants_and_named_arguments() {
     let r = |path: &str, line: u64, character: u64| (path.to_owned(), line, character);
     for ((line, character), expected) in [
         (
-            (1, 4),
+            (2, 4),
             vec![
                 r("src/main.plenty", 4, 21),
                 r("src/main.plenty", 10, 22),
-                r("src/shapes.plenty", 1, 4),
+                r("src/shapes.plenty", 2, 4),
             ],
         ),
         (
-            (2, 4),
-            vec![r("src/main.plenty", 6, 21), r("src/shapes.plenty", 2, 4)],
+            (3, 4),
+            vec![r("src/main.plenty", 6, 21), r("src/shapes.plenty", 3, 4)],
         ),
         (
-            (4, 13),
+            (5, 13),
             vec![
                 r("src/main.plenty", 10, 36),
-                r("src/shapes.plenty", 4, 13),
-                r("src/shapes.plenty", 5, 4),
+                r("src/shapes.plenty", 5, 13),
+                r("src/shapes.plenty", 6, 4),
             ],
         ),
     ] {
@@ -2276,7 +2276,7 @@ fn a_rename_is_refused_with_its_reason() {
         &[
             (
                 "src/shapes.plenty",
-                "pub class Point:\n    pub x: i64\n\n    pub def norm(self) -> i64:\n        self.x\n\npub enum Shape:\n    Circle(i64)\n    Square(i64)\n\npub def area(width: i64) -> i64:\n    width\n\npub def other() -> i64:\n    1\n",
+                "pub class Point:\n    pub x: i64\n\n    pub def norm(self) -> i64:\n        self.x\n@copy\npub enum Shape:\n    Circle(i64)\n    Square(i64)\n\npub def area(width: i64) -> i64:\n    width\n\npub def other() -> i64:\n    1\n",
             ),
             (
                 "src/main.plenty",

@@ -342,7 +342,7 @@ fn abs_min_max_and_sum_are_not_built_in(#[case] call: &str) {
 #[test]
 fn float_type_admits_exactly_the_float_types() {
     assert_lines(
-        "class Reading[T: FloatType]:\n    value: T\nenum Sample[T: FloatType]:\n    Missing\n    Present(T)\ndef half[T: FloatType](x: T) -> T:\n    x / (x / x + x / x)\n",
+        "class Reading[T: FloatType]:\n    value: T\n@copy\nenum Sample[T: FloatType]:\n    Missing\n    Present(T)\ndef half[T: FloatType](x: T) -> T:\n    x / (x / x + x / x)\n",
         "    reading = Reading(1.5f32)\n",
         &[
             ("half(3.0)", "1.5"),

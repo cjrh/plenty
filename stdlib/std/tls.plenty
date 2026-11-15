@@ -12,6 +12,7 @@ from std.ready import Interest, Selector
 from std.sync import CancellationToken
 from std.time import Deadline
 
+@copy
 pub enum TlsError:
     Net(NetError)
     UntrustedCertificate
@@ -30,11 +31,13 @@ pub enum TlsError:
     CertificateRequired
     Incompatible
 
+@copy
 pub enum TlsVersion:
     Tls12
     Tls13
 
 # The ring provider's suites, in its default order of preference.
+@copy
 pub enum CipherSuite:
     Tls13Aes256GcmSha384
     Tls13Aes128GcmSha256
@@ -48,6 +51,7 @@ pub enum CipherSuite:
 
 # Whether a server that verifies clients refuses those without a
 # certificate.
+@copy
 pub enum ClientCertificates:
     Required
     Optional

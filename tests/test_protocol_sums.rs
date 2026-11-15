@@ -49,6 +49,7 @@ class A:
         unchecked:
             *calls += 1
         scale
+@copy
 enum B:
     One
     Two(i64)

@@ -179,7 +179,7 @@ fn a_returned_err_is_reported_on_stderr_with_status_one() {
         "error: main returned ParseError.Invalid\n",
     );
     run_both_reporting(
-        "enum AppError:\n    Missing(str)\ndef main() -> Result[(), AppError]:\n    Err(AppError.Missing('config'))\n",
+        "@copy\nenum AppError:\n    Missing(str)\ndef main() -> Result[(), AppError]:\n    Err(AppError.Missing('config'))\n",
         1,
         "",
         "error: main returned AppError.Missing(\"config\")\n",
@@ -188,7 +188,7 @@ fn a_returned_err_is_reported_on_stderr_with_status_one() {
         "def main() -> Result[(), str]:\n    Err('no input')\n",
         1,
         "",
-        "error: main returned \"no input\"\n",
+        "error: main returned no input\n",
     );
     run_both_reporting(
         "def attempt(mode: str) -> Result[(), IoError]:\n    file = open('entry.plenty', mode)?\n    Ok(())\ndef main() -> Result[(), IoError]:\n    attempt('rw')\n",

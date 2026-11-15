@@ -34,8 +34,10 @@ fn rejects(source: &str, alternatives: &[&str]) {
 fn aliases_order_duplicates_and_nested_sums_have_one_identity() {
     runs(
         r#"
+@copy
 enum A:
     Value(i64)
+@copy
 enum B:
     Value(i64)
 type Alias = A
@@ -71,8 +73,10 @@ def main() -> ():
 fn injection_covers_bindings_assignments_arguments_and_return_branches() {
     runs(
         r#"
+@copy
 enum A:
     Value
+@copy
 enum B:
     Value
 def choose(first: bool) -> A | B:
@@ -102,9 +106,11 @@ def main() -> ():
 fn named_enum_members_keep_their_own_variants() {
     runs(
         r#"
+@copy
 enum Inner:
     Left(i64)
     Right(i64)
+@copy
 enum Other:
     Value
 def read(value: Inner | Other) -> Result[i64, OverflowError[i64]]:
@@ -130,10 +136,13 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 fn result_widening_moves_success_and_retags_each_error_member() {
     runs(
         r#"
+@copy
 enum A:
     Value(i64)
+@copy
 enum B:
     Value(i64)
+@copy
 enum C:
     Value
 class Resource:
@@ -175,11 +184,14 @@ def main() -> ():
 fn widening_preserves_nested_result_and_enum_payload_tags() {
     runs(
         r#"
+@copy
 enum A:
     Left(i64)
     Right(i64)
+@copy
 enum B:
     Value
+@copy
 enum C:
     Value
 def widen(value: Result[i64, Result[i64, A] | B]) -> Result[i64, C | B | Result[i64, A]]:
@@ -230,8 +242,10 @@ def main() -> Result[(), OverflowError[i64]]:
 fn question_mark_widens_error_and_handles_unit_success() {
     runs(
         r#"
+@copy
 enum A:
     Value(i64)
+@copy
 enum B:
     Value
 def source(fail: bool) -> Result[(), A]:
@@ -269,6 +283,7 @@ fn borrowing_member_payloads_preserves_and_mutates_the_original() {
         r#"
 class Counter:
     pub value: i64
+@copy
 enum Empty:
     Value
 def read(value: &(Counter | Empty)) -> i64:
@@ -306,6 +321,7 @@ class Second:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
+@copy
 enum Third:
     Value
 def make() -> First:
@@ -338,6 +354,7 @@ def main() -> ():
 fn generic_substitution_can_collapse_to_one_member() {
     runs(
         r#"
+@copy
 enum A:
     Value(i64)
 def identity[T](value: T | T) -> T:
@@ -391,8 +408,10 @@ fn generic_membership_does_not_guess_ambiguous_substitutions() {
 fn callable_brackets_and_grouped_sums_do_not_change_tuple_boundaries() {
     runs(
         r#"
+@copy
 enum A:
     Value
+@copy
 enum B:
     Value
 def choose(value: A | B) -> (B | A):
@@ -416,6 +435,7 @@ def main() -> ():
 fn unique_members_supply_context_for_constructors_and_tuples() {
     runs(
         r#"
+@copy
 enum A:
     Value
 def option(value: Option[i64] | str) -> i64:
@@ -487,11 +507,11 @@ def main() -> ():
 #[test]
 fn matching_requires_every_member_and_rejects_duplicate_aliases() {
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef read(value: A | B) -> ():\n    match value:\n        case a: A:\n            pass\ndef main() -> ():\n    read(A.Value)\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef read(value: A | B) -> ():\n    match value:\n        case a: A:\n            pass\ndef main() -> ():\n    read(A.Value)\n",
         &["exhaustive", "missing"],
     );
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ntype Alias = A\ndef read(value: A | B) -> ():\n    match value:\n        case a: A:\n            pass\n        case again: Alias:\n            pass\n        case b: B:\n            pass\ndef main() -> ():\n    read(A.Value)\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ntype Alias = A\ndef read(value: A | B) -> ():\n    match value:\n        case a: A:\n            pass\n        case again: Alias:\n            pass\n        case b: B:\n            pass\ndef main() -> ():\n    read(A.Value)\n",
         &["duplicate", "unreachable"],
     );
 }
@@ -499,7 +519,7 @@ fn matching_requires_every_member_and_rejects_duplicate_aliases() {
 #[test]
 fn duplicate_generic_arms_are_checked_after_specialization() {
     rejects(
-        "enum A:\n    Value\ndef read[T](value: T | A) -> ():\n    match value:\n        case generic: T:\n            pass\n        case fixed: A:\n            pass\ndef main() -> ():\n    read[A](A.Value)\n",
+        "@copy\nenum A:\n    Value\ndef read[T](value: T | A) -> ():\n    match value:\n        case generic: T:\n            pass\n        case fixed: A:\n            pass\ndef main() -> ():\n    read[A](A.Value)\n",
         &["duplicate", "unreachable"],
     );
 }
@@ -507,11 +527,11 @@ fn duplicate_generic_arms_are_checked_after_specialization() {
 #[test]
 fn missing_widening_alternatives_are_named() {
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\nenum C:\n    Value\ndef narrow(value: A | B) -> A | C:\n    value\ndef main() -> ():\n    drop(narrow(B.Value))\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\n@copy\nenum C:\n    Value\ndef narrow(value: A | B) -> A | C:\n    value\ndef main() -> ():\n    drop(narrow(B.Value))\n",
         &["B"],
     );
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\nenum C:\n    Value\ndef source() -> Result[i64, A | B]:\n    Err(B.Value)\ndef narrow() -> Result[i64, A | C]:\n    Ok(source()?)\ndef main() -> ():\n    drop(narrow())\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\n@copy\nenum C:\n    Value\ndef source() -> Result[i64, A | B]:\n    Err(B.Value)\ndef narrow() -> Result[i64, A | C]:\n    Ok(source()?)\ndef main() -> ():\n    drop(narrow())\n",
         &["B"],
     );
 }
@@ -519,15 +539,15 @@ fn missing_widening_alternatives_are_named() {
 #[test]
 fn widening_does_not_change_success_types_or_make_containers_covariant() {
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef widen(value: Result[i64, A]) -> Result[bool, A | B]:\n    value\ndef main() -> ():\n    drop(widen(Ok(1)))\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef widen(value: Result[i64, A]) -> Result[bool, A | B]:\n    value\ndef main() -> ():\n    drop(widen(Ok(1)))\n",
         &["expected", "cannot", "incompatible"],
     );
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef widen(value: list[A]) -> list[A | B]:\n    value\ndef main() -> ():\n    drop(widen([A.Value].unwrap()))\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef widen(value: list[A]) -> list[A | B]:\n    value\ndef main() -> ():\n    drop(widen([A.Value].unwrap()))\n",
         &["expected", "cannot", "incompatible"],
     );
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef widen(value: &A) -> &(A | B):\n    value\ndef main() -> ():\n    value = A.Value\n    drop(widen(&value))\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef widen(value: &A) -> &(A | B):\n    value\ndef main() -> ():\n    value = A.Value\n    drop(widen(&value))\n",
         &["expected", "cannot", "incompatible"],
     );
 }
@@ -535,11 +555,11 @@ fn widening_does_not_change_success_types_or_make_containers_covariant() {
 #[test]
 fn shared_member_borrows_cannot_mutate_or_outlive_the_owner() {
     rejects(
-        "class Counter:\n    pub value: i64\nenum Empty:\n    Value\ndef change(value: &(Counter | Empty)) -> ():\n    match value:\n        case counter: Counter:\n            counter.value = 1\n        case empty: Empty:\n            pass\ndef main() -> ():\n    value: Counter | Empty = Counter(0)\n    change(&value)\n",
+        "class Counter:\n    pub value: i64\n@copy\nenum Empty:\n    Value\ndef change(value: &(Counter | Empty)) -> ():\n    match value:\n        case counter: Counter:\n            counter.value = 1\n        case empty: Empty:\n            pass\ndef main() -> ():\n    value: Counter | Empty = Counter(0)\n    change(&value)\n",
         &["mutable", "shared", "borrow"],
     );
     rejects(
-        "class Counter:\n    pub value: i64\nenum Empty:\n    Value\ndef main() -> ():\n    value: Counter | Empty = Counter(0)\n    match &value:\n        case counter: Counter:\n            drop(value)\n            print(counter.value).unwrap()\n        case empty: Empty:\n            pass\n",
+        "class Counter:\n    pub value: i64\n@copy\nenum Empty:\n    Value\ndef main() -> ():\n    value: Counter | Empty = Counter(0)\n    match &value:\n        case counter: Counter:\n            drop(value)\n            print(counter.value).unwrap()\n        case empty: Empty:\n            pass\n",
         &["borrow", "moved"],
     );
 }
@@ -547,11 +567,11 @@ fn shared_member_borrows_cannot_mutate_or_outlive_the_owner() {
 #[test]
 fn guards_and_nested_member_patterns_have_explicit_rejections() {
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef read(value: A | B) -> ():\n    match value:\n        case a: A if True:\n            pass\n        case _:\n            pass\ndef main() -> ():\n    read(A.Value)\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef read(value: A | B) -> ():\n    match value:\n        case a: A if True:\n            pass\n        case _:\n            pass\ndef main() -> ():\n    read(A.Value)\n",
         &["guard", "expected `:`"],
     );
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef read(value: Option[A | B]) -> ():\n    match value:\n        case Some(a: A):\n            pass\n        case _:\n            pass\ndef main() -> ():\n    read(Some(A.Value))\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef read(value: Option[A | B]) -> ():\n    match value:\n        case Some(a: A):\n            pass\n        case _:\n            pass\ndef main() -> ():\n    read(Some(A.Value))\n",
         &["top-level", "top level", "expected `,`", "member"],
     );
 }
@@ -577,8 +597,10 @@ def main() -> ():
 fn generic_result_inference_preserves_lossless_error_widening() {
     runs(
         r#"
+@copy
 enum A:
     Value
+@copy
 enum B:
     Value
 def keep[T](value: Result[T, A | B]) -> Result[T, A | B]:
@@ -592,7 +614,7 @@ def main() -> ():
         "7\nTrue\n",
     );
     rejects(
-        "enum A:\n    Value\nenum B:\n    Value\ndef keep[T](n: T, value: list[A | B]) -> T:\n    n\ndef main() -> ():\n    narrow = [A.Value].unwrap()\n    drop(keep(7, narrow))\n",
+        "@copy\nenum A:\n    Value\n@copy\nenum B:\n    Value\ndef keep[T](n: T, value: list[A | B]) -> T:\n    n\ndef main() -> ():\n    narrow = [A.Value].unwrap()\n    drop(keep(7, narrow))\n",
         &["expected"],
     );
 }
@@ -622,6 +644,7 @@ def main() -> ():
 fn propagated_collection_literals_select_their_collection_member() {
     runs(
         r#"
+@copy
 enum Unset:
     Unset
 def accept(values: list[f64] | Unset) -> f64:
@@ -696,10 +719,13 @@ def main() -> Result[(), AllocError]:
 fn injection_widening_and_matching_need_no_runtime_allocation() {
     runs(
         r#"
+@copy
 enum A:
     Value(i64)
+@copy
 enum B:
     Value
+@copy
 enum C:
     Value
 def widen(value: Result[list[i64], A | B]) -> Result[list[i64], A | B | C]:
@@ -738,9 +764,11 @@ def main() -> Result[(), AllocError | IoError]:
 fn member_variants_match_directly_at_root_and_nested_positions() {
     runs(
         r#"
+@copy
 enum A:
     Empty
     Value(i64)
+@copy
 enum B:
     Value(i64)
 type Alias = A
@@ -768,7 +796,7 @@ def main() -> ():
 
 #[test]
 fn member_variant_coverage_keeps_inner_variants_and_payloads_distinct() {
-    let declarations = "enum A:\n    X\n    Y(i64)\nenum B:\n    Z\n";
+    let declarations = "@copy\nenum A:\n    X\n    Y(i64)\n@copy\nenum B:\n    Z\n";
     rejects(
         &format!(
             "{declarations}def read(value: A | B) -> ():\n    match value:\n        case A.X:\n            pass\n        case B.Z:\n            pass\ndef main() -> ():\n    pass\n"
@@ -853,9 +881,11 @@ def main() -> Result[(), OverflowError[i64]]:
 fn member_variants_infer_generic_arguments_and_reject_ambiguous_owners() {
     runs(
         r#"
+@copy
 enum Value[T]:
     Present(T)
     Missing
+@copy
 enum Other:
     Empty
 def read[T](value: Value[T] | Other, fallback: T) -> T:
@@ -877,7 +907,7 @@ def main() -> ():
         "12 fallback\n13 -1 -1\n",
     );
     rejects(
-        "enum Value[T]:\n    Present(T)\ndef read(value: Value[i64] | Value[str]) -> ():\n    match value:\n        case Value.Present(item):\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n",
+        "@copy\nenum Value[T]:\n    Present(T)\ndef read(value: Value[i64] | Value[str]) -> ():\n    match value:\n        case Value.Present(item):\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n",
         &["variant pattern is ambiguous between members"],
     );
 }
@@ -886,6 +916,7 @@ def main() -> ():
 fn typed_member_patterns_disambiguate_generic_variant_owners() {
     runs(
         r#"
+@copy
 enum Value[T]:
     Present(T)
 def read(value: Value[i64] | Value[str]) -> i64:
@@ -907,7 +938,8 @@ def main() -> ():
 
 #[test]
 fn member_variant_payload_errors_keep_the_ordinary_enum_rules() {
-    let declarations = "enum A:\n    Empty\n    Value(i64)\nenum B:\n    Value(str)\n";
+    let declarations =
+        "@copy\nenum A:\n    Empty\n    Value(i64)\n@copy\nenum B:\n    Value(str)\n";
     for (pattern, expected) in [
         ("A.Empty()", "no parentheses for nullary variants"),
         ("A.Value", "requires 1 payload bindings"),
@@ -945,8 +977,10 @@ def main() -> ():
 fn member_variants_match_through_boxes_and_preserve_payload_loans() {
     runs(
         r#"
+@copy
 enum A:
     Item(i64)
+@copy
 enum B:
     Empty
 def read(value: Box[A | B]) -> i64:
@@ -962,7 +996,7 @@ def main() -> ():
         "14\n",
     );
     rejects(
-        "enum A:\n    Value(list[i64])\nenum B:\n    Empty\ndef read(value: &(A | B)) -> list[i64]:\n    match value:\n        case A.Value(items):\n            *items\n        case B.Empty:\n            [1].unwrap()\ndef main() -> ():\n    pass\n",
+        "enum A:\n    Value(list[i64])\n@copy\nenum B:\n    Empty\ndef read(value: &(A | B)) -> list[i64]:\n    match value:\n        case A.Value(items):\n            *items\n        case B.Empty:\n            [1].unwrap()\ndef main() -> ():\n    pass\n",
         &["cannot move out of a reference"],
     );
 }
@@ -971,10 +1005,13 @@ def main() -> ():
 fn residual_member_patterns_forward_uncovered_members() {
     runs(
         r#"
+@copy
 enum A:
     Bad
+@copy
 enum B:
     Bad
+@copy
 enum C:
     Worse
     Bad
@@ -1027,9 +1064,11 @@ class Owned:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
+@copy
 enum Code:
     Value(i64)
     Other
+@copy
 enum Skip:
     Value
 def forward(error: Code | Owned | Skip | str) -> Result[i64, Owned | str]:
@@ -1081,7 +1120,8 @@ def main() -> ():
 
 #[test]
 fn residual_member_patterns_must_name_exactly_the_uncovered_members() {
-    let prelude = "enum A:\n    Bad\nenum B:\n    Bad\nenum C:\n    Worse\n    Bad\n";
+    let prelude =
+        "@copy\nenum A:\n    Bad\n@copy\nenum B:\n    Bad\n@copy\nenum C:\n    Worse\n    Bad\n";
     let case = |signature: &str, cases: &str| {
         format!(
             "{prelude}def f({signature}) -> i64:\n    match error:\n{cases}def main() -> ():\n    pass\n"

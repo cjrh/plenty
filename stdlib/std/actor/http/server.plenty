@@ -21,6 +21,7 @@ from std.bytes import Bytes, BytesError
 from std.http import Framing, HttpError, Limits, RequestHead, RequestTarget, ResponseHead
 from std.time import Deadline, Duration, seconds
 
+@copy
 pub enum ServerError:
     InvalidConfig
     AdmissionStopped
@@ -36,6 +37,7 @@ pub enum ServerError:
     Handler
 
 # Application messages use the same bounded, copied actor delivery as std.actor.
+@copy
 pub enum Notice[M]:
     Message(M)
     Drain

@@ -43,6 +43,7 @@ print(holder.pair).unwrap()
 fn mutable_enum_payload_match_works_inside_copyable_tuple() {
     let output = support::run(
         r#"
+@copy
 enum Shape:
     Circle(i64)
     Square(i64)

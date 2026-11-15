@@ -248,11 +248,13 @@ impl Ty {
                     }
                 },
                 Self::Enum(t) => match t.try_get() {
-                    Some(t) => t
-                        .variants
-                        .iter()
-                        .flat_map(|v| v.fields.iter().cloned())
-                        .collect(),
+                    Some(t) => {
+                        facts.affine |= !t.copy;
+                        t.variants
+                            .iter()
+                            .flat_map(|v| v.fields.iter().cloned())
+                            .collect()
+                    }
                     _ => {
                         facts.complete = false;
                         vec![]
@@ -423,6 +425,7 @@ mod tests {
     }
     fn enumeration(name: &str, variants: Vec<Vec<Ty>>) -> EnumType {
         EnumType {
+            copy: true,
             facts: OnceLock::new(),
             restricted_storage: false,
             redacted: false,

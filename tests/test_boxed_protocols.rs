@@ -19,6 +19,7 @@ class Count:
     def increment(self: &mut Count) -> Result[(), OverflowError[i64]]:
         self.value += 1
         Ok(())
+@copy
 enum Flag:
     Off
     On
@@ -397,6 +398,7 @@ protocol Cell:
         pass
     def set(self: &mut Cell, n: i64) -> ():
         pass
+@copy
 enum Value[T]:
     Stored(T)
     def get(self) -> T:

@@ -6,6 +6,7 @@ import std.random
 from std.bytes import Bytes
 from std.random import Rng
 
+@copy
 pub enum SketchError:
     InvalidArgument
     InvalidData

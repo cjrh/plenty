@@ -1,6 +1,7 @@
 # Enums
 
 ```plenty fragment
+@copy
 enum Reading:
     Missing
     Value(i64)
@@ -15,9 +16,9 @@ nullary declarations omit parentheses. `Reading.Value(7)` and
 Construction allocates nothing. Payload expressions evaluate first and transfer
 their values into the enum; their own allocation and error contracts still apply.
 Payloads can include primitive values, classes, collections, tuples, other enums,
-unit, and resolved owned closures. An enum copies when every payload of every
-variant copies, and moves otherwise; `@copy` does not apply to enums. See
-[the copy rule](../05-ownership/01-bindings-moves-and-copies.md). References and generator-containing values
+unit, and resolved owned closures. Declared enums are affine by default, even
+when every payload copies. Use [`@copy`](#copy-enums) to opt into implicit
+copying. See [the copy rule](../05-ownership/01-bindings-moves-and-copies.md). References and generator-containing values
 cannot be user enum payloads. Standard `Option`/`Result` wrappers can contain
 generators, including through nested standard wrappers. A function result may
 carry a reference in the `Some` or `Ok` payload; such a value is held only in a
@@ -57,11 +58,51 @@ recursive data types.
 Standard [Option and Result](../08-errors/index.md) add prelude constructors and
 contextual inference. Generic enums follow [generic data](../07-generics/data.md).
 
+## Copy enums
+
+`@copy` on the line before `enum` declares a copy enum. Every payload of every
+variant must copy; a nullary variant has no payload to check. Ordinary value
+use then leaves the source usable, and copying never allocates:
+
+```plenty
+@copy
+enum Reading:
+    Missing
+    Value(i64)
+
+def main() -> Result[(), IoError]:
+    reading = Reading.Value(7)
+    duplicate = reading
+    print(reading, duplicate)?
+    Ok(())
+```
+```output
+Reading.Value(7) Reading.Value(7)
+```
+
+The compiler checks the declaration even if the enum is never instantiated.
+A payload that always moves, such as `list[T]`, is rejected there. A generic
+`@copy` enum copies only when its payloads copy: `Wrapped[i64]` copies and
+`Wrapped[list[i64]]` moves for this declaration:
+
+```plenty fragment
+@copy
+enum Wrapped[T]:
+    Value(T)
+```
+
+A `T: CopyType` bound restricts the enum to arguments that copy. See
+[generic data](../07-generics/data.md) and [CopyType](../07-generics/index.md#copytype).
+
+The builtin `Option` and `Result` wrappers, tuples, and anonymous sums keep
+structural copying: they copy when all their parts copy, without an annotation.
+
 ## Methods
 
 An enum can declare ordinary methods alongside its variants:
 
 ```plenty fragment
+@copy
 enum Reading:
     Missing
     Value(i64)
@@ -96,4 +137,6 @@ Direct method calls on a sum are not forwarded, except `format`.
 Enums can satisfy [structural protocols](../07-generics/protocols.md) with
 accessible matching methods. They can also supply `display` and `debug` methods
 for [`std.fmt`](../../stdlib/fmt.md); builtin printing and entrypoint reports
-continue to use structural rendering.
+select these hooks before structural rendering. See
+[entrypoint reports](../../toolchain/01-building/entry-report.md) for the
+transitional `Formattable.format` fallback.

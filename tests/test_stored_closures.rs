@@ -212,6 +212,7 @@ for key, callback in small.items():
 fn enum_callback_payloads_support_borrowed_invocation_and_owned_extraction() {
     run_checked(
         r#"
+@copy
 enum Job[F]:
     Run(F)
     Empty
@@ -250,6 +251,7 @@ print(consume(job)?).unwrap()
 fn enum_environments_move_resources_without_allocating() {
     run(
         r#"
+@copy
 enum Job[F]:
     Run(F)
 class Guard:
@@ -279,6 +281,7 @@ print("__test_restore_allocations__").unwrap()
 fn finite_enum_registry_keeps_different_callback_layouts() {
     run_checked(
         r#"
+@copy
 enum Choice[A, B]:
     Left(A)
     Right(B)
@@ -313,6 +316,7 @@ for job in &jobs:
 fn consuming_jobs_transfer_captured_owners_from_collections_tuples_and_enums() {
     run(
         r#"
+@copy
 enum Job[F]:
     Run(F)
 def package[F](callback: F) -> Result[Job[F], AllocError]:

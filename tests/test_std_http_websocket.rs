@@ -259,6 +259,7 @@ from std.net import TcpStream
 from std.sync import CancellationToken
 from std.time import Deadline
 
+@copy
 pub enum Route:
     Echo
     Wait
@@ -765,6 +766,7 @@ from std.sync import CancellationToken
 from std.time import Deadline
 from std.tls import ClientConfig
 
+@copy
 pub enum Route:
     Echo
 

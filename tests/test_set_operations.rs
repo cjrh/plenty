@@ -384,6 +384,7 @@ fn invalid_relations(#[case] source: &str, #[case] expected: &str) {
 fn structural_enum_keys_survive_growth_removal_and_algebra() {
     native(
         r#"
+@copy
 enum Key:
     Empty
     Id(i64)
@@ -418,9 +419,11 @@ print(len(keys)).unwrap()
 fn nested_and_generic_enum_keys_keep_tags_and_payload_identity() {
     native(
         r#"
+@copy
 enum Color:
     Red
     Blue
+@copy
 enum Key[T]:
     Empty
     First(T)
@@ -444,7 +447,7 @@ print(options[empty], options[Some(2)]).unwrap()
 #[test]
 fn unsupported_enum_payloads_remain_rejected_as_keys() {
     for declaration in [
-        "enum Key:\n    Value(f64)\n",
+        "@copy\nenum Key:\n    Value(f64)\n",
         "enum Key:\n    Value(list[i64])\n",
         "enum Key:\n    End\n    Next(Box[Key])\n",
         "type Key = i64 | f64\n",
@@ -589,6 +592,7 @@ match result:
 fn enum_bitsets_preserve_views_copying_and_set_operations() {
     native(
         r#"
+@copy
 enum E:
     A
     B
@@ -644,6 +648,7 @@ fn enum_bitsets_handle_word_boundaries_and_hash_fallback() {
         native(
             &format!(
                 r#"
+@copy
 enum E:
 {variants}
 values = [{values}].unwrap()
@@ -672,6 +677,7 @@ fn enum_bitsets_recover_owner_failure_and_mutate_without_allocating() {
         native(
             &format!(
                 r#"
+@copy
 enum E:
     A
     B
@@ -705,6 +711,7 @@ print(count, len(left)).unwrap()
 fn enum_bitsets_survive_owned_iteration_and_nested_copying() {
     native(
         r#"
+@copy
 enum E:
     A
     B
@@ -739,7 +746,7 @@ fn finite_native(source: &str, expected: &str) {
 fn finite_enum_source(bits: usize, extra_variant: bool) -> (String, Vec<String>) {
     let tail = ", bool".repeat(bits - 5);
     let declaration = format!(
-        "enum Pair:\n    Bits(bool, bool)\nenum E:\n    A(Pair, tuple[bool, bool]{tail})\n    B(Pair, tuple[bool, bool]{tail})\n{}",
+        "@copy\nenum Pair:\n    Bits(bool, bool)\n@copy\nenum E:\n    A(Pair, tuple[bool, bool]{tail})\n    B(Pair, tuple[bool, bool]{tail})\n{}",
         if extra_variant { "    Extra\n" } else { "" }
     );
     let values = (0..(1 << bits))
@@ -889,8 +896,10 @@ print("ok").unwrap()
 fn finite_enum_bitsets_handle_singleton_and_builtin_options() {
     finite_native(
         r#"
+@copy
 enum Singleton:
     Only
+@copy
 enum E:
     Empty
     One(Singleton)
@@ -938,6 +947,7 @@ fn finite_enum_bitsets_encode_the_last_byte_offset() {
     native(
         &format!(
             r#"
+@copy
 enum E:
     Flags(bool, bool, bool, bool, bool, bool, bool)
 {variants}
@@ -1010,6 +1020,7 @@ for key in saved:
 fn anonymous_sum_keys_work_inside_structural_keys() {
     native(
         r#"
+@copy
 enum Wrapped:
     Value(i64 | str)
 class Key:
@@ -1057,8 +1068,10 @@ match result:
 fn anonymous_sum_enum_keys_keep_nominal_types_distinct() {
     native(
         r#"
+@copy
 enum First:
     Value(bool)
+@copy
 enum Second:
     Value(bool)
 type Key = First | Second

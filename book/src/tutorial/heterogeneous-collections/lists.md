@@ -16,6 +16,7 @@ class Message:
     def label(self) -> str:
         self.text
 
+@copy
 enum Status:
     Ready
     Busy
@@ -70,6 +71,7 @@ directly:
 class Message:
     text: str
 
+@copy
 enum Status:
     Ready
     Busy

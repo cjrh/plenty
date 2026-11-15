@@ -2,6 +2,7 @@
 import btree
 import red_black
 
+@copy
 enum TestError:
     ChangedOnFailure
     Invalid

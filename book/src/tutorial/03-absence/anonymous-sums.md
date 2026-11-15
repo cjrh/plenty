@@ -125,6 +125,7 @@ To handle some members and pass the others on, end the match with
 `case name: B | C:`, naming the members the earlier cases leave:
 
 ```plenty
+@copy
 enum SettingError:
     Missing
 

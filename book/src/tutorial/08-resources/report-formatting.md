@@ -9,6 +9,7 @@ import std.fmt
 import std.report
 from std.fmt import Formatter, FormatError
 
+@copy
 pub enum ReadingError:
     Invalid(i64)
 
@@ -46,6 +47,7 @@ import std.fmt
 import std.report
 from std.fmt import Formatter, FormatError
 
+@copy
 pub enum ReadingError:
     Invalid(i64)
 
@@ -55,6 +57,7 @@ pub enum ReadingError:
                 output.text("invalid reading on line ")?
                 output.integer(*line)
 
+@copy
 pub enum ConnectionError:
     Closed
 
@@ -125,9 +128,11 @@ digits, so a limit can leave part of a number. On stderr failure, inspect
 writing again. A limit error is recoverable, as the example shows.
 
 When `main` returns `Err`, its concrete error type selects the reporting path.
-A type with this public `format` method produces a human-readable report with
-the prefix `error: main returned ` and a final newline. A sum selects this path
-only when all its members support it; other types retain structural reporting.
+The reporter first selects `display`, then `debug`, then structure with nested
+debug hooks, as `print` does. If no such hook is selected, a public `format`
+method supplies a transitional fallback with the prefix `error: main returned `
+and a final newline. A sum selects this fallback only when all its members
+support it; other types retain structural reporting.
 The automatic reporter allows 16,384 bytes and 64 nesting levels. If formatting
 fails after writing part of the message, it appends ` [report unavailable]` and
 a newline without trying the method again. Stderr failures stop output.

@@ -45,10 +45,12 @@ const PROGRAM: &str = r#"import std.bytes
 import std.error
 from std.bytes import Bytes, BytesError
 
+@copy
 enum Problem:
     Short
     Wrapped(AllocError)
 
+@copy
 enum Shape:
     Empty
     Box(i64, i64)
@@ -170,7 +172,7 @@ fn unmanaged_environments_and_plain_payloads_skip_the_dispatcher() {
         "lift[i64] ",
         "std.error.map_error[i64, AllocError, Problem,",
         "scaled ",
-        "scaled.<closure@18:10> ",
+        "scaled.<closure@20:10> ",
     ] {
         let calls = dispatches(dir.path(), name);
         assert!(calls.is_empty(), "{name}: {calls:?}");

@@ -29,15 +29,15 @@ use support::run;
     "ok\n"
 )]
 #[case(
-    "enum Color:\n    Red\n    Blue\nprint(Color.Red).unwrap()\nprint(Color.Red == Color.Red).unwrap()\nprint(Color.Red == Color.Blue).unwrap()",
+    "@copy\nenum Color:\n    Red\n    Blue\nprint(Color.Red).unwrap()\nprint(Color.Red == Color.Red).unwrap()\nprint(Color.Red == Color.Blue).unwrap()",
     "Color.Red\nTrue\nFalse\n"
 )]
 #[case(
-    "enum Reading:\n    Missing\n    Value(i64)\n    Invalid(str)\ndef show(r: Reading) -> str:\n    match r:\n        case Reading.Missing:\n            'missing'\n        case Reading.Value(n):\n            'value' if n == 42 else 'other'\n        case Reading.Invalid(reason):\n            reason\nprint(show(Reading.Missing)).unwrap()\nprint(show(Reading.Value(42))).unwrap()\nprint(show(Reading.Invalid(('bad' + ' input').unwrap()))).unwrap()",
+    "@copy\nenum Reading:\n    Missing\n    Value(i64)\n    Invalid(str)\ndef show(r: Reading) -> str:\n    match r:\n        case Reading.Missing:\n            'missing'\n        case Reading.Value(n):\n            'value' if n == 42 else 'other'\n        case Reading.Invalid(reason):\n            reason\nprint(show(Reading.Missing)).unwrap()\nprint(show(Reading.Value(42))).unwrap()\nprint(show(Reading.Invalid(('bad' + ' input').unwrap()))).unwrap()",
     "missing\nvalue\nbad input\n"
 )]
 #[case(
-    "enum Pair:\n    Value(i8, u64, str)\nx = Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')\nmatch x:\n    case Pair.Value(a, b, c):\n        print(a).unwrap()\n        print(b).unwrap()\n        print(c).unwrap()\nprint(x == Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')).unwrap()",
+    "@copy\nenum Pair:\n    Value(i8, u64, str)\nx = Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')\nmatch x:\n    case Pair.Value(a, b, c):\n        print(a).unwrap()\n        print(b).unwrap()\n        print(c).unwrap()\nprint(x == Pair.Value(-128i8, 18446744073709551615u64, 'a\\0b')).unwrap()",
     "-128\n18446744073709551615\na\0b\nTrue\n"
 )]
 #[case(
@@ -45,7 +45,7 @@ use support::run;
     "[\"ab\", \"c\"]\nReading.Data([\"ab\"])\n"
 )]
 #[case(
-    "enum Outer:\n    Value(Inner)\nenum Inner:\n    Text(str)\nprint([Outer.Value(Inner.Text('hi'))].unwrap() == [Outer.Value(Inner.Text(('h' + 'i').unwrap()))].unwrap()).unwrap()\nprint({'x': Outer.Value(Inner.Text('hi'))}.unwrap()).unwrap()",
+    "@copy\nenum Outer:\n    Value(Inner)\n@copy\nenum Inner:\n    Text(str)\nprint([Outer.Value(Inner.Text('hi'))].unwrap() == [Outer.Value(Inner.Text(('h' + 'i').unwrap()))].unwrap()).unwrap()\nprint({'x': Outer.Value(Inner.Text('hi'))}.unwrap()).unwrap()",
     "True\n{\"x\": Outer.Value(Inner.Text(\"hi\"))}\n"
 )]
 #[case(
@@ -57,11 +57,11 @@ use support::run;
     "Result[i64, str].Ok(42)\nResult[i64, str].Err(\"no\")\n"
 )]
 #[case(
-    "enum E:\n    A\n    B(i64)\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            return 1\n        case E.B(n):\n            n\nprint(f(E.B(42))).unwrap()\nfor e in [E.A, E.B(2), E.B(3)].unwrap():\n    match e:\n        case E.A:\n            continue\n        case E.B(n):\n            if n == 3:\n                break\n            print(n).unwrap()",
+    "@copy\nenum E:\n    A\n    B(i64)\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            return 1\n        case E.B(n):\n            n\nprint(f(E.B(42))).unwrap()\nfor e in [E.A, E.B(2), E.B(3)].unwrap():\n    match e:\n        case E.A:\n            continue\n        case E.B(n):\n            if n == 3:\n                break\n            print(n).unwrap()",
     "42\n2\n"
 )]
 #[case(
-    "enum E:\n    A\n    B(str)\nx = 99\nmatch E.B('yes'):\n    case E.B(x):\n        print(x).unwrap()\n    case _:\n        pass\nprint(x).unwrap()",
+    "@copy\nenum E:\n    A\n    B(str)\nx = 99\nmatch E.B('yes'):\n    case E.B(x):\n        print(x).unwrap()\n    case _:\n        pass\nprint(x).unwrap()",
     "yes\n99\n"
 )]
 #[case(
@@ -69,7 +69,7 @@ use support::run;
     "ok\n"
 )]
 #[case(
-    "enum Pair:\n    Values(str, str)\ndef item(n: i64) -> str:\n    print(n).unwrap()\n    ('value' + '').unwrap()\nmatch Pair.Values(item(1), item(2)):\n    case Pair.Values(_, last):\n        print(last).unwrap()",
+    "@copy\nenum Pair:\n    Values(str, str)\ndef item(n: i64) -> str:\n    print(n).unwrap()\n    ('value' + '').unwrap()\nmatch Pair.Values(item(1), item(2)):\n    case Pair.Values(_, last):\n        print(last).unwrap()",
     "1\n2\nvalue\n"
 )]
 #[case(
@@ -87,55 +87,58 @@ fn native_values(#[case] source: &str, #[case] expected: &str) {
 }
 
 #[rstest]
-#[case("enum E:\n    A\n    A", "duplicate variant")]
+#[case("@copy\nenum E:\n    A\n    A", "duplicate variant")]
 #[case(
-    "enum E:\n    A(i64)\nprint(E.A(True)).unwrap()",
+    "@copy\nenum E:\n    A(i64)\nprint(E.A(True)).unwrap()",
     "expected i64, got bool"
 )]
-#[case("enum E:\n    A\nprint(E.A()).unwrap()", "nullary variants")]
+#[case("@copy\nenum E:\n    A\nprint(E.A()).unwrap()", "nullary variants")]
 // A payload variant without arguments is a constructor function value (issue #556).
 #[case(
-    "enum E:\n    A(i64)\nx: E = E.A",
+    "@copy\nenum E:\n    A(i64)\nx: E = E.A",
     "expected E, got Callable[[i64], E]"
 )]
 #[case(
-    "enum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass",
+    "@copy\nenum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass",
     "non-exhaustive match; missing E.B"
 )]
 #[case(
-    "enum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass\n    case E.A:\n        pass",
+    "@copy\nenum E:\n    A\n    B\nmatch E.A:\n    case E.A:\n        pass\n    case E.A:\n        pass",
     "duplicate variant case"
 )]
 #[case(
-    "enum E:\n    A\nmatch E.A:\n    case _:\n        pass\n    case E.A:\n        pass",
+    "@copy\nenum E:\n    A\nmatch E.A:\n    case _:\n        pass\n    case E.A:\n        pass",
     "unreachable case"
 )]
 #[case(
-    "enum E:\n    A\nmatch E.A:\n    case E.A:\n        pass\n    case E.B:\n        pass",
+    "@copy\nenum E:\n    A\nmatch E.A:\n    case E.A:\n        pass\n    case E.B:\n        pass",
     "unknown variant `B`"
 )]
 #[case(
-    "enum E:\n    A\nenum F:\n    A\nmatch E.A:\n    case F.A:\n        pass",
+    "@copy\nenum E:\n    A\n@copy\nenum F:\n    A\nmatch E.A:\n    case F.A:\n        pass",
     "expected E, got F"
 )]
 #[case(
-    "enum E:\n    A(i64, i64)\nmatch E.A(1, 2):\n    case E.A(x, x):\n        pass",
+    "@copy\nenum E:\n    A(i64, i64)\nmatch E.A(1, 2):\n    case E.A(x, x):\n        pass",
     "duplicate payload binding"
 )]
 #[case(
-    "enum E:\n    A(i64)\nmatch E.A(1):\n    case E.A(x):\n        pass\nprint(x).unwrap()",
+    "@copy\nenum E:\n    A(i64)\nmatch E.A(1):\n    case E.A(x):\n        pass\nprint(x).unwrap()",
     "unknown binding"
 )]
-#[case("enum E:\n    A(f64)\nx: set[E] = set().unwrap()", "set elements must")]
+#[case(
+    "@copy\nenum E:\n    A(f64)\nx: set[E] = set().unwrap()",
+    "set elements must"
+)]
 #[case("x = Option[i64, str].Nothing", "Option requires 1")]
 #[case("x = Result[i64].Ok(1)", "Result requires 2")]
 #[case("x = Result[(), str].Ok(1)", "expected (), got i64")]
 #[case(
-    "enum E:\n    A\nE = 1\nprint(E.A).unwrap()",
+    "@copy\nenum E:\n    A\nE = 1\nprint(E.A).unwrap()",
     "shadows a type qualifier"
 )]
 #[case(
-    "enum E:\n    A\n    B\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            1\n        case E.B:\n            True",
+    "@copy\nenum E:\n    A\n    B\ndef f(e: E) -> i64:\n    match e:\n        case E.A:\n            1\n        case E.B:\n            True",
     "expected i64, got bool"
 )]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
@@ -149,7 +152,7 @@ fn diagnostics(#[case] source: &str, #[case] expected: &str) {
 #[test]
 fn doubling_inline_types_hit_the_size_limit_without_exponential_work() {
     // Each level stores two copies of the previous one inline.
-    let mut inline = String::from("enum E0:\n    End\n");
+    let mut inline = String::from("@copy\nenum E0:\n    End\n");
     let mut boxed = inline.clone();
     for n in 1..40 {
         inline.push_str(&format!(
@@ -183,7 +186,7 @@ fn doubling_inline_types_hit_the_size_limit_without_exponential_work() {
 
 #[test]
 fn excessive_type_depth_is_diagnosed() {
-    let mut source = String::from("enum E0:\n    End\n");
+    let mut source = String::from("@copy\nenum E0:\n    End\n");
     for n in 1..66 {
         source.push_str(&format!("enum E{n}:\n    Wrap(E{})\n", n - 1));
     }

@@ -565,6 +565,7 @@ from std.net import listen, loopback_v4
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
+@copy
 pub enum Fault:
     Detail(str)
 
@@ -897,6 +898,7 @@ from std.actor import Address, Context, Mail, heaps_live, stage
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
+@copy
 pub enum Fault:
     Failed
 
@@ -999,14 +1001,15 @@ fn bounded_ring_and_timer_arithmetic_at_representation_limits() {
         .unwrap()
         .replace("Context[M, E]", "HeapProbe");
     let timer_error = actor
-        .split("pub enum TimerError:\n")
+        .split("@copy\npub enum TimerError:\n")
         .nth(1)
         .unwrap()
         .split("# A request that was not sent")
         .next()
         .unwrap();
     let source = format!(
-        r#"enum TimerError:
+        r#"@copy
+enum TimerError:
 {timer_error}
 {helpers}
 class HeapProbe:
@@ -1100,9 +1103,11 @@ fn mailbox_rebase_preserves_all_linked_down_fences() {
         .unwrap();
     let helpers = &actor[actor.find("def ring_at(").unwrap()..];
     let source = format!(
-        r#"enum TimerError:
+        r#"@copy
+enum TimerError:
     Range
     Capacity
+@copy
 enum Mail[M, E]:
     Message(M)
     Failure(E)
@@ -1210,7 +1215,8 @@ fn exhausted_slot_generation_retires_after_zombie_cleanup() {
         .next()
         .unwrap();
     let source = format!(
-        r#"enum Mail[M, E]:
+        r#"@copy
+enum Mail[M, E]:
     Message(M)
     Failure(E)
 class ProbeMailbox[M, E]:
@@ -1350,6 +1356,7 @@ from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
 type Fault = OverflowError[i64]
+@copy
 pub enum Node:
     Parent
     Child(i64)

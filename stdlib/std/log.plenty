@@ -3,6 +3,7 @@ from std.fmt import Formatter, FormatError, formatter
 from std.io import Writer, StreamError, write_all
 from std.time import Timestamp, wall_now
 
+@copy
 pub enum LogError:
     InvalidSpec
     InvalidKey
@@ -14,6 +15,7 @@ pub enum LogError:
     Output(StreamError)
     Allocation(AllocError)
 
+@copy
 pub enum Level:
     Trace
     Debug
@@ -62,6 +64,7 @@ pub def parse_level(name: &strview) -> Result[Level, LogError]:
         return Ok(Level.Error)
     Err(LogError.UnknownLevel)
 
+@copy
 pub enum Value:
     Text(str)
     Integer(i64)

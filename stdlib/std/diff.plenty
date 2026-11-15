@@ -13,10 +13,12 @@ from std.bytes import Bytes, BytesError
 # scripts/release/licenses/similar-3.2.1-LICENSE.txt and in release archives'
 # THIRD-PARTY-NOTICES.md.
 
+@copy
 pub enum Algorithm:
     Myers
     Patience
 
+@copy
 pub enum Kind:
     Equal
     Delete

@@ -1,8 +1,12 @@
 # Creating enum values
 
-Payload arguments move into the enum. Constructing it adds no allocation:
+Payload arguments follow the ordinary [copy or move rule](../../design/language/05-ownership/01-bindings-moves-and-copies.md):
+copyable values such as `str` copy into the enum, while affine values such as
+lists transfer ownership. The enum's own `@copy` annotation controls later
+uses of the constructed value. Constructing it adds no allocation:
 
 ```plenty
+@copy
 enum Message:
     Empty
     Text(str)

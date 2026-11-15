@@ -140,6 +140,7 @@ fn stderr_constructs_and_renders_without_allocations() {
 import std.fmt
 import std.report
 from std.fmt import Formatter, FormatError
+@copy
 pub enum Error:
     Code(i64)
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
@@ -448,6 +449,7 @@ pub class Amount:
         output.float_spec(self.value, &std.fmt.spec(precision=2, kind="f"))
     pub def display[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         self.format(output)
+@copy
 pub enum Missing:
     Value
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:

@@ -4,6 +4,7 @@
 # book/src/design/stdlib/random.md for the stability contract.
 from std.bytes import Bytes
 
+@copy
 pub enum RandomError:
     EmptyRange
     ZeroState

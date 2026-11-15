@@ -404,6 +404,7 @@ class Sized[T]:
     def __del__(self) -> ():
         print("drop sized").unwrap()
 
+@copy
 enum Size:
     Small
     def len(self) -> i64:

@@ -95,6 +95,7 @@ from std.error import Context, Subject
 from std.fmt import Formatter, FormatError
 from std.report import to_string
 
+@copy
 pub enum SettingsError:
     Invalid
 

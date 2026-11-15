@@ -4,6 +4,7 @@ use crate::sum::EnumOp;
 #[derive(Clone)]
 pub(super) struct EnumDecl {
     pub(super) at: Token,
+    pub(super) copy: Option<Token>,
     pub(super) name: String,
     pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
@@ -21,6 +22,7 @@ impl EnumDecl {
         }
         Self {
             at: self.at.clone(),
+            copy: self.copy.clone(),
             name: self.name.clone(),
             type_params: Vec::new(),
             variants: self.variants.clone(),
@@ -137,6 +139,7 @@ impl Parser {
         }
         Ok(EnumDecl {
             at,
+            copy: None,
             name,
             type_params,
             variants,

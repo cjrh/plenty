@@ -4,6 +4,7 @@ from std.bytes import Bytes
 from std.io.typed import StepError, CopyFailure, ReadFailure, copy_all
 from std.http.typed import FramingError, fixed_body
 
+@copy
 pub enum TransportError:
     Disconnected(i64)
 

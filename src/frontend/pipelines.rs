@@ -304,20 +304,8 @@ impl Lower<'_> {
                 matches!(local.ty, Ty::Iter(..))
                     || self.pipeline.lent_parameters.contains_key(&local.slot)
             }),
-            Expression::Call(n, _) => {
-                matches!(builtin_call(n), Some("iter" | "enumerate" | "zip"))
-            }
+            Expression::Call(n, _) => builtin_call(n) == Some("iter"),
             Expression::Method(base, name, _, _) => {
-                if name == "items"
-                    && super::collections::dictionary_items(e).is_some_and(|(base, _)| {
-                        self.place_type(base)
-                            .or_else(|| self.expression_type_hint(base))
-                            .map(classes::unbox)
-                            .is_some_and(|t| matches!(t, Ty::Dict(..)))
-                    })
-                {
-                    return true;
-                }
                 matches!(
                     name.as_str(),
                     "map"
@@ -553,7 +541,10 @@ impl Lower<'_> {
     }
 
     fn pipeline_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.is_pipeline(source) {
+        if self.is_pipeline(source)
+            || matches!(&ungroup(source).kind, Expression::Call(function, _)
+                if matches!(builtin_call(function), Some("enumerate" | "zip")))
+        {
             return self.pipeline(source, ops);
         }
         self.pipeline_raw_source(source, ops)

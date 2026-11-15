@@ -405,7 +405,7 @@ fn standard_traps_keep_the_nearest_imported_user_caller_through_tail_calls() {
     );
     assert_eq!(
         error,
-        "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\nnote: called from numbers.plenty:7:5\n"
+        "error: std/bytes.plenty:49:13: Bytes.get: index is outside 0..len()\nnote: called from numbers.plenty:7:5\n"
     );
 }
 
@@ -417,7 +417,7 @@ fn indirect_standard_calls_keep_the_dynamic_call_site() {
     )]);
     assert!(
         error.starts_with(
-            "error: std/encoding.plenty:800:13: unpack: offset outside source buffer\n"
+            "error: std/encoding.plenty:802:13: unpack: offset outside source buffer\n"
         ),
         "{error}"
     );
@@ -448,7 +448,7 @@ fn a_callback_can_enter_std_again_from_a_standard_call() {
     );
     assert_eq!(
         error,
-        "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\nnote: called from main.plenty:4:5\n"
+        "error: std/bytes.plenty:49:13: Bytes.get: index is outside 0..len()\nnote: called from main.plenty:4:5\n"
     );
 }
 
@@ -482,7 +482,7 @@ fn worker_calls_report_the_worker_source_without_inheriting_the_parent() {
     );
     assert_eq!(
         error,
-        "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\nnote: called from main.plenty:4:5\n"
+        "error: std/bytes.plenty:49:13: Bytes.get: index is outside 0..len()\nnote: called from main.plenty:4:5\n"
     );
 }
 
@@ -536,17 +536,17 @@ fn scheduled_integer_abs_returns_its_declared_overflow(#[case] optimize: bool) {
 #[case::direct(
     "    print(unpack_i64(b\"12345678\", 1 + 0, Endian.Little))?\n",
     "4:11",
-    "error: std/encoding.plenty:800:13: unpack: offset outside source buffer\n"
+    "error: std/encoding.plenty:802:13: unpack: offset outside source buffer\n"
 )]
 #[case::boxed(
     "    f = BoxedCallable(unpack_i64)?\n    print(f(b\"12345678\", 1 + 0, Endian.Little))?\n",
     "5:11",
-    "error: std/encoding.plenty:800:13: unpack: offset outside source buffer\n"
+    "error: std/encoding.plenty:802:13: unpack: offset outside source buffer\n"
 )]
 #[case::closure(
     "    source = from_bytes(b\"*\")?\n    k = 0\n    f = def [k](source: &Bytes, x: i64) -> u8:\n        offset = unchecked:\n            x + k\n        source.get(offset)\n    print(f(source, 1))?\n",
     "9:9",
-    "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\n"
+    "error: std/bytes.plenty:49:13: Bytes.get: index is outside 0..len()\n"
 )]
 fn caller_positions_name_the_call_after_argument_evaluation(
     #[case] body: &str,
@@ -793,7 +793,7 @@ fn text_range_traps_name_their_call_site(#[case] starts: [i64; 3], #[case] calle
     assert_eq!(
         error,
         format!(
-            "error: std/bytes.plenty:210:13: Bytes.to_text_range: start..stop is outside 0..=len()\nnote: called from {caller}\n"
+            "error: std/bytes.plenty:211:13: Bytes.to_text_range: start..stop is outside 0..=len()\nnote: called from {caller}\n"
         )
     );
 }
@@ -806,10 +806,10 @@ fn text_range_traps_name_their_call_site(#[case] starts: [i64; 3], #[case] calle
 /// runs an unoptimized build, which inlines nothing and so checks only the
 /// unchanged caller-scope path.
 #[rstest]
-#[case::first_get([9, 1, 0, 0], "48:13: Bytes.get", "numbers.plenty:5:17")]
-#[case::second_get([0, 9, 0, 0], "48:13: Bytes.get", "numbers.plenty:6:25")]
-#[case::set([0, 1, 9, 0], "53:13: Bytes.set", "numbers.plenty:7:9")]
-#[case::main_get([0, 1, 0, 9], "48:13: Bytes.get", "main.plenty:6:11")]
+#[case::first_get([9, 1, 0, 0], "49:13: Bytes.get", "numbers.plenty:5:17")]
+#[case::second_get([0, 9, 0, 0], "49:13: Bytes.get", "numbers.plenty:6:25")]
+#[case::set([0, 1, 9, 0], "54:13: Bytes.set", "numbers.plenty:7:9")]
+#[case::main_get([0, 1, 0, 9], "49:13: Bytes.get", "main.plenty:6:11")]
 fn inlined_standard_traps_name_their_call_site_without_a_caller_scope(
     #[case] indexes: [i64; 4],
     #[case] site: &str,

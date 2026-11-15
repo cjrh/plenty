@@ -603,9 +603,9 @@ fn iterating_a_file_names_the_line_readers() {
 fn a_nonmember_variant_pattern_keeps_the_plain_type_mismatch() {
     assert_eq!(
         diagnostic(
-            "enum A:\n    X\nenum B:\n    Y\nenum C:\n    Z\ndef read(value: A | B) -> ():\n    match value:\n        case C.Z:\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n"
+            "@copy\nenum A:\n    X\n@copy\nenum B:\n    Y\n@copy\nenum C:\n    Z\ndef read(value: A | B) -> ():\n    match value:\n        case C.Z:\n            pass\n        case _:\n            pass\ndef main() -> ():\n    pass\n"
         ),
-        "9:14: expected A | B, got C"
+        "12:14: expected A | B, got C"
     );
 }
 

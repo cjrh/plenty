@@ -7,11 +7,9 @@ use support::{check_error, check_source};
 
 /// The rule as every page states it, with links reduced to their text.
 const RULE: &str = "Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. \
-A tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of its parts copy. \
-A class copies only when it is declared `@copy`, and a generic one only when its type \
-arguments also copy. \
-Every other value moves: collections, boxes, closures that capture, generators, and other \
-class instances.";
+A tuple, `Option`, `Result`, or anonymous sum (`A | B`) copies when all of its parts copy. \
+A class or enum copies only when it is declared `@copy`, and a generic one only when its payloads or fields also copy. \
+Every other value moves: collections, boxes, closures that capture, generators, and other class or enum instances.";
 
 const PAGES: &[&str] = &[
     "book/src/design/language/05-ownership/01-bindings-moves-and-copies.md",
@@ -61,6 +59,7 @@ fn pages_state_the_same_rule() {
 fn listed_types_copy() {
     check_source(
         r#"
+@copy
 enum Shape:
     Dot(i64)
     Empty
@@ -145,12 +144,8 @@ fn other_values_move() {
 /// `@copy` is a class annotation today; accepting it on enums is phase 2 of
 /// rule 1 (B88). Delete this phase guard when that lands.
 #[test]
-fn copy_annotation_is_class_only() {
-    let error = check_error("@copy\nenum Shape:\n    Dot(i64)\n");
-    assert!(
-        error.contains("`@copy` applies only to class declarations"),
-        "{error}"
-    );
+fn copy_annotation_accepts_enums() {
+    check_source("@copy\nenum Shape:\n    Dot(i64)\n").unwrap();
 }
 
 /// `CopyType` (B84) admits exactly the values the rule says copy. Type
@@ -159,6 +154,7 @@ fn copy_annotation_is_class_only() {
 fn copy_type_admits_the_listed_types() {
     check_source(
         r#"
+@copy
 enum Shape:
     Dot(i64)
     Empty
@@ -289,13 +285,57 @@ def main() -> ():
     }
 }
 
-/// Generic `@copy` enums are phase 3 of rule 1 (B88); `@copy` on any enum is
-/// rejected until phase 2. Delete this phase guard when generic enums accept it.
 #[test]
-fn generic_copy_enum_waits_for_b88() {
-    let error = check_error("@copy\nenum Slot[T]:\n    Full(T)\n    Empty\n");
-    assert!(
-        error.contains("`@copy` applies only to class declarations"),
-        "{error}"
-    );
+fn enum_copy_contract_is_explicit_and_conditional() {
+    check_source(
+        r#"
+@copy
+enum Value[T]:
+    Present(T)
+    Absent
+@copy
+enum Token:
+    Id(i64)
+def take[T](value: T) -> ():
+    pass
+def main() -> ():
+    value = Value[i64].Present(3)
+    token = Token.Id(2)
+    take(value)
+    take(value)
+    take(token)
+    take(token)
+"#,
+    )
+    .unwrap();
+    for declaration in [
+        "enum Token:\n    Id(i64)",
+        "@copy\nenum Token[T]:\n    Id(T)",
+    ] {
+        let (ty, value) = if declaration.contains("[T]") {
+            ("Token[list[i64]]", "Token[list[i64]].Id([1].unwrap())")
+        } else {
+            ("Token", "Token.Id(1)")
+        };
+        let error = check_error(&format!(
+            "{declaration}\ndef take(x: {ty}) -> ():\n    pass\ndef main() -> ():\n    value = {value}\n    take(value)\n    take(value)\n"
+        ));
+        assert!(error.contains("moved"), "{error}");
+        if !declaration.contains("[T]") {
+            assert!(error.contains("declare it `@copy`"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn copy_enum_rejects_an_affine_payload_at_its_declaration() {
+    for declaration in [
+        "@copy\nenum Bad:\n    Values(list[i64])\n",
+        "@copy\nenum Bad[T]:\n    Values(list[T])\n",
+        "@copy\nenum Bad:\n    Values(Later)\nclass Later:\n    value: i64\n",
+    ] {
+        let error = check_error(declaration);
+        assert!(error.contains("`@copy` enum"), "{error}");
+        assert!(error.contains("moves"), "{error}");
+    }
 }

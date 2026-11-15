@@ -1306,6 +1306,7 @@ with spawn(worker, View(&xs)).unwrap() as task:
 fn view_classes_owned_fields_cleanup_on_success_and_partial_failure() {
     run_views(
         r#"
+@copy
 enum Problem:
     Failed
 class Token:
@@ -1613,6 +1614,7 @@ def choose(view: View, external: bool) -> &i64:
 fn view_classes_failed_constructor_preserves_sibling_source_loan() {
     reject_views(
         r#"
+@copy
 enum Problem:
     Failed
 @copy
@@ -1815,6 +1817,7 @@ edit.data = &mut b
 fn view_classes_owned_array_fields_cleanup_through_failed_and_wrapped_construction() {
     run_views(
         r#"
+@copy
 enum Problem:
     Failed
 class Item:

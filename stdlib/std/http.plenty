@@ -12,6 +12,7 @@ from std.bytes import Bytes
 from std.io import BufReader, Reader, StreamError, Writer
 from std.time import Timestamp
 
+@copy
 pub enum HttpError:
     Stream(StreamError)
     Allocation(AllocError)
@@ -79,6 +80,7 @@ pub class ResponseHead:
         listed(self.headers.append(Header(name, value)))
 
 # How the body after a head is delimited.
+@copy
 pub enum Framing:
     Empty
     Length(i64)

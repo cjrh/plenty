@@ -20,6 +20,7 @@ extern def eigh_raw(n: i64, a: &list[f64] as strided, values: &mut list[f64] as 
 @thread_safe
 extern def eig_raw(n: i64, a: &list[f64] as strided, real: &mut list[f64] as strided, imag: &mut list[f64] as strided, vectors_real: &mut list[f64] as strided, vectors_imag: &mut list[f64] as strided) -> i64 = "plla_v1_eig"
 
+@copy
 pub enum LinalgError:
     Shape
     Bounds

@@ -787,6 +787,7 @@ drop(listener)
 fn endpoint_contexts_disconnect_before_join_on_early_return_and_propagation() {
     runs(
         r#"
+@copy
 enum Stop:
     Requested
 type Producer = OnceClosure[[], Result[(), SendError[i64]]]

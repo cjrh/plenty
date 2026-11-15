@@ -23,6 +23,7 @@ print([1.5f32].unwrap().get(0)).unwrap()
 fn managed_results_survive_replacement_and_list_destruction() {
     native(
         r#"
+@copy
 enum Value:
     Text(str)
 mut words = [("é" + "\0🙂").unwrap()].unwrap()
@@ -120,6 +121,7 @@ def main() -> Result[(), OverflowError[i64]]:
 fn hits_misses_and_retention_work_with_allocation_disabled() {
     native(
         r#"
+@copy
 enum Value:
     Text(str)
 items = [("A" + "da").unwrap()].unwrap()

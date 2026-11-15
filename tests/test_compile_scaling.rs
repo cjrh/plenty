@@ -141,7 +141,7 @@ fn checking_protocols_is_linear() {
 
 /// `enum Kind` with one variant per unit, followed by `rest`.
 fn kinds(variants: usize, rest: &str) -> String {
-    let mut source = String::from("enum Kind:\n");
+    let mut source = String::from("@copy\nenum Kind:\n");
     for i in 0..variants {
         source.push_str(&format!("    V{i}\n"));
     }

@@ -117,6 +117,7 @@ print(source).unwrap()
 fn immutable_values_and_inactive_owned_variants_copy_without_allocating() {
     native(
         r#"
+@copy
 enum Label:
     Text(str)
 text = ("hel" + "lo").unwrap()

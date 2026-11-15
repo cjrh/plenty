@@ -16,7 +16,14 @@ pub(super) unsafe fn report(value: u128, ty: *const Type) {
     // static metadata, and keeps ownership of the payload.
     if let Some(ty) = unsafe { ty.as_ref() } {
         out.extend_from_slice(b"error: main returned ");
-        unsafe { render(value, ty, &mut out) };
+        // Like print, a top-level string is text; strings inside aggregates
+        // retain their quoted structural spelling.
+        if ty.kind == b's' && ty.wrapper.is_none() && !ty.redacted {
+            let text = value as *const crate::strings::Text;
+            out.extend_from_slice(unsafe { crate::strings::bytes(&text) });
+        } else {
+            unsafe { render(value, ty, &mut out) };
+        }
         describe(value, ty, &mut out);
         out.push(b'\n');
     }

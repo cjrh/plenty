@@ -14,6 +14,7 @@ from std.http.server import Exchange, Report
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Small
     Large

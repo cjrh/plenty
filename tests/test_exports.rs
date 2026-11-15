@@ -533,6 +533,7 @@ fn payload_free_user_enums_cross_c_as_named_codes() {
     .unwrap();
     let source = r#"
 import errors.codes
+@copy
 enum CalcError:
     Empty
     Negative
@@ -578,14 +579,16 @@ export def allocation() -> Result[(), AllocError] = "calc_allocation":
         let interface = std::fs::read_to_string(&artifacts.interface).unwrap();
         assert!(
             interface.contains(
-                "pub enum CalcError:\n    Empty\n    Negative\n    TooLarge\n    Odd\n    Zero\n"
+                "@copy\npub enum CalcError:\n    Empty\n    Negative\n    TooLarge\n    Odd\n    Zero\n"
             ),
             "{interface}"
         );
         assert!(
-            interface.contains("pub enum Shape:\n    Odd\n    Huge\n"),
+            interface.contains("\npub enum Shape:\n    Odd\n    Huge\n"),
             "{interface}"
         );
+        // Imported affine enums keep their declaration contract too.
+        assert!(!interface.contains("@copy\npub enum Shape:"), "{interface}");
         assert!(!interface.contains("import"), "{interface}");
         let c = root.join("codes.c");
         std::fs::write(
@@ -966,7 +969,7 @@ fn generated_library_names_reject_collisions_before_publication() {
     for name in ["left", "right"] {
         std::fs::write(
             temp.path().join(format!("{name}.plenty")),
-            "pub enum Code:\n    Failed\n",
+            "@copy\npub enum Code:\n    Failed\n",
         )
         .unwrap();
     }
@@ -1009,7 +1012,7 @@ fn generated_library_names_reject_collisions_before_publication() {
             "conflicting interface name `Code`",
         ),
         (
-            "enum Code:\n    x\nexport def a() -> Result[(), Code] = \"calc_a\":\n    Err(Code.x)\nexport def b() -> () = \"calc_Code_x\":\n    pass\n",
+            "@copy\nenum Code:\n    x\nexport def a() -> Result[(), Code] = \"calc_a\":\n    Err(Code.x)\nexport def b() -> () = \"calc_Code_x\":\n    pass\n",
             "C error constant `calc_Code_x` collides",
         ),
         (
@@ -1057,7 +1060,7 @@ fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
             "duplicate or imported",
         ),
         (
-            "enum Bad:\n    Empty\n    Code(i32)\nexport def bad() -> Result[(), Bad] = \"calc_bad\":\n    Err(Bad.Code(1))\n",
+            "@copy\nenum Bad:\n    Empty\n    Code(i32)\nexport def bad() -> Result[(), Bad] = \"calc_bad\":\n    Err(Bad.Code(1))\n",
             "error enum `Bad` has payload variant `Bad.Code`; only payload-free enums cross C",
         ),
         (
@@ -1065,7 +1068,7 @@ fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
             "cannot return the error sum `AllocError | ParseError` yet (backlog B27)",
         ),
         (
-            "enum Bad[T]:\n    Empty\nexport def bad() -> Result[(), Bad[i32]] = \"calc_bad\":\n    Err(Bad[i32].Empty)\n",
+            "@copy\nenum Bad[T]:\n    Empty\nexport def bad() -> Result[(), Bad[i32]] = \"calc_bad\":\n    Err(Bad[i32].Empty)\n",
             "is generic",
         ),
         (

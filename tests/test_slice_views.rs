@@ -334,6 +334,7 @@ def main() -> Result[(), AllocError | IoError | FormatError | BytesError]:
 fn views_address_rows_of_every_element_layout() {
     support::assert_stdout(
         r#"
+@copy
 enum Shape:
     Dot
     Square(i64)

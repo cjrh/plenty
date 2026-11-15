@@ -60,7 +60,7 @@ def last(xs: &list[i64]) -> Generator[i64]:
         seen = *x
     yield seen
 def each(xs: &list[i64]) -> Generator[i64]:
-    for (i, x) in enumerate(xs).skip(1):
+    for (i, x) in iter(enumerate(xs)).skip(1):
         yield i
         yield *x
 def resumed(xs: list[i64]) -> Generator[i64]:
@@ -505,7 +505,7 @@ def total(acc: i64, i: i64, n: &i64) -> Result[i64, OverflowError[i64]]:
     Ok(acc + i * *n)
 def main() -> ():
     values = [10, 20, 30].unwrap()
-    print(enumerate(&values, 1).try_fold(0, total).unwrap()).unwrap()
+    print(iter(enumerate(&values, 1)).try_fold(0, total).unwrap()).unwrap()
     pairs: dict[i64, i64] = iter(range(4)).map(def(n: i64) -> (i64, i64): (n % NonZero.try_from(2).unwrap(), n)).collect().unwrap()
     print(pairs[0], pairs[1]).unwrap()
     selected: list[i64] = iter(pairs.items()).filter(def(k: &i64, v: &i64) -> bool: *v > 1).map(def(k: &i64, v: &i64) -> i64: fixture_add(*k, *v).unwrap()).collect().unwrap()
@@ -621,7 +621,7 @@ def sum(acc: (i64, i64), a: i64, b: i64) -> Result[(i64, i64), str | OverflowErr
 def main() -> ():
     values: Result[dict[i64, i64], str | OverflowError[i64] | AllocError] = iter(range(2)).map(pair).try_collect()
     print(values.unwrap()[1]).unwrap()
-    print(zip(range(3), range(10, 13)).try_fold((0, 0), sum).unwrap()).unwrap()
+    print(iter(zip(range(3), range(10, 13))).try_fold((0, 0), sum).unwrap()).unwrap()
     result: Result[dict[i64, i64], str | OverflowError[i64] | AllocError] = iter(range(5)).map(pair).try_collect()
     print(result.is_err()).unwrap()
 "#,
@@ -684,9 +684,9 @@ def main() -> ():
 #[test]
 fn borrowed_pairs_retain_loans_and_cannot_escape_into_collections() {
     for source in [
-        "mut xs = [1, 2].unwrap()\np = enumerate(&xs)\nxs.append(3).unwrap()\nprint(p.count()).unwrap()",
-        "xs = [1, 2].unwrap()\np = zip(&xs, &xs)\nvalues: list[(i64, i64)] = p.collect().unwrap()",
-        "xs = [1, 2].unwrap()\np = enumerate(enumerate(&xs))\nprint(p.count()).unwrap()",
+        "mut xs = [1, 2].unwrap()\np = iter(enumerate(&xs))\nxs.append(3).unwrap()\nprint(p.count()).unwrap()",
+        "xs = [1, 2].unwrap()\np = iter(zip(&xs, &xs))\nvalues: list[(i64, i64)] = p.collect().unwrap()",
+        "xs = [1, 2].unwrap()\np = iter(enumerate(enumerate(&xs)))\nprint(p.count()).unwrap()",
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(
@@ -2209,7 +2209,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     names = ["bob", "ada", "cy"]?
     print(iter(&names).min(), iter(names).max())?
     scores = {"a": 3, "b": 9}?
-    print(scores.items().map(def(k: &str, v: &i64) -> i64: *v).max())?
+    print(iter(scores.items()).map(def(k: &str, v: &i64) -> i64: *v).max())?
     p = iter(range(4)).skip(1)
     print(p.sum()?)?
     Ok(())
@@ -2371,7 +2371,7 @@ fn sum_min_and_max_reject_unsupported_items() {
             "min requires numeric or str items, found bool",
         ),
         (
-            "print(enumerate(range(3)).max()).unwrap()",
+            "print(iter(enumerate(range(3))).max()).unwrap()",
             "max requires numeric or str items, found tuple[i64, i64]",
         ),
         (
@@ -2491,7 +2491,7 @@ def main() -> ():
     print(next(z).is_some()).unwrap()
     mut q = iter(range(10)).take_while(def(x: &i64) -> bool: *x < 2)
     print(next(q), next(q), next(q), q.count()).unwrap()
-    mut r = zip(range(5), range(1))
+    mut r = iter(zip(range(5), range(1)))
     print(next(r), next(r), r.count()).unwrap()
     print("end").unwrap()
 "#,
@@ -2783,6 +2783,7 @@ class Guard:
     def __del__(self) -> ():
         print("drop", self.n).unwrap()
 
+@copy
 enum Bad:
     Two
 
@@ -3297,6 +3298,7 @@ print(n, m).unwrap()
 fn lent_owned_state_survives_early_exits() {
     output(
         r#"
+@copy
 enum Bad:
     Empty
 def check(s: &str) -> Result[i64, Bad]:
@@ -3484,4 +3486,33 @@ fn reassigned_lent_pipeline_local_names_each_parameter() {
         "{error}"
     );
     assert!(!error.contains("choose the source"), "{error}");
+}
+
+#[test]
+fn iteration_sources_require_iter_before_adapters() {
+    for source in [
+        "enumerate(range(3))",
+        "zip(range(3), range(3))",
+        "values.items()",
+        "values.values()",
+        "view",
+    ] {
+        let program = format!(
+            "values = {{1: 2}}.unwrap()\nview = values.items()\nprint({source}.count()).unwrap()\n"
+        );
+        let error = support::check_source(&program).unwrap_err().to_string();
+        assert!(error.contains("iter("), "{program}\n{error}");
+    }
+    output(
+        r#"
+def main() -> ():
+    values = {1: 2}.unwrap()
+    print(iter(enumerate(range(3))).count()).unwrap()
+    print(iter(zip(range(3), range(3))).count()).unwrap()
+    print(iter(values.items()).count()).unwrap()
+    view = values.items()
+    print(iter(view).count()).unwrap()
+"#,
+        "3\n3\n1\n1\n",
+    );
 }

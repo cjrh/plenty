@@ -4,6 +4,7 @@ An enum can also own a callback. Match a borrow when you want to leave the owner
 in place, or match the value to transfer its environment into an arm.
 
 ```plenty
+@copy
 enum Job[F: Callable[[], i64]]:
     Run(F)
     Empty

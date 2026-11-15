@@ -308,7 +308,7 @@ fn invalid_newtype_declarations_are_diagnosed() {
             "cannot define `__init__`",
         ),
         (
-            "@newtype\nenum Color:\n    Red",
+            "@newtype\n@copy\nenum Color:\n    Red",
             "applies only to class declarations",
         ),
         (

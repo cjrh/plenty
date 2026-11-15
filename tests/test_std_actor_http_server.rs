@@ -1170,6 +1170,7 @@ fn actor_http_lingering_preserves_consumption_and_close_order() {
     let source = format!(
         r#"
 def lingering_after({helper}
+@copy
 enum ConsumeError:
     Consume
 

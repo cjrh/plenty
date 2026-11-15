@@ -8,6 +8,7 @@ import std.bytes
 from std.bytes import Bytes
 from std.fmt import Formatter, FormatError
 
+@copy
 pub enum CryptoError:
     Finished
     InvalidKeyLength
@@ -16,6 +17,7 @@ pub enum CryptoError:
 
 # Sha1 is broken for collision resistance and exists only for protocols
 # that require it, such as the WebSocket handshake and Git object IDs.
+@copy
 pub enum Algorithm:
     Sha256
     Sha512
@@ -223,6 +225,7 @@ pub def equal(a: &[u8], b: &[u8]) -> bool:
 # primitive is implemented here. See crypto-advanced.md for nonce and key-use
 # contracts and crypto-keys.md for key import. Key errors carry no payload,
 # so no error reveals key material.
+@copy
 pub enum AdvancedError:
     InvalidLength
     AuthenticationFailed
@@ -258,6 +261,7 @@ pub enum AdvancedError:
                 "out of memory"
         output.text(message)
 
+@copy
 pub enum AeadAlgorithm:
     Aes256Gcm
     ChaCha20Poly1305
@@ -406,6 +410,7 @@ pub def x25519() -> Result[X25519Key, AdvancedError]:
 # Signature schemes for RSA keys, named by padding and digest. JOSE names them
 # RS256/RS384/RS512 (PKCS #1 v1.5) and PS256/PS384/PS512 (PSS, salt as long
 # as the digest).
+@copy
 pub enum RsaScheme:
     Pkcs1Sha256
     Pkcs1Sha384

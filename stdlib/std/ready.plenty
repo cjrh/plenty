@@ -17,6 +17,7 @@ const most_events: i64 = 64
 # socket can accept this many bytes. std.net keeps its sockets nonblocking.
 const pipe_page: i64 = 4096
 
+@copy
 pub enum Interest:
     Read
     Write
@@ -30,6 +31,7 @@ pub class Readiness:
     pub hangup: bool
     pub error: bool
 
+@copy
 pub enum WaitError:
     TimedOut
     Cancelled

@@ -106,6 +106,7 @@ class V[T]:
     n: T
     def __add__(self, other: &V[T]) -> Result[T, OverflowError[T]]:
         Ok(self.n + other.n)
+@copy
 enum Flag:
     On
     Off
@@ -410,7 +411,7 @@ fn comparison_and_hashing_hooks_are_rejected() {
             "class Money:\n    cents: i64\n    def {hook}(self, other: &Money) -> bool:\n        True\nprint(Money(1) == Money(2)).unwrap()"
         );
         let enumeration = format!(
-            "enum Coin:\n    Penny\n    def {hook}(self) -> bool:\n        True\nprint(Coin.Penny == Coin.Penny).unwrap()"
+            "@copy\nenum Coin:\n    Penny\n    def {hook}(self) -> bool:\n        True\nprint(Coin.Penny == Coin.Penny).unwrap()"
         );
         let protocol = format!(
             "protocol Ordered:\n    def {hook}(self) -> bool:\n        pass\nprint(1).unwrap()"
@@ -472,7 +473,7 @@ fn assert_special_method_rejected(hook: &str, advice: &str) {
         "class Cell[T]:\n    value: T\n    def {hook}(self) -> bool:\n        True\nprint(Cell(1).value).unwrap()"
     );
     let enumeration = format!(
-        "enum Coin:\n    Penny\n    def {hook}(self) -> bool:\n        True\nprint(Coin.Penny == Coin.Penny).unwrap()"
+        "@copy\nenum Coin:\n    Penny\n    def {hook}(self) -> bool:\n        True\nprint(Coin.Penny == Coin.Penny).unwrap()"
     );
     let protocol =
         format!("protocol Sized:\n    def {hook}(self) -> bool:\n        pass\nprint(1).unwrap()");
@@ -499,7 +500,7 @@ fn names_with_underscores_on_one_side_are_ordinary_methods() {
 fn enums_cannot_declare_context_hooks() {
     for hook in ["__enter__", "__exit__"] {
         let source = format!(
-            "enum Coin:\n    Penny\n    def {hook}(self) -> ():\n        pass\nprint(1).unwrap()"
+            "@copy\nenum Coin:\n    Penny\n    def {hook}(self) -> ():\n        pass\nprint(1).unwrap()"
         );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(

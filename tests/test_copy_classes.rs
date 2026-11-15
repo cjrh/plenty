@@ -20,6 +20,7 @@ fn rejects(source: &str, expected: &str) {
 fn accepted_field_types() {
     check_source(
         r#"
+@copy
 enum Kind:
     Small
     Large(i64)
@@ -358,20 +359,22 @@ fn rejects_unknown_and_malformed_annotations() {
 #[test]
 fn rejects_annotations_on_other_declarations() {
     for (source, place) in [
-        ("@copy\ndef f() -> ():\n    pass\n", "class declarations"),
-        ("@copy\nenum E:\n    A\n", "class declarations"),
-        ("@copy\ntype T = i64\n", "class declarations"),
+        (
+            "@copy\ndef f() -> ():\n    pass\n",
+            "class and enum declarations",
+        ),
+        ("@copy\ntype T = i64\n", "class and enum declarations"),
         (
             "class A:\n    @copy\n    n: i64\n",
-            "class declarations, not class members",
+            "class and enum declarations, not class members",
         ),
         (
-            "enum E:\n    @copy\n    A\n",
-            "class declarations, not enum members",
+            "@copy\nenum E:\n    @copy\n    A\n",
+            "class and enum declarations, not enum members",
         ),
         (
             "def main() -> ():\n    @copy\n    pass\n",
-            "class declarations, not statements",
+            "class and enum declarations, not statements",
         ),
     ] {
         rejects(source, &format!("`@copy` applies only to {place}"));

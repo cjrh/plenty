@@ -47,6 +47,7 @@ fn rejects(ty: &str, cases: &str) -> String {
 fn the_matched_value_supplies_generic_arguments() {
     runs(
         r#"
+@copy
 enum Choice[T]:
     Empty
     One(T)
@@ -178,6 +179,7 @@ fn a_qualifier_must_name_the_matched_enum() {
 fn nested_patterns_consume_owned_values() {
     runs(
         r#"
+@copy
 enum Shape:
     Dot
     Circle(i64)
@@ -378,6 +380,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 fn alternatives_share_a_body_and_its_bindings() {
     runs(
         r#"
+@copy
 enum Shape:
     Dot
     Circle(i64)
@@ -422,10 +425,12 @@ def main() -> Result[(), AllocError | IoError]:
 fn alternatives_inside_payloads_combine() {
     runs(
         r#"
+@copy
 enum Level:
     Low
     Mid
     High
+@copy
 enum Reading:
     Both(Level, Option[i64])
 def rank(reading: Reading) -> Result[i64, OverflowError[i64]]:
@@ -455,9 +460,11 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 fn a_covered_combination_is_legal_while_every_alternative_still_matches() {
     runs(
         r#"
+@copy
 enum Level:
     Low(i64)
     High(i64)
+@copy
 enum Two:
     Both(Level, Level)
 def rank(pair: Two) -> Result[i64, OverflowError[i64]]:
@@ -530,6 +537,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 fn nested_matches_work_in_loops_generators_and_tail_calls() {
     runs(
         r#"
+@copy
 enum Step:
     Go(Option[i64])
     Stop
@@ -831,7 +839,8 @@ fn payload_positions_take_only_patterns() {
 #[test]
 fn literals_select_integers_strings_and_booleans() {
     runs(
-        r#"enum Shape:
+        r#"@copy
+enum Shape:
     Dot
     Circle(i64)
     Rect(i64, i64)
@@ -1452,14 +1461,14 @@ fn pattern_size_limits_are_reported() {
         rejects("Option[i64]", &deep),
         "13:339: pattern nesting exceeds the implementation limit of 64"
     );
-    let levels = "enum Level:\n    A\n    B\n    C\n    D\nenum Wide:\n    All(Level, Level, Level, Level, Level)\n";
+    let levels = "@copy\nenum Level:\n    A\n    B\n    C\n    D\n@copy\nenum Wide:\n    All(Level, Level, Level, Level, Level)\n";
     let any = "Level.A | Level.B | Level.C | Level.D";
     let wide = format!(
         "{levels}def f(value: Wide) -> i64:\n    match value:\n        case Wide.All({any}, {any}, {any}, {any}, {any}):\n            0\ndef main() -> ():\n    pass\n"
     );
     assert_eq!(
         diagnostic(&wide),
-        "10:9: pattern expands to more than 256 `|` combinations"
+        "12:9: pattern expands to more than 256 `|` combinations"
     );
 }
 
@@ -1469,7 +1478,7 @@ const MANY: usize = 40;
 /// `enum Kind` with variants `V0` to `V39`, where the odd ones carry an
 /// `i64`, and the start of a function `pick` that matches one.
 fn many_kinds() -> String {
-    let mut source = String::from("enum Kind:\n");
+    let mut source = String::from("@copy\nenum Kind:\n");
     for variant in 0..MANY {
         let payload = if variant % 2 == 1 { "(i64)" } else { "" };
         source.push_str(&format!("    V{variant}{payload}\n"));
@@ -1535,50 +1544,52 @@ fn a_large_enum_reports_the_same_diagnostics() {
         .collect();
     assert_eq!(
         diagnostic(&(many_variants(&missing) + main)),
-        "43:11: non-exhaustive match; missing Kind.V5(_), Kind.V20, Kind.V39(_)"
+        "44:11: non-exhaustive match; missing Kind.V5(_), Kind.V20, Kind.V39(_)"
     );
 
     let mut repeated = all.clone();
     repeated.push("Kind.V4".into());
     assert_eq!(
         diagnostic(&(many_variants(&repeated) + main)),
-        "124:9: duplicate variant case"
+        "125:9: duplicate variant case"
     );
 
     let mut unknown = all.clone();
     unknown[7] = "Kind.V70".into();
     assert_eq!(
         diagnostic(&(many_variants(&unknown) + main)),
-        "58:14: unknown variant `V70`"
+        "59:14: unknown variant `V70`"
     );
 
     let wrapped = "enum Wrap:\n    Of(Kind)\ndef inner(w: Wrap) -> i64:\n    match w:\n        case Wrap.Of(V6):\n            0\n";
     assert_eq!(
         diagnostic(&(many_variants(&all) + wrapped + main)),
-        "128:22: `V6` is a variant of `Kind`, so it cannot name a payload binding; write `Kind.V6` to match the variant"
+        "129:22: `V6` is a variant of `Kind`, so it cannot name a payload binding; write `Kind.V6` to match the variant"
     );
 
     assert_eq!(
         diagnostic(&(many_variants(&all) + "def main() -> ():\n    k = Kind.V40\n")),
-        "125:9: unknown variant `Kind.V40`"
+        "126:9: unknown variant `Kind.V40`"
     );
 
-    let mut twice = String::from("enum Kind:\n");
+    let mut twice = String::from("@copy\nenum Kind:\n");
     for variant in 0..MANY {
         twice.push_str(&format!("    V{variant}\n"));
     }
     twice.push_str("    V12\n    V3\n");
-    assert_eq!(diagnostic(&(twice + main)), "42:8: duplicate variant `V12`");
+    assert_eq!(diagnostic(&(twice + main)), "43:8: duplicate variant `V12`");
 }
 
 #[test]
 fn a_case_naming_no_variant_keeps_its_place_among_those_that_do() {
     runs(
         r#"
+@copy
 enum Kind:
     A
     B
     C
+@copy
 enum Pair:
     Of(Kind, i64)
 def pick(pair: Pair) -> str:

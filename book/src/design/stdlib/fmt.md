@@ -1,7 +1,8 @@
 # std.fmt
 
 `std.fmt` separates user-defined display from debug output and streams UTF-8 to
-any static [`std.io.Writer`](io.md). It leaves builtin `print` unchanged.
+any static [`std.io.Writer`](io.md). Builtin `print` and entrypoint reports
+select the same value presentation hooks.
 Formatting policy is checked Plenty; the native primitives only write
 floating-point spellings into existing byte storage. There is no runtime
 reflection, format-string interpreter, or dynamic writer object.
@@ -173,8 +174,13 @@ An enum method can match its borrowed receiver to render the active payload.
 `print`, `str.repr` and f-strings call the same methods, as
 [user formatting methods](../facilities/01-builtins/formatting.md#user-formatting-methods)
 describe; each call there starts a fresh depth of 32. Entrypoint error reports
-do not call them, and anonymous sums do not automatically forward them to
-members.
+also select `display`, then `debug`, then structure with nested debug hooks,
+using a bounded stderr formatter. When that selection invokes no user hook,
+a public `Formattable.format` supplies a transitional entrypoint fallback.
+Anonymous sums do not automatically forward `display` or `debug` methods to
+members through the generic helpers. See
+[entrypoint reports](../toolchain/01-building/entry-report.md) for selection,
+budgets and failure behavior.
 
 `list_with(&values, &mut out, render)` writes `[a, b]` using a statically typed
 callback `(&T, &mut Formatter[W]) -> Result[(), FormatError]` for each borrowed

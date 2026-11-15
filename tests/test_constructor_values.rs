@@ -6,6 +6,7 @@ use support::{assert_stdout, check_diagnostic};
 fn variants_work_in_pipelines_and_borrowed_callback_positions() {
     assert_stdout(
         r#"
+@copy
 enum Wrapped:
     Value(i64)
 def apply[F: Callable[[i64], Wrapped]](f: &F) -> Wrapped:
@@ -60,6 +61,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn expected_callable_specializes_prelude_and_generic_variant_values() {
     assert_stdout(
         r#"
+@copy
 enum Wrapped[T]:
     Value(T)
 def apply[F: Callable[[i64], Option[i64]]](f: &F) -> Option[i64]:
@@ -131,7 +133,7 @@ fn constructors_need_context_and_keep_signature_checks() {
             "does not produce the expected Callable result",
         ),
         (
-            "enum E:\n    Empty\nf: Callable[[], E] = E.Empty",
+            "@copy\nenum E:\n    Empty\nf: Callable[[], E] = E.Empty",
             "expected Callable[[], E], got E",
         ),
         (

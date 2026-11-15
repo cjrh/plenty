@@ -5,6 +5,7 @@ enum, an [anonymous sum](../03-types/anonymous-sums.md), a class, a tuple, an in
 `str`, or a `bool`, or a reference to one:
 
 ```plenty fragment
+@copy
 enum Reading:
     Missing
     Value(i64)
@@ -56,6 +57,7 @@ everything. A variant pattern at a `Box[T]` payload matches the box's contents.
 Patterns nest to at most 64 levels.
 
 ```plenty fragment
+@copy
 enum Shape:
     Dot
     Circle(i64)

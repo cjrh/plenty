@@ -24,6 +24,7 @@ class Holder[T]:
     item: T
 
 @redacted
+@copy
 enum Token:
     Bearer(str)
     Basic(str, str)
@@ -33,6 +34,7 @@ enum Token:
 class Pin:
     digits: i64
 
+@copy
 enum Event:
     Login(Pin)
     Logout
@@ -189,10 +191,6 @@ fn misplaced_redacted_annotations_are_diagnosed() {
         (
             "@redacted(True)\nclass D:\n    x: i64",
             "takes no arguments",
-        ),
-        (
-            "@copy\nenum Color:\n    Red",
-            "`@copy` applies only to class declarations",
         ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();

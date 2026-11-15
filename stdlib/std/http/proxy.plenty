@@ -12,6 +12,7 @@ from std.http import Header
 from std.http.server import Exchange, Transport
 from std.net import IpAddress, SocketAddress
 
+@copy
 pub enum ProxyError:
     InvalidNetwork
     UnknownPeer
@@ -39,6 +40,7 @@ def lifted[T](result: Result[T, BytesError]) -> Result[T, ProxyError]:
 
 # Which header the proxies write. A deployment uses one; the other is
 # ignored, so a client cannot supply it instead.
+@copy
 pub enum Forwarding:
     # X-Forwarded-For, with the scheme from X-Forwarded-Proto.
     XForwardedFor

@@ -267,7 +267,7 @@ fn reference_carrying_values_are_never_stored() {
         &stored("class fields"),
     );
     rejects(
-        "enum Found:\n    Hit(Option[&str])\n",
+        "@copy\nenum Found:\n    Hit(Option[&str])\n",
         &stored("enum payloads"),
     );
     rejects(

@@ -124,11 +124,13 @@ Ordinary `to_string` and entrypoint reports include no source excerpts.
 
 ## Current boundaries
 
-This protocol selects human-readable
-[entrypoint reports](../toolchain/01-building/entry-report.md); types without it
-retain structural rendering. `std.error.Context[E]` supports the protocol when
-its cause does. `display`/`debug` remain the value presentation hooks; sharing
-the formatter does not change which hook an entrypoint chooses. The
+[Entrypoint reports](../toolchain/01-building/entry-report.md) select the same
+spelling as `print`: `display`, then `debug`, then structure with nested debug
+hooks. This public `Formattable.format` protocol remains a transitional fallback
+only when that selection invokes no `display` or `debug` hook. An anonymous sum
+uses the fallback only when every member satisfies the protocol; otherwise it
+keeps structural rendering. `std.error.Context[E]` supports the protocol when
+its cause does. Explicit `std.report` helpers continue to call `format`. The
 [tutorial](../../tutorial/08-resources/report-formatting.md) shows enum and sum
 reporting.
 

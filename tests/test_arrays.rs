@@ -138,6 +138,7 @@ class Item:
     id: i64
     def __del__(self) -> ():
         print("drop", self.id).unwrap()
+@copy
 enum Error:
     Failed
 def make(i: i64) -> Result[Item, Error]:
@@ -167,6 +168,7 @@ class Item:
     id: i64
     def __del__(self) -> ():
         print("drop", self.id).unwrap()
+@copy
 enum Error:
     Failed
 def item(i: i64) -> Result[Item, Error]:
@@ -344,6 +346,7 @@ class Item:
     id: i64
     def __del__(self) -> ():
         print("drop", self.id).unwrap()
+@copy
 enum Error:
     Failed
 def good(i: i64) -> Result[Item, Error]:

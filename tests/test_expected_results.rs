@@ -136,6 +136,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn argument_and_result_evidence_combine() {
     run(
         r#"
+@copy
 enum Invalid:
     Rejected
 

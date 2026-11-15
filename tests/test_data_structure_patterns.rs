@@ -319,6 +319,7 @@ class Item:
     value: i64
     def __del__(self) -> ():
         print(self.value).unwrap()
+@copy
 enum Stopped:
     Done
 def change(left: &mut Item, right: &mut Item) -> Result[bool, Stopped | OverflowError[i64]]:

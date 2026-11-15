@@ -66,6 +66,7 @@ from std.toml import TomlError
 from std.serial import SerialError
 
 @serial
+@copy
 enum Level:
     @serial.name("debug")
     Debug

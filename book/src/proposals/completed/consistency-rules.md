@@ -1,14 +1,23 @@
 # Six rules for a consistent core
 
-> **Status: Accepted; partially implemented.** The [backlog](../backlog.md)
-> tracks remaining scope. The evidence below records research against local
-> `main` at `b4580c2d` on 2026-10-31, with probes on the debug compiler built
-> that day. The evidence is the 2026-10-31 language consistency survey,
-> recorded as issues #612–#637. Accepted and scheduled as backlog rows
-> B88–B93 ([staged plan](#staged-plan-and-suggested-backlog-wording)); the
-> review [decisions](#decisions) settle five questions.
-> A seventh rule from the same survey, a written convention page for the
-> standard library, is separate documentation work and is only referenced here.
+> **Status: Completed within the agreed core scope (2026-11-15).** B88's
+> explicit enum copy contracts, B89's entrypoint `display` reports, B91's
+> iterator-only adapters and B93's certified parallel callable forms complete
+> the earlier B90/B92 deliveries. See the [delivery record](../../completed-work/language-and-tooling.md#six-rules-for-a-consistent-core).
+> Parallel `reduce` and `pool.reduce_tree` retain named-function contracts;
+> `spawn` and pool entry APIs retain their existing callback restrictions.
+> Broader container membership remains B49 and std convention deviations B87.
+>
+> The evidence below records local `main` at `b4580c2d` on 2026-10-31,
+> using the debug compiler built that day, and issues #612–#637. It preserves
+> historical rationale and alternatives rather than current contracts. B84
+> subsequently delivered conditional generic copying and `CopyType`; generic
+> copy enums therefore do not require a bound unless their API intends one.
+> [Checked defaults](../../design/language/03-types/numbers.md#function-arithmetic-contracts)
+> subsequently replaced the original lexical `checked:` callback behavior:
+> every function and closure keeps its declared arithmetic contract, and
+> integer `sum` returns an ordinary overflow `Result` regardless of its caller.
+> The reference and tutorial are authoritative for current behavior.
 
 ## Summary
 
@@ -44,35 +53,35 @@ except that rule 5 decides the error type that rule 2's `print` reports.
 
 ## How to read this page
 
-Each rule has the same sections: what happens today, the proposed rule,
+Each rule preserves the survey sections: what happened then, the proposed rule,
 alternatives, cost, what a learner no longer has to learn, and phasing.
 "Today" claims were checked against the reference pages linked in the text
 and, where marked *probe*, with `plenty --check` or a run on the 2026-10-31
 debug build.
 
 Earlier changes removed features rather than deprecating them (`std.iter` was removed in favour of `iter()`; see
-[fluent iterator pipelines](completed/fluent-iterators.md)). This proposal follows that
+[fluent iterator pipelines](fluent-iterators.md)). This proposal follows that
 precedent: a breaking change ships with a diagnostic that states the new
 spelling, and the same change updates std, tests, the tutorial and the
-reference. [Package language editions](language-editions.md) are not
+reference. [Package language editions](../language-editions.md) are not
 implemented and are not required.
 
 ## Rule 1: one copy rule
 
 ### Today
 
-The [bindings, moves and copies](../design/language/05-ownership/01-bindings-moves-and-copies.md)
+The [bindings, moves and copies](../../design/language/05-ownership/01-bindings-moves-and-copies.md)
 page says scalars, strings, ranges, named function values and "aggregates of
 copyable components" copy, and that classes are affine unless declared
-[`@copy`](../design/language/03-types/classes.md#copy-classes). "Aggregates"
-includes tuples and enums, but the [enums](../design/language/03-types/enums.md)
+[`@copy`](../../design/language/03-types/classes.md#copy-classes). "Aggregates"
+includes tuples and enums, but the [enums](../../design/language/03-types/enums.md)
 page never mentions copying. The agent-facing pages each give a different
 list (issue #636):
 
 | Source | Says copies |
 | --- | --- |
 | Reference | Scalars, `str`, ranges, function values, copyable aggregates, `@copy` classes |
-| [Cheat sheet](../design/examples/cheatsheet.md) | Scalars, `str`, copyable tuples, `@copy` classes; also says a `@copy` class "cannot take type parameters", which [classes](../design/language/03-types/classes.md#copy-classes) contradicts (`IntType`/`FloatType` bounds are allowed) |
+| [Cheat sheet](../../design/examples/cheatsheet.md) | Scalars, `str`, copyable tuples, `@copy` classes; also says a `@copy` class "cannot take type parameters", which [classes](../../design/language/03-types/classes.md#copy-classes) contradicts (`IntType`/`FloatType` bounds are allowed) |
 | `plenty` agent skill | Scalars, `str`, `@copy` classes |
 
 None of the agent-facing pages mentions enums, and the rule itself has an
@@ -130,7 +139,7 @@ copies so they cannot drift again.
   waits for that bound (decided 2026-10-31), so B84 moves earlier: it now
   gates this rule as well as generic copy classes.
 - Copy-dependent behaviour elsewhere (dictionary-key rules in
-  [user type hashing](completed/user-type-hashing.md), by-value receivers) keys off
+  [user type hashing](user-type-hashing.md), by-value receivers) keys off
   "copies", so it follows the new rule without its own change.
 - The use-after-move diagnostic for an affine enum names the declaration
   and suggests `@copy` when its payloads copy.
@@ -150,9 +159,9 @@ caller. The question "does this copy?" has a two-line answer.
 
 ### Today
 
-The [formatting](../design/facilities/01-builtins/formatting.md) page says
+The [formatting](../../design/facilities/01-builtins/formatting.md) page says
 `print` and `str.repr` never call user formatting methods. The
-[format strings](../design/language/04-expressions/format-strings.md) page
+[format strings](../../design/language/04-expressions/format-strings.md) page
 says a field without a conversion uses a public `display` method, `!r` uses
 `debug`, and also that "a field is written as `print` writes it", which is
 false for such types (issue #615). Inside aggregates, neither path calls user
@@ -173,7 +182,7 @@ error report originally used a third hook, `std.report.Formattable.format`,
 over a different `Formatter` type, and otherwise the `str.repr` spelling.
 Issue #634 subsequently unified the formatter, error, and reporting protocol in
 `std.fmt`; choosing `display` for entrypoint reports remains separate work. See
-[entrypoint reporting](../design/toolchain/01-building/entry-report.md).
+[entrypoint reporting](../../design/toolchain/01-building/entry-report.md).
 
 ### Proposed rule
 
@@ -252,18 +261,18 @@ Annotated view locals and non-text view parameters retain their existing rules.
 > (`&substr` remains an alias), completing the read-only text-input scope.
 > APIs retaining whole string handles and unchanged protocol/getter interfaces
 > keep their documented ordinary-reference contracts. See the
-> [current input inventory](../design/stdlib/text-input-views.md) and
-> [B12 delivery record](../completed-work/language-and-tooling.md#b12-io-and-iteration).
+> [current input inventory](../../design/stdlib/text-input-views.md) and
+> [B12 delivery record](../../completed-work/language-and-tooling.md#b12-io-and-iteration).
 > The dated probes below describe the earlier implementation.
 
 > **Update 2026-11-01:** phases 1 and 3 shipped. Owners convert to views at
 > view types, byte-reading std APIs take `&[u8]`, and `ByteSource` is removed;
 > naming it is a compile error pointing to `&[u8]`. The remaining
 > `&Bytes, start, stop` inputs are listed under
-> [std conventions](../design/stdlib/conventions.md#bytes). The probes below
+> [std conventions](../../design/stdlib/conventions.md#bytes). The probes below
 > record the state before phase 1.
 
-[Slice views](../design/language/04-expressions/slices.md#slice-views) give
+[Slice views](../../design/language/04-expressions/slices.md#slice-views) give
 `&[T]` for a list, a `Bytes` buffer and a `bytes` literal, so "one `&[u8]`
 parameter reads any of them". But "a list is not converted to a view
 implicitly; pass the whole list as `&xs[:]`". *Probes:*
@@ -319,7 +328,7 @@ locals and returns; a view still cannot be stored (B11).
   Byte APIs taking `&S, start, stop` change to `&[u8]`, so
   `w.write(&buf, a, b)` becomes `w.write(&buf[a:b])`. The `std.io` `Writer`
   protocol's `write` signature changes, which breaks user writers; the
-  [std.io](../design/stdlib/io.md) page and its examples change with it.
+  [std.io](../../design/stdlib/io.md) page and its examples change with it.
   Range-error results on those methods (`BytesError.OutOfRange`) disappear,
   because view bounds clamp.
 - `ByteSource` is removed once nothing in std takes it.
@@ -351,7 +360,7 @@ phase 1.
 
 ### Today
 
-[Pipelines](../design/language/09-iteration/06-pipelines.md) start with
+[Pipelines](../../design/language/09-iteration/06-pipelines.md) start with
 `iter(source)`. *Probe:* `iter(...)` accepts every `for` source already:
 lists, sets, strings, `bytes`, ranges, `reversed`, `enumerate`, `zip`,
 `keys()`, `values()`, `items()`, generators and pipelines. Some sources also
@@ -366,7 +375,7 @@ take adapters directly and others do not (issue #622):
 | `d.keys()` | Rejected; suggests the allocating `keys_snapshot()` |
 
 The three dictionary views differ in kind
-([dictionaries](../design/facilities/01-builtins/dictionaries.md), issue #624):
+([dictionaries](../../design/facilities/01-builtins/dictionaries.md), issue #624):
 `keys()` is a bindable `KeyView` with `len` and set algebra, `values()` cannot
 be bound or measured, and `items()` starts chains but cannot be bound.
 Terminals differ by item type: `sum`, `min` and `max` read copyable reference
@@ -418,7 +427,7 @@ Under the rule:
   `test_pipelines.rs`). Each becomes `iter(...)` or the iterator method.
 - Dictionary-view changes are additive.
 - `find`/`reduce` on copyable references is additive.
-- `len` method dispatch is [implemented](../completed-work/language-and-tooling.md#b49-length-method-dispatch)
+- `len` method dispatch is [implemented](../../completed-work/language-and-tooling.md#b49-length-method-dispatch)
   for classes and enums (issue #623). Membership on std containers still
   depends on B49's protocol work; unsupported operations name their actual type.
 
@@ -450,7 +459,7 @@ user formatting fail with `AllocError`; item 3 changed the `FormatError`,
 | --- | --- |
 | `[1, 2]`, `a + b`, `copy(x)` | `AllocError` |
 | An f-string | `std.fmt.FormatError.Bytes(BytesError.Allocation(...))` |
-| `print` | `IoError.Data(DataError.Allocation(...))` ([I/O errors](../design/facilities/02-io/errors.md)) |
+| `print` | `IoError.Data(DataError.Allocation(...))` ([I/O errors](../../design/facilities/02-io/errors.md)) |
 | `std.bytes.empty()`, `from_text` | `BytesError.Allocation` |
 | `clist.append(row)` | `AppendError[T]`, which returns the row |
 | sketch, linalg, mime, graph | A union `E \| AllocError` |
@@ -465,10 +474,10 @@ Invalid arguments follow four policies (issue #629):
 
 | Argument | Today |
 | --- | --- |
-| `range` step | Compile error unless `NonZero` ([ranges](../design/facilities/01-builtins/ranges.md)) |
-| `split("")`, even a literal | Run-time trap ([text splitting](../design/facilities/01-builtins/text-splitting.md)) |
-| `repeat(-1)` | Empty result ([text building](../design/facilities/01-builtins/text-building.md)) |
-| `list.with_capacity(-1)` | `Err(CapacityOverflow)` ([construction](../design/facilities/01-builtins/construction-copy.md)) |
+| `range` step | Compile error unless `NonZero` ([ranges](../../design/facilities/01-builtins/ranges.md)) |
+| `split("")`, even a literal | Run-time trap ([text splitting](../../design/facilities/01-builtins/text-splitting.md)) |
+| `repeat(-1)` | Empty result ([text building](../../design/facilities/01-builtins/text-building.md)) |
+| `list.with_capacity(-1)` | `Err(CapacityOverflow)` ([construction](../../design/facilities/01-builtins/construction-copy.md)) |
 | `std.bytes.with_capacity(-1)` | `Err(OutOfRange)` |
 | `.par(&pool, chunks=0)` | Trap with the unrelated `integer cast out of range` |
 
@@ -581,8 +590,8 @@ and an argument bug traps.
 
 ### Today
 
-[Function values](../design/language/06-functions/02-function-values.md) and
-[closures](../design/language/06-functions/03-closures.md) give four callable
+[Function values](../../design/language/06-functions/02-function-values.md) and
+[closures](../../design/language/06-functions/03-closures.md) give four callable
 types, two constraints and three passing modes. Which forms pass depends on
 the callee (issues #617–#620). *Probes:*
 
@@ -634,10 +643,10 @@ Concretely:
   function that can fail returns `Result`, which the block handles with
   `match` or `?` like any other call. Builtin reductions such as `sum` are
   calls, so their `i64` result traps on overflow, as the
-  [pipelines](../design/language/09-iteration/06-pipelines.md) page already
+  [pipelines](../../design/language/09-iteration/06-pipelines.md) page already
   says; to sum with checking, write `fold` with a closure literal in the
   block. Today a lowered closure literal reports `Err` while the
-  [numbers](../design/language/03-types/numbers.md) page says closures
+  [numbers](../../design/language/03-types/numbers.md) page says closures
   defined in a block keep trapping; both change to this rule.
 
 ### Cost and compatibility
@@ -650,11 +659,11 @@ in a block may not outlive it, since a later overflow would have no block to
 exit (decision 5). Constructor values make a class name usable as a value
 expression; how that interacts with local bindings of the same name needs a
 check against the name-resolution rules in
-[names](../design/language/02-source/names.md). Worker-thread effect
+[names](../../design/language/02-source/names.md). Worker-thread effect
 certification originally rejected thin function values, including constructor
 values (local PR #681). Issue #661 adds conservative certification of every
 matching address in the closed program; see
-[thin callable targets](../design/facilities/03-concurrency/effects.md#thin-callable-targets).
+[thin callable targets](../../design/facilities/03-concurrency/effects.md#thin-callable-targets).
 This is an effect rule independent of callable forms.
 
 ### What a learner no longer has to learn
@@ -672,8 +681,8 @@ you can call can be passed.
    variants with an expected type (issue #618).
 3. Inside `checked:`, code written in the block and closures defined in it
    report `Err`; other functions behave as their signatures say (issue
-   #614). Delivered as [lexical checked callbacks](../completed-work/language-and-tooling.md#b14-errors);
-   the [reference](../design/language/03-types/numbers.md#checked-blocks)
+   #614). Delivered as [lexical checked callbacks](../../completed-work/language-and-tooling.md#b14-errors);
+   the [reference](../../design/language/03-types/numbers.md#checked-blocks)
    documents scope and callable-erasure limits.
 
 ## What the six rules remove
@@ -727,8 +736,9 @@ Recorded 2026-10-31 after review:
 
 Each rule's phase 1 is small and independent; the issues listed are the
 work items. Later phases change behaviour and need the user's agreement per
-row. The "Proposal" links below point into this page; in the backlog they
-become `proposals/consistency-rules.md#...`.
+row. This table preserves the original scheduling wording. Delivered scope is
+recorded in [completed work](../../completed-work/language-and-tooling.md#six-rules-for-a-consistent-core);
+the table is not a work queue.
 
 | ID | Area | Suggested wording |
 | --- | --- | --- |

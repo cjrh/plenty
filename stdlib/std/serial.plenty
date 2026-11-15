@@ -6,6 +6,7 @@ from std.bytes import Bytes
 from std.fmt import Formatter, FormatError
 import std.report
 
+@copy
 pub enum Kind:
     Null
     Boolean
@@ -45,6 +46,7 @@ pub enum Kind:
                 "end of container or input"
         output.text(&text)
 
+@copy
 pub enum Fault:
     UnexpectedKind
     KindMismatch(Kind, Kind)
@@ -95,6 +97,7 @@ pub enum Fault:
             case Fault.StackLimit:
                 output.text("serialization native stack limit exceeded")
 
+@copy
 pub enum Step:
     Field(str)
     Index(i64)
@@ -272,6 +275,7 @@ def encode_stack_error_ref[E, S: Encoder[E]](out: &S) -> SerialError[E]:
 pub def absent[T, E, D: Decoder[E]](source: &D, name: &str) -> Result[T, SerialError[E]]:
     __serial_absent[T, E, D](source, name)
 
+@copy
 pub enum UnknownFields:
     Reject
     Ignore

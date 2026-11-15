@@ -37,6 +37,7 @@ const connect_kind: u8 = 3
 const v4_size: i64 = 7
 const v6_size: i64 = 23
 
+@copy
 pub enum NetError:
     # The caller's deadline passed; the connection may still be usable.
     TimedOut
@@ -57,6 +58,7 @@ pub enum NetError:
 
 # An IPv4 address as its 32 bits, or an IPv6 address as two 64-bit halves,
 # both in network order: `V4(0x7f000001)` is 127.0.0.1.
+@copy
 pub enum IpAddress:
     V4(u32)
     V6(u64, u64)
@@ -698,6 +700,7 @@ pub def start_lookup(host: &strview, port: u16) -> Result[Lookup, NetError]:
     data = allocated(std.bytes.with_capacity(256))?
     Ok(Lookup(FileStream(started(__net_resolve(host))?), data, port))
 
+@copy
 pub enum Shutdown:
     Read
     Write

@@ -4,6 +4,7 @@ Use `export def` to name the C symbol for a function. This `calc.plenty` module
 can also be imported and called by an ordinary Plenty program:
 
 ```plenty-file calc.plenty
+@copy
 pub enum CalcError:
     Overflow
 

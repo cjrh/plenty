@@ -23,6 +23,7 @@ from std.time import deadline_after, monotonic_now, seconds
 
 type Fault = AllocError | IoError | OverflowError[i64]
 
+@copy
 pub enum Job:
     Square(i64)
     Answer(i64)
@@ -330,6 +331,7 @@ from std.time import deadline_after, milliseconds, monotonic_now, seconds
 
 type Fault = AllocError | IoError | OverflowError[i64]
 
+@copy
 pub enum Job:
     Get
     Count(i64)

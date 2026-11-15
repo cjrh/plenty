@@ -66,8 +66,8 @@ impl Annotation {
     /// The declarations this annotation applies to, for diagnostics.
     pub(super) fn targets(self) -> &'static str {
         match self {
-            Self::Redacted | Self::Serial => "class and enum declarations",
-            Self::Copy | Self::Newtype => "class declarations",
+            Self::Redacted | Self::Serial | Self::Copy => "class and enum declarations",
+            Self::Newtype => "class declarations",
             Self::ThreadSafe => "`extern def` and `export def` declarations",
             Self::HostCallback => "indirect `extern def` declarations",
             Self::ThreadMovable | Self::ThreadShareable => "`opaque` declarations",

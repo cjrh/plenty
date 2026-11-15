@@ -5,6 +5,7 @@
 import std.bytes
 from std.bytes import Bytes, BytesError
 
+@copy
 pub enum MimeError:
     # The text is not a media type, or a name or value is not allowed.
     Invalid

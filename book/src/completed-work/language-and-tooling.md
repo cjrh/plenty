@@ -1379,7 +1379,7 @@ to whole views at view types, and `&Shared[T]` converts to `&T` like `Box`
 every public read-only `&Bytes` input, take `&[u8]`, and `ByteSource` is
 removed; `&b"..."[a:b]` views literal data and a shared view argument can view
 a call result (local PR #800). See [slice views](../design/language/04-expressions/slices.md#slice-views)
-and the [proposal](../proposals/consistency-rules.md#rule-3-an-owner-converts-to-its-view).
+and the [proposal](../proposals/completed/consistency-rules.md#rule-3-an-owner-converts-to-its-view).
 
 ## Retired foundations
 
@@ -1425,7 +1425,7 @@ instances work without context. Pipelines accept constructor values, and shared
 or mutable callback arguments can borrow their code addresses. Fallible class
 initializers keep `Result[Class, AllocError]` as their callable result. See
 [function values](../design/language/06-functions/02-function-values.md) and
-[remaining B93 scope](../backlog.md).
+[B93 delivery](#b93-callable-forms).
 
 ## B95: Integer domain types
 
@@ -1497,7 +1497,7 @@ B91's dictionary-view consistency slice (issue #624) makes `values()` and
 sources. Set observations, algebra, and filter mutations accept dictionary
 key views. Views keep their dictionary borrowed and remain local-only; mutable
 value/item iteration stays immediate. See [dictionary views](../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
-and the [remaining B91 scope](../backlog.md).
+and the [B91 delivery](#b91-iteration-sources).
 
 Issue #803 documents `(&mut d).values()` and `(&mut d).items()` as the way to
 [update every value](../design/facilities/01-builtins/dictionaries.md#updating-every-value)
@@ -1785,3 +1785,60 @@ loan holders. The join retains receiver stability and external source loans;
 keeping an earlier item live still prevents another advance across backedges,
 `continue`, source switches, nested chains and lent or resumed pipelines.
 No relaxed shared-item lifetime or runtime descriptor is introduced.
+
+## Six rules for a consistent core
+
+The accepted consistency scope is delivered across B88–B93. The
+[completed proposal](../proposals/completed/consistency-rules.md) retains the
+survey evidence and alternatives. Its historical arithmetic examples predate
+[checked defaults](../design/language/03-types/numbers.md#function-arithmetic-contracts).
+B90's [owner-to-view conversion](#b90-owner-to-view-conversion) and B92's
+allocation/error policy were delivered earlier. Broader container membership
+stays B49, and std convention deviations stay B87.
+
+### B88: Copy rule
+
+Declared enums now move by default and opt into implicit copying with `@copy`,
+like classes. The declaration checks every variant payload, including unused
+and generic declarations; generic instances copy only when their payloads copy.
+Builtin `Option`, `Result`, tuples and anonymous sums retain structural copying.
+The migration annotates existing enums whose contracts require copying across
+std, examples, tests and documentation. The same copy rule remains checked
+across the reference, cheatsheet and both agent-skill sources. See
+[copy enums](../design/language/03-types/enums.md#copy-enums) and
+[ownership](../design/language/05-ownership/01-bindings-moves-and-copies.md).
+
+### B89: Formatting path
+
+Entrypoint error reports use `display`, completing the default spelling shared
+by `print` and f-strings. `debug` remains the precise spelling for `str.repr`,
+`!r` and aggregate elements. Report fallback and reporting failures retain their
+bounded stderr and exit-status contract. This completes the earlier formatting
+and shared-formatter deliveries (issues #615 and #634). See
+[entrypoint reports](../design/toolchain/01-building/entry-report.md).
+
+### B91: Iteration sources
+
+Only pipelines and generators expose adapter and terminal methods. Free
+`enumerate`, `zip`, and dictionary `items()` remain sources for loops,
+comprehensions and `iter(...)`; wrap them in `iter` before chaining methods.
+This completes the source boundary alongside uniform dictionary views (issue
+#624), copyable borrowed `find`/`reduce` items (issue #621), and `iter(...)`
+diagnostics (issue #622). `len` method dispatch was delivered by issue #623;
+container membership remains B49. See
+[pipeline sources](../design/language/09-iteration/06-pipelines.md#sources-and-lifetime).
+
+### B93: Callable forms
+
+Parallel pipeline `map`, `filter`, `any`, and `all` accept stored capture-free
+closures, thin `Callable` values and class or payload-variant constructors,
+subject to the existing closed-program worker certification. Every matching
+thin code address must be eligible. This complements serial callable forms,
+constructor values, mutable named-function borrows and the earlier checked
+callback work (issues #614 and #617–#620). Each callback now follows its declared
+[arithmetic contract](../design/language/03-types/numbers.md#function-arithmetic-contracts).
+Parallel `reduce` and `pool.reduce_tree` retain their named-function contracts;
+mutable, borrowing and one-shot parallel callbacks remain excluded. The
+`spawn`, `submit`, `map` and `map_result` pool entry contracts are unchanged.
+See [parallel pipelines](../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
+and [thin target certification](../design/facilities/03-concurrency/effects.md#thin-callable-targets).

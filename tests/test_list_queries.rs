@@ -117,6 +117,7 @@ class P:
     a: i64
     b: str
 
+@copy
 enum Shape:
     Dot
     Square(i64)

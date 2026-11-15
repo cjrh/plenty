@@ -68,10 +68,12 @@ checks on its actual effects.
 
 Foreign interfaces cannot produce or reinterpret a `Callable`: their scalar
 and opaque-pointer ABI is separate from Plenty function values. Erased
-`BoxedCallable` environments remain ineligible. The direct worker-entry APIs
-keep their existing requirements for statically named functions or concrete
-closures; certification of thin values used *inside* workers does not add a
-new `spawn` or parallel-worker entry form.
+`BoxedCallable` environments remain ineligible. The `spawn`, `pool.submit`, `pool.map`, and `pool.map_result` entry APIs keep
+their requirements for statically named functions or concrete closures.
+[Parallel pipeline](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
+`map`, `filter`, `any`, and `all` also accept certified thin callable values,
+including constructors. Parallel `reduce` and `pool.reduce_tree` retain their
+named-function requirements.
 
 ## Native handles
 

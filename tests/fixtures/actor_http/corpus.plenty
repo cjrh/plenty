@@ -13,12 +13,14 @@ from std.http.server import Match, Router
 from std.sync import CancellationToken
 from std.thread import spawn
 
+@copy
 pub enum Route:
     Home
     Echo
     Hello
     Fail
 
+@copy
 pub enum Deliberate:
     Fail
 

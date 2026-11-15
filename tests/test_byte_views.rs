@@ -294,9 +294,9 @@ def main() -> Result[(), AllocError | IoError]:
 // the caller's position are those of an uncached call.
 #[test]
 fn unproven_cached_indexes_trap_at_the_call() {
-    let get = "error: std/bytes.plenty:48:13: Bytes.get: index is outside 0..len()\n\
+    let get = "error: std/bytes.plenty:49:13: Bytes.get: index is outside 0..len()\n\
                note: called from main.plenty:7:25\n";
-    let set = "error: std/bytes.plenty:53:13: Bytes.set: index is outside 0..len()\n\
+    let set = "error: std/bytes.plenty:54:13: Bytes.set: index is outside 0..len()\n\
                note: called from main.plenty:12:9\n";
     let ops = dump(TRAPS, &["--release"], "ops");
     assert!(support::asm_body(&ops, "read").contains("BytesGetView"));

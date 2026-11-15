@@ -33,6 +33,7 @@ def positive(value: i64) -> Positive[i64]:
 
 type Fault = AllocError | NetError | BytesError | TimerError | TlsError | OverflowError[i64]
 
+@copy
 pub enum Note:
     # Bytes echoed, and whether they matched.
     Done(i64, bool)

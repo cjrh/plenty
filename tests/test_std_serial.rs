@@ -295,6 +295,7 @@ class Cell[T]:
     def __decode__[E, D: std.serial.Decoder[E]](source: &mut D) -> Result[Cell[T], SerialError[E]]:
         Ok(Cell[T](std.serial.decode[T, E, D](source)?))
 
+@copy
 enum Mode:
     Fast
     Slow

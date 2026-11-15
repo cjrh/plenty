@@ -261,12 +261,14 @@ const ENUMS: &str = r#"
 import std.json
 import std.serial
 @serial
+@copy
 enum Mode:
     Idle
     Value(i64)
     Pair(str, u8)
 
 @serial
+@copy
 enum Choice[T]:
     Empty
     Item(T)
@@ -453,6 +455,7 @@ fn derived_toml_optional_fields_and_enum_payloads_roundtrip() {
         r#"
 import std.toml
 @serial
+@copy
 enum Status:
     Idle
     Count(i64)
@@ -1005,6 +1008,7 @@ import std.serial
 from std.serial import Fault
 
 @serial
+@copy
 enum AgentKind:
     @serial.name("pi")
     Pi
@@ -1147,7 +1151,7 @@ fn wire_name_diagnostics() {
             "fields `a` and `b` of `C` both serialize as \"b\"; wire names must be distinct",
         ),
         (
-            "@serial\nenum E:\n    @serial.name(\"x\")\n    A\n    @serial.name(\"x\")\n    B\n",
+            "@serial\n@copy\nenum E:\n    @serial.name(\"x\")\n    A\n    @serial.name(\"x\")\n    B\n",
             "variants `A` and `B` of `E` both serialize as \"x\"",
         ),
         (
@@ -1159,7 +1163,7 @@ fn wire_name_diagnostics() {
             "`@serial.name` applies only to fields of an `@serial` class and variants of an `@serial` enum",
         ),
         (
-            "enum E:\n    @serial.name(\"x\")\n    A\n",
+            "@copy\nenum E:\n    @serial.name(\"x\")\n    A\n",
             "`@serial.name` applies only to fields",
         ),
         (
@@ -1167,7 +1171,7 @@ fn wire_name_diagnostics() {
             "`@serial.name` applies only to fields",
         ),
         (
-            "@serial\nenum E:\n    A\n    @serial.name(\"x\")\n    def f(self) -> i64:\n        1\n",
+            "@serial\n@copy\nenum E:\n    A\n    @serial.name(\"x\")\n    def f(self) -> i64:\n        1\n",
             "`@serial.name` applies only to fields",
         ),
         (
@@ -1179,15 +1183,15 @@ fn wire_name_diagnostics() {
             "`@redacted` applies only to class and enum declarations, not class members",
         ),
         (
-            "@serial\nenum E:\n    @serial.name(\"x\")\n    @copy\n    A\n",
-            "`@copy` applies only to class declarations, not enum members",
+            "@serial\n@copy\nenum E:\n    @serial.name(\"x\")\n    @copy\n    A\n",
+            "`@copy` applies only to class and enum declarations, not enum members",
         ),
         (
             "@serial\nclass C:\n    a: i64\n    @serial.name(\"x\")\n",
             "`@serial.name` applies only to fields",
         ),
         (
-            "@serial\nenum E:\n    A\n    @serial.name(\"x\")\n",
+            "@serial\n@copy\nenum E:\n    A\n    @serial.name(\"x\")\n",
             "`@serial.name` applies only to fields",
         ),
         (
