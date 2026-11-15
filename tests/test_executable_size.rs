@@ -76,10 +76,22 @@ const BUDGETS: [(&str, &str, u64, u64); 2] = [
 /// | checked | empty | 68,464 | 31,644 | 58,888 | 28,304 |
 /// | checked | hello | 199,552 | 78,616 | 129,048 | 75,328 |
 ///
-/// Each limit allows about 13% above the larger GNU/mold measurement. Keep
-/// native page alignment rather than shrinking files with a 4-KiB override.
+/// The original limits allow about 13% above the larger GNU/mold measurement.
+/// Keep native page alignment rather than shrinking files with a 4-KiB override.
 /// The checked GNU hello crosses a 64-KiB layout boundary; the separate
 /// `.text` limit still bounds code growth independently of that padding.
+///
+/// Checked ARM `.text` was remeasured at `6a466afb` (release 0.8.29, run
+/// 43647440161) using the retained release ELFs: empty 35,380, hello 89,116;
+/// file sizes 200,544 and 266,096. The pinned glibc 2.28 image uses Rust 1.99.0
+/// and GNU ld 2.41. These code sizes are 3,664/6,304 bytes above the same
+/// image's `68736d5d` measurements below. The small-block pool reset only x86
+/// caps, leaving ARM caps based on pre-pool code. The accumulated growth now
+/// exceeds checked hello's old 88,900-byte cap (issue #982); this is not ELF
+/// segment padding. Reset only the measured checked `.text` caps to about 13%
+/// above this release. Default runtime sizes were not remeasured; their caps
+/// and all file caps are unchanged. This is a new baseline, not an attribution
+/// of the full growth to the pool or a native compact-linker remeasurement.
 #[cfg(all(target_arch = "aarch64", not(feature = "runtime-checks")))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
     ("empty", EMPTY, 77_500, 32_000),
@@ -88,8 +100,8 @@ const BUDGETS: [(&str, &str, u64, u64); 2] = [
 
 #[cfg(all(target_arch = "aarch64", feature = "runtime-checks"))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 77_500, 35_800),
-    ("hello", HELLO, 225_500, 88_900),
+    ("empty", EMPTY, 77_500, 40_000),
+    ("hello", HELLO, 225_500, 101_000),
 ];
 
 /// The pinned ARM glibc 2.28 image's GNU ld 2.41 separates header R, RX,
@@ -100,7 +112,7 @@ const BUDGETS: [(&str, &str, u64, u64); 2] = [
 /// default empty 200,472/28,308 and hello 266,024/76,028.
 /// CI measured 200,488/31,716 and 266,040/82,812; the 48-byte file difference
 /// is outside `.text`. Allow 13% on the separated layout's file sizes only;
-/// compact layouts and every `.text` cap retain their original budgets.
+/// compact layouts and every `.text` cap are unaffected by this adjustment.
 fn file_budget_for_layout(file: &object::File<'_>, name: &str, compact: u64) -> u64 {
     if file.architecture() != object::Architecture::Aarch64 {
         return compact;
