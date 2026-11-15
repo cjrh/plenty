@@ -10,6 +10,7 @@ from std.sync import CancellationToken
 from std.secrets import SecretsError
 from std.bytes import Bytes
 
+@copy
 pub enum FsError:
     Io(IoError)
     Stream(StreamError)
@@ -329,6 +330,7 @@ pub def temporary_dir(parent: &Root, prefix: &Path, attempts: Positive[i64] __ma
                         return Err(error)
     Err(FsError.Collisions)
 
+@copy
 pub enum CopyMetadata:
     ContentsOnly
     PermissionsAndTimes
@@ -645,6 +647,7 @@ pub def glob(parent: &Root, pattern: &Path, max_entries: NonNegative[i64], max_m
                         return Err(FsError.Limit)
                     fs_alloc(result.append(name))?
 
+@copy
 pub enum FileType:
     File
     Directory

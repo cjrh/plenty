@@ -5,6 +5,7 @@ variants and pass every other value on, end with `case _ as name:`, which binds
 the whole matched value:
 
 ```plenty
+@copy
 enum Event:
     Tick
     Key(str)
@@ -73,6 +74,7 @@ required. A bare name is rejected, because it is usually a variant written
 without its enum:
 
 ```plenty-error
+@copy
 enum Switch:
     On
     Off

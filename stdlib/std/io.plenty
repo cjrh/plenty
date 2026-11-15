@@ -9,6 +9,7 @@ from std.encoding import Endian
 import std.encoding
 import std.bytes
 
+@copy
 pub enum StreamError:
     Interrupted
     UnexpectedEof
@@ -19,6 +20,7 @@ pub enum StreamError:
     Allocation(AllocError)
 
 # Checked in-memory fields retain position and size context on truncation.
+@copy
 pub enum BinaryError:
     Truncated(i64, i64, i64)
     TrailingData(i64, i64)
@@ -32,15 +34,18 @@ pub class Partial:
     pub cause: StreamError
 
 # The count is the bytes delivered to the writer before the named side failed.
+@copy
 pub enum CopyError:
     Read(i64, StreamError)
     Write(i64, StreamError)
 
+@copy
 pub enum CloseError:
     Flush(StreamError)
     Close(StreamError)
     FlushAndClose(StreamError, StreamError)
 
+@copy
 pub enum SeekFrom:
     Start(i64)
     Current(i64)

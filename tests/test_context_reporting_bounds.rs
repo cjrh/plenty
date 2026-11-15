@@ -14,14 +14,17 @@ import std.io
 from std.error import Context, Subject
 from std.fmt import Formatter, FormatError
 from std.fmt import Formattable
+@copy
 pub enum Good:
     Value
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("good")
+@copy
 pub enum Other:
     Value
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text("other")
+@copy
 pub enum Bad:
     Value
 def accepts[T: Formattable](value: &T) -> ():

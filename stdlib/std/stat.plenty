@@ -3,6 +3,7 @@
 import std.math as math
 import std.random as random
 
+@copy
 pub enum StatError:
     Empty
     InsufficientData

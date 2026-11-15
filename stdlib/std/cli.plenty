@@ -1,5 +1,6 @@
 from std.path import Path, from_bytes
 
+@copy
 pub enum Kind:
     Flag
     Integer
@@ -28,6 +29,7 @@ pub class Parsed:
     pub help_requested: bool
     pub entries: list[Entry]
 
+@copy
 pub enum CliError:
     Schema(i64)
     UnknownOption(i64)

@@ -39,6 +39,7 @@ pub class Label:
     text: str
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         output.text(&self.text)
+@copy
 pub enum Code:
     Value(i64)
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:

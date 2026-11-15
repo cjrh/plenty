@@ -42,7 +42,8 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn unit_instantiates_user_generic_data_and_collections() {
     support::assert_stdout(
-        r#"enum Slot[T]:
+        r#"@copy
+enum Slot[T]:
     Full(T)
     Empty
 

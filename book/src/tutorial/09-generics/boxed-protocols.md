@@ -22,6 +22,7 @@ class Count:
         self.value += 1
         Ok(())
 
+@copy
 enum Flag:
     Off
     On
@@ -80,6 +81,7 @@ class Message:
     def label(self) -> str:
         self.text
 
+@copy
 enum Status:
     Ready
 

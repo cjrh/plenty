@@ -76,6 +76,7 @@ fn rejected_bounds_and_literals() {
 fn enum_and_method_value_parameters() {
     runs(
         r#"
+@copy
 enum Flag[const On: bool]:
     Value(i64)
     def enabled(self) -> bool:

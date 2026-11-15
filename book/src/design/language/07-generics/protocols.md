@@ -56,6 +56,7 @@ class Crate:
     def size(self) -> i64:
         self.width
 
+@copy
 enum Parcel:
     Letter
     Packet(i64)
@@ -127,6 +128,7 @@ class A:
     pub def label(self) -> str:
         return "a"
 
+@copy
 enum B:
     One
     pub def label(self) -> str:

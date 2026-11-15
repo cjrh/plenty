@@ -468,6 +468,7 @@ fn extent_add_checks_representation_limits_without_engine_or_allocation() {
         .unwrap();
     let source = format!(
         r#"
+@copy
 enum DataFrameError:
     Allocation(AllocError)
 

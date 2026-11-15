@@ -6,6 +6,7 @@ import std.math
 from std.bytes import Bytes, BytesError
 from std.json import Json
 
+@copy
 pub enum TemplateError:
     LimitExceeded
     Syntax(i64)
@@ -23,6 +24,7 @@ pub enum TemplateError:
     Allocation(AllocError)
     Bytes(BytesError)
 
+@copy
 pub enum Presence:
     Required
     Optional
@@ -42,6 +44,7 @@ pub class Field:
     pub shape: Shape
     pub presence: Presence
 
+@copy
 pub enum HtmlContext:
     Text
     DoubleQuotedAttribute
@@ -88,6 +91,7 @@ def identifier(text: &strview) -> bool:
 
 # Context selections apply only when emitting this expression. They never
 # turn raw text into an unqualified trusted value.
+@copy
 enum Emission:
     Default
     Trusted

@@ -1,6 +1,7 @@
 # The public algorithms and error policy are Plenty code. Numeric methods are
 # IEEE/platform primitives. See book/src/design/stdlib/math.md for contracts.
 
+@copy
 pub enum MathError:
     Domain
     Overflow

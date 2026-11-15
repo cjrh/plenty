@@ -106,12 +106,11 @@ instead.
 
 A copying `get` has no hidden cost. It accepts only
 [copyable values](../../language/05-ownership/01-bindings-moves-and-copies.md):
-scalars, immutable strings, ranges, function values, instances of `@copy`
-classes, and tuples or enums of those. Copying one is a fixed-size copy; a
-string shares its immutable storage. Neither allocates nor duplicates a buffer.
-Values that own storage, including every collection and every class instance
-not declared `@copy`, are affine, and `get` rejects them
-at compile time ("get cannot return owned dictionary values"), so owned data is
+scalars, immutable strings, ranges, function values, eligible `@copy` class
+or enum instances, and tuples, `Option`, `Result` or anonymous sums of those.
+Copying one is a fixed-size copy; a string shares its immutable storage. Neither allocates nor duplicates a buffer.
+Every collection and every class or enum instance not declared `@copy` is
+affine, and `get` rejects it at compile time ("get cannot return owned dictionary values"), so owned data is
 never copied by accident.
 
 Copying is the default because the common case reads a small value and uses it

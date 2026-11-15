@@ -146,7 +146,7 @@ fn payload_loans_reject_invalidation_and_escaping_storage() {
 #[test]
 fn mutable_matches_update_inline_enums_without_changing_copies() {
     runs(
-        "enum Value:\n    Number(i64)\nmut value = Value.Number(1)\nother = value\nmatch &mut value:\n    case Value.Number(number):\n        *number = 2\nprint(other).unwrap()\nprint(value).unwrap()",
+        "@copy\nenum Value:\n    Number(i64)\nmut value = Value.Number(1)\nother = value\nmatch &mut value:\n    case Value.Number(number):\n        *number = 2\nprint(other).unwrap()\nprint(value).unwrap()",
         "Value.Number(1)\nValue.Number(2)\n",
     );
 }
@@ -430,6 +430,7 @@ fn mutable_matches_write_scalar_mixed_and_owned_payload_enums() {
         r#"
 class Counter:
     count: i64
+@copy
 enum Size:
     Width(i64)
     Height(i64)
@@ -493,6 +494,7 @@ print(count(&many)).unwrap()
 fn mutable_matches_write_generic_enum_payloads() {
     runs(
         r#"
+@copy
 enum Maybe[T]:
     Just(T)
     Empty
@@ -539,9 +541,11 @@ print(empty).unwrap()
 fn mutable_matches_of_copyable_enums_leave_other_holders_unchanged() {
     runs(
         r#"
+@copy
 enum Shape:
     Circle(i64)
     Named(str)
+@copy
 enum Slot:
     Filled(Shape)
     Vacant
@@ -612,6 +616,7 @@ print(shapes).unwrap()
 fn mutable_matches_of_copied_scalar_enums_do_not_allocate() {
     runs(
         r#"
+@copy
 enum Shape:
     Circle(i64)
     Square(i64)

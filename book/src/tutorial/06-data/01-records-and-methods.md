@@ -124,8 +124,10 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 Money(cents=250, currency="EUR") Money(cents=300, currency="EUR") Money(cents=200, currency="EUR")
 ```
 
-Every field must itself copy: a scalar, `str`, another `@copy` class, or a tuple
-or enum of those. Copying duplicates the inline fields and never allocates, so
+Every field must itself copy: a scalar, `str`, another `@copy` class or enum,
+or a tuple, `Option`, `Result` or anonymous sum whose parts copy. See the
+[copy rule](../../design/language/05-ownership/01-bindings-moves-and-copies.md).
+Copying duplicates the inline fields and never allocates, so
 it needs no `?`. A field that owns storage is rejected:
 
 ```plenty-error

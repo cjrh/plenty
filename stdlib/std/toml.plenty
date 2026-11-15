@@ -10,6 +10,7 @@ from std.fmt import Formatter, FormatError
 from std.bytes import Bytes, BytesError
 from std.io import Reader, Writer, StreamError
 
+@copy
 pub enum TomlFault:
     UnexpectedByte
     UnexpectedEnd
@@ -109,6 +110,7 @@ pub class Limits:
     pub max_input: NonNegative[i64]
     pub max_output: NonNegative[i64]
 
+@copy
 pub enum DateTimeKind:
     OffsetDateTime
     LocalDateTime

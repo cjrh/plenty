@@ -94,9 +94,9 @@ literals and conversions, and explicit or inferred generic arguments.
 `CopyType` accepts every type argument that copies under the
 [copy rule](../05-ownership/01-bindings-moves-and-copies.md): numbers, `bool`,
 `str`, `bytes`, ranges, `NonZero`, unit `()`, named function values, tuples,
-enums, and anonymous sums whose parts copy, and `@copy` classes whose type
-arguments copy. Closures, collections, boxes, and other classes do not satisfy
-it. Type arguments are never references, so `&T` never satisfies it; a
+`Option`, `Result`, and anonymous sums whose parts copy, and `@copy` classes
+or enums whose fields or payloads copy. Closures, collections, boxes, and other
+class or enum instances do not satisfy it. Type arguments are never references, so `&T` never satisfies it; a
 `&T` parameter borrows a `T` that does.
 
 ```plenty

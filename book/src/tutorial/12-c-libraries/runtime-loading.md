@@ -5,6 +5,7 @@ function signatures ahead of time. Start with a small library, saved as
 `counter.plenty`:
 
 ```plenty-file counter.plenty
+@copy
 enum CalcError:
     Overflow
 

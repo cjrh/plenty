@@ -55,6 +55,7 @@ Option[Result[i64, str]].Some(Result[i64, str].Ok(5))
 before the match keeps its own payload:
 
 ```plenty
+@copy
 enum Shape:
     Circle(i64)
     Square(i64)

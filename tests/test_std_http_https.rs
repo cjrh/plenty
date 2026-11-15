@@ -76,6 +76,7 @@ def later() -> Result[Deadline, RangeError]:
 def url(host: &str, port: u16, path: &str) -> Result[str, AllocError]:
     Ok("https://".concat(host)?.concat(":")?.concat(&str.from(i64(port))?)?.concat(path)?)
 
+@copy
 pub enum Route:
     Echo
 
@@ -362,6 +363,7 @@ def fixture(name: &str) -> Result[str, AllocError | IoError]:
 def later() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
+@copy
 pub enum Route:
     Hello
 
@@ -370,6 +372,7 @@ pub class Hello:
         exchange.send_text(200, "hello")?
         Ok(())
 
+@copy
 enum Unexpected:
     EmptyResponse
 

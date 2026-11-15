@@ -24,6 +24,7 @@ def positive(value: i64) -> Positive[i64]:
 
 type Fault = AllocError | NetError | BytesError | TimerError | OverflowError[i64]
 
+@copy
 pub enum Note:
     # A connection's heap use once its buffers are allocated.
     Used(i64)

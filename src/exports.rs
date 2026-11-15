@@ -281,6 +281,9 @@ fn error_codes(
             header.push_str(&format!("#define {constant} UINT32_C({code})\n"));
         }
         if declared_error(error).is_some() {
+            if matches!(error, Ty::Enum(enumeration) if enumeration.get().copy) {
+                source.push_str("@copy\n");
+            }
             source.push_str(&format!("pub enum {interface_name}:\n"));
             for variant in &variants {
                 source.push_str(&format!("    {variant}\n"));

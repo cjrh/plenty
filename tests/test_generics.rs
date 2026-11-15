@@ -848,6 +848,7 @@ def main() -> ():
 fn keytype_supports_inferred_explicit_and_forwarded_collection_functions() {
     support::assert_stdout(
         r#"
+@copy
 enum Key:
     Id(i64)
     Name(str)

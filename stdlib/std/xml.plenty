@@ -6,6 +6,7 @@ import std.io
 from std.bytes import Bytes, BytesError
 from std.io import StreamError
 
+@copy
 pub enum Fault:
     Syntax
     UnexpectedEnd

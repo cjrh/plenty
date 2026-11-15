@@ -9,6 +9,7 @@
 import std.text
 import std.time
 
+@copy
 enum BenchmarkError:
     InvalidArguments
 

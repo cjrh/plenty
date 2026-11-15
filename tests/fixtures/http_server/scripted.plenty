@@ -47,6 +47,7 @@ pub class Script:
         std.io.write_all(&mut out, source).unwrap()
         Ok(len(source))
 
+@copy
 pub enum Route:
     Home
     Echo
@@ -54,6 +55,7 @@ pub enum Route:
     Fail
 
 # The error the `/fail` route returns, so a test can see how it is answered.
+@copy
 pub enum Deliberate:
     Fail
 

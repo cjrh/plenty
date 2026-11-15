@@ -205,9 +205,11 @@ def main() -> Result[(), AllocError | IoError]:
 parse limit: ParseError.Invalid
 ```
 
-Returning a `Context[E]` from `main` prints its fields raw, including path
-bytes. For a readable message, call `error.report()`, which writes the
-description to standard error, and return an `i32` status as in
+Returning a `Context[E]` from `main` uses the human-readable `format` fallback
+when its cause satisfies `std.fmt.Formattable`; other contexts keep structural
+fields, including path bytes. Entrypoint reports select `display`/`debug`
+hooks before this transitional fallback. To choose the description-based report
+explicitly, call `error.report()` and return an `i32` status as in
 [exit status](#exit-status).
 
 ## One application error with labels

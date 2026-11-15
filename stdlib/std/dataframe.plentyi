@@ -370,6 +370,7 @@ extern def dt_component_raw(expr: RawExpr, kind: i32, out: &mut RawExpr) -> RawE
 @thread_safe
 extern def dt_format_raw(expr: RawExpr, format: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_dt_format"
 
+@copy
 pub enum TimeUnit:
     Milliseconds
     Microseconds
@@ -384,6 +385,7 @@ def time_unit_code(unit: TimeUnit) -> i32:
         case TimeUnit.Nanoseconds:
             2i32
 
+@copy
 pub enum DType:
     I8
     I16
@@ -489,6 +491,7 @@ class CsvSchemaBuilder:
         self.raw = RawCsvSchemaBuilder.null()
         out
 
+@copy
 pub enum JoinKind:
     Inner
     Left
@@ -496,6 +499,7 @@ pub enum JoinKind:
     Semi
     Anti
 
+@copy
 pub enum AsOfStrategy:
     Backward
     Forward
@@ -510,6 +514,7 @@ pub class SortKey:
         self.descending = descending
         self.nulls_last = nulls_last
 
+@copy
 pub enum DataFrameError:
     Schema(str)
     Query(str)

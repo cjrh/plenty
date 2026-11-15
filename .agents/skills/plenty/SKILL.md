@@ -164,11 +164,11 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   `std.sync.send_before`, do not yet accept `T = ()`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
-  tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
-  its parts copy. A class copies only when it is declared [`@copy`](../../../book/src/design/language/03-types/classes.md#copy-classes), and a generic one only when its type arguments
-  also copy.
-  Every other value moves: collections, boxes, closures that capture,
-  generators, and other class instances.
+  tuple, `Option`, `Result`, or anonymous sum (`A | B`) copies when all of its
+  parts copy. A class or enum copies only when it is declared `@copy`, and a
+  generic one only when its payloads or fields also copy. Every other value
+  moves: collections, boxes, closures that capture, generators, and other class
+  or enum instances.
   A moved name is unusable. Borrow with `&x` (shared) or `&mut x`
   (exclusive), or copy explicitly with `copy(x)?`. An eligible ordinary class
   can be explicitly copied without `@copy`: owned mutable fields duplicate,
@@ -231,9 +231,12 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
 ## Idioms
 
 - Propagate errors to `main`. Returning `Err` from `main` reports the error and
-  exits with status 1. A `Context[E]` error prints its raw fields that way;
-  for a readable message, call `error.report()` in `main -> i32`. Printing an error and returning `Ok(())` reports
-  success; do that only when the program genuinely recovers.
+  exits with status 1. Reports use `display`, then `debug`, then structure;
+  public `Formattable.format` is a transitional fallback when no value hook
+  is selected. A `Context[E]` uses that fallback when its cause is formattable;
+  other contexts keep structural fields. `error.report()` in `main -> i32`
+  explicitly chooses the description-based report. Printing an error and
+  returning `Ok(())` reports success; do that only when recovery is intentional.
 - Name error groups with an alias: `type AppError = AllocError | IoError | ParseError`.
   Define an enum only to add meaning, and map into it with `.map_error(...)`.
 - Prefer `&strview` for text readers and `&list[T]` for borrowed lists.
@@ -242,7 +245,7 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   On text views, scalar `len` scans; `byte_len()` and `as_bytes()` are O(1).
   `as_bytes()` lends a read-only `&[u8]` with the text owner’s loan;
   `std.bytes.from_bytes(...)` makes an independent mutable copy. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
-  or `copy(&x)?` when `x` copies (`str`, numbers, `@copy` classes): write `x`;
+  or `copy(&x)?` when `x` copies (`str`, numbers, `@copy` classes or enums): write `x`;
   for a reference `r: &str`, write `*r` instead of `copy(r)?`. `plenty --check`
   reports them as `redundant-copy` warnings; apply the suggested replacements.
 - Checks also report `unused-import` when an import binding has no resolved use

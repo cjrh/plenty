@@ -26,6 +26,7 @@ type ChatError = WebSocketError | std.bytes.BytesError | RangeError | AllocError
 def soon() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?)
 
+@copy
 pub enum Route:
     Chat
 

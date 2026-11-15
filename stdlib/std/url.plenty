@@ -8,6 +8,7 @@ const max_port: i64 = i64(u16.MAX)
 # checked Plenty over `Bytes`: ranges are validated before reads, and an index
 # outside the buffer would trap rather than read past it. Nothing is repaired:
 # input outside the grammar is an error naming the offending byte.
+@copy
 pub enum UrlError:
     LimitExceeded
     MissingScheme
@@ -21,6 +22,7 @@ pub enum UrlError:
 
 # Where a piece of data is going. Each component leaves a different set of
 # characters unescaped.
+@copy
 pub enum Component:
     Userinfo
     Segment

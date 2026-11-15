@@ -48,6 +48,7 @@ def main() -> ():
 fn factory_errors_leave_contents_and_order_unchanged() {
     run(
         r#"
+@copy
 enum Fault:
     Failed(i64)
 def fail() -> Result[i64, Fault]:

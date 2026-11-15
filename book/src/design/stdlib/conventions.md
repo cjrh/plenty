@@ -200,7 +200,7 @@ operation cannot accept is an `Err` with a named variant: `OutOfRange`,
 ranges, encoding and UUID offsets, crypto output offsets, and CSV field
 indices trap. Builtins follow several policies
 today (issue #629); see the
-[consistency proposal](../../proposals/consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail).
+[consistency proposal](../../proposals/completed/consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail).
 
 ### Returning moved inputs
 
@@ -339,7 +339,11 @@ waits still take `u64` milliseconds.
 
 `std.fmt.Formatter[W]` and its `FormatError` serve value formatting and
 reports. Import types, constructors, and the writer-generic `Formattable`
-protocol from `std.fmt`; `std.report` provides rendering helpers.
+protocol from `std.fmt`; `std.report` provides rendering helpers. Entrypoint
+error reports use `display`, then `debug` or structural formatting like
+`print`; `Formattable.format` remains their transitional fallback when no
+modern formatting hook is selected. See
+[entrypoint reports](../toolchain/01-building/entry-report.md).
 
 - a value that f-strings display implements `display[W]`;
 - an error that renders into a report implements

@@ -13,6 +13,7 @@ original `ParseError`. A Result's `map_error` method changes just the error
 type, forwarding success unchanged:
 
 ```plenty
+@copy
 enum ConfigError:
     InvalidCount(ParseError)
 

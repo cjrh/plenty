@@ -7,6 +7,7 @@ class Cell[T]:
     def read(self) -> T:
         self.value
 
+@copy
 enum Choice[T]:
     Value(T)
 ```

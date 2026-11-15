@@ -229,7 +229,7 @@ fn a_dependency_library_and_its_modules_import_together() {
             ("src/lib.plenty", "pub def base() -> i64:\n    100\n"),
             (
                 "src/zones.plenty",
-                "pub enum Zone:\n    Utc\n    Fixed(i64)\n\npub const HOURS: i64 = 24\n\npub def offset(zone: Zone) -> i64:\n    match zone:\n        case Zone.Utc:\n            0\n        case Zone.Fixed(n):\n            n\n",
+                "@copy\npub enum Zone:\n    Utc\n    Fixed(i64)\n\npub const HOURS: i64 = 24\n\npub def offset(zone: Zone) -> i64:\n    match zone:\n        case Zone.Utc:\n            0\n        case Zone.Fixed(n):\n            n\n",
             ),
             ("src/rules/dst.plenty", "pub def shift() -> i64:\n    1\n"),
             (

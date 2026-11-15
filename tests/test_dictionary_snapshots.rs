@@ -26,6 +26,7 @@ print(str.repr(flags.values_snapshot()).unwrap()).unwrap()
 fn snapshots_retain_strings_and_inline_and_heap_enum_payloads() {
     native(
         r#"
+@copy
 enum Label:
     Text(str)
 mut data = {("na" + "me").unwrap(): ("é" + "🙂").unwrap()}.unwrap()

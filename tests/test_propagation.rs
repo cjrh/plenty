@@ -319,7 +319,7 @@ fn allocation_instrumentation_detects_a_temporary_allocation() {
     "`?` operand error i64 cannot propagate as str; the function's error type must include it: declare a sum such as Result[_, i64 | str], or match the operand and convert the error explicitly"
 )]
 #[case(
-    "enum E:\n    Value(i64)\ndef f() -> Option[i64]:\n    Some(E.Value(1)?)",
+    "@copy\nenum E:\n    Value(i64)\ndef f() -> Option[i64]:\n    Some(E.Value(1)?)",
     "same Result or Option family"
 )]
 #[case(

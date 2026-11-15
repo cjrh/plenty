@@ -8,6 +8,7 @@ fn anonymous_sums_render_members_and_source_type_names() {
     assert_eq!(
         run(r#"
 import std.fmt
+@copy
 enum Named:
     Empty
     Pair(i64, str)
@@ -207,6 +208,7 @@ import std.fmt
 import std.bytes
 import std.io
 from std.fmt import Formatter, FormatError
+@copy
 pub enum Number:
     Value(i64)
     pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
@@ -285,7 +287,7 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError | std.bytes.
 fn ordinary_visibility_ownership_and_contract_errors_remain_checked() {
     for (source, expected) in [
         (
-            "import std.fmt\nfrom std.fmt import Formatter, FormatError\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), AllocError | IoError]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n",
+            "import std.fmt\nfrom std.fmt import Formatter, FormatError\n@copy\nenum E:\n    V\n    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:\n        out.text(\"value\")\ndef main() -> Result[(), AllocError | IoError]:\n    value = E.V\n    drop(std.fmt.to_string(&value, 32, 8))\n    Ok(())\n",
             "enum `E` is private",
         ),
         (
@@ -315,6 +317,7 @@ fn enum_display_borrows_payload_and_preserves_partial_output() {
         run(r#"
 import std.fmt
 from std.fmt import Formatter, FormatError
+@copy
 pub enum Reading[T]:
     Missing
     Value(T)

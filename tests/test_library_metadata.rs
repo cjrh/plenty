@@ -195,7 +195,7 @@ fn fingerprints_are_deterministic_and_stale_interfaces_fail_to_link() {
         let options = LibraryOptions::new("calc", kind);
         // C exports support fieldless errors, not OverflowError's wrapped payload.
         let build = |text: &str| {
-            let text = format!("pub enum ArithmeticError:\n    Overflow\n{text}");
+            let text = format!("@copy\npub enum ArithmeticError:\n    Overflow\n{text}");
             std::fs::write(&source, text).unwrap();
             plenty::compile_file_to_library(&source, &library, None, &options).unwrap();
             plenty::read_library_interfaces(&library).unwrap().remove(0)

@@ -5,16 +5,19 @@
 from std.bytes import Bytes
 from std.time import Duration
 
+@copy
 pub enum Mode:
     ReadOnly
     ReadWrite
     Create
 
+@copy
 pub enum Begin:
     Deferred
     Immediate
     Exclusive
 
+@copy
 pub enum ValueType:
     Integer
     Real

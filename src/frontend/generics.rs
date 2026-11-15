@@ -55,6 +55,9 @@ pub(super) fn unsatisfied_builtin(bound: &TypeRef, ty: &Ty) -> String {
             Ty::Class(t) if t.try_get().is_some_and(|t| !t.copy) => {
                 "; a class copies only when it is declared `@copy`"
             }
+            Ty::Enum(t) if t.try_get().is_some_and(|t| !t.copy) => {
+                "; an enum copies only when it is declared `@copy`"
+            }
             _ => "",
         };
         format!("{ty} does not satisfy CopyType: it moves on ordinary use{help}")
@@ -186,6 +189,7 @@ pub(super) fn prepare(
         signatures.push(signature);
     }
     let mut engine = Engine {
+        entry_format_at: None,
         protocols: declarations,
         methods,
         templates: HashMap::default(),
@@ -227,6 +231,9 @@ pub(super) fn prepare(
         warnings: Vec::new(),
     };
     for f in functions {
+        if f.name == "main" {
+            engine.entry_format_at = Some(f.at.clone());
+        }
         if table.declared(&f.name).is_some()
             || engine.templates.contains_key(&f.name)
             || aliases.contains_key(&f.name)
@@ -270,6 +277,8 @@ pub(super) fn prepare(
 }
 
 pub(super) struct Engine {
+    /// Entry reporting formats with the application's access, like print in main.
+    pub(super) entry_format_at: Option<Token>,
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,

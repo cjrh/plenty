@@ -30,6 +30,7 @@ A numeric code means little to a C caller. Return an enum whose variants have
 no payloads instead:
 
 ```plenty
+@copy
 enum CalcError:
     Empty
     Negative

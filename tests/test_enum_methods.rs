@@ -5,6 +5,7 @@ use support::assert_stdout as runs;
 fn shared_mutable_and_temporary_enum_receivers() {
     runs(
         r#"
+@copy
 enum Count:
     Value(i64)
     Empty
@@ -38,6 +39,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 fn generic_enums_method_parameters_defaults_and_nested_calls() {
     runs(
         r#"
+@copy
 enum Value[T]:
     Present(T)
     def echo[U](self, value: U) -> U:
@@ -65,6 +67,7 @@ protocol Readable:
 protocol Mutable:
     def set(self: &mut Mutable, n: i64) -> ():
         pass
+@copy
 enum Value[T]:
     Present(T)
     def read(self) -> i64:
@@ -92,6 +95,7 @@ fn parameterized_protocol_inference_uses_enum_methods() {
 protocol Source[T]:
     def get(self) -> T:
         pass
+@copy
 enum SourceValue:
     Value(i64)
     def get(self) -> i64:
@@ -112,27 +116,27 @@ def main() -> ():
 fn invalid_enum_methods_have_actionable_diagnostics() {
     for (source, expected) in [
         (
-            "enum E:\n    V\n    def V(self) -> ():\n        pass\n",
+            "@copy\nenum E:\n    V\n    def V(self) -> ():\n        pass\n",
             "duplicate enum member",
         ),
         (
-            "enum E:\n    def V(self) -> ():\n        pass\n    V\n",
+            "@copy\nenum E:\n    def V(self) -> ():\n        pass\n    V\n",
             "duplicate variant",
         ),
         (
-            "enum E:\n    V\n    def __del__(self: &mut E) -> ():\n        pass\n",
+            "@copy\nenum E:\n    V\n    def __del__(self: &mut E) -> ():\n        pass\n",
             "lifecycle hooks",
         ),
         (
-            "enum E:\n    V\n    def read(self: i64) -> ():\n        pass\n",
+            "@copy\nenum E:\n    V\n    def read(self: i64) -> ():\n        pass\n",
             "method receiver",
         ),
         (
-            "enum E:\n    V\n    def read() -> ():\n        pass\n",
+            "@copy\nenum E:\n    V\n    def read() -> ():\n        pass\n",
             "method receiver",
         ),
         (
-            "enum E[T]:\n    V(T)\n    def read[T](self) -> ():\n        pass\n",
+            "@copy\nenum E[T]:\n    V(T)\n    def read[T](self) -> ():\n        pass\n",
             "cannot shadow enum",
         ),
     ] {
@@ -180,6 +184,7 @@ fn protocol_checks_reject_missing_wrong_and_method_generic_signatures() {
 fn mutable_method_cannot_use_shared_receiver() {
     let error = support::check_source(
         r#"
+@copy
 enum E:
     V
     def update(self: &mut E) -> ():
@@ -201,6 +206,7 @@ reference.update()
 fn collection_named_methods_dispatch_on_named_and_temporary_enums() {
     runs(
         r#"
+@copy
 enum E:
     V
     def unwrap(self, value: i64) -> i64:
@@ -241,6 +247,7 @@ def seven() -> i64:
     path = std.env.current_dir().unwrap()
     std.env.set_current_dir(&path).unwrap()
     7
+@copy
 enum E:
     V
     def run(self) -> i64:
@@ -296,6 +303,7 @@ fn imported_generic_enum_visibility_and_private_helper_calls() {
     std::fs::write(
         module,
         r#"
+@copy
 pub enum Value[T]:
     Present(T)
     def helper(self) -> i64:
@@ -335,6 +343,7 @@ pub def read[T: Readable](value: &T) -> i64:
         &main,
         r#"
 from reader import read
+@copy
 enum Hidden:
     V
     pub def read(self) -> i64:

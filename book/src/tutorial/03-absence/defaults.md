@@ -26,6 +26,7 @@ that explains the missing value, then use `?` inside a function returning a
 compatible `Result`.
 
 ```plenty
+@copy
 enum Missing:
     Answer
 

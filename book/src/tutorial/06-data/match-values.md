@@ -5,6 +5,7 @@ selected value in the middle of a function, write the `match` as the value of a
 binding. The final expression of the selected case becomes the value:
 
 ```plenty
+@copy
 enum Shape:
     Dot
     Square(i64)

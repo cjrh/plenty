@@ -10,6 +10,7 @@
 import std.bytes
 from std.bytes import Bytes
 
+@copy
 pub enum Limit:
     PatternBytes
     Nesting

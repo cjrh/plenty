@@ -6,6 +6,7 @@ import std.math
 import std.bytes
 from std.io import Writer, StreamError
 
+@copy
 pub enum PlotError:
     Allocation(AllocError)
     Write(i64, StreamError)
@@ -219,6 +220,7 @@ pub def aes(x: str | Factor = "", y: str | Factor = "", colour: str | Factor = "
     use_color = mapped(&color) != ""
     Mapping(mapped(&x), mapped(&y), mapped(&color) if use_color else mapped(&colour), mapped(&fill), group, factored(&x), factored(&y), factored(&color) if use_color else factored(&colour), factored(&fill), use_color and mapped(&colour) != "", ymin, ymax)
 
+@copy
 pub enum Position:
     Identity
     Stack
@@ -237,12 +239,14 @@ pub def position_dodge() -> Position:
 pub def position_fill() -> Position:
     Position.Fill
 
+@copy
 pub enum Units:
     In
     Cm
     Mm
     Px
 
+@copy
 pub enum Legend:
     Right
     Hidden
@@ -284,6 +288,7 @@ pub enum Component:
     PositionScale(bool, PositionScale)
     Facet(Facet)
 
+@copy
 pub enum Scales:
     Fixed
     Free
@@ -347,9 +352,11 @@ pub def scale_color_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Com
 pub def scale_fill_gradient(low: str = "#132B43", high: str = "#56B1F7") -> Component:
     Component.ColourScale(True, ColourScale.Gradient(low, high))
 
+@copy
 pub enum Unset:
     Unset
 
+@copy
 pub enum Transform:
     Identity
     Log10

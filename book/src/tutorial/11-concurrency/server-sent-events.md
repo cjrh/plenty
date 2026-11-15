@@ -28,6 +28,7 @@ from std.time import Deadline
 def after(milliseconds: u32) -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.milliseconds(milliseconds))?)
 
+@copy
 pub enum Route:
     Clock
 

@@ -851,6 +851,7 @@ fn der_cursors_and_rsa_widths_reject_representation_limits_without_allocation() 
     let source = format!(
         r#"import std.bytes
 
+@copy
 enum AdvancedError:
     InvalidKey
     WeakKey

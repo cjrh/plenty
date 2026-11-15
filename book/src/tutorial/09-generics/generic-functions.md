@@ -88,6 +88,7 @@ Use `K: KeyType` when a generic algorithm needs dictionary keys or set members.
 It accepts integers, booleans, strings, bytes, and supported tuples, classes, enums and anonymous sums, including custom cleanup. The compiler checks all enum payloads; no hashing method is required.
 
 ```plenty
+@copy
 enum Label:
     Id(i64)
     Name(str)

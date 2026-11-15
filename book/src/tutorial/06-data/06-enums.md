@@ -4,6 +4,7 @@ An enum defines alternatives, each of which may carry typed data. Match its
 variants to extract that data:
 
 ```plenty
+@copy
 enum Reading:
     Missing
     Value(i64)
@@ -31,6 +32,12 @@ positive
 sensor offline
 ```
 
+`@copy` makes `Reading` copy on assignment, argument passing and return, so
+using one value leaves the original available. Every variant's payload must
+copy; here `i64` and `str` do. Without `@copy`, a declared enum moves even when
+all its payloads copy. See the [copy rule](../../design/language/05-ownership/01-bindings-moves-and-copies.md)
+and [copy enums](../../design/language/03-types/enums.md#copy-enums).
+
 Enum payloads are stored inline: `Reading.Value(42)` needs no allocation or `?`.
 Variants without data omit parentheses. Payloads may have several positions,
 such as `Pair(i64, str)`. Case bindings are immutable and local to that case.
@@ -38,6 +45,7 @@ Use `_` to ignore a payload position or a final `case _:` to cover remaining
 variants; [`case _ as name:`](bind-the-rest.md) also binds the remaining value. Duplicate or missing cases are errors:
 
 ```plenty-error
+@copy
 enum Switch:
     On
     Off
@@ -63,11 +71,13 @@ reaches into an enum stored inside an enum. `|` joins patterns that share an
 arm; every alternative must bind the same names:
 
 ```plenty
+@copy
 enum Shape:
     Dot
     Circle(i64)
     Rect(i64, i64)
 
+@copy
 enum Slot:
     Empty
     Full(Shape)
@@ -95,9 +105,11 @@ def main() -> Result[(), IoError]:
 Coverage is checked through the nested patterns: leaving out
 `Slot.Full(Shape.Dot)` is an error that names it.
 
-Payloads can contain strings, collections, and other enums. Matching an enum
-with mutable payloads consumes it and transfers those payloads; use
-`match copy(value)?` to preserve the owner.
+Payloads can contain strings, collections, and other enums. Matching an affine
+enum by value consumes it and transfers its payloads. Borrow with `match &value`
+to inspect it, or use `match copy(value)?` when an independent copy is needed
+and its contents support explicit copying. See
+[borrowed matching](08-borrowed-matching.md).
 
 An enum can keep behavior beside its variants. A method's bare `self` is a
 shared borrow, so matching it borrows the payload. The same method can satisfy
@@ -108,6 +120,7 @@ protocol Numbered:
     def number(self) -> i64:
         pass
 
+@copy
 enum Reading:
     Missing
     Value(i64)

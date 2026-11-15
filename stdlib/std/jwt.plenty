@@ -16,6 +16,7 @@ from std.json import DuplicateKeys, Json, JsonError, JsonFault, Limits, Member
 from std.fmt import Formatter, FormatError
 
 # No HS384: std.crypto has no SHA-384 HMAC.
+@copy
 pub enum Algorithm:
     Hs256
     Hs512
@@ -33,6 +34,7 @@ pub enum Algorithm:
         algorithm_name(*self)
 
 # The registered claims that validation reads.
+@copy
 pub enum Claim:
     Expiry
     NotBefore
@@ -40,6 +42,7 @@ pub enum Claim:
     Issuer
     Audience
 
+@copy
 pub enum JwtError:
     Malformed
     NotObject

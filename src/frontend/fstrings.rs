@@ -8,6 +8,144 @@
 //! alignment, width, or precision; their values are checked when formatting.
 use super::*;
 
+/// Formatting hooks selected by the same walk that ordinary display uses.
+/// Entry reporting consults this before its transitional Formattable fallback.
+pub(super) fn entry_has_hooks(
+    ty: &Ty,
+    generics: &generics::Engine,
+    sigs: &functions::Functions,
+    at: &Token,
+) -> Result<bool> {
+    Ok(!FormattingMethods { generics, sigs }
+        .hooked_types(ty, true, at)?
+        .is_empty())
+}
+
+struct FormattingMethods<'a> {
+    generics: &'a generics::Engine,
+    sigs: &'a functions::Functions,
+}
+
+impl FormattingMethods<'_> {
+    fn has_method(&self, ty: &Ty, name: &str) -> bool {
+        let owner = match ty {
+            Ty::Class(class) => &class.name,
+            Ty::Enum(sum) => &sum.name,
+            _ => return false,
+        };
+        let symbol = crate::record::method(owner, name);
+        self.generics.templates.contains_key(&symbol) || self.sigs.contains_key(&symbol)
+    }
+
+    /// Whether `ty` has a formatting method `name`, rejecting one without the
+    /// signature formatting calls: lookup is by name only, so a `display` or
+    /// `debug` with another purpose cannot be formatted with.
+    fn formats_with(&self, ty: &Ty, name: &str, at: &Token) -> Result<bool> {
+        if !self.has_method(ty, name) {
+            return Ok(false);
+        }
+        let owner = match ty {
+            Ty::Class(class) => &class.name,
+            Ty::Enum(sum) => &sum.name,
+            _ => unreachable!(),
+        };
+        let symbol = crate::record::method(owner, name);
+        let last = |t: &TypeRef| {
+            t.name
+                .as_deref()
+                .map(|n| n.rsplit('.').next().unwrap_or(n).to_owned())
+        };
+        let valid = if let Some(template) = self.generics.templates.get(&symbol) {
+            template.inputs.len() == 2
+                && template.inputs[1].1.name.as_deref() == Some("&mut")
+                && template.inputs[1]
+                    .1
+                    .args
+                    .first()
+                    .is_some_and(|t| last(t).as_deref() == Some("Formatter"))
+                && last(&template.output).as_deref() == Some("Result")
+        } else {
+            let sig = &self.sigs[&symbol];
+            sig.inputs.len() == 2
+                && matches!(&sig.inputs[1].1, t @ Ty::Ref(_, true) if formatter(t).is_some())
+                && matches!(sig.outputs.first(), Some(Ty::Enum(t)) if t.is_result())
+        };
+        if valid {
+            return Ok(true);
+        }
+        Err(at.error(format!(
+            "cannot format `{ty}`: formatting calls its `{name}` method, which must be `def {name}[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]`; rename the method if it has another purpose"
+        )))
+    }
+
+    /// The types whose methods formatting `ty` automatically runs, with
+    /// whether each is the top-level `display` (only with `top_display`, as
+    /// for `print`) rather than a `debug`. A type's own method replaces its
+    /// structure, so the walk stops there.
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn hooked_types(&self, ty: &Ty, top_display: bool, at: &Token) -> Result<Vec<(Ty, bool)>> {
+        let ty = referent(ty);
+        let mut hooked = Vec::new();
+        if top_display && self.formats_with(ty, "display", at)? {
+            return Ok(vec![(ty.clone(), true)]);
+        }
+        let mut seen = HashSet::default();
+        self.debug_types(ty, &mut seen, &mut hooked, at)?;
+        Ok(hooked)
+    }
+
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn debug_types(
+        &self,
+        ty: &Ty,
+        seen: &mut HashSet<Ty>,
+        hooked: &mut Vec<(Ty, bool)>,
+        at: &Token,
+    ) -> Result<()> {
+        if !seen.insert(ty.clone()) {
+            return Ok(());
+        }
+        let children: Vec<Ty> = match ty {
+            Ty::Class(_) | Ty::Enum(_) if self.formats_with(ty, "debug", at)? => {
+                hooked.push((ty.clone(), false));
+                return Ok(());
+            }
+            Ty::Class(class) => {
+                let class = class.get();
+                if class.redacted {
+                    return Ok(());
+                }
+                class.fields.iter().map(|(_, t)| t.clone()).collect()
+            }
+            Ty::Enum(sum) => {
+                let sum = sum.get();
+                if sum.redacted {
+                    return Ok(());
+                }
+                sum.variants
+                    .iter()
+                    .flat_map(|v| v.fields.iter().cloned())
+                    .collect()
+            }
+            Ty::List(t) | Ty::Set(t) | Ty::Box(t) | Ty::Ref(t, _) | Ty::View(t, _) => {
+                vec![(**t).clone()]
+            }
+            Ty::Dict(k, v) => vec![(**k).clone(), (**v).clone()],
+            _ => return Ok(()),
+        };
+        for child in children {
+            self.debug_types(&child, seen, hooked, at)?;
+        }
+        Ok(())
+    }
+}
+
 /// The module binding of the `std.fmt` import that every module using an
 /// f-string receives. `__plenty_` names cannot be spelled in source.
 pub(super) const FMT_BINDING: &str = "__plenty_fmt";
@@ -1140,6 +1278,27 @@ impl Lower<'_> {
         } else {
             unary(&base.at, "&mut", base.clone())
         };
+        // The wrapper's report is an implicit print in main, not an access
+        // from std.fmt. Keep private application types and methods usable there.
+        if self
+            .generics
+            .display_names
+            .get(&self.function_name)
+            .is_some_and(|name| name.starts_with("std.fmt.entry_display_record["))
+            && literal_at
+                .source()
+                .is_some_and(|source| self.generics.standard_sources.contains(&source))
+            && let Some(site) = self.generics.entry_format_at.clone()
+        {
+            let mut pieces = template.pieces.clone();
+            for piece in &mut pieces {
+                if let Piece::Field(field) = piece {
+                    field.at = site.clone();
+                }
+            }
+            let template = Arc::new(Template { pieces });
+            return Some(self.format_literal(&template, values, Some(target), "", &site, ops));
+        }
         Some(self.format_literal(template, values, Some(target), "", literal_at, ops))
     }
 
@@ -1262,122 +1421,20 @@ impl Lower<'_> {
         Ok(name)
     }
 
-    fn has_method(&self, ty: &Ty, name: &str) -> bool {
-        let owner = match ty {
-            Ty::Class(class) => &class.name,
-            Ty::Enum(sum) => &sum.name,
-            _ => return false,
-        };
-        let symbol = crate::record::method(owner, name);
-        self.generics.templates.contains_key(&symbol) || self.sigs.contains_key(&symbol)
-    }
-
-    /// Whether `ty` has a formatting method `name`, rejecting one without the
-    /// signature formatting calls: lookup is by name only, so a `display` or
-    /// `debug` with another purpose cannot be formatted with.
     fn formats_with(&self, ty: &Ty, name: &str, at: &Token) -> Result<bool> {
-        if !self.has_method(ty, name) {
-            return Ok(false);
+        FormattingMethods {
+            generics: self.generics,
+            sigs: self.sigs,
         }
-        let owner = match ty {
-            Ty::Class(class) => &class.name,
-            Ty::Enum(sum) => &sum.name,
-            _ => unreachable!(),
-        };
-        let symbol = crate::record::method(owner, name);
-        let last = |t: &TypeRef| {
-            t.name
-                .as_deref()
-                .map(|n| n.rsplit('.').next().unwrap_or(n).to_owned())
-        };
-        let valid = if let Some(template) = self.generics.templates.get(&symbol) {
-            template.inputs.len() == 2
-                && template.inputs[1].1.name.as_deref() == Some("&mut")
-                && template.inputs[1]
-                    .1
-                    .args
-                    .first()
-                    .is_some_and(|t| last(t).as_deref() == Some("Formatter"))
-                && last(&template.output).as_deref() == Some("Result")
-        } else {
-            let sig = &self.sigs[&symbol];
-            sig.inputs.len() == 2
-                && matches!(&sig.inputs[1].1, t @ Ty::Ref(_, true) if formatter(t).is_some())
-                && matches!(sig.outputs.first(), Some(Ty::Enum(t)) if t.is_result())
-        };
-        if valid {
-            return Ok(true);
-        }
-        Err(at.error(format!(
-            "cannot format `{ty}`: formatting calls its `{name}` method, which must be `def {name}[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]`; rename the method if it has another purpose"
-        )))
+        .formats_with(ty, name, at)
     }
 
-    /// The types whose methods formatting `ty` automatically runs, with
-    /// whether each is the top-level `display` (only with `top_display`, as
-    /// for `print`) rather than a `debug`. A type's own method replaces its
-    /// structure, so the walk stops there.
-    #[expect(
-        clippy::mutable_key_type,
-        reason = "nominal identities exclude definition cells"
-    )]
     fn hooked_types(&self, ty: &Ty, top_display: bool, at: &Token) -> Result<Vec<(Ty, bool)>> {
-        let ty = referent(ty);
-        let mut hooked = Vec::new();
-        if top_display && self.formats_with(ty, "display", at)? {
-            return Ok(vec![(ty.clone(), true)]);
+        FormattingMethods {
+            generics: self.generics,
+            sigs: self.sigs,
         }
-        let mut seen = HashSet::default();
-        self.debug_types(ty, &mut seen, &mut hooked, at)?;
-        Ok(hooked)
-    }
-
-    #[expect(
-        clippy::mutable_key_type,
-        reason = "nominal identities exclude definition cells"
-    )]
-    fn debug_types(
-        &self,
-        ty: &Ty,
-        seen: &mut HashSet<Ty>,
-        hooked: &mut Vec<(Ty, bool)>,
-        at: &Token,
-    ) -> Result<()> {
-        if !seen.insert(ty.clone()) {
-            return Ok(());
-        }
-        let children: Vec<Ty> = match ty {
-            Ty::Class(_) | Ty::Enum(_) if self.formats_with(ty, "debug", at)? => {
-                hooked.push((ty.clone(), false));
-                return Ok(());
-            }
-            Ty::Class(class) => {
-                let class = class.get();
-                if class.redacted {
-                    return Ok(());
-                }
-                class.fields.iter().map(|(_, t)| t.clone()).collect()
-            }
-            Ty::Enum(sum) => {
-                let sum = sum.get();
-                if sum.redacted {
-                    return Ok(());
-                }
-                sum.variants
-                    .iter()
-                    .flat_map(|v| v.fields.iter().cloned())
-                    .collect()
-            }
-            Ty::List(t) | Ty::Set(t) | Ty::Box(t) | Ty::Ref(t, _) | Ty::View(t, _) => {
-                vec![(**t).clone()]
-            }
-            Ty::Dict(k, v) => vec![(**k).clone(), (**v).clone()],
-            _ => return Ok(()),
-        };
-        for child in children {
-            self.debug_types(&child, seen, hooked, at)?;
-        }
-        Ok(())
+        .hooked_types(ty, top_display, at)
     }
 
     /// The hook calling `ty`'s formatting method. A `top` value's method is

@@ -391,6 +391,7 @@ class Guard:
         pass
 def work(guard: Guard) -> Guard:
     guard
+@copy
 enum Exit:
     Requested
 def leave(sender: &Sender[i64], mode: i64) -> Result[(), Exit | PoolError | SubmitError[OnceClosure[[], Guard]]]:

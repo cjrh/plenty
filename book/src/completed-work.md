@@ -37,6 +37,10 @@ records the proposal's rejection on 2026-11-14; its experiments remain historica
 record source identity, edge-specific locks and updates, provenance inspection,
 and explicit shared-resource restrictions.
 
+[Six rules for a consistent core](completed-work/language-and-tooling.md#six-rules-for-a-consistent-core)
+records the delivered copy, formatting, iterator-source and parallel-callback
+contracts (B88, B89, B91 and B93).
+
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that
 B item is implemented. Mixed items keep their remaining scope only in the

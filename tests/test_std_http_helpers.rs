@@ -64,6 +64,7 @@ pub class Script:
         mut out = std.io.stdout()
         Ok(out.write(source).unwrap())
 
+@copy
 pub enum Route:
     Form
     Json

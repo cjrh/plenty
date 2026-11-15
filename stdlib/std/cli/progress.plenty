@@ -2,6 +2,7 @@ from std.io import stderr
 from std.time import Instant, monotonic_now, nanoseconds
 from std.fmt import Formatter, FormatError, stderr_formatter
 
+@copy
 pub enum ProgressError:
     InvalidPosition
     Finished

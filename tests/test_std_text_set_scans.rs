@@ -216,6 +216,7 @@ const VALIDATORS: &str = r#"
 import std.http.cookie
 import std.http.server
 
+@copy
 enum Route:
     Home
 

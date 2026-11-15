@@ -10,6 +10,7 @@ queue. To keep several jobs in flight, collect their results with
 a channel capacity equal to the worker count is not enough.
 
 ```plenty
+@copy
 enum Stopped:
     Cancelled
 

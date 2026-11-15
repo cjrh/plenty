@@ -346,6 +346,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[(Pair
 
 const VECTORS: &str = r#"import std.simd as simd
 
+@copy
 enum Mixed:
     Lanes(simd.f64x2)
     Number(f64)

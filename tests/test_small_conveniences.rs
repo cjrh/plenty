@@ -84,6 +84,7 @@ print(data().get(key(), fallback())).unwrap()
 fn ok_or_preserves_typed_errors_and_composes_with_propagation() {
     native(
         r#"
+@copy
 enum Missing:
     Key(str)
 def find(data: &dict[str, i64]) -> Result[i64, Missing | OverflowError[i64]]:

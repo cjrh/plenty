@@ -7,6 +7,7 @@ from std.io import StreamError
 # Interruption is a retry signal; every other transport cause stays intact.
 # Err reports no progress from that attempt. A short successful read/write must
 # return Ok(count) before a later attempt can report failure. Reader Ok(0) is EOF.
+@copy
 pub enum StepError[E]:
     Interrupted
     Source(E)
@@ -65,6 +66,7 @@ pub protocol Writer[E]:
     def write(self: &mut Writer[E], buffer: &[u8]) -> Result[i64, StepError[E]]:
         pass
 
+@copy
 pub enum ReadFailure[E]:
     Source(E)
     UnexpectedEof
@@ -129,6 +131,7 @@ pub def buffered_reader[E, R: Reader[E]](inner: R, capacity: Positive[i64]) -> R
     buffer.resize(size, 0u8).map_error(StreamError.Allocation)?
     Ok(BufReader[E, R](inner, buffer, 0, 0))
 
+@copy
 pub enum WriteFailure[E]:
     Source(E)
     WriteZero
@@ -138,6 +141,7 @@ pub class Partial[E]:
     pub completed: i64
     pub cause: E
 
+@copy
 pub enum CopyFailure[R, W]:
     Read(i64, ReadFailure[R])
     Write(i64, WriteFailure[W])

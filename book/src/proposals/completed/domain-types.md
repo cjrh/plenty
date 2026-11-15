@@ -26,7 +26,7 @@ pub def buffered_reader[R](inner: R, capacity: i64) -> Result[BufReader[R], Stre
 The failure is a caller bug that the caller could rule out, but every call
 pays for it: a `?`, an error variant to match, and a check on each call. Almost
 every call passes a literal or a default, so the check can never fail at those
-sites. The [consistency rules](../consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail)
+sites. The [consistency rules](consistency-rules.md#rule-5-an-error-type-names-only-what-can-fail)
 (rule 5.3) already say "where a type can state the domain, the parameter uses
 it", and `NonZero[i64]` does this for range and slice steps. No type states
 "at least zero" or "at least one".

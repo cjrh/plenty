@@ -18,6 +18,7 @@ from std.net import NetError, Shutdown
 from std.sync import CancellationToken
 from std.time import Deadline, Duration, deadline_after, monotonic_now, milliseconds
 
+@copy
 pub enum SseError:
     Net(NetError)
     Allocation(AllocError)

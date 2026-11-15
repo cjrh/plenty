@@ -1330,7 +1330,7 @@ mod tests {
 
     #[test]
     fn names_are_found_from_their_anchors() {
-        let text = "class Point:\n    pub x: i64\nenum Color:\n    Red\n";
+        let text = "class Point:\n    pub x: i64\n@copy\nenum Color:\n    Red\n";
         let starts: Vec<usize> = std::iter::once(0)
             .chain(text.match_indices('\n').map(|(i, _)| i + 1))
             .collect();

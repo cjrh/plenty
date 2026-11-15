@@ -279,6 +279,7 @@ export def allocation() -> Result[i32, AllocError] = "calc_allocation":
 # resort when no precise error exists.
 export def failure() -> Result[(), Failure] = "calc_failure":
     Err(Failure.Unspecified)
+@copy
 enum Stage:
     Parse
     Check

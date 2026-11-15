@@ -8,6 +8,7 @@ from std.http import Header, HttpError, Limits, Framing, RequestHead, ResponseHe
 import std.io.typed
 from std.io.typed import Reader, Writer, StepError, Partial, WriteFailure, within
 
+@copy
 pub enum FramingError[E]:
     Transport(E)
     Truncated

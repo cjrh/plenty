@@ -31,9 +31,11 @@ up a stored `Nothing` returns `Some(Nothing)`. Use the
 default argument.
 
 `get` leaves the dictionary and key available and does not allocate. It
-supports numbers, booleans, strings, and enums of such values. It cannot return
-mutable collections or classes; [borrow them instead](#borrow-a-value-that-may-be-absent)
-or use `pop` to take ownership.
+supports values that [copy](../../design/language/05-ownership/01-bindings-moves-and-copies.md),
+including numbers, booleans, strings, and eligible `@copy` classes or enums.
+An ordinary class or enum moves even when its fields or payloads all copy.
+For those values and mutable collections,
+[borrow instead](#borrow-a-value-that-may-be-absent) or use `pop` to take ownership.
 
 ## Read a list element that might be missing
 
@@ -65,9 +67,9 @@ elements, borrow them as shown below, use `pop` to transfer ownership, or
 index is out of range. The report gives the source position, the index, and the
 length: `error: main.plenty:3:11: index out of bounds: index 5, length 3`.
 
-Both forms of `get` leave their source unchanged. Numbers, booleans, and
-enums copy; strings share immutable storage. The returned value remains valid
-if the source is updated or dropped.
+Both forms of `get` leave their source unchanged. Copyable class and enum
+instances require `@copy`; strings share immutable storage. The returned value
+remains valid if the source is updated or dropped.
 
 ## Borrow a value that may be absent
 

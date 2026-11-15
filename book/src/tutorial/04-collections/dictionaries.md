@@ -153,4 +153,5 @@ Grace 20
 ```
 
 Use `iter(view)` for transformations and terminals. Item-view callbacks take
-a key and a value parameter, just like direct `items()` pipelines.
+a key and a value parameter. Start with `iter(scores.items())`; the view
+itself has no pipeline methods.

@@ -31,6 +31,7 @@ fn ordinary_names_return_results() {
         r#"
 class Item:
     value: i64
+@copy
 enum Choice:
     Value(i64)
 def main() -> Result[(), AllocError]:

@@ -44,6 +44,7 @@ pub class Limits:
     pub stall: Duration
 
 # A deadline that passed.
+@copy
 pub enum Expired:
     # No bytes moved for `Limits.idle`.
     Idle
@@ -526,6 +527,7 @@ pub def connection(stream: TcpStream, limits: &Limits) -> Result[Connection, All
     Ok(Connection(stream, input, 0, 0, output, 0, 0, 0, True, True, False, False, False, limits.idle.as_nanoseconds(), limits.stall.as_nanoseconds(), 0u64, 0u64, 0u64, Nothing, 0u64, Nothing))
 
 # What a listener does with a connection that arrives at capacity.
+@copy
 pub enum Admission:
     # Stops accepting until a connection ends; arrivals wait in the kernel's
     # backlog, and are refused by the kernel once it is full.

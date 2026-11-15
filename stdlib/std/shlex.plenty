@@ -1,4 +1,5 @@
 # Shell-style words, not a shell interpreter. Positions count Unicode scalars.
+@copy
 pub enum ShlexError:
     UnclosedQuote(i64)
     TrailingEscape(i64)

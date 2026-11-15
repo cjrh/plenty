@@ -2,6 +2,7 @@ import btree
 import red_black
 
 # Every failure exits unsuccessfully; no assertion relies on printed output.
+@copy
 enum TestError:
     BTreeInvariant
     RedBlackInvariant

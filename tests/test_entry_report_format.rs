@@ -9,6 +9,7 @@ pub class Problem:
         output.text(&self.message)
     def __del__(self) -> ():
         print("dropped").unwrap()
+@copy
 pub enum Code:
     Value(i64)
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
@@ -99,7 +100,7 @@ fn incomplete_sum_and_inexact_or_private_methods_keep_structural_fallback() {
         );
     }
     reports(
-        "pub class Formatter[W]:\n    pass\npub enum FormatError:\n    Failed\npub class Lookalike:\n    value: i64\n    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\ndef main() -> Result[(), Lookalike]:\n    Err(Lookalike(9))\n",
+        "pub class Formatter[W]:\n    pass\n@copy\npub enum FormatError:\n    Failed\npub class Lookalike:\n    value: i64\n    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        Ok(())\ndef main() -> Result[(), Lookalike]:\n    Err(Lookalike(9))\n",
         "",
         "error: main returned Lookalike(value=9)\n",
     );
@@ -229,4 +230,98 @@ fn closed_stderr_and_broken_pipe_preserve_cleanup_and_status() {
         assert_eq!(output.status.code(), Some(1));
         assert_eq!(output.stdout, b"dropped\n");
     }
+}
+
+#[test]
+fn modern_display_precedes_legacy_and_debug_is_its_fallback() {
+    for (methods, expected) in [
+        (
+            "    def display[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        output.text('display')\n    def debug[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        output.text('debug')\n",
+            "display",
+        ),
+        (
+            "    def debug[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        output.text('debug')\n",
+            "debug",
+        ),
+    ] {
+        let source = format!(
+            "from std.fmt import Formatter, FormatError\nclass Local:\n    value: i64\n{methods}    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:\n        output.text('legacy')\n    def __del__(self) -> ():\n        print('dropped').unwrap()\ndef main() -> Result[(), Local]:\n    Err(Local(1))\n"
+        );
+        reports(
+            &source,
+            "dropped\n",
+            &format!("error: main returned {expected}\n"),
+        );
+    }
+}
+
+#[test]
+fn structural_reports_use_nested_debug_and_borrow_the_error_once() {
+    reports(
+        r#"
+from std.fmt import Formatter, FormatError
+class Detail:
+    value: i64
+    pub def debug[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        output.text('detail')
+    def __del__(self) -> ():
+        print('dropped').unwrap()
+class Error:
+    detail: Detail
+def main() -> Result[(), Error]:
+    Err(Error(Detail(7)))
+"#,
+        "dropped\n",
+        "error: main returned Error(detail=detail)\n",
+    );
+}
+
+#[test]
+fn display_failure_preserves_prefix_and_cleanup() {
+    reports(
+        r#"
+from std.fmt import Formatter, FormatError
+class Error:
+    pub def display[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        output.text('partial')?
+        Err(FormatError.InvalidSpec)
+    def __del__(self) -> ():
+        print('dropped').unwrap()
+def main() -> Result[(), Error]:
+    Err(Error())
+"#,
+        "dropped\n",
+        "error: main returned partial [report unavailable]\n",
+    );
+}
+
+#[test]
+fn display_reporting_respects_the_record_budget_and_depth() {
+    let types = TYPES.replace("def format[W]", "def display[W]");
+    let prefix = "error: main returned ";
+    let text = "x".repeat(16384 - prefix.len());
+    reports(
+        &format!("{types}\ndef main() -> Result[(), Problem]:\n    Err(Problem('{text}'))\n"),
+        "dropped\n",
+        &format!("{prefix}{text} [report unavailable]\n"),
+    );
+    let recursive = types.replace("output.text(&self.message)", "output.format(f\"{self}\")");
+    reports(
+        &format!("{recursive}\ndef main() -> Result[(), Problem]:\n    Err(Problem('input'))\n"),
+        "dropped\n",
+        "error: main returned  [report unavailable]\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn display_reporting_does_not_need_allocations() {
+    let types = TYPES.replace("def format[W]", "def display[W]");
+    reports(
+        &format!(
+            "{types}\ndef main() -> Result[(), Problem]:\n    error = Problem('input')\n    print('__test_fail_allocations_after_0__').unwrap()\n    Err(error)\n"
+        ),
+        "__test_fail_allocations_after_0__\ndropped\n",
+        "error: main returned input\n",
+    );
 }

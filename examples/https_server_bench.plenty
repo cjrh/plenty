@@ -18,6 +18,7 @@ from std.http.server import Exchange, Report
 from std.http.tls import TlsTransport
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Small
     Large
@@ -51,6 +52,7 @@ def setting(name: &str, fallback: i64) -> Result[i64, IoError | ParseError]:
         case Nothing:
             Ok(fallback)
 
+@copy
 enum ConfigError:
     Missing(str)
 
