@@ -201,6 +201,72 @@ fn karatsuba_unequal_halves_and_carry_chains() {
 }
 
 #[test]
+fn transform_products_cover_padding_carries_signs_and_unequal_operands() {
+    let mut body = String::new();
+    let mut expected = String::new();
+    // Exercise the transform threshold and its seven-eighths occupancy gate.
+    // All-one digits maximize convolution coefficients and carry chains.
+    for (index, (a, b)) in [
+        (1023, 1023),
+        (1024, 1024),
+        (1025, 1025),
+        (1535, 1535),
+        (1536, 1536),
+        (1537, 1537),
+        (1791, 1791),
+        (1792, 1792),
+        (1793, 1793),
+        (2048, 1024),
+        (1024, 2048),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let x = "f".repeat(a * 16);
+        let y = "f".repeat(b * 16);
+        let lo = a.min(b) * 16;
+        let hi = a.max(b) * 16;
+        let product = format!(
+            "{}e{}{}1",
+            "f".repeat(lo - 1),
+            "f".repeat(hi - lo),
+            "0".repeat(lo - 1)
+        );
+        body.push_str(&format!("    x{index} = parse(\"{x}\", 16, 100000)?\n    y{index} = parse(\"-{y}\", 16, 100000)?\n    p{index} = (x{index} * y{index})?\n    print(p{index}.to_string(16, 100000)? == \"-{product}\")?\n"));
+        expected.push_str("True\n");
+    }
+    // Sparse operands exercise zero coefficients and a carry into the top limb.
+    body.push_str("    a = (from_i64(1) << 65535)?\n    p = (a * a)?\n    print(p == (from_i64(1) << 131070)?, a.bit_length() == 65536)?\n");
+    expected.push_str("True True\n");
+    assert_eq!(run(&body, false), expected);
+    assert_eq!(run(&body, true), expected);
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn transform_allocation_failures_preserve_operands() {
+    let output = run(
+        r#"    a = (from_i64(1) << 65535)?
+    original = copy(a)?
+    mut failures = 0
+    for budget in range(80):
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        product = a * a
+        print("__test_restore_allocations__")?
+        if product.is_err():
+            unchecked:
+                failures += 1
+        if a != original:
+            return Err(BigIntError.OutOfRange)
+    print(failures > 0, a == original)?
+"#,
+        true,
+    );
+    assert!(output.ends_with("True True\n"), "{output}");
+}
+
+#[test]
 fn limb_destructuring_keeps_scalar_values() {
     let dir = tempfile::tempdir().unwrap();
     let source = r#"def product(a: u64, b: u64) -> u64:

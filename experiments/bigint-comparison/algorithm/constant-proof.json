@@ -1,0 +1,12 @@
+{
+  "primes": [
+    998244353,
+    1004535809
+  ],
+  "primitive_root": 3,
+  "common_order": 2097152,
+  "maximum_coefficient": 4503462189465600,
+  "crt_product": 1002772198720536577,
+  "random_reduction_pairs": 20000,
+  "seed": 987142
+}

@@ -1,0 +1,44 @@
+# Extracted production forward transform; setup is outside the repeated loop.
+def transform_multiply(a: u64, b: u64, p: u64, inverse: u64) -> u64:
+    unchecked:
+        t = a.wrapping_mul(b)
+        m = t.wrapping_mul(inverse) & 4294967295u64
+        value = t.wrapping_add(m.wrapping_mul(p)) >> 32u64
+        value.wrapping_sub(p) if value >= p else value
+
+def transform_forward(data: &mut [u64], roots: &[u64], p: u64, inverse: u64) -> ():
+    unchecked:
+        n = len(data)
+        mut width = n
+        mut step = 1
+        while width >= 2:
+            half = width // 2
+            mut start = 0
+            while start < n:
+                block = &mut data[start:start + width]
+                transform_forward_block(&mut block[:half], &mut block[half:], roots, step, p, inverse)
+                start += width
+            width = half
+            step *= 2
+
+def transform_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64, inverse: u64) -> ():
+    unchecked:
+        mut k = 0
+        for j in range(len(low)):
+            u = low[j]
+            v = high[j]
+            sum = u + v
+            difference = u + p - v
+            low[j] = sum - p if sum >= p else sum
+            high[j] = transform_multiply(difference - p if difference >= p else difference, roots[k], p, inverse)
+            k += step
+
+def main() -> Result[(), AllocError | IoError | ParseError | OverflowError[u64]]:
+    argv = args()?
+    count = i64.parse(argv[1])?
+    mut data = [u64(i) % 998244353u64 for i in range(8192)]?
+    roots = [301989884u64 for _ in range(4096)]?
+    for _ in range(count):
+        transform_forward(&mut data, &roots, 998244353u64, 998244351u64)
+    print(data[0])?
+    Ok(())

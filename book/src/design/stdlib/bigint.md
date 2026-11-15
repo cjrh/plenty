@@ -74,6 +74,14 @@ and dictionary/set keys are not supported; use `cmp` for ordering.
 
 Addition/subtraction allocate proportional to the operand lengths;
 multiplication uses schoolbook arithmetic and balanced Karatsuba from 32 limbs.
+Large, balanced products can use exact two-prime number-theoretic transforms
+(NTTs), CRT coefficient recovery, and base-2¹⁶ carries. The scalar radix-2
+transforms reuse fixed scratch and computed twiddle tables. Fixed twiddles use
+Shoup reduction; pointwise products use Montgomery reduction. They require both
+operands to have at least 1,024 limbs, a size ratio at most 2:1, at least
+seven-eighths transform occupancy, and at most 524,288 combined limbs; other
+shapes retain Karatsuba or schoolbook multiplication. This transform bound is
+an algorithm-selection limit, not a limit on BigInt precision.
 Division uses Knuth's Algorithm D with temporary base-2³² digits so trial
 quotients fit `u64`. Karatsuba borrows operand limb views and adds its three
 partial products directly into the result; division holds views of its fixed
@@ -81,7 +89,7 @@ scratch buffers while computing quotient digits. Parsing and rendering split
 digit ranges recursively, sharing binary and exact radix powers within one
 conversion. Single-word rendering uses scalar division without a power cache.
 All their scratch allocations are fallible. No native multiplication kernel is
-used, and the threshold is an implementation choice, not a performance promise.
+used, and crossover choices are implementation details, not performance promises.
 
 Text conversion has explicit digit caps. Formatting through `display[W](out:
 &mut Formatter[W]) -> Result[(), FormatError]` uses decimal with the default
@@ -111,3 +119,11 @@ numeric carry bit, not a mode selection.
   section 4.3.3: Karatsuba's three-product multiplication algorithm. These are
   direct Plenty implementations of published algorithms; no third-party code
   or data ships.
+- [FLINT: Multiplication with several primes and CRT](https://flintlib.org/doc/algorithms/fft/multimodular.html):
+  the published multimodular convolution method used for large multiplication,
+  also used by Malachite’s FLINT-derived small-prime FFT. This is an independent
+  integer radix-2 implementation; no FLINT/Malachite code or tables ship.
+- Peter L. Montgomery, [Modular multiplication without trial division](https://doi.org/10.1090/S0025-5718-1985-0777282-X):
+  exact modular products for roots and pointwise transform multiplication.
+- [FLINT: Multiplication by a fixed operand (Shoup)](https://flintlib.org/doc/algorithms/arithmetic/shoup.html):
+  precomputed quotient estimates for exact fixed-twiddle products.

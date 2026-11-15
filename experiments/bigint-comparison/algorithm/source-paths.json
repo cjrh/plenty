@@ -1,0 +1,20 @@
+{
+  "source": "/home/caleb/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/malachite-nz-0.14.0",
+  "hashes": {
+    "src/platform_64.rs": "297b7b6f08b4f9a0dc50d6f4e281ff73846c2c0575b2fe9e33cd5ee5d3dedddd",
+    "src/natural/arithmetic/mul/mod.rs": "95020bf1a46b6feafb74383d2d828a32e3f5f21a9394a3d3fe99e619d8bf1cc9",
+    "src/natural/arithmetic/mul/toom.rs": "e8018e93a36306986187af23cb4ecc4ce1a0d14ab7e8ad48254ac37ec3fb864f",
+    "src/natural/arithmetic/mul/fft/mod.rs": "53931b142448dcbf129f9f09b3d3dd2255a970045fcfe84e19c818d1a3e683ef",
+    "src/natural/arithmetic/mul/fft/body.rs": "0108834b897b811e5cc9dd03948f0d7a950b62a08ef573a77496032422a860e4"
+  },
+  "balanced_benchmark_dispatch": {
+    "16": "Small limb multiply",
+    "256": "4 limbs: basecase",
+    "2048": "32 limbs: Toom22",
+    "8192": "128 limbs: Toom33",
+    "65536": "1024 limbs: small-prime FFT"
+  },
+  "archive_sha256": "7ac55a9e8426447c374668b93c35b7b6ab43a21dc7ba97ad0e852be2305a5900",
+  "verified_extracted_files": 2588,
+  "verification": "Every existing source file was byte-compared with its member in the cached crate archive; archive SHA256 matches isolated Cargo.lock."
+}

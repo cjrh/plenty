@@ -1,0 +1,3 @@
+main loop 0x400440-0x400458: 6 instructions
+main loop 0x400468-0x40047a: 4 instructions
+main loop 0x400518-0x4005b2: 32 instructions

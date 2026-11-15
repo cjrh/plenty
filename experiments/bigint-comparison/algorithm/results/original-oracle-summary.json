@@ -1,0 +1,6 @@
+{
+  "cases": 195,
+  "matching_output_lines": 16378,
+  "plenty_output_sha256": "625d891b8d8dcf1010cc9ac8bcbefa06ec1c74fd92e1ee4508de02ff4fde5e71",
+  "float_comparison": "exact IEEE754 bits, spelling normalized"
+}

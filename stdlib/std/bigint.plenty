@@ -2,6 +2,10 @@
 # Arithmetic algorithms follow the base-power limb approach described in
 # The Art of Computer Programming, vol. 2, sections 4.3.1 and 4.3.3
 # (Donald Knuth): schoolbook arithmetic, Knuth division and Karatsuba.
+# Large multiplication independently implements small-prime NTT/CRT, with
+# Montgomery products and Shoup fixed-twiddle reduction:
+# https://flintlib.org/doc/algorithms/fft/multimodular.html
+# No third-party code or data is included.
 from std.fmt import Formatter, FormatError
 
 pub enum BigIntError:
@@ -580,6 +584,8 @@ def add_shifted(out: &mut [u64], value: &[u64], offset: i64) -> ():
 
 def multiply(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
     unchecked:
+        if use_transform(len(a), len(b)):
+            return multiply_transform(a, b)
         mut out = zeros(len(a) + len(b))?
         if len(a) >= 32 and len(b) >= 32 and len(a) <= 2 * len(b) and len(b) <= 2 * len(a):
             n = len(a) if len(a) > len(b) else len(b)
@@ -598,6 +604,175 @@ def multiply(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
         else:
             multiply_schoolbook(a, b, &mut out)
         Ok(out)
+
+# Full transforms have a power-of-two padding cost. Retain Karatsuba in the
+# sparsely occupied band after each size jump, as well as for small/unbalanced
+# inputs. The upper bound is the common root order of the two primes.
+def use_transform(a: i64, b: i64) -> bool:
+    if a < 1024 or b < 1024:
+        return False
+    if a > 524288 or b > 524288:
+        return False
+    if a > 2 * b or b > 2 * a or a + b > 524288:
+        return False
+    unchecked:
+        digits = 4 * (a + b)
+        mut n = 1
+        while n < digits:
+            n *= 2
+        digits >= 7 * (n // 8)
+
+# Exact small-prime convolution followed by CRT and base-2^16 carry recovery.
+# This is an independent implementation of the multimodular FFT method (see
+# the reference acknowledgements), rather than a port of Malachite/FLINT code.
+# Both primes have primitive root 3; their common transform order is 2^21.
+# At that limit a coefficient is below 2^20 * 65535^2 < p*q < 2^60.
+def multiply_transform(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
+    unchecked:
+        digits = 4 * (len(a) + len(b))
+        mut n = 1
+        while n < digits:
+            n *= 2
+        mut x = zeros(n)?
+        mut y = zeros(n)?
+        mut roots = zeros(n)?
+        mut first = zeros(digits)?
+        transform_product(a, b, &mut x, &mut y, &mut roots, 998244353u64, 998244351u64)
+        transform_copy(&x, &mut first)
+        transform_product(a, b, &mut x, &mut y, &mut roots, 1004535809u64, 1004535807u64)
+        mut out = zeros(len(a) + len(b))?
+        transform_recover(&first, &x, &mut out)
+        Ok(out)
+
+def transform_copy(source: &[u64], out: &mut [u64]) -> ():
+    for i in range(len(out)):
+        out[i] = source[i]
+
+# Montgomery reduction with R=2^32. Inputs are below p<2^30, so t+m*p
+# is below 2^63. The low-word multiplication deliberately wraps modulo R.
+def transform_multiply(a: u64, b: u64, p: u64, inverse: u64) -> u64:
+    unchecked:
+        t = a.wrapping_mul(b)
+        m = t.wrapping_mul(inverse) & 4294967295u64
+        value = t.wrapping_add(m.wrapping_mul(p)) >> 32u64
+        value.wrapping_sub(p) if value >= p else value
+
+def transform_power(base: u64, exponent: u64, p: u64) -> u64:
+    unchecked:
+        mut x = base
+        mut power = exponent
+        mut result = 1u64
+        while power > 0u64:
+            if power & 1u64 != 0u64:
+                result = result * x % p
+            x = x * x % p
+            power >>= 1u64
+        result
+
+def transform_load(words: &[u64], out: &mut [u64]) -> ():
+    unchecked:
+        for i in range(len(words)):
+            word = words[i]
+            for j in range(4):
+                out[4 * i + j] = (word >> (u64(j) * 16u64)) & 65535u64
+        for i in range(4 * len(words), len(out)):
+            out[i] = 0u64
+
+def transform_product(a: &[u64], b: &[u64], x: &mut [u64], y: &mut [u64], roots: &mut [u64], p: u64, inverse: u64) -> ():
+    unchecked:
+        n = len(x)
+        r = 4294967296u64 % p
+        root = transform_power(3u64, (p - 1u64) // u64(n), p) * r % p
+        roots[0] = 1u64
+        for i in range(1, len(roots) // 2):
+            roots[i] = transform_multiply(roots[i - 1], root, p, inverse)
+        for i in range(len(roots) // 2):
+            roots[len(roots) // 2 + i] = (roots[i] << 32u64) // p
+        transform_load(a, x)
+        transform_load(b, y)
+        transform_forward(x, roots, p)
+        transform_forward(y, roots, p)
+        for i in range(n):
+            x[i] = transform_multiply(x[i], y[i], p, inverse)
+        transform_inverse(x, roots, p)
+        # Pointwise Montgomery multiplication contributes R^-1. This scale
+        # includes R^2, cancelling both that factor and the final REDC.
+        scale = transform_power(u64(n), p - 2u64, p) * (r * r % p) % p
+        for i in range(n):
+            x[i] = transform_multiply(x[i], scale, p, inverse)
+
+# Decimation in frequency produces bit-reversed output. The inverse uses
+# decimation in time, so no bit-reversal permutation or its scratch is needed.
+def transform_forward(data: &mut [u64], roots: &[u64], p: u64) -> ():
+    unchecked:
+        n = len(data)
+        mut width = n
+        mut step = 1
+        while width >= 2:
+            half = width // 2
+            mut start = 0
+            while start < n:
+                block = &mut data[start:start + width]
+                transform_forward_block(&mut block[:half], &mut block[half:], roots, step, p)
+                start += width
+            width = half
+            step *= 2
+
+def transform_inverse(data: &mut [u64], roots: &[u64], p: u64) -> ():
+    unchecked:
+        n = len(data)
+        mut width = 2
+        mut step = n // 2
+        while width <= n:
+            half = width // 2
+            mut start = 0
+            while start < n:
+                block = &mut data[start:start + width]
+                transform_inverse_block(&mut block[:half], &mut block[half:], roots, step, p)
+                start += width
+            width *= 2
+            step //= 2
+
+def transform_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64) -> ():
+    unchecked:
+        mut k = 0
+        for j in range(len(low)):
+            u = low[j]
+            v = high[j]
+            sum = u + v
+            difference = u + p - v
+            low[j] = sum - p if sum >= p else sum
+            high[j] = transform_twiddle(difference - p if difference >= p else difference, roots[k], roots[len(roots) // 2 + k], p)
+            k += step
+
+def transform_inverse_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64) -> ():
+    unchecked:
+        mut k = 0
+        for j in range(len(low)):
+            root = roots[0] if k == 0 else p - roots[len(roots) // 2 - k]
+            factor = roots[len(roots) // 2] if k == 0 else 4294967295u64 - roots[len(roots) - k]
+            u = low[j]
+            v = transform_twiddle(high[j], root, factor, p)
+            sum = u + v
+            difference = u + p - v
+            low[j] = sum - p if sum >= p else sum
+            high[j] = difference - p if difference >= p else difference
+            k += step
+
+def transform_recover(first: &[u64], second: &[u64], out: &mut [u64]) -> ():
+    unchecked:
+        mut carry = 0u64
+        for i in range(len(out)):
+            mut word = 0u64
+            for j in range(4):
+                k = 4 * i + j
+                a = first[k]
+                b = second[k]
+                difference = b + 1004535809u64 - a
+                digit = (difference * 669690699u64 % 1004535809u64) * 998244353u64 + a + carry
+                word |= (digit & 65535u64) << (u64(j) * 16u64)
+                carry = digit >> 16u64
+            out[i] = word
 
 def multiply_schoolbook(a: &[u64], b: &[u64], out: &mut [u64]) -> ():
     unchecked:
@@ -768,3 +943,13 @@ def bitwise(a: &BigInt, b: &BigInt, operation: i64) -> Result[BigInt, AllocError
                 out[i] = word
                 carry = next
         Ok(canonical(negative, out))
+
+# Shoup's fixed-multiplier reduction with R=2^32. Here factor=floor(root*R/p)
+# and value<p<2^30. The quotient estimate is at most one too small, so the
+# residual lies in [0,2p); all products fit u64. Inverse twiddles use
+# floor((p-root)*R/p) = R-1-floor(root*R/p), since root is nonzero modulo p.
+def transform_twiddle(value: u64, root: u64, factor: u64, p: u64) -> u64:
+    unchecked:
+        q = value.wrapping_mul(factor) >> 32u64
+        r = value.wrapping_mul(root).wrapping_sub(q.wrapping_mul(p))
+        r.wrapping_sub(p) if r >= p else r
