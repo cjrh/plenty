@@ -1693,8 +1693,9 @@ Four-rounding-mode randomized/IEEE checks cover all state fields, final masked
 exception flags, immutable masses, unaligned guarded boundaries and nonpositive
 NULL trips. NaN payloads and trapping exception order are not promised.
 No production compiler, public vector API or collection layout changes here.
-Public boundary costs, list/clist layout, other targets and broader workload
-qualification remain in issue #967 and B23. See the retained experiment
+The source-level continuation was subsequently rejected for adoption; its
+[rejection record](#rejected-declared-vector-adoption-issue-967) preserves the
+result and remote branch. See the retained experiment
 `experiments/declared-vectors/paired.md` for attribution, raw data and reproduction.
 
 ## Scalar floating-load folding experiment (issue #980)
@@ -1759,7 +1760,7 @@ layout, Vec4 and public API qualification remain outside this delivery. The
 candidate preserves scalar ordered reduction/sqrt/div and does not integrate
 current adjacent-magnitude pairing; this result does not reject all possible
 native lowerings.
-[Outstanding SIMD scope](../backlog.md) remains in B23 and issue #967.
+[Outstanding SIMD scope](../backlog.md) remains in B23; issue #967's vector adoption was subsequently rejected.
 
 
 ## Integer latch scheduling experiment (issue #977)
@@ -1833,3 +1834,21 @@ counts. It is separate from issue #972's production adoption of d27 (local PR
 local implementation and qualification, not publication or production backend
 adoption: no lockfile changes ship here. Issue #977 remains open for those
 steps; the fork needs user-authorized publication before its production pin.
+
+## Rejected declared-vector adoption (issue #967)
+
+The source-level Vec3 prototype in local PR #1274 implemented the initial f64
+API and private native-local lowering while retaining ordinary class storage.
+Actual compiled Plenty n-body retired 22.25% fewer AVX2 instructions, but median
+cycles were effectively tied (+0.24%; task-clock -0.47%). The default CPU
+profile was 14.82% slower. The user rejected adoption; issue #967 is closed as
+rejected and the prototype is not merged into main. No public `std.vector`,
+compact vector layout, collection redesign or benchmark rewrite is delivered.
+
+The implementation, detailed source report and raw sample identities are
+preserved on remote branch `origin/codex/issue-967-source-vec3`, remote ref
+`refs/heads/codex/issue-967-source-vec3`. Its report is
+`experiments/declared-vectors/source.md`. Local raw evidence and exact compiler
+binaries are archived under `target/merged-pr-evidence/pr-1274-rejected/`.
+These are historical results, not a deferred implementation queue. Inline
+arrays and the earlier native-only experiments remain independent deliveries.
