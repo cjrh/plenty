@@ -32,9 +32,10 @@ class BookOutputTests(unittest.TestCase):
             (root / "nested/chapter.html").write_text(
                 '<script src="../theme/plenty-highlight-d.js"></script>'
             )
-            self.assertEqual(check(root), (4, []))
+            self.assertEqual(check(root, "/plenty/"), (4, []))
             (root / "404.html").write_text('<a href="/index.html">wrong prefix</a>')
-            self.assertTrue(any("outside site prefix" in error for error in check(root)[1]))
+            self.assertTrue(any("outside site prefix" in error for error in check(root, "/plenty/")[1]))
+            self.assertEqual(check(root), (4, []))
 
     def test_cross_version_links_stay_within_whole_artifact(self):
         with tempfile.TemporaryDirectory() as directory:

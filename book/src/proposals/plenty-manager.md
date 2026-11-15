@@ -164,7 +164,7 @@ files or unsupported cross-compilation targets.
 
 ## Download trust, persistence and failure behavior
 
-Get compiler versions from the fixed `cjrh/plenty` GitHub Releases repository
+Get compiler versions from the fixed `plentylang/plenty` GitHub Releases repository
 using verified system TLS, including certificate and hostname checks on each
 request. The repository identity and GitHub HTTPS are the accepted authentication
 contract. Read release tags and asset identities through GitHub's API; exact
@@ -221,7 +221,7 @@ bytes, process identity and explicitly inherited installation leases.
 The initial admission is Linux x86-64 GNU. Storage uses the XDG data directory
 (or `PLENTY_MANAGER_HOME`), private staging, per-installation leases and an
 immutable atomic state journal. Compiler archives include their matching Linux
-engines. Exact installs and updates now use the existing `cjrh/plenty` GitHub
+engines. Exact installs and updates now use the existing `plentylang/plenty` GitHub
 Releases assets over verified HTTPS. Explicit updates refuse to downgrade an
 existing default. There is no separate signing service or unconfigured trust-root
 gate. The separate repository documents bounds, recovery and API compatibility.

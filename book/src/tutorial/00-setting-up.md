@@ -37,7 +37,7 @@ sudo pacman -Syu --needed gcc
 
 ## Download and extract Plenty
 
-Open [Plenty's GitHub Releases](https://github.com/cjrh/plenty/releases) and
+Open [Plenty's GitHub Releases](https://github.com/plentylang/plenty/releases) and
 choose a published release. Under **Assets**, download both:
 
 - `plenty-VERSION-x86_64-unknown-linux-gnu.tar.gz`

@@ -1,14 +1,14 @@
 # Documentation versions
 
-The [documentation site](https://cjrh.info/plenty/) is assembled from an explicit
+The [documentation site](https://plentylang.org/) is assembled from an explicit
 manifest, `book/releases.json`, and the current checkout. There are no published
 versions in the initial manifest: a Git tag alone does not establish a release.
 
 | Path | Documentation |
 | --- | --- |
-| `/plenty/` | Selected stable release, or development while `stable` is null |
-| `/plenty/dev/` | Current `main` |
-| `/plenty/VERSION/` | Admitted release from its pinned source commit |
+| `/` | Selected stable release, or development while `stable` is null |
+| `/dev/` | Current `main` |
+| `/VERSION/` | Admitted release from its pinned source commit |
 
 Development pages show **Development**, their source commit, and any local
 changes. Released pages show **Plenty VERSION**. Each book includes a version
@@ -67,7 +67,7 @@ uploaded. Logged mdBook errors are fatal even if the renderer exits successfully
 
 The first stable admission deliberately changes the root's content from
 development to stable. Existing chapter paths found in stable continue to work.
-Development-only paths get small forwarding pages to `/plenty/dev/`, preserving
+Development-only paths get small forwarding pages to `/dev/`, preserving
 queries and fragments with JavaScript and offering an ordinary link without it.
 The builder creates these for development pages present at build time; it is
 not a historical redirect registry for subsequently deleted or renamed chapters.
@@ -75,7 +75,9 @@ not a historical redirect registry for subsequently deleted or renamed chapters.
 GitHub supplies the site's root 404 page for missing URLs in any version.
 JavaScript forwards known version prefixes to their corresponding 404 page;
 without JavaScript the root 404 and version menu remain usable. No server-side
-rewrite rules, new domain settings, token, or extra Pages environment are needed.
+rewrite rules, token, or extra Pages environment are needed for version switching.
+The site domain is configured separately as described in
+[documentation deployment](documentation-deployment.md#repository-transfer-and-custom-domain).
 
 Local admission experiments can use `--manifest /tmp/releases.json` and
 `--output /tmp/docs-preview` without changing the reviewed manifest. The output

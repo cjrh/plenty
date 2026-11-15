@@ -16,7 +16,7 @@ class Links(HTMLParser):
         self.urls.extend(value for key, value in attrs if key in ("href", "src") and value)
 
 
-def check(root, prefix="/plenty/", *, site_root=None, site_prefix=None):
+def check(root, prefix="/", *, site_root=None, site_prefix=None):
     root = root.resolve()
     site_root = (site_root or root).resolve()
     site_prefix = site_prefix or prefix
