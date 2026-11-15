@@ -10,7 +10,7 @@ use crate::text_io::{self, Error, Kind};
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 mod native {
     use super::*;
-    use std::ffi::{CStr, OsStr};
+    use std::ffi::{CStr, CString, OsStr};
     use std::os::fd::{AsFd, AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -145,12 +145,18 @@ mod native {
         flags: u64,
         files: u128,
         inherited: &Collection,
+        replace: bool,
     ) -> Result<u128, Error> {
+        // Replacement permits only environment edits and explicit inherited files.
+        // Reject process-global setup before Command can apply any of it.
+        if replace && flags & !CLEAR_ENV != 0 {
+            return Err(Kind::InvalidInput.into());
+        }
         let spec = spec.strip_suffix(&[0]).ok_or(Kind::InvalidInput)?;
         let mut parts = spec.split(|byte| *byte == 0);
         let mut next = || parts.next().ok_or(Kind::InvalidInput);
         let program = next()?;
-        if program.is_empty() {
+        if program.is_empty() || (replace && !program.starts_with(b"/")) {
             return Err(Kind::InvalidInput.into());
         }
         let mut command = Command::new(OsStr::from_bytes(program));
@@ -247,6 +253,72 @@ mod native {
             if *slot < 3 {
                 return Err(Kind::InvalidInput.into());
             }
+        }
+        if replace {
+            // Construct execve's environment without changing this process.
+            // Rust Command::exec can reset signal dispositions before a failed
+            // exec; direct execve keeps failure transparent for proxy callers.
+            let mut environment = if flags & CLEAR_ENV != 0 {
+                std::collections::BTreeMap::new()
+            } else {
+                std::env::vars_os().collect()
+            };
+            for (key, value) in command.get_envs() {
+                match value {
+                    Some(value) => {
+                        environment.insert(key.to_owned(), value.to_owned());
+                    }
+                    None => {
+                        environment.remove(key);
+                    }
+                }
+            }
+            let cstring =
+                |value: &[u8]| CString::new(value).map_err(|_| Error::from(Kind::InvalidInput));
+            let executable = cstring(command.get_program().as_bytes())?;
+            let mut arguments = vec![executable.clone()];
+            for argument in command.get_args() {
+                arguments.push(cstring(argument.as_bytes())?);
+            }
+            let mut variables = Vec::with_capacity(environment.len());
+            for (key, value) in environment {
+                let mut pair = key.as_bytes().to_vec();
+                pair.push(b'=');
+                pair.extend_from_slice(value.as_bytes());
+                variables.push(cstring(&pair)?);
+            }
+            let mut argv: Vec<_> = arguments.iter().map(|value| value.as_ptr()).collect();
+            argv.push(std::ptr::null());
+            let mut envp: Vec<_> = variables.iter().map(|value| value.as_ptr()).collect();
+            envp.push(std::ptr::null());
+            // Owners remain live across the syscall; only exec success skips
+            // restoration. Callers must quiesce other threads that spawn tools.
+            let mut old_flags = [-1; 64];
+            let outcome = (|| {
+                for (index, &fd) in descriptors[..count].iter().enumerate() {
+                    // SAFETY: live borrowed File descriptors.
+                    old_flags[index] = unsafe { fcntl(fd, 1) };
+                    if old_flags[index] == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                for &fd in &descriptors[..count] {
+                    // SAFETY: live borrowed File descriptors.
+                    if unsafe { fcntl(fd, 2, 0) } == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
+                // SAFETY: NUL-terminated argv/envp arrays borrow live CStrings.
+                unsafe { libc::execve(executable.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
+                Err(std::io::Error::last_os_error())
+            })();
+            for (index, &fd) in descriptors[..count].iter().enumerate() {
+                // SAFETY: owners remain borrowed and each flag was observed.
+                if old_flags[index] != -1 && unsafe { fcntl(fd, 2, old_flags[index]) } == -1 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+            }
+            return outcome.map_err(Into::into);
         }
         if count != 0 {
             // SAFETY: after fork this callback only uses async-signal-safe
@@ -541,7 +613,11 @@ mod native {
 
 /// `__process_spawn`, the process operation with separate redirection and inheritance operands.
 #[inline(always)]
-pub(super) unsafe fn spawn_call(operands: [u128; 5], descriptor: *const Type) -> u128 {
+pub(super) unsafe fn spawn_call(
+    operands: [u128; 5],
+    descriptor: *const Type,
+    replace: bool,
+) -> u128 {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     {
         let [spec, argc, flags, files, inherited] = operands;
@@ -556,13 +632,14 @@ pub(super) unsafe fn spawn_call(operands: [u128; 5], descriptor: *const Type) ->
                     flags as u64,
                     files,
                     &*(inherited as *const Collection),
+                    replace,
                 )
             })
         })
     }
     #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
     {
-        let _ = (operands, descriptor);
+        let _ = (operands, descriptor, replace);
         text_io::result(Err(Kind::Unsupported.into()))
     }
 }

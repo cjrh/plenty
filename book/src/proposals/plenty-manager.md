@@ -1,10 +1,11 @@
 # Plenty toolchain manager
 
-> **Status: Not implemented.** Proposed under [B17](../backlog.md).
+> **Status: Local implementation under review; not distributed.** Tracked under [B17](../backlog.md).
 > The tool is named `plenty-manager`, written in Plenty, and intended for a
 > new, separate repository named `plenty-manager` in the `plentylang`
 > organization on GitHub. This proposal does not create that repository.
-> Commands, configuration and storage below are proposed interfaces.
+> The interfaces below define the intended delivered behavior. Official release
+> trust roots and a published bootstrap compiler are still delivery gates.
 
 ## Motivation and existing behavior
 
@@ -195,6 +196,42 @@ and update fail clearly without network access; no command silently substitutes
 another compiler. A compiler pin improves repeatability but does not pin Git
 sources, native engines, linker/SDK versions or the system C library. See
 [build reproducibility](../design/toolchain/01-building/linking.md).
+
+## Local implementation milestone
+
+The separate local `plenty-manager` repository contains a checked Plenty
+implementation of native setup, exact-version installs, explicit updates,
+side-by-side versions, proxies, project pins, overrides, defaults, removal and
+abandoned-stage recovery. Its compiler prerequisite is
+[`Command.exec`](../design/stdlib/process.md#replacing-the-current-process)
+(issue #988): absolute-path replacement preserving native argument/environment
+bytes, process identity and explicitly inherited installation leases.
+
+The initial admission is Linux x86-64 GNU. Storage uses the XDG data directory
+(or `PLENTY_MANAGER_HOME`), private staging, per-installation leases and an
+immutable atomic state journal. Compiler archives include their matching Linux
+engines. Signed schema-v1 catalogs authenticate exact artifact identities with
+Ed25519, expire within 31 days and persist a sequence/digest replay high-water
+mark. Explicit updates refuse to downgrade an existing default. The separate
+repository documents bounds, recovery, the complete wire contract and fixture
+qualification.
+
+**This is not an adopted production trust root or a distributed manager.**
+The checked-in trust module has no endpoint or key, so automatic installation
+and update fail closed. Release builds need reviewed official endpoints and a
+public key, distributed with the manager binary. Initial key rotation requires
+an explicitly verified replacement manager; there is no online root replacement
+or self-update protocol. Those operational decisions remain for review. A fresh
+installation relies on signature expiry and its trusted clock; it cannot know
+a replay sequence it has never observed.
+
+The implementation also requires a compiler release containing process
+replacement. Publish that prerequisite before pinning an already published
+compiler to build manager releases. Native signed-fixture tests exercise setup
+and installation without a compiler, Rust, Python or other tools on `PATH`,
+but real published archives, official HTTPS distribution, minimum-host
+compatibility and disk-exhaustion qualification remain delivery gates.
+Keep manual archive installation available throughout.
 
 ## Delivery and acceptance
 

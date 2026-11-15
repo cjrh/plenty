@@ -3393,7 +3393,7 @@ operation_entries! {
 }
 // `std.process` and `std.signal`.
 operation_entries! {
-    193 194 195 196 197 198 199 228 229 500 501 502
+    193 194 195 196 197 198 199 228 229 500 501 502 503
 }
 // `std.unicode`.
 operation_entries! {
@@ -3553,9 +3553,9 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             out.write(lazy_finish(owner, key, value, state));
             return;
         }
-        if op == 197 {
+        if op == 197 || op == 503 {
             let operands = read_operands::<5>(op, args);
-            out.write(process::spawn_call(operands, descriptor));
+            out.write(process::spawn_call(operands, descriptor, op == 503));
             return;
         }
         if (419..424).contains(&op) {

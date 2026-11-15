@@ -78,36 +78,36 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.mime`](#stdmime): 2903-2929
 - [`std.net`](#stdnet): 2931-3013
 - [`std.path`](#stdpath): 3015-3032
-- [`std.process`](#stdprocess): 3034-3092
-- [`std.random`](#stdrandom): 3094-3115
-- [`std.ready`](#stdready): 3117-3148
-- [`std.regex`](#stdregex): 3150-3203
-- [`std.report`](#stdreport): 3205-3216
-- [`std.secrets`](#stdsecrets): 3218-3244
-- [`std.shlex`](#stdshlex): 3246-3255
-- [`std.sketch`](#stdsketch): 3257-3295
-- [`std.sketch.xor`](#stdsketchxor): 3297-3308
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3310-3325
-- [`std.signal`](#stdsignal): 3327-3344
-- [`std.simd`](#stdsimd): 3346-3505
-- [`std.stat`](#stdstat): 3507-3540
-- [`std.plot`](#stdplot): 3542-3631
-- [`std.linalg`](#stdlinalg): 3633-3674
-- [`std.sync`](#stdsync): 3676-3708
-- [`std.system`](#stdsystem): 3710-3769
-- [`std.tempfile`](#stdtempfile): 3771-3803
-- [`std.test`](#stdtest): 3805-3847
-- [`std.text`](#stdtext): 3849-3892
-- [`std.thread`](#stdthread): 3894-3898
-- [`std.time`](#stdtime): 3900-3944
-- [`std.tls`](#stdtls): 3946-4028
-- [`std.toml`](#stdtoml): 4030-4129
-- [`std.unicode`](#stdunicode): 4131-4143
-- [`std.units`](#stdunits): 4145-4382
-- [`std.units.catalogue`](#stdunitscatalogue): 4384-5162
-- [`std.url`](#stdurl): 5164-5192
-- [`std.uuid`](#stduuid): 5194-5217
-- [`std.xml`](#stdxml): 5219-5252
+- [`std.process`](#stdprocess): 3034-3093
+- [`std.random`](#stdrandom): 3095-3116
+- [`std.ready`](#stdready): 3118-3149
+- [`std.regex`](#stdregex): 3151-3204
+- [`std.report`](#stdreport): 3206-3217
+- [`std.secrets`](#stdsecrets): 3219-3245
+- [`std.shlex`](#stdshlex): 3247-3256
+- [`std.sketch`](#stdsketch): 3258-3296
+- [`std.sketch.xor`](#stdsketchxor): 3298-3309
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3311-3326
+- [`std.signal`](#stdsignal): 3328-3345
+- [`std.simd`](#stdsimd): 3347-3506
+- [`std.stat`](#stdstat): 3508-3541
+- [`std.plot`](#stdplot): 3543-3632
+- [`std.linalg`](#stdlinalg): 3634-3675
+- [`std.sync`](#stdsync): 3677-3709
+- [`std.system`](#stdsystem): 3711-3770
+- [`std.tempfile`](#stdtempfile): 3772-3804
+- [`std.test`](#stdtest): 3806-3848
+- [`std.text`](#stdtext): 3850-3893
+- [`std.thread`](#stdthread): 3895-3899
+- [`std.time`](#stdtime): 3901-3945
+- [`std.tls`](#stdtls): 3947-4029
+- [`std.toml`](#stdtoml): 4031-4130
+- [`std.unicode`](#stdunicode): 4132-4144
+- [`std.units`](#stdunits): 4146-4383
+- [`std.units.catalogue`](#stdunitscatalogue): 4385-5163
+- [`std.url`](#stdurl): 5165-5193
+- [`std.uuid`](#stduuid): 5195-5218
+- [`std.xml`](#stdxml): 5220-5253
 
 ## `std.actor`
 
@@ -3065,6 +3065,7 @@ class Command
     def process_group(self: &mut Command, mode: ProcessGroup) -> ()
     def inherit_file(self: &mut Command, file: &File) -> Result[i32, IoError]
     def clear_inherited_files(self: &mut Command) -> ()
+    def exec(self) -> Result[(), IoError]
     def spawn(self) -> Result[Child, IoError]
 def command_bytes(program: &list[u8]) -> Result[Command, IoError]
 def command(program: &strview) -> Result[Command, IoError]

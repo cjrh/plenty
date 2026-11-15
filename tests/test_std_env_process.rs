@@ -1762,3 +1762,127 @@ for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSess
         "True True\nTrue True\nTrue\nok\nmerged\nTrue\nok\nmerged\nTrue True\nTrue True\nTrue\nok\nmerged\nTrue\nok\nmerged",
     );
 }
+
+#[test]
+fn exec_replaces_pid_and_preserves_native_arguments_environment_and_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("proxy");
+    let source = r#"import std.process
+
+def main() -> Result[(), AllocError | IoError]:
+    mut command = std.process.command("/bin/sh")?
+    command.arg("-c")?
+    command.arg("printf '%s\\n' \"$$\"; printf '%s%s' \"$1\" \"$RAW\"; exit 37")?
+    command.arg("proxy")?
+    command.arg_bytes(&[254u8]?)?
+    command.env_bytes(&[82u8, 65u8, 87u8]?, &[255u8]?)?
+    command.exec()
+"#;
+    plenty::compile_source_to_executable(source, &executable).unwrap();
+    let child = Command::new(&executable)
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(37));
+    assert_eq!(
+        output.stdout,
+        [format!("{pid}\n").into_bytes(), vec![254, 255]].concat()
+    );
+}
+
+#[test]
+fn exec_preserves_signal_termination() {
+    use std::os::unix::process::ExitStatusExt;
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("proxy");
+    let source = r#"import std.process
+
+def main() -> Result[(), AllocError | IoError]:
+    mut command = std.process.command("/bin/sh")?
+    command.arg("-c")?
+    command.arg("kill -TERM $$")?
+    command.exec()
+"#;
+    plenty::compile_source_to_executable(source, &executable).unwrap();
+    assert_eq!(
+        Command::new(executable).status().unwrap().signal(),
+        Some(15)
+    );
+}
+
+#[test]
+fn failed_exec_returns_errors_without_changing_cwd_or_streams() {
+    assert_eq!(
+        run(&program(
+            r#"
+mut command = std.process.command("/definitely-not-a-plenty-executable")?
+print(bad(&command.exec()))?
+mut changed = std.process.command("/bin/sh")?
+changed.current_dir(&std.path.from_text("/")?)?
+print(bad(&changed.exec()))?
+changed.stdout(Stdio.Piped)
+print(bad(&changed.exec()))?
+print("still running")?
+"#
+        )),
+        "True\nTrue\nTrue\nstill running"
+    );
+}
+
+#[test]
+fn failed_exec_restores_close_on_exec_on_explicit_file_copies() {
+    assert_eq!(
+        run(&program(
+            r#"
+file = open("held", "w")?
+mut replacement = std.process.command("/definitely-not-a-plenty-executable")?
+fd = replacement.inherit_file(&file)?
+print(bad(&replacement.exec()))?
+mut probe = std.process.command("/bin/sh")?
+probe.arg("-c")?
+probe.arg(&f"test ! -e /proc/self/fd/{fd}"?)?
+mut child = probe.spawn()?
+print(child.wait()?.success())?
+"#
+        )),
+        "True\nTrue"
+    );
+}
+
+#[test]
+fn failed_exec_preserves_ignored_signal_dispositions() {
+    use std::os::unix::process::CommandExt;
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("proxy");
+    let source = r#"import std.process
+
+def main() -> Result[(), AllocError | IoError]:
+    bad = std.process.command("/definitely-not-a-plenty-executable")?
+    match bad.exec():
+        case Err(_):
+            pass
+        case Ok(_):
+            pass
+    mut command = std.process.command("/bin/sh")?
+    command.arg("-c")?
+    command.arg("kill -PIPE $$; printf survived")?
+    command.exec()
+"#;
+    plenty::compile_source_to_executable(source, &executable).unwrap();
+    let mut command = Command::new(executable);
+    unsafe extern "C" {
+        fn signal(number: i32, handler: usize) -> usize;
+    }
+    // SAFETY: Linux SIGPIPE=13 and SIG_IGN=1; only this child is changed.
+    unsafe {
+        command.pre_exec(|| {
+            signal(13, 1);
+            Ok(())
+        });
+    }
+    let output = command.output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"survived");
+}

@@ -1785,3 +1785,19 @@ loan holders. The join retains receiver stability and external source loans;
 keeping an earlier item live still prevents another advance across backedges,
 `continue`, source switches, nested chains and lent or resumed pipelines.
 No relaxed shared-item lifetime or runtime descriptor is introduced.
+
+
+## Process replacement for executable proxies (issue #988)
+
+`std.process.Command.exec` provides Linux process replacement with native argument
+and environment bytes, direct PID/status/signal behavior and explicitly inherited
+file copies. Failed replacement preserves working directory, standard streams,
+signal dispositions and descriptor flags. Relative executable paths and setup
+that would alter the calling process before execution are rejected. See
+[process replacement](../design/stdlib/process.md#replacing-the-current-process).
+
+The separately maintained Plenty toolchain-manager application uses this boundary
+for offline compiler selection and installation leases. Manager binary publication
+requires an already published compiler containing this API, adopted official
+release trust roots, and host qualification; the proposal remains active until
+those delivery gates are met.

@@ -18,6 +18,7 @@ pub enum ProcessOp {
     SignalListen,
     DuplicateFile,
     FileDescriptor,
+    Exec,
 }
 
 impl ProcessOp {
@@ -28,6 +29,7 @@ impl ProcessOp {
             "__env_current_dir" => Self::CurrentDir,
             "__env_change_dir" => Self::ChangeDir,
             "__process_spawn" => Self::Spawn,
+            "__process_exec" => Self::Exec,
             "__process_pipe" => Self::Pipe,
             "__process_wait" => Self::Wait,
             "__process_signal" => Self::Signal,
@@ -48,7 +50,7 @@ impl ProcessOp {
             Self::ChangeDir => (vec![bytes()], Ty::Unit),
             // The request, its argument count, stream codes and flags, and
             // the redirected files, then the explicit inherited-file allowlist.
-            Self::Spawn => (
+            Self::Spawn | Self::Exec => (
                 vec![
                     bytes(),
                     Ty::I64,
@@ -56,7 +58,11 @@ impl ProcessOp {
                     Ty::List(Arc::new(Ty::File)),
                     Ty::List(Arc::new(Ty::File)),
                 ],
-                Ty::I64,
+                if self == Self::Exec {
+                    Ty::Unit
+                } else {
+                    Ty::I64
+                },
             ),
             Self::Pipe => (vec![Ty::I64, Ty::U8], Ty::File),
             Self::Wait => (vec![Ty::I64, Ty::Bool], Ty::I64),
@@ -70,7 +76,7 @@ impl ProcessOp {
         (inputs, sum::result(output, sum::io_error()))
     }
 
-    /// 193–199, 228–229, then 500–502: the ranges between belong to other modules.
+    /// 193–199, 228–229, then 500–503: the ranges between belong to other modules.
     pub fn opcode(self) -> i64 {
         match self as i64 {
             index @ 0..=6 => 193 + index,
