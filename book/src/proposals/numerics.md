@@ -120,7 +120,7 @@ The dense kernels that justify native code (GEMM, LU, QR, SVD, eigenvalues)
 are already native in `std.linalg`. Solvers needing them (Newton steps,
 Levenberg–Marquardt, trust regions, interior-point LP) call `std.linalg`.
 An FFT written in Plenty may be slower than a SIMD library. If measurement
-shows that, the [bigint pattern](bigint.md#recommendation) applies: an
+shows that, the [bigint pattern](completed/bigint.md#original-recommendation) applies: an
 allocation-free native kernel writing into caller-allocated buffers, added
 only when it is measured to pay.
 
