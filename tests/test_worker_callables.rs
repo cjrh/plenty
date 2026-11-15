@@ -8,6 +8,7 @@ fn workers_map_errors_with_variant_values_in_both_mapping_forms() {
         r#"
 import std.bytes
 from std.error import map_error
+@copy
 enum Domain:
     Allocation(AllocError)
     Parse(ParseError)

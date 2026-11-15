@@ -30,6 +30,7 @@ print(numbers).unwrap()
 fn nested_options_results_and_immutable_enums_preserve_tags() {
     native(
         r#"
+@copy
 enum Value:
     Empty
     Text(str)
@@ -135,6 +136,7 @@ def main() -> Result[(), OverflowError[i64]]:
 fn lookup_and_result_retention_allocate_nothing() {
     native(
         r#"
+@copy
 enum Value:
     Text(str)
 strings = {("na" + "me").unwrap(): ("A" + "da").unwrap()}.unwrap()

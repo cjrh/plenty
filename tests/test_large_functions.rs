@@ -74,7 +74,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 #[test]
 fn match_table_selects_each_arm() {
     const VARIANTS: usize = 3000;
-    let mut source = String::from("enum Kind:\n");
+    let mut source = String::from("@copy\nenum Kind:\n");
     for i in 0..VARIANTS {
         source.push_str(&format!("    K{i}\n"));
     }

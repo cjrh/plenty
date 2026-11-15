@@ -38,6 +38,7 @@ const FORMATTABLE_CAUSE: &str = r#"from std.error import Context, Subject
 from std.fmt import Formatter, FormatError, string_formatter, stderr_formatter, finish
 from std.report import render, to_string
 from std.path import from_text
+@copy
 pub enum Cause:
     Rejected
     pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
@@ -318,6 +319,7 @@ fn paths_are_displayed_escaped_and_owned_causes_are_only_observed() {
     run_both(
         &format!(
             r#"{LOAD}
+@copy
 enum Rejected:
     Line(str)
 

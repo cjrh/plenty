@@ -52,6 +52,7 @@ pub class Script:
         mut out = std.io.stdout()
         Ok(out.write(source).unwrap())
 
+@copy
 pub enum Route:
     Files
     Session
@@ -477,6 +478,7 @@ pub class Script:
     pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         Ok(len(source))
 
+@copy
 pub enum Route:
     Upload
 
@@ -622,6 +624,7 @@ from std.http.tls import TlsTransport
 from std.sync import CancellationToken
 from std.tls import TlsStream
 
+@copy
 pub enum Route:
     Files
     Login
@@ -751,7 +754,7 @@ fn file_size_precedes_conditionals_and_date_bounds_are_checked() {
     let mut source = String::from(
         "import std.bytes\nimport std.http\nfrom std.bytes import Bytes, BytesError\nfrom std.io import StreamError\nfrom std.http import Header, HttpError, ResponseHead\nfrom std.time import Timestamp\n",
     );
-    source.push_str(declaration(module, "pub enum FilesError:"));
+    source.push_str(declaration(module, "@copy\npub enum FilesError:"));
     source.push_str("\n\n");
     source.push_str(declaration(module, "class Validators:"));
     source.push_str("\n\n");

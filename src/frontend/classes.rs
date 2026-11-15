@@ -284,13 +284,30 @@ impl TypeAliases {
     /// fails to resolve this way is left to the instance that uses it, which
     /// reports the real cause.
     pub(super) fn check_copy_template(&self, declaration: &ClassDecl) -> Result<()> {
-        if declaration.copy.is_none() || declaration.type_params.is_empty() {
+        self.check_copy_fields_template(
+            ("class", &declaration.name),
+            &declaration.at,
+            declaration.copy.is_some(),
+            &declaration.type_params,
+            &declaration.fields,
+        )
+    }
+
+    pub(super) fn check_copy_fields_template(
+        &self,
+        identity: (&str, &str),
+        at: &Token,
+        copy: bool,
+        params: &[(String, Option<TypeRef>)],
+        fields: &[(String, TypeRef)],
+    ) -> Result<()> {
+        let (kind, name) = identity;
+        if !copy || params.is_empty() {
             return Ok(());
         }
         // Substitute as instance creation does, so a parameter named like a
         // program type still stands for the parameter.
-        let substitutions = declaration
-            .type_params
+        let substitutions = params
             .iter()
             .map(|(name, bound)| {
                 if let Some(bound) = bound.as_ref().filter(|b| b.value_parameter()) {
@@ -300,10 +317,7 @@ impl TypeAliases {
                         .and_then(named_type)
                         .unwrap_or(Ty::I64);
                     let value = value_generics::Constant { ty, value: 0 };
-                    return (
-                        name.clone(),
-                        TypeRef::value(value.expression(&declaration.at)),
-                    );
+                    return (name.clone(), TypeRef::value(value.expression(&bound.at)));
                 }
                 let float = bound
                     .as_ref()
@@ -315,14 +329,11 @@ impl TypeAliases {
                 } else {
                     Ty::I64
                 };
-                (
-                    name.clone(),
-                    super::generics::type_ref(&ty, &declaration.at),
-                )
+                (name.clone(), super::generics::type_ref(&ty, at))
             })
             .collect();
         self.probe([], |validation| {
-            for (name, written) in &declaration.fields {
+            for (field_name, written) in fields {
                 let mut field = written.clone();
                 if super::generics::substitute(&mut field, &substitutions).is_err() {
                     continue;
@@ -331,9 +342,9 @@ impl TypeAliases {
                     continue;
                 };
                 if ty.affine() {
+                    let rule = if kind == "class" { COPY_FIELDS } else { "every payload of a `@copy` enum must copy" };
                     return Err(written.at.error(format!(
-                        "`@copy` class `{}` cannot have field `{name}` of type `{}`, which moves even when every type argument copies; {COPY_FIELDS}",
-                        declaration.name,
+                        "`@copy` {kind} `{name}` cannot have field `{field_name}` of type `{}`, which moves even when every type argument copies; {rule}",
                         written.spelling()
                     )));
                 }
@@ -343,7 +354,7 @@ impl TypeAliases {
     }
 }
 
-const COPY_FIELDS: &str = "every field of a `@copy` class must copy: a scalar, `str`, `@copy` class, or tuple or enum of those";
+const COPY_FIELDS: &str = "every field of a `@copy` class must copy: a scalar, `str`, `@copy` class or enum, or tuple of those";
 
 fn type_ref(at: &Token, name: &str) -> TypeRef {
     TypeRef {

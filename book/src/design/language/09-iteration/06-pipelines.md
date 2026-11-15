@@ -8,6 +8,11 @@ Generators expose the same adapters and terminals directly:
 `numbers(100).filter(even).map(square).collect()` is equivalent to starting
 with `iter(numbers(100))`. Each adapter extends the fused plan.
 
+Adapter and terminal methods belong to iterator values: pipelines and
+generators. Collections, ranges, views, free `enumerate`/`zip` sources and
+`dictionary.items()` need `iter(source)` before these methods. For example,
+write `iter(zip(&xs, &ys)).count()` or `iter(&xs).zip(&ys).count()`.
+
 ```text
 p = iter(&payments).filter(def(p: &Payment) -> bool: p.name == "bob")
 total = p.map(def(p: &Payment) -> i64: p.cents).fold(0, add)
@@ -333,8 +338,9 @@ is a type error for any other item type. Pair items are rejected; use `filter`
 with a two-parameter predicate. An owned value is dropped with the pipeline, and
 a `.generator()` conversion moves it into the frame.
 
-Free `enumerate(source[, start])` and `zip(left, right)` also start pipelines.
-`dictionary.items()` can be used directly in a chain or through `iter`.
+Free `enumerate(source[, start])`, `zip(left, right)`, and
+`dictionary.items()` are iteration sources. Wrap them in `iter(...)` to start
+a chain; for example, `iter(dictionary.items()).filter(keep).count()`.
 A pair item spreads into two callback parameters: `map` and `for_each` receive
 the components themselves; predicates receive shared references to both.
 `fold` and `try_fold` take `(accumulator, left, right)`, and `reduce` takes
@@ -444,9 +450,9 @@ query. Keep an explicit application/user count when supplied; see
 
 | Part | Accepted |
 |---|---|
-| Source | an owned `list[T]`, a borrowed `&list[T]`, or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `enumerate(source, start)` |
+| Source | an owned `list[T]`, a borrowed `&list[T]`, or a `range[i64]`, through `iter(source)`, `iter(source).enumerate(start)` or `iter(enumerate(source, start))` |
 | Steps after `par` | `map`, `filter`, and `filter_value` |
-| Callbacks | named functions, or reusable immutable closures that own their captures; constructor values (class or variant), stored capture-free closures and `Callable` values are not yet accepted |
+| Callbacks for `map`, `filter`, `any`, `all` | named functions, reusable immutable closures with owned captures, stored capture-free closures, thin `Callable` values, and class or payload-variant constructors; all must pass worker certification |
 | Terminals | `collect`, `try_collect`, `count`, `any`, `all`, `sum`, `min`, `max`, `reduce` |
 
 `enumerate` must come before `par`. Other steps (`take`, `skip`, `take_while`,
@@ -459,6 +465,12 @@ to a generator, or advanced with `next`. `fold`, `try_fold`, `for_each`, and
 guarantee or would run in no fixed order. Mutable, one-shot, and borrowing
 closures are rejected; callbacks also pass the
 [worker eligibility checks](../../facilities/03-concurrency/parallel-map.md).
+Thin `Callable` values are certified against every matching address in the
+closed program, including constructors; see
+[thin callable targets](../../facilities/03-concurrency/effects.md#thin-callable-targets).
+A matching unsafe target can reject a safe callback of the same signature.
+`reduce` retains its named-function contract; this callback expansion does not
+change [`pool.reduce_tree`](../../facilities/03-concurrency/parallel-reduce.md).
 
 **Borrowed sources.** As in a serial pipeline, `iter(&xs).par(&pool)` yields
 `&T` items, and the list stays usable afterward. Every chunk reads its rows of

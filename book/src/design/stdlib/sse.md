@@ -25,6 +25,7 @@ from std.http.sse import SseError
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Events
 

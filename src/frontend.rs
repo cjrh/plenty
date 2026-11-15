@@ -5972,9 +5972,9 @@ fn lower(
     } else {
         false
     };
-    // The reporting contract is optional: types without its exact public
-    // implementation retain the existing structural entrypoint diagnostic.
-    // Its canonical types imply that the trusted std.fmt module is loaded.
+    // Modern formatting wins over the transitional report protocol. Either
+    // contract's canonical formatter types imply that trusted std.fmt is loaded;
+    // errors without formatting hooks retain the small native structural path.
     let entry_report = if require_main {
         match (
             sigs["main"].outputs.as_slice(),
@@ -5982,22 +5982,33 @@ fn lower(
         ) {
             ([Ty::Enum(result)], Some(protocol)) => {
                 let error = &result.get().variants[1].fields[0];
-                if protocols::check(
-                    &protocol,
-                    error,
-                    &generics.methods,
-                    &generics.templates,
-                    &aliases,
-                    &access,
-                    &generics.standard_sources,
-                    &protocol.at,
-                    &protocol.at,
-                )
-                .is_ok()
-                {
+                let site = generics
+                    .entry_format_at
+                    .as_ref()
+                    .unwrap_or(&protocol.at)
+                    .clone();
+                let display = fstrings::entry_has_hooks(error, &generics, &sigs, &site)?;
+                let legacy = !display
+                    && protocols::check(
+                        &protocol,
+                        error,
+                        &generics.methods,
+                        &generics.templates,
+                        &aliases,
+                        &access,
+                        &generics.standard_sources,
+                        &protocol.at,
+                        &protocol.at,
+                    )
+                    .is_ok();
+                if display || legacy {
                     let main = sigs.intern("main");
                     let (symbol, function) = generics.instantiate(
-                        "std.fmt.entry_report",
+                        if display {
+                            "std.fmt.entry_display_report"
+                        } else {
+                            "std.fmt.entry_report"
+                        },
                         vec![Argument::Type(error.clone())],
                         &protocol.at,
                         &aliases,

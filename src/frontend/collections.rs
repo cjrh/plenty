@@ -6862,6 +6862,7 @@ fn comprehension_hint(names: &[String], entries: &[(Expr, Option<Expr>)], ty: Op
 
 /// Adapter and terminal methods of iterators (pipelines and generators).
 const ITERATOR_METHODS: &[&str] = &[
+    "par",
     "map",
     "filter",
     "filter_value",
@@ -6914,11 +6915,14 @@ impl Lower<'_> {
             return None;
         }
         match &ungroup(base).kind {
-            Expression::Call(function, _) if builtin_call(function) == Some("reversed") => {
-                return Some("`reversed(...)`");
-            }
+            Expression::Call(function, _) => match builtin_call(function) {
+                Some("reversed") => return Some("`reversed(...)`"),
+                Some("enumerate") => return Some("`enumerate(...)`"),
+                Some("zip") => return Some("`zip(...)`"),
+                _ => {}
+            },
             Expression::Method(owner, method, method_args, _)
-                if matches!(method.as_str(), "keys" | "values")
+                if matches!(method.as_str(), "keys" | "values" | "items")
                     && method_args.is_empty()
                     && self
                         .place_type(owner)
@@ -6927,8 +6931,10 @@ impl Lower<'_> {
             {
                 return Some(if method == "keys" {
                     "a dictionary's `keys()`"
-                } else {
+                } else if method == "values" {
                     "a dictionary's `values()`"
+                } else {
+                    "a dictionary's `items()`"
                 });
             }
             _ => {}
@@ -6946,6 +6952,11 @@ impl Lower<'_> {
             Ty::Dict(..) => Some("a dictionary"),
             // `keys.count(1)` keeps its `keys_snapshot()` guidance.
             Ty::KeyView(_) if !own_search => Some("a dictionary's `keys()`"),
+            Ty::DictView(_, values) => Some(if !values {
+                "a dictionary's `items()`"
+            } else {
+                "a dictionary's `values()`"
+            }),
             _ => None,
         }
     }

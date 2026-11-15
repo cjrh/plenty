@@ -104,7 +104,7 @@ still move, borrow, and run `__del__` as other fields do.
 ## Copy classes
 
 `@copy` on the line before `class` declares a copy class. Its instances copy on
-ordinary value use, as copyable tuples and enums do: assignment, owned argument
+ordinary value use, as copyable tuples and [`@copy` enums](enums.md#copy-enums) do: assignment, owned argument
 passing, return, collection insertion, capture, and by-value receivers
 (`self: Point`) all leave the source usable. Copying duplicates the inline
 fields and never allocates; string fields share immutable storage. `copy(value)`
@@ -130,8 +130,9 @@ Point(x=1, y=2) Point(x=5, y=2)
 
 The declaration is checked as a whole:
 
-- Every field must copy: a scalar, `str`, another `@copy` class, or a tuple or
-  enum whose components copy. The error names the field and its type.
+- Every field must copy: a scalar, `str`, another `@copy` class or enum, or a
+  tuple, `Option`, `Result`, or anonymous sum whose parts copy. The error names
+  the field and its type.
 - The class cannot define `__del__`, because each copy would run it.
 
 A generic `@copy` class copies when its type arguments copy, as a tuple does.
@@ -175,9 +176,9 @@ collection; `@copy` instances copy. `__hash__` and `__eq__` hooks are unsupporte
 An annotation is `@name` alone on a line directly before a declaration. The
 set is closed and compiler-known; there are no user decorators. The
 annotations are `@copy`, `@newtype`, `@redacted`, `@serial`, `@thread_safe`,
-`@host_callback`, `@thread_movable`, and `@thread_shareable`. `@copy`
-and `@newtype` apply only to class declarations, including `pub class`;
-`@redacted` also applies to enums. [`@serial`](../../stdlib/serial-derive.md)
+`@host_callback`, `@thread_movable`, and `@thread_shareable`. `@copy` applies
+to class and enum declarations, including public declarations; `@newtype`
+applies only to classes. `@redacted` also applies to classes and enums. [`@serial`](../../stdlib/serial-derive.md)
 applies to classes and enums and generates missing format-neutral codec hooks.
 Inside such a type, `@serial.name("wire")` above a field or variant is the one
 member annotation; it sets the member's

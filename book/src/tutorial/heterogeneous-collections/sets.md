@@ -5,6 +5,7 @@ Sets accept named enums when every payload is a supported key type: integers,
 is part of the identity, so different variants with equal payloads remain distinct.
 
 ```plenty
+@copy
 enum Selection:
     Account(i64)
     Group(str)
@@ -118,6 +119,7 @@ most 256 variants automatically gets compact bitset storage. The compiler
 selects a 64-, 128-, or 256-bit mask from the number of possible values:
 
 ```plenty
+@copy
 enum Permission:
     Read
     Write
@@ -149,6 +151,7 @@ values. Booleans and nested enums or tuples of these types qualify.
 Here `State` has three values: `Idle`, `Enabled(False)`, and `Enabled(True)`.
 
 ```plenty
+@copy
 enum State:
     Idle
     Enabled(bool)

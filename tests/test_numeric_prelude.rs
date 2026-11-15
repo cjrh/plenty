@@ -68,7 +68,7 @@ fn decimal_forms_unit_payloads_and_prelude_shadowing() {
     "Result[f32, str].Ok(2.0)\nResult[f32, str].Err(\"bad\")\nempty\n[Option[i64].Nothing, Option[i64].Some(42)]\n"
 )]
 #[case(
-    "def make() -> Result[list[f64], str]:\n    Ok([1.5, 2.5].unwrap())\nmatch make():\n    case Ok(items):\n        print(items).unwrap()\n    case Err(_):\n        pass\nenum Done:\n    Value(())\nprint(Done.Value(())).unwrap()",
+    "def make() -> Result[list[f64], str]:\n    Ok([1.5, 2.5].unwrap())\nmatch make():\n    case Ok(items):\n        print(items).unwrap()\n    case Err(_):\n        pass\n@copy\nenum Done:\n    Value(())\nprint(Done.Value(())).unwrap()",
     "[1.5, 2.5]\nDone.Value(())\n"
 )]
 fn native(#[case] source: &str, #[case] expected: &str) {
@@ -102,7 +102,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("x = Err('bad')", "cannot infer `Err`; provide a Result annotation")]
 #[case("x = Nothing", "cannot infer `Nothing`; provide an Option annotation")]
 #[case(
-    "enum E:\n    A\n    B\ndef g() -> Result[(), E]:\n    Err(E.A)\nmut result = Ok(())\nresult = g()",
+    "@copy\nenum E:\n    A\n    B\ndef g() -> Result[(), E]:\n    Err(E.A)\nmut result = Ok(())\nresult = g()",
     "cannot infer `Ok`; provide a Result annotation, parameter, or return type"
 )]
 #[case("x: Option[i64] = Nothing()", "nullary variants")]
@@ -111,7 +111,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("x: Result[(), str] = Ok(42)", "expected (), got i64")]
 #[case("x: Result[i64, str] = Err(42)", "expected str, got i64")]
 #[case(
-    "enum E:\n    Ok(i64)\nmatch E.Ok(1):\n    case Ok(x):\n        pass",
+    "@copy\nenum E:\n    Ok(i64)\nmatch E.Ok(1):\n    case Ok(x):\n        pass",
     "matches only Result"
 )]
 #[case("match Some(1):\n    case Some(x):\n        pass", "non-exhaustive")]
@@ -280,10 +280,10 @@ fn conversion_and_negation_diagnostics(#[case] source: &str, #[case] expected: &
 
 #[test]
 fn float_enum_trees_compare_structurally() {
-    let mut source = String::from("enum E0:\n    Value(f64)\nx0 = E0.Value(2.5)\n");
+    let mut source = String::from("@copy\nenum E0:\n    Value(f64)\nx0 = E0.Value(2.5)\n");
     for n in 1..8 {
         source.push_str(&format!(
-            "enum E{n}:\n    Pair(E{}, E{})\nx{n} = E{n}.Pair(x{}, copy(x{}).unwrap())\n",
+            "@copy\nenum E{n}:\n    Pair(E{}, E{})\nx{n} = E{n}.Pair(x{}, copy(x{}).unwrap())\n",
             n - 1,
             n - 1,
             n - 1,

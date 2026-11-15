@@ -161,6 +161,7 @@ class Point:
     def debug[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
         out.format(f"Point#{self.x}")
 
+@copy
 enum Mode:
     Fast
 
@@ -588,6 +589,7 @@ tick 3
 fn a_question_mark_in_a_field_returns_from_the_enclosing_function() {
     assert_eq!(
         run(r#"
+@copy
 enum Problem:
     Odd
     Format
@@ -877,14 +879,14 @@ fn format_error_is_a_prelude_name() {
 fn declared_or_imported_format_error_takes_precedence_over_the_prelude() {
     assert_eq!(
         run(
-            "enum FormatError:\n    Mine\n\ndef main() -> Result[(), IoError]:\n    print(str.repr(FormatError.Mine).unwrap(), f\"{1}\".is_ok())?\n    Ok(())\n"
+            "@copy\nenum FormatError:\n    Mine\n\ndef main() -> Result[(), IoError]:\n    print(str.repr(FormatError.Mine).unwrap(), f\"{1}\".is_ok())?\n    Ok(())\n"
         ),
         "FormatError.Mine True"
     );
     // The local enum is not `std.fmt.FormatError`, so an f-string cannot
     // return through it.
     let message = support::check_file_error(
-        "enum FormatError:\n    Mine\n\ndef label() -> Result[str, FormatError]:\n    f\"{1}\"\n\ndef main() -> ():\n    pass\n",
+        "@copy\nenum FormatError:\n    Mine\n\ndef label() -> Result[str, FormatError]:\n    f\"{1}\"\n\ndef main() -> ():\n    pass\n",
     );
     assert!(
         message.contains("expected Result[str, FormatError]"),

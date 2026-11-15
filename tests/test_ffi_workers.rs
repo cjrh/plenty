@@ -258,6 +258,7 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Home
 
@@ -514,7 +515,7 @@ fn the_annotation_has_one_meaning_and_one_place() {
         ),
         (
             "@copy\nextern def pid() -> i32 = \"getpid\"\n",
-            "`@copy` applies only to class declarations",
+            "`@copy` applies only to class and enum declarations",
         ),
         (
             "opaque Function\n@thread_safe\nextern def invoke(function: Function) -> i32 = function\n",

@@ -611,7 +611,7 @@ fn explicit_mutable_values_cannot_bind_as_a_reusable_view() {
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("an iterator pipeline can only be lent"),
+        error.contains("mutable dictionary projections are immediate iteration sources"),
         "{error}"
     );
 }
@@ -625,6 +625,7 @@ class Custom:
         7
     def values(self) -> i64:
         8
+@copy
 enum Choice:
     One
     def items(self) -> i64:

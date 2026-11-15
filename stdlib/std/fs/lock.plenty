@@ -6,10 +6,12 @@ from std.process import Command
 from std.sync import CancellationToken
 from std.time import Deadline, monotonic_now
 
+@copy
 pub enum Mode:
     Shared
     Exclusive
 
+@copy
 pub enum LockError:
     WouldBlock
     TimedOut

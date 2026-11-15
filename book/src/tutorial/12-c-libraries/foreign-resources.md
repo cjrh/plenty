@@ -16,6 +16,7 @@ extern def position_raw(file: RawFile) -> i64 = "ftell"
 # The adapter expands to (data, byte_len), followed by count and file.
 extern def write_raw(text: &str as utf8, count: u64, file: RawFile) -> u64 = "fwrite"
 
+@copy
 pub enum ScratchError:
     Create
     Write

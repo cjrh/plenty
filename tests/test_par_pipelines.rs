@@ -79,7 +79,7 @@ def pair(index: i64, value: i64) -> (i64, i64):
         print(iter(range(0, 10)).par(&pool).filter(odd).map(double).collect()?)?
         print(iter(range(20, 0, -3)).par(&pool).collect()?)?
         print(iter(range(5, 5)).par(&pool).collect()?)?
-        print(enumerate([1, 2, 3]?, 5).par(&pool).map(pair).collect()?)?
+        print(iter(enumerate([1, 2, 3]?, 5)).par(&pool).map(pair).collect()?)?
         print(iter(["a", "b"]?).enumerate().par(&pool).collect()?)?
         typed: list[i64] = iter(range(0, 3)).par(&pool).map(double).collect()?
         print(typed)?
@@ -131,7 +131,7 @@ def items() -> list[i64]:
 def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | OverflowError[i64] | OverflowError[i8] | OverflowError[u8] | ZeroDivisionError]:
     pools = [ThreadPoolExecutor(2, 1)?]?
     limit = 10
-    print(enumerate(items(), note("start", 0)).par(&pools[note("pool", 0)], chunks=Positive.try_from(note("chunks", 2)).unwrap()).filter(def [limit](i: &i64, v: &i64) -> bool: *v < limit).count()?)?
+    print(iter(enumerate(items(), note("start", 0))).par(&pools[note("pool", 0)], chunks=Positive.try_from(note("chunks", 2)).unwrap()).filter(def [limit](i: &i64, v: &i64) -> bool: *v < limit).count()?)?
     print(iter(items()).par(&pools[note("pool", 0)], chunks=Positive.try_from(note("chunks", 3)).unwrap()).filter_value(note("value", 2)).map(def [limit](x: i64) -> i64: fixture_sum(x, limit)).any(def [limit](x: &i64) -> bool: *x > limit)?)?
     Ok(())
 "#,
@@ -429,7 +429,7 @@ def at(index: i64, value: &i64) -> i64:
         print(iter(&xs).par(&pool).any(odd)?)?
         print(iter(&xs).par(&pool).all(odd)?)?
         print(iter(&xs).par(&pool).map(def(x: &i64) -> i64: *x).reduce(add)?)?
-        print(enumerate(&xs, 10).par(&pool, chunks=3).map(at).collect()?)?
+        print(iter(enumerate(&xs, 10)).par(&pool, chunks=3).map(at).collect()?)?
         print(xs)?
         words = ["a", "bb", "c"]?
         print(iter(&words).par(&pool).map(shout).collect()?)?
@@ -614,7 +614,7 @@ fn par_rejects_unsupported_shapes() {
             "any() tests bool items, but this pipeline yields i64; pass a predicate",
         ),
         (
-            "print(enumerate([True]?).par(&pool).all()?)?",
+            "print(iter(enumerate([True]?)).par(&pool).all()?)?",
             "all() tests bool items, but this pipeline yields tuple[i64, bool]; pass a predicate",
         ),
         (
@@ -622,7 +622,7 @@ fn par_rejects_unsupported_shapes() {
             "filter_value after .par needs copyable items",
         ),
         (
-            "print(enumerate(xs).par(&pool).filter_value((0, 1)).count()?)?",
+            "print(iter(enumerate(xs)).par(&pool).filter_value((0, 1)).count()?)?",
             "filter_value does not accept pair items",
         ),
         (
@@ -1121,7 +1121,7 @@ fn enumerate_indices_keep_their_explicit_trapping_contract_in_every_mode() {
     for optimize in [false, true] {
         for chain in ["", ".par(&pool, chunks=1)", ".par(&pool, chunks=2)"] {
             for mode in ["", "checked", "unchecked"] {
-                let expression = format!("drop(enumerate([1, 2]?, i64.MAX){chain}.count())");
+                let expression = format!("drop(iter(enumerate([1, 2]?, i64.MAX)){chain}.count())");
                 let body = if mode.is_empty() {
                     format!("        {expression}\n")
                 } else {
@@ -1153,9 +1153,9 @@ fn split_ranges_and_enumerate_boundaries_remain_exact() {
         negative: NonZero[i64] = -9223372036854775808
         print(iter(range(i64.MIN, i64.MAX, positive)).par(&pool, chunks=2).collect()?)?
         print(iter(range(i64.MAX, i64.MIN, negative)).par(&pool, chunks=2).collect()?)?
-        print(enumerate([1]?, i64.MAX).par(&pool).collect()?)?
-        print(enumerate([1, 2]?, i64.MIN).par(&pool, chunks=2).collect()?)?
-        print(enumerate([1, 2]?, 0).par(&pool, chunks=2).collect()?)?
+        print(iter(enumerate([1]?, i64.MAX)).par(&pool).collect()?)?
+        print(iter(enumerate([1, 2]?, i64.MIN)).par(&pool, chunks=2).collect()?)?
+        print(iter(enumerate([1, 2]?, 0)).par(&pool, chunks=2).collect()?)?
         print(iter([1.0 / 0.0, 1.0]?).par(&pool).sum()?)?
         print(iter([0.0 / 0.0, 1.0]?).par(&pool).sum()?)?
         print(iter([1.0f32, 2.0f32]?).par(&pool).sum()?)?
@@ -1526,8 +1526,8 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str |
     with ThreadPoolExecutor(2, 1)? as pool:
         for chunks in [1, 2, 3]?:
             print(iter([(1, 10), (2, 20), (3, 30)]?).par(&pool, chunks=Positive.try_from(chunks).unwrap()).reduce(first)?)?
-        print(enumerate(range(3)).par(&pool, chunks=1).reduce(first)?)?
-        print(enumerate([(1, 10), (2, 20)]?).par(&pool, chunks=1).reduce(first)?)?
+        print(iter(enumerate(range(3))).par(&pool, chunks=1).reduce(first)?)?
+        print(iter(enumerate([(1, 10), (2, 20)]?)).par(&pool, chunks=1).reduce(first)?)?
         print(iter(range(3)).par(&pool, chunks=1).map(pair).reduce(first)?)?
         mut values = [(1, 10), (2, 20)]?
         print(iter(&values).par(&pool, chunks=1).map(own).reduce(first)?)?
@@ -1720,5 +1720,42 @@ def main() -> Result[(), AllocError | IoError | PoolError]:
     assert!(
         failures > 0 && successes > 0 && partial > 0,
         "{failures} failures, {successes} successes, {partial} partial"
+    );
+}
+
+#[test]
+fn thin_callable_values_and_constructors_work_on_parallel_workers() {
+    runs(
+        &format!(
+            r#"
+class Row:
+    value: i64
+@copy
+enum Wrapped:
+    Item(i64)
+def negate(x: i64) -> i64:
+    unchecked:
+        -x
+def choose(flag: bool) -> Callable[[i64], i64]:
+    negate
+{MAIN}    stored = def(x: i64) -> i64:
+        x
+    selected = choose(True)
+    mut functions: list[Callable[[i64], i64]] = [negate]?
+    with ThreadPoolExecutor(2, 1)? as pool:
+        print(iter(range(4)).par(&pool).map(stored).collect()?)?
+        print(iter(range(4)).par(&pool).map(selected).collect()?)?
+        print(iter(range(4)).par(&pool).map(functions[0]).collect()?)?
+        print(iter(range(3)).par(&pool).map(Row).collect()?)?
+        print(iter(range(3)).par(&pool).map(Wrapped.Item).collect()?)?
+        print(iter(range(3)).par(&pool).map(Option[i64].Some).collect()?)?
+        predicate = def(x: &i64) -> bool:
+            *x < 2
+        print(iter(range(3)).par(&pool).filter(predicate).collect()?)?
+        print(iter(range(3)).par(&pool).any(predicate)?)?
+    Ok(())
+"#
+        ),
+        "[0, 1, 2, 3]\n[0, -1, -2, -3]\n[0, -1, -2, -3]\n[Row(value=0), Row(value=1), Row(value=2)]\n[Wrapped.Item(0), Wrapped.Item(1), Wrapped.Item(2)]\n[Option[i64].Some(0), Option[i64].Some(1), Option[i64].Some(2)]\n[0, 1]\nTrue\n",
     );
 }

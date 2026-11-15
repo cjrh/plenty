@@ -21,6 +21,7 @@ const connections: i64 = 3
 def connection_heap() -> Positive[i64]:
     65536
 
+@copy
 pub enum Note:
     Hello
 

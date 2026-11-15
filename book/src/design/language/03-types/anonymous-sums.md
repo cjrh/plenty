@@ -115,10 +115,13 @@ remaining value and binds it as the smaller sum `B | C`. Use it to recover
 from some errors and forward the others:
 
 ```plenty
+@copy
 enum A:
     Bad
+@copy
 enum B:
     Bad
+@copy
 enum C:
     Worse
     Bad

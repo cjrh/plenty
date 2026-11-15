@@ -5,6 +5,7 @@ from std.time import deadline_after, milliseconds, monotonic_now, nanoseconds, s
 
 type Fault = AllocError | IoError | OverflowError[i64]
 
+@copy
 pub enum Job:
     Square(i64)
     Answer(i64)

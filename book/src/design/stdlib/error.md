@@ -383,8 +383,9 @@ built, such as the nested one above; pass the `Result` unhandled.
 
 Returning `Err(context)` from `main` produces the
 [entrypoint report](../toolchain/01-building/entry-report.md). It selects the
-typed formatting method when the cause is formattable, otherwise renders the
-context structurally and shows a path as its byte list. The explicit `report`
+same value hooks as `print`; when no hook is selected, the public
+`Formattable.format` method is a transitional fallback if the cause supports it.
+Otherwise it renders the context structurally and shows a path as its byte list. The explicit `report`
 and `report_with` APIs keep their description-based behavior.
 
 ## Conventions for standard modules

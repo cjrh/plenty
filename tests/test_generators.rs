@@ -86,7 +86,7 @@ fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
 )]
 // Only E.A(2) reaches the asserted increment.
 #[case(
-    "enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            value = checked:\n                n + 1\n            yield value.unwrap()\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2))).unwrap()).unwrap()\nprint(list(g(E.B)).unwrap()).unwrap()",
+    "@copy\nenum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            value = checked:\n                n + 1\n            yield value.unwrap()\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2))).unwrap()).unwrap()\nprint(list(g(E.B)).unwrap()).unwrap()",
     "[2, 3, 9]\n[]\n"
 )]
 #[case(

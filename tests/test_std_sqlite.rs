@@ -807,7 +807,7 @@ fn sqlite_native_sentinel_decoding_is_allocation_free_in_both_modes() {
     // Only its fallback message source is stubbed; real engine tests cover it.
     let module = include_str!("../stdlib/std/db/sqlite.plenty");
     let declarations = module
-        .split_once("pub enum Mode:")
+        .split_once("@copy\npub enum Mode:")
         .unwrap()
         .1
         .split_once("# Primary result codes")
@@ -821,7 +821,8 @@ fn sqlite_native_sentinel_decoding_is_allocation_free_in_both_modes() {
         .unwrap()
         .0;
     let source = format!(
-        r#"pub enum Mode:{declarations}
+        r#"@copy
+pub enum Mode:{declarations}
 def message() -> str:
     return "native message"
 

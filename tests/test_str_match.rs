@@ -107,7 +107,7 @@ fn string_tables_keep_first_match_alternatives_captures_nesting_and_cleanup() {
     }
     source.push_str("        case _:\n            Ok(-1)\n");
     // A nested pattern compares the payload's text, then its integer.
-    source.push_str("enum Key:\n    Named(str, i64)\ndef nested(k: &Key) -> i64:\n    match k:\n        case Key.Named(\"ab\", 1):\n            1000\n");
+    source.push_str("@copy\nenum Key:\n    Named(str, i64)\ndef nested(k: &Key) -> i64:\n    match k:\n        case Key.Named(\"ab\", 1):\n            1000\n");
     for (i, literal) in LITERALS.iter().enumerate() {
         writeln!(
             source,

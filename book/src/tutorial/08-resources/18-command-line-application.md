@@ -31,6 +31,7 @@ Save this application beside it as `main.plenty`:
 ```plenty
 from report import summarize
 
+@copy
 enum UsageError:
     Arguments
 

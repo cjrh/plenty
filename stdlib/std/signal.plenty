@@ -17,10 +17,12 @@ from std.time import Deadline, deadline_at, instant_at, monotonic_now
 # Signal numbers on Linux, as the runtime writes them.
 const interrupt_number: u8 = 2u8
 
+@copy
 pub enum Signal:
     Interrupt
     Terminate
 
+@copy
 pub enum SignalError:
     AlreadyListening
     Stream(StreamError)

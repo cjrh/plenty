@@ -4,6 +4,7 @@
 # Reverse search uses already-shipped memchr 2.8.0 (MIT OR Unlicense):
 # its constant-space linear algorithm avoids quadratic searches.
 
+@copy
 pub enum BytesError:
     InvalidUtf8
     Allocation(AllocError)

@@ -27,6 +27,7 @@ def positive(value: i64) -> Positive[i64]:
 
 type Fault = AllocError | NetError | BytesError | TimerError | TlsError | OverflowError[i64]
 
+@copy
 pub enum Note:
     # A connection's heap use once its handshake completed.
     Used(i64)

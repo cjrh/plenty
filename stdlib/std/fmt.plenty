@@ -1,6 +1,7 @@
 from std.bytes import Bytes, BytesError, with_capacity
 from std.io import Writer, StreamError, Cursor, cursor, Stderr, stderr, classify
 
+@copy
 pub enum FormatError:
     InvalidSpec
     LimitExceeded
@@ -89,6 +90,7 @@ const SPELLING: i64 = 8
 
 # Streaming uses caller scratch. Collected text reserves a complete emission
 # before touching its cursor; Stderr keeps basic reports allocation-free.
+@copy
 enum Destination:
     Streaming
     Collected
@@ -897,4 +899,24 @@ def entry_record[T: Formattable](value: &T, output: &mut Formatter[Stderr]) -> R
     result = value.format(output)
     output.leave()
     result?
+    output.text("\n")
+
+# Modern formatting uses the same display/debug/structure selection as print.
+# The entry wrapper keeps this separate from the transitional format protocol.
+def entry_display_report[T](value: T) -> i32:
+    drop(flush_stdout())
+    mut output = stderr_formatter(16384, 64).unwrap()
+    result = entry_display_record(&value, &mut output)
+    match result:
+        case Ok(_):
+            pass
+        case Err(_):
+            if not output.has_failed():
+                mut fallback = stderr_formatter(22, 0).unwrap()
+                drop(fallback.text(" [report unavailable]\n"))
+    1i32
+
+def entry_display_record[T](value: &T, output: &mut Formatter[Stderr]) -> Result[(), FormatError]:
+    output.text("error: main returned ")?
+    output.format(f"{value}")?
     output.text("\n")

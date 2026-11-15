@@ -34,6 +34,7 @@ from std.http.server import Config, Exchange, Report, Router, ServerError
 from std.net import NetError, TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     # GET / -> "home"
     Home
@@ -1156,11 +1157,13 @@ def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.serv
 #[test]
 fn a_handler_error_is_answered_but_a_trap_ends_the_process() {
     let main = r##"
+@copy
 pub enum Trial:
     Fail
     # Reads `values[index]`.
     Trap(i64)
 
+@copy
 pub enum Deliberate:
     Fail
 
@@ -1337,6 +1340,7 @@ from std.json import Json, Member
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Items
 
@@ -1574,6 +1578,7 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Summary(str)
 

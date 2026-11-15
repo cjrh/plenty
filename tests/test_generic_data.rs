@@ -4,7 +4,7 @@ use support::{check_all_methods, check_source, run};
 #[test]
 fn integer_constraints_apply_to_class_and_enum_arguments() {
     let output = run(
-        "class Counter[T: IntType]:\n    value: T\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8)).unwrap()\n    print(Integer[u16].Value(4)).unwrap()\n",
+        "class Counter[T: IntType]:\n    value: T\n@copy\nenum Integer[T: IntType]:\n    Value(T)\ndef main() -> ():\n    print(Counter(3u8)).unwrap()\n    print(Integer[u16].Value(4)).unwrap()\n",
     );
     assert!(output.status.success());
     assert_eq!(
@@ -13,7 +13,7 @@ fn integer_constraints_apply_to_class_and_enum_arguments() {
     );
     for declaration in [
         "class Value[T: IntType]:\n    item: T\n",
-        "enum Value[T: IntType]:\n    Item(T)\n",
+        "@copy\nenum Value[T: IntType]:\n    Item(T)\n",
     ] {
         let error = check_source(&format!(
             "{declaration}type Bad = Value[str]\ndef main() -> ():\n    pass\n"
@@ -82,6 +82,7 @@ fn function_inference_reads_nominal_data_arguments() {
 class Pair[K, V]:
     key: K
     value: V
+@copy
 enum Choice[T]:
     Value(T)
 def key[K, V](pair: &Pair[K, V]) -> K:
@@ -164,6 +165,7 @@ def main() -> Result[(), AllocError | IoError]:
 #[test]
 fn concrete_generic_enums_construct_match_and_nest() {
     let output = run(r#"
+@copy
 enum Choice[T]:
     Empty
     Value(T)
@@ -210,7 +212,7 @@ fn generic_enum_instances_remain_nominal_and_owned() {
         ),
     ] {
         let source = format!(
-            "enum Choice[T]:\n    Empty\n    Value(T)\ndef main() -> ():\n    {body}\n    pass\n"
+            "@copy\nenum Choice[T]:\n    Empty\n    Value(T)\ndef main() -> ():\n    {body}\n    pass\n"
         );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
@@ -480,6 +482,7 @@ class Registry[K: KeyType]:
     values: dict[K, i64]
     def count[Q: KeyType](self, keys: &set[Q]) -> i64:
         len(keys)
+@copy
 enum Label[K: KeyType]:
     Value(K)
 registry = Registry({"a": 1}.unwrap())
@@ -499,7 +502,7 @@ fn keytype_rejects_nonkeys_at_function_and_data_boundaries() {
         "def need[K: KeyType](value: K) -> ():\n    pass\nneed(1.0)\n",
         "def need[K: KeyType](value: K) -> ():\n    pass\nneed[list[i64]]([1].unwrap())\n",
         "class Holder[K: KeyType]:\n    value: K\nvalue = Holder(1.0)\n",
-        "enum Label[K: KeyType]:\n    Value(K)\nvalue = Label[f64].Value(1.0)\n",
+        "@copy\nenum Label[K: KeyType]:\n    Value(K)\nvalue = Label[f64].Value(1.0)\n",
         "class Holder[K: KeyType]:\n    value: K\ntype Bad = Holder[f64]\n",
     ] {
         let error = support::check_source(source).unwrap_err().to_string();

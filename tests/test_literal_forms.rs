@@ -235,7 +235,7 @@ fn propagated_numeric_context_preserves_mismatches_ranges_and_contracts() {
     );
     assert!(message.contains("OverflowError[u16]"), "{message}");
     let message = rejected(
-        "enum NotResult:\n    Ok(u16)\n    Err(ParseError)\ndef narrow() -> NotResult:\n    NotResult.Ok(8u16)\ndef main() -> Result[(), ParseError | OverflowError[u16]]:\n    drop(1 + narrow()?)\n    Ok(())\n",
+        "@copy\nenum NotResult:\n    Ok(u16)\n    Err(ParseError)\ndef narrow() -> NotResult:\n    NotResult.Ok(8u16)\ndef main() -> Result[(), ParseError | OverflowError[u16]]:\n    drop(1 + narrow()?)\n    Ok(())\n",
     );
     assert!(
         message

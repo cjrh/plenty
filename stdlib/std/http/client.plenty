@@ -32,6 +32,7 @@ from std.sync import CancellationToken, Mutex
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now, seconds
 from std.url import UrlError
 
+@copy
 pub enum ClientError:
     Net(NetError)
     Http(HttpError)
@@ -52,6 +53,7 @@ pub enum ClientError:
 # The std.tls TlsError variants a handshake or session can end with, other
 # than network, allocation and end-of-stream failures. Kept here so that
 # this module does not import std.tls.
+@copy
 pub enum TlsFailure:
     UntrustedCertificate
     ExpiredCertificate

@@ -57,6 +57,7 @@ class Cell[T]:
         self.value
     def give[U](self: Cell[T], value: U) -> U:
         value
+@copy
 enum Packet[T]:
     Value(T)
     def finish(self: Packet) -> T:
@@ -78,6 +79,7 @@ print(Cell[i64](10).give(value="inferred")).unwrap()
 fn value_receivers_on_copyable_enums_keep_ordinary_copy_semantics() {
     runs(
         r#"
+@copy
 enum Count:
     Value(i64)
     def take(self: Count) -> i64:

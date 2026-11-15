@@ -678,7 +678,11 @@ fn parse_items(
     }
     // An f-string needs `std.fmt`, as does the prelude name `FormatError` in
     // a user module. Standard modules import it explicitly.
-    if parser.formats || (parser.mentions_format_error && !module.name.starts_with("std.")) {
+    // std.fmt itself also uses f-strings in its entry reporter; its declarations
+    // are already in scope, so importing itself would create a cycle.
+    if (parser.formats && module.name != "std.fmt")
+        || (parser.mentions_format_error && !module.name.starts_with("std."))
+    {
         module.imports.push(Import {
             at: parser.peek().clone(),
             binding_at: parser.peek().clone(),
@@ -731,12 +735,10 @@ impl Items<'_, '_> {
                 annotations::Annotation::HostCallback => token.is("extern"),
                 annotations::Annotation::ThreadMovable
                 | annotations::Annotation::ThreadShareable => token.is("opaque"),
-                annotations::Annotation::Redacted | annotations::Annotation::Serial => {
-                    token.is("class") || token.is("enum")
-                }
-                annotations::Annotation::Copy | annotations::Annotation::Newtype => {
-                    token.is("class")
-                }
+                annotations::Annotation::Redacted
+                | annotations::Annotation::Serial
+                | annotations::Annotation::Copy => token.is("class") || token.is("enum"),
+                annotations::Annotation::Newtype => token.is("class"),
             });
             if !applies {
                 let hint = if *annotation == annotations::Annotation::ThreadSafe
@@ -937,6 +939,10 @@ impl Items<'_, '_> {
             name
         } else if self.parser.peek().is("enum") {
             let mut e = self.parser.enum_decl()?;
+            e.copy = annotations
+                .iter()
+                .find(|(_, a)| *a == annotations::Annotation::Copy)
+                .map(|(at, _)| at.clone());
             if annotations
                 .iter()
                 .any(|(_, a)| *a == annotations::Annotation::Serial)

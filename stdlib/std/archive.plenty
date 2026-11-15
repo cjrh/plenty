@@ -15,6 +15,7 @@ from std.path import Path
 from std.secrets import SecretsError
 from std.sync import CancellationToken
 
+@copy
 pub enum ArchiveError:
     Stream(StreamError)
     Io(IoError)
@@ -33,6 +34,7 @@ pub enum ArchiveError:
     Cancelled
     InvalidInput
 
+@copy
 pub enum EntryKind:
     File
     Directory
@@ -1338,6 +1340,7 @@ pub def zip_reader[R](inner: R, max_entries: NonNegative[i64]) -> Result[ZipRead
 
 # ZIP writing
 
+@copy
 pub enum Method:
     Stored
     Deflate

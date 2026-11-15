@@ -9,6 +9,7 @@ from std.ready import Interest, Selector, WaitError
 from std.sync import CancellationToken
 from std.time import Deadline
 
+@copy
 pub enum WatchError:
     OutOfRange
     InvalidData

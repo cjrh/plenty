@@ -4,6 +4,7 @@ import std.db.sqlite as sqlite
 from std.bytes import Bytes
 from std.time import Duration
 
+@copy
 pub enum Mode:
     ReadOnly
     ReadWrite

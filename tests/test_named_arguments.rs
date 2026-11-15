@@ -316,6 +316,7 @@ def main() -> ():
 fn default_propagation_returns_from_the_call_not_the_caller() {
     native(
         r#"
+@copy
 enum Problem:
     Failed
 def fail() -> Result[i64, Problem]:
@@ -344,6 +345,7 @@ class Guard:
     name: str
     def __del__(self) -> ():
         print(self.name).unwrap()
+@copy
 enum Problem:
     Failed
 def fail() -> Result[i64, Problem]:
@@ -594,6 +596,7 @@ def main() -> Result[(), IoError]:
 fn whole_initializer_output_parameter_survives_inferred_named_default_wrappers() {
     native(
         r#"
+@copy
 enum Problem:
     Refused
 class Guard:

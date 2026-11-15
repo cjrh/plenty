@@ -8,6 +8,7 @@ class Handler[T, F: Callable[[T], Result[T, OverflowError[T]]]]:
     callback: F
     def call(self: &mut Handler[T, F], value: T) -> Result[T, OverflowError[T]]:
         self.callback(value)
+@copy
 enum Job[T, F: OnceCallable[[], T]]:
     Run(F)
 def named(n: u8) -> Result[u8, OverflowError[u8]]:
@@ -50,7 +51,7 @@ fn constraints_are_checked_for_explicit_types_unused_declarations_and_call_modes
             "does not satisfy Callable",
         ),
         (
-            "enum Job[F: OnceCallable[[], i64]]:\n    Run(F)\ntype Invalid = Job[str]\n",
+            "@copy\nenum Job[F: OnceCallable[[], i64]]:\n    Run(F)\ntype Invalid = Job[str]\n",
             "does not satisfy OnceCallable",
         ),
         (
@@ -58,7 +59,7 @@ fn constraints_are_checked_for_explicit_types_unused_declarations_and_call_modes
             "Missing",
         ),
         (
-            "enum Bad[F: Callable[[], Missing]]:\n    Run(F)\n",
+            "@copy\nenum Bad[F: Callable[[], Missing]]:\n    Run(F)\n",
             "Missing",
         ),
         (

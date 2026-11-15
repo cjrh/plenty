@@ -8,6 +8,7 @@
 # No third-party code or data is included.
 from std.fmt import Formatter, FormatError
 
+@copy
 pub enum BigIntError:
     InvalidDigit
     InvalidRadix

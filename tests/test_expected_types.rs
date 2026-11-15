@@ -53,6 +53,7 @@ class Pair[T]:
     first: T
     second: T
 
+@copy
 enum Invalid:
     Rejected
 

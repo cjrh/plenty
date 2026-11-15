@@ -84,8 +84,10 @@ adding or removing keys, collect the keys first with `keys_snapshot()` and use
 ## Lookup and removal
 
 `dictionary.get(key) -> Option[V]` observes receiver and key once in source
-order, including references. It copies or retains only non-affine values;
-collections, classes, and enums containing affine payloads are rejected.
+order, including references. It copies only values that satisfy the
+[copy rule](../../language/05-ownership/01-bindings-moves-and-copies.md), including
+eligible `@copy` classes and enums. Collections and other class or enum
+instances are rejected.
 Lookup allocates nothing. Results outlive source replacement or destruction.
 [Copying and borrowed lookup](collections.md#copying-and-borrowed-lookup)
 explains why `get` copies and how borrowed lookups are named.
@@ -280,7 +282,8 @@ follow the first-reference origin rule.
 allocating or copying affine payloads. Both `values = dictionary.values()`
 and `items = dictionary.items()` can be bound and reused in loops; `len(view)`
 is O(1). `iter(values)` and `iter(items)` start pipelines, with item callbacks
-taking separate key and value parameters. These views have the same local-only
+taking separate key and value parameters. The views themselves have no
+pipeline adapter or terminal methods. These views have the same local-only
 borrow restrictions as key views and do not provide set operations.
 `(&mut dictionary).values()` yields `&mut V` in immediate loops; mutable views
 cannot be bound. See [updating every value](#updating-every-value).

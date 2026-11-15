@@ -4,6 +4,11 @@
 when a loop or a final method such as `count()` consumes it. No intermediate
 collection is built.
 
+Only pipelines and generators have these methods. A collection, range, view,
+or free `enumerate` or `zip` source first needs `iter(...)`. For example,
+`iter(zip(&names, &scores)).count()` counts pairs; `iter(scores.items())`
+starts a pipeline over a dictionary's entries.
+
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
     rolls = [3, 6, 2, 6, 6, 1]?

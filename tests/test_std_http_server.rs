@@ -68,6 +68,7 @@ pub class Script:
             out.write(source).unwrap()
         Ok(len(source))
 
+@copy
 pub enum Route:
     Home
     Param
@@ -83,6 +84,7 @@ pub enum Route:
     Declared
 
 # The deliberate errors routes return, so a test can see how each is answered.
+@copy
 pub enum Deliberate:
     Fail
     Unexpected
@@ -213,6 +215,7 @@ from std.net import NetError, TcpStream
 from std.sync import CancellationToken
 
 # `entered` is cancelled when /wait starts; /wait then waits for `gate`.
+@copy
 pub enum Route:
     Home
     Wait
@@ -1421,10 +1424,12 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Home
     Hello(str)
 
+@copy
 pub enum Other:
     Home
 
@@ -1482,6 +1487,7 @@ fn handlers_return_their_own_error_types() {
         r##"
 from std.http.server import Handler
 
+@copy
 pub enum Refused:
     Teapot
 
@@ -1567,6 +1573,7 @@ from std.http import HttpError
 from std.http.tls import TlsTransport
 from std.tls import TlsStream
 
+@copy
 pub enum Refused:
     Teapot
 
@@ -1667,6 +1674,7 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Home
 
@@ -1877,6 +1885,7 @@ def main() -> Result[(), IoError | AllocError]:
 
 // Issue #784: policies keep the application's route type and Handler protocol.
 const ROUTING_POLICIES: &str = r##"
+@copy
 pub enum PolicyRoute:
     Normal
     Missing(str)
@@ -2539,7 +2548,7 @@ def main() -> Result[(), ServerError | AllocError | IoError]:
 #[test]
 fn path_refusal_buffer_preserves_allocation_cancellation_and_failure_limits() {
     let module = include_str!("../stdlib/std/http/server.plenty");
-    let types = &module[module.find("pub enum PathRefusal:").unwrap()
+    let types = &module[module.find("@copy\npub enum PathRefusal:").unwrap()
         ..module.find("# Routes map a method").unwrap()];
     let helpers = ["def decoded(", "def http_allocated[T]("]
         .iter()

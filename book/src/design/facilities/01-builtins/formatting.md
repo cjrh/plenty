@@ -87,8 +87,11 @@ serves another purpose. `std.log.Logger` (a `debug` that logs) and
 `std.cli.Progress` (a `display` that draws) are such types, so they cannot be
 printed.
 
-`main`'s error report and runtime trap messages do not call these methods;
-they use structure (issue #634).
+`main`'s error report uses this same selection, with a bounded stderr formatter.
+A public `Formattable.format` is a transitional fallback only when no
+`display` or `debug` hook is selected; see
+[entrypoint reporting](../../toolchain/01-building/entry-report.md).
+Runtime trap messages keep their structural rendering.
 
 [f-strings](../../language/04-expressions/format-strings.md) build a `str`
 from fields, with Python format specs checked at compile time. A field without

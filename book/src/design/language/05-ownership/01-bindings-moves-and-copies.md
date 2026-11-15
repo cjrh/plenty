@@ -6,14 +6,16 @@ value use (assignment, owned argument passing, and return) either copies or
 transfers ownership according to the value's type:
 
 Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
-tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of
-its parts copy. A class copies only when it is declared [`@copy`](../03-types/classes.md#copy-classes), and a generic one only when its type arguments
-also copy.
-Every other value moves: collections, boxes, closures that capture,
-generators, and other class instances.
+tuple, `Option`, `Result`, or anonymous sum (`A | B`) copies when all of its
+parts copy. A class or enum copies only when it is declared `@copy`, and a
+generic one only when its payloads or fields also copy. Every other value
+moves: collections, boxes, closures that capture, generators, and other class
+or enum instances.
 
-A class of integers is still affine unless declared `@copy`. Copied strings may
-share immutable storage. Inserting an affine value into a collection or
+A class or enum containing only integers is still affine unless declared
+`@copy`. See [copy classes](../03-types/classes.md#copy-classes) and
+[copy enums](../03-types/enums.md#copy-enums). Copied strings may share immutable
+storage. Inserting an affine value into a collection or
 capturing it transfers ownership.
 A moved-from binding cannot be read until a permitted reassignment initializes it.
 

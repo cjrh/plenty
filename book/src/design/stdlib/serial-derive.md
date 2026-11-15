@@ -101,6 +101,7 @@ and to enum tags, with or without payload, in every format.
 import std.json
 
 @serial
+@copy
 enum AgentKind:
     @serial.name("pi")
     Pi

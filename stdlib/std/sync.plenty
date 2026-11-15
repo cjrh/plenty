@@ -21,6 +21,7 @@ pub class Mutex[T]:
 # WouldBlock when another holder has the lock;
 # `with mutex.lock_when(ready, &deadline, &cancel)? as value:` fails with
 # TimedOut or Cancelled when its predicate did not become true in time.
+@copy
 pub enum LockError:
     WouldBlock
     TimedOut
@@ -31,11 +32,13 @@ pub enum LockError:
 # separate cancellation token. A failed send always returns the owned value.
 from std.time import Deadline, monotonic_now
 
+@copy
 pub enum WaitError:
     TimedOut
     Cancelled
     Disconnected
 
+@copy
 pub enum SendBeforeError[T]:
     TimedOut(T)
     Cancelled(T)

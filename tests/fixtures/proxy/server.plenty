@@ -13,6 +13,7 @@ from std.sync import CancellationToken
 
 # The upstream of tests/test_std_http_server_proxy.rs. Paths under /stream/
 # reach the same routes through a proxy location that does not buffer.
+@copy
 pub enum Route:
     # GET /info: what reached the handler, one `name=value` per line
     Info

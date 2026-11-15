@@ -28,6 +28,7 @@ from std.sync import CancellationToken
 from std.time import Deadline, deadline_at, deadline_after, instant_at, monotonic_now, milliseconds
 from std.url import UrlError
 
+@copy
 pub enum WebSocketError:
     Net(NetError)
     Allocation(AllocError)
@@ -73,11 +74,13 @@ pub def config() -> Config:
 
 # What `receive` appended: a whole text or binary message, or the peer's
 # close with its code (1005 when it gave none) and reason.
+@copy
 pub enum Message:
     Text
     Binary
     Close(i64)
 
+@copy
 pub enum Kind:
     Text
     Binary

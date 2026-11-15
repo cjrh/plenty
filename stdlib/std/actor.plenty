@@ -93,6 +93,7 @@ pub class Request:
         self._key
 
 # The answer to a request, as the requester receives it.
+@copy
 pub enum Reply[M]:
     Answer(M)
     # The timeout passed first.
@@ -100,6 +101,7 @@ pub enum Reply[M]:
     # The receiver stopped or restarted before answering.
     Gone
 
+@copy
 pub enum TimerError:
     # Every timer is in use; see `Stage.add_timers`.
     Capacity
@@ -107,6 +109,7 @@ pub enum TimerError:
     Range
 
 # A request that was not sent, returned to the sender.
+@copy
 pub enum RequestError[M]:
     # The receiver's mailbox is full, or its heap cannot hold the copy.
     Full(M)
@@ -116,6 +119,7 @@ pub enum RequestError[M]:
     Capacity(M)
 
 # How an actor ended, as its parent sees it.
+@copy
 pub enum Exit[E]:
     # Stopped by `Context.stop`, a `Stop` request, or a spawn hook that
     # returned `Nothing`.
@@ -126,6 +130,7 @@ pub enum Exit[E]:
     Trapped(TrapKind)
 
 # Why an actor trapped. The runtime prints the trap's message and position.
+@copy
 pub enum TrapKind:
     # An allocation failed where the runtime could not return `AllocError`,
     # usually at the heap limit; or the actor's error did not fit in its
@@ -171,6 +176,7 @@ pub enum Mail[M, E]:
     Reply(Request, Reply[M])
 
 # A message that was not delivered, returned to the sender.
+@copy
 pub enum Undelivered[M]:
     # The receiver's mailbox is full, or its heap cannot hold the copy.
     Full(M)
@@ -179,10 +185,12 @@ pub enum Undelivered[M]:
 
 # Why `stage` failed: its tables could not be allocated, or its readiness
 # selector could not be created.
+@copy
 pub enum StageError:
     Allocation(AllocError)
     Wait(WaitError)
 
+@copy
 pub enum StartError:
     # This target has no actor heaps; only x86-64 Linux does.
     Unsupported
@@ -1524,6 +1532,7 @@ def stage_with[N, M, E](capacity: i64, mailbox: i64, ready: Selector) -> Result[
 
 # A handler's result. `__actor_run` reports a trap through an error type
 # that source cannot name, so callers convert with `outcome_of`.
+@copy
 enum Outcome[E]:
     Done
     Failed(E)

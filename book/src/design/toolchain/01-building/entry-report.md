@@ -11,11 +11,17 @@ compiled executable. The wrapper flushes standard output, writes one line to
 standard error, destroys the error payload once, and returns one. Intermediate
 `?` propagation prints nothing.
 
-The line begins `error: main returned `. When the concrete error type satisfies
+The line begins `error: main returned `. The payload uses the same formatting
+selection as `print`: a top-level `display` method, then `debug`, then structural
+rendering with nested `debug` methods. A top-level string is emitted as text;
+strings inside aggregates retain their quoted spelling. These methods use the
+[`std.fmt.Formatter`](../../stdlib/fmt.md) contract.
+
+As a transitional fallback, when this selection invokes no `display` or `debug`
+method and the concrete error type satisfies
 [`std.fmt.Formattable`](../../stdlib/report.md), its borrowed `format` method
-supplies the message. An anonymous sum takes this path only when every member
-satisfies the protocol. Otherwise the payload is rendered as
-`str.repr` would render it. Errors needing an explanation add one after a colon:
+supplies the message. An anonymous sum takes this fallback only when every
+member satisfies the protocol. Otherwise the payload is rendered structurally. Errors needing an explanation add one after a colon:
 `IoError.System(code)` uses the C library's description (the text
 [`native_message`](../../stdlib/error.md#describing-a-native-code) fixes for
 glibc), payload-free `IoError` variants

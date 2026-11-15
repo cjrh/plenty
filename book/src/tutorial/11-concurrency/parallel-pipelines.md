@@ -62,8 +62,12 @@ def main() -> Result[(), AllocError | IoError | PoolMapError | PoolError | Overf
 [3, 14, 15, 9, 26]
 ```
 
-Callbacks run concurrently. Use named functions or reusable closures that own
-their captures and do not mutate captured bindings. Side effects can occur in
+Callbacks run concurrently. `map`, `filter`, `any`, and `all` accept named
+functions, stored capture-free closures, thin `Callable` values, class or
+payload-variant constructors, and reusable closures that own their captures
+without mutating them. The compiler certifies their worker effects; a thin
+callable checks every matching code address in the closed program.
+`reduce` still requires a named function, as does `pool.reduce_tree`. Side effects can occur in
 any chunk order. Put `enumerate` before `.par`:
 the chunk offsets carry the index. An overflowing enumeration index still
 terminates the process (even in a `checked:` caller); it is separate from a

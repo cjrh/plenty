@@ -5,6 +5,7 @@ equal to it, so `match` also selects on an integer, a `str`, or a `bool`
 directly, and on such a value inside an enum payload:
 
 ```plenty
+@copy
 enum Command:
     Move(i64)
     Say(str)

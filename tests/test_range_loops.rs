@@ -351,6 +351,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisio
 fn unit_results_with_managed_errors_return_ok_and_err() {
     expect(
         r#"
+@copy
 enum Problem:
     Syntax(str)
     Limit(i64)

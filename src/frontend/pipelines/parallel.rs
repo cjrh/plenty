@@ -206,15 +206,18 @@ impl Lower<'_> {
         steps.reverse();
         let par_at = current.at.clone();
         let (pool, chunk_count) = self.par_arguments(par_args, &par_at)?;
-        // Source forms: iter(S), iter(S).enumerate(k), enumerate(S, k).
+        // `iter` turns free enumerate sources into iterator values as well.
         let (items, start) = match &ungroup(source).kind {
             Expression::Call(f, a) if builtin_call(f) == Some("iter") && a.len() == 1 => {
-                (&a[0], None)
-            }
-            Expression::Call(f, a)
-                if builtin_call(f) == Some("enumerate") && (1..=2).contains(&a.len()) =>
-            {
-                (&a[0], Some(a.get(1)))
+                match &ungroup(&a[0]).kind {
+                    Expression::Call(f, values)
+                        if builtin_call(f) == Some("enumerate")
+                            && (1..=2).contains(&values.len()) =>
+                    {
+                        (&values[0], Some(values.get(1)))
+                    }
+                    _ => (&a[0], None),
+                }
             }
             Expression::Method(inner, m, a, _)
                 if m == "enumerate"
@@ -228,7 +231,7 @@ impl Lower<'_> {
             }
             _ => {
                 return Err(source.at.error(
-                    "a parallel pipeline starts from iter(items), iter(items).enumerate(), or enumerate(items): only enumerate may come before .par",
+                    "a parallel pipeline starts from iter(items), iter(items).enumerate(), or iter(enumerate(items)): only enumerate may come before .par",
                 ));
             }
         };
@@ -508,10 +511,11 @@ impl Lower<'_> {
             )
         };
         let mut chain = if enumerated {
-            call(
+            method(
                 &at,
-                &format!("{BUILTIN_CALL}enumerate"),
-                vec![items, name_expr(&at, offset_name)],
+                call(&at, &format!("{BUILTIN_CALL}iter"), vec![items]),
+                "enumerate",
+                vec![name_expr(&at, offset_name)],
             )
         } else {
             call(&at, &format!("{BUILTIN_CALL}iter"), vec![items])
@@ -915,6 +919,24 @@ impl Lower<'_> {
             Expression::Anonymous(function) => self.closure_value(function, &callback.at, ops)?,
             _ => self.value(callback, ops)?,
         };
+        // Thin values include stored capture-free closures and constructor
+        // adapters. Capture the address just like an owned closure; worker
+        // certification checks every address with this signature separately.
+        if let Ty::Callable(signature) = &ty {
+            let output = signature.output.clone();
+            let local = self.par_hidden(
+                CALLBACK.trim_start_matches("__plenty_par_"),
+                ty,
+                &callback.at,
+                hidden,
+                ops,
+            )?;
+            let Expression::Name(name) = &local.kind else {
+                unreachable!()
+            };
+            captures.push(name.clone());
+            return Ok((local, output));
+        }
         let closure = match &ty {
             Ty::Closure(c) => c.clone(),
             Ty::Ref(..) => {

@@ -165,6 +165,7 @@ class Resource:
         pass
 class Holder[T]:
     value: T
+@copy
 enum Packet[T]:
     Value(T)
 def main() -> ():
@@ -211,7 +212,7 @@ fn data_specialization_limits_are_per_declaration() {
 
 #[test]
 fn data_specialization_and_recursive_layouts_have_bounded_diagnostics() {
-    let mut source = String::from("enum Marker[T]:\n    Empty\n");
+    let mut source = String::from("@copy\nenum Marker[T]:\n    Empty\n");
     for n in 0..16_385 {
         let args = (0..15)
             .map(|bit| if n & (1 << bit) == 0 { "u8" } else { "u16" })

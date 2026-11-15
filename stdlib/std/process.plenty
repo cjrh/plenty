@@ -32,6 +32,7 @@ const terminate_signal: i32 = 15
 const kill_signal: i32 = 9
 
 # Each isolated group is led by the newly spawned child; no arbitrary PGID.
+@copy
 pub enum ProcessGroup:
     Inherit
     NewGroup
@@ -601,6 +602,7 @@ pub class Child:
         nothing = empty()?
         self.communicate(&nothing, limit)
 
+@copy
 pub enum WaitError:
     Io(IoError)
     Cancelled

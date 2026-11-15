@@ -1,6 +1,7 @@
 # Run with the integration harness's allocation-checking runtime.
 import trie
 
+@copy
 enum TestError:
     ChangedOnFailure
     Invalid

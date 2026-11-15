@@ -72,6 +72,7 @@ without consuming it:
 import std.fmt
 from std.fmt import Formatter
 
+@copy
 pub enum ReadError:
     Missing
     Invalid(i64)
@@ -96,8 +97,9 @@ invalid reading on line 12
 invalid reading on line 12
 ```
 
-Returning the enum from `main` does not call the method yet: the report still
-uses the [structural entrypoint report](../../design/toolchain/01-building/entry-report.md).
+Returning the enum from `main` as an error calls its `display` method too; the
+[entrypoint report](../../design/toolchain/01-building/entry-report.md) uses the
+same value spelling as `print`, within its stderr budget.
 
 Inside such a method, `out.format(f"...")` writes an f-string straight to the
 formatter, with no intermediate `str`. It returns `Result[(), FormatError]`, and

@@ -17,6 +17,7 @@ a retry policy class or a mode enum:
 class RetryPolicy:
     attempts: i64
 
+@copy
 enum Mode:
     Fast
     Careful
@@ -98,6 +99,7 @@ A named enum can represent these distinct key domains while preserving their
 identity:
 
 ```plenty
+@copy
 enum Key:
     Id(i64)
     Name(str)

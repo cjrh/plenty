@@ -409,6 +409,8 @@ pub struct Error {
     pub required: Option<Arc<Instantiation>>,
     /// The type of a moved binding, whose reuse is an implicit copy.
     pub copied: Option<Ty>,
+    /// Concrete local type used for declaration-level copy guidance.
+    copy_hint: Option<Ty>,
     /// The wait or shutdown belongs to a function this call reaches
     /// (issue #349): `Some(None)` when the callee has no source name.
     pub call: Option<Option<String>>,
@@ -611,6 +613,20 @@ impl Error {
         for (site, note) in &self.notes {
             let at = self.position(*site);
             diagnostic.message += &format!("\n  {at}: note: {note}");
+        }
+        if let Some(Ty::Enum(enumeration)) = &self.copy_hint
+            && !enumeration.get().copy
+            && enumeration
+                .get()
+                .variants
+                .iter()
+                .flat_map(|v| &v.fields)
+                .all(|ty| !ty.affine())
+        {
+            diagnostic.message += &format!(
+                "\n  note: enum `{}` moves by default; declare it `@copy` to make copying part of its contract",
+                enumeration.display_name()
+            );
         }
         if let Some(effect) = &self.shutdown_effect {
             effect.explain(&mut diagnostic.message);
@@ -1258,6 +1274,7 @@ impl Checker<'_, '_> {
             source: self.origins.source.clone(),
             required: self.origins.required.clone(),
             copied: None,
+            copy_hint: None,
             call: None,
             shutdown_effect: None,
         })
@@ -1412,6 +1429,7 @@ impl Checker<'_, '_> {
         match state.get(slot as usize) {
             Some(Slot::Moved { at, definite }) => {
                 let mut error = self.error(Kind::Moved(*definite), place.clone(), site);
+                error.copy_hint = self.locals.get(slot as usize).cloned();
                 error.copied = self
                     .origins
                     .parameter_values
@@ -2068,6 +2086,7 @@ impl Checker<'_, '_> {
                     _ => None,
                 };
                 let mut error = self.error(Kind::MovedInLoop, self.slot_place(i), moved.or(site));
+                error.copy_hint = self.locals.get(i).cloned();
                 error.copied = self.origins.parameter_values.get(i).cloned().flatten();
                 return Err(error);
             }

@@ -5,6 +5,7 @@ class Trace:
     def __del__(self) -> ():
         print(self.tag).unwrap()
 
+@copy
 enum Stop:
     Now
 

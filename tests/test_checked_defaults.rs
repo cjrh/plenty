@@ -446,6 +446,7 @@ fn key_sort_runs_in_both_modes(source: &str, expected: &str) {
 fn fallible_key_sort_relocates_range_and_nested_sum_errors() {
     key_sort_runs_in_both_modes(
         r#"
+@copy
 enum SortError:
     Span(Option[range[i64]])
     Message(str)

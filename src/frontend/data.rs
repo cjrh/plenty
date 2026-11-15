@@ -334,6 +334,26 @@ impl TypeAliases {
         for class in copy_classes {
             self.check_copy_template(class)?;
         }
+        let mut copy_enums: Vec<_> = self.data.enums.values().collect();
+        copy_enums.sort_by_key(|e| &e.name);
+        for enumeration in copy_enums {
+            let fields: Vec<_> = enumeration
+                .variants
+                .iter()
+                .flat_map(|(variant, fields)| {
+                    fields.iter().enumerate().map(move |(index, ty)| {
+                        (format!("{variant} payload {}", index + 1), ty.clone())
+                    })
+                })
+                .collect();
+            self.check_copy_fields_template(
+                ("enum", &enumeration.name),
+                &enumeration.at,
+                enumeration.copy.is_some(),
+                &enumeration.type_params,
+                &fields,
+            )?;
+        }
         for (_, params) in declarations {
             let bounds: Vec<_> = params
                 .iter()
@@ -826,6 +846,21 @@ impl TypeAliases {
                 if let Ty::Class(class) = ty {
                     self.check_copy_class(class, &self.data.classes[name], actual)?;
                 }
+                if let Ty::Enum(enumeration) = ty
+                    && self.data.enums[name].copy.is_some()
+                    && actual.is_empty()
+                {
+                    for variant in &enumeration.get().variants {
+                        for (index, field) in variant.fields.iter().enumerate() {
+                            if field.affine() {
+                                return Err(at().error(format!(
+                                    "`@copy` enum `{ty}` cannot have payload {} of variant `{}` of type `{field}`, which moves; every payload of a `@copy` enum must copy",
+                                    index + 1, variant.name
+                                )));
+                            }
+                        }
+                    }
+                }
                 // A forward class name may not yet reveal its borrowed fields
                 // while its containing enum is resolved. Recheck once every
                 // nominal definition in this bounded batch is complete.
@@ -925,6 +960,7 @@ impl TypeAliases {
         }
         Ok(Ty::Enum(crate::nominal::Nominal::new(
             crate::sum::EnumType {
+                copy: declaration.copy.is_some(),
                 name: declaration.name.clone(),
                 facts: std::sync::OnceLock::new(),
                 variants,

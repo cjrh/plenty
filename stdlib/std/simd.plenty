@@ -1,6 +1,7 @@
 # Portable logical vectors. Ordinary scalar bodies are the reference implementation;
 # optimized builds may replace supported operations with native SIMD instructions.
 
+@copy
 pub enum i32x4:
     Lanes(i32, i32, i32, i32)
 
@@ -176,6 +177,7 @@ pub def load_i32x4(values: &list[i32], offset: i64 = 0) -> Option[i32x4]:
             return Nothing
         Some(i32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
+@copy
 pub enum u32x4:
     Lanes(u32, u32, u32, u32)
 
@@ -351,6 +353,7 @@ pub def load_u32x4(values: &list[u32], offset: i64 = 0) -> Option[u32x4]:
             return Nothing
         Some(u32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
+@copy
 pub enum f32x4:
     Lanes(f32, f32, f32, f32)
 
@@ -529,6 +532,7 @@ pub def load_f32x4(values: &list[f32], offset: i64 = 0) -> Option[f32x4]:
             return Nothing
         Some(f32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
+@copy
 pub enum f64x2:
     Lanes(f64, f64)
 
@@ -700,6 +704,7 @@ pub def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]:
             return Nothing
         Some(f64x2.Lanes(values[offset], values[offset + 1]))
 
+@copy
 pub enum f64x4:
     Lanes(f64, f64, f64, f64)
 
@@ -882,6 +887,7 @@ pub def load_f64x4(values: &list[f64], offset: i64 = 0) -> Option[f64x4]:
             return Nothing
         Some(f64x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
+@copy
 pub enum mask32x4:
     Lanes(bool, bool, bool, bool)
 
@@ -931,6 +937,7 @@ pub enum mask32x4:
                     case mask32x4.Lanes(b0, b1, b2, b3):
                         mask32x4.Lanes(*a0 != *b0, *a1 != *b1, *a2 != *b2, *a3 != *b3)
 
+@copy
 pub enum mask64x2:
     Lanes(bool, bool)
 
@@ -980,6 +987,7 @@ pub enum mask64x2:
                     case mask64x2.Lanes(b0, b1):
                         mask64x2.Lanes(*a0 != *b0, *a1 != *b1)
 
+@copy
 pub enum mask64x4:
     Lanes(bool, bool, bool, bool)
 

@@ -208,7 +208,8 @@ fn size_and_offsets_are_bounded_at_representation_limits() {
     let start = module.find("def size(").unwrap();
     let end = module[start..].find("def finite(").unwrap() + start;
     let source = format!(
-        r#"enum LinalgError:
+        r#"@copy
+enum LinalgError:
     Shape
 {}
 def main() -> Result[(), IoError]:

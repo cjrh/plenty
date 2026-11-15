@@ -3,6 +3,7 @@
 from std.bytes import Bytes
 from streams import Reader, StepError, within
 
+@copy
 pub enum FramingError[E]:
     Transport(E)
     Truncated

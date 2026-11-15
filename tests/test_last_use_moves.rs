@@ -36,7 +36,8 @@ fn section(dir: &std::path::Path, file: &str, name: &str) -> String {
 // `repeated` reads `word` in a loop and `kept` uses its scrutinee after the
 // match, so both keep copies; `lent` reads a borrowed local; `guarded` checks
 // that a destructor still runs at return.
-const PROGRAM: &str = r#"enum Problem:
+const PROGRAM: &str = r#"@copy
+enum Problem:
     Wrapped(AllocError)
     Empty
 

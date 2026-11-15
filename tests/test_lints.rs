@@ -37,6 +37,7 @@ class Point[T]:
 class Named:
     name: str
 
+@copy
 enum Shape:
     Circle(f64)
     Square(f64)
@@ -312,6 +313,7 @@ class Named:
     def shown(self) -> Result[str, AllocError]:
         Ok(copy(self.name)?)
 
+@copy
 enum Shape:
     Circle(f64)
     Square(f64)
@@ -391,6 +393,7 @@ class Holder[T]:
     def dup(self) -> Result[T, AllocError]:
         Ok(copy(self.item)?)
 
+@copy
 enum Maybe[T]:
     Some(T)
     Nothing

@@ -4,6 +4,7 @@ C receives an exported class as an opaque handle. The generated header names
 its destroy function and ownership rules.
 
 ```plenty-file counter.plenty
+@copy
 pub enum CalcError:
     Overflow
 

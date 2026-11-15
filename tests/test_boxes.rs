@@ -127,6 +127,7 @@ new
 fn matching_a_box_matches_its_content() {
     runs(
         r#"
+@copy
 enum Shape:
     Circle(i64)
     Rect(i64, i64)

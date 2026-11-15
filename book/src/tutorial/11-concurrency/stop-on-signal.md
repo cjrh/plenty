@@ -18,6 +18,7 @@ from std.net import TcpStream
 from std.signal import Signal
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Home
 

@@ -5,6 +5,7 @@ values. Choose the concrete payload type in brackets. Here, `T: IntType` accepts
 any supported sized integer. Omit the constraint to allow other stored types.
 
 ```plenty
+@copy
 enum Choice[T: IntType]:
     Empty
     Value(T)

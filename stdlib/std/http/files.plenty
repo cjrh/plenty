@@ -19,6 +19,7 @@ from std.http.server import Exchange, Transport
 from std.io import FileStream, StreamError
 from std.time import Timestamp
 
+@copy
 pub enum FilesError:
     Io(IoError)
     Stream(StreamError)

@@ -1,5 +1,6 @@
 import trie
 
+@copy
 enum TestError:
     Invariant
     Order

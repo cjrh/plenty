@@ -12,6 +12,7 @@ from std.fs import Root
 from std.io import StreamError
 from std.path import Path
 
+@copy
 pub enum SystemError:
     Io(IoError)
     Stream(StreamError)

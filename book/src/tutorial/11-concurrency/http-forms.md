@@ -23,6 +23,7 @@ from std.http.server import Exchange
 from std.net import TcpStream
 from std.sync import CancellationToken
 
+@copy
 pub enum Route:
     Login
     Me

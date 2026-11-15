@@ -12,6 +12,8 @@ fn structural(mut ty: EnumType, identity: String) -> Ty {
 
 #[derive(Clone, Debug)]
 pub struct EnumType {
+    /// Structural builtins or a declared `@copy` contract. Payloads still decide each instance.
+    pub copy: bool,
     pub facts: std::sync::OnceLock<crate::type_facts::Facts>,
     pub restricted_storage: bool,
     /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`. See
@@ -139,6 +141,7 @@ pub fn anonymous(types: Vec<Ty>) -> Ty {
         .join(" | ");
     structural(
         EnumType {
+            copy: true,
             facts: std::sync::OnceLock::new(),
             restricted_storage: members.iter().any(Ty::restricted_storage),
             redacted: false,
@@ -251,6 +254,7 @@ pub fn producer_conflict(target: &Ty, source: &Ty) -> Option<Ty> {
 /// A payload-free marker for callers that deliberately discard error details.
 pub fn failure() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(EnumType {
+        copy: true,
         restricted_storage: false,
         redacted: false,
         name: "Failure".into(),
@@ -271,6 +275,7 @@ pub fn failure() -> Ty {
 /// An allocation error must itself be constructible without allocating.
 pub fn alloc_error() -> Ty {
     Ty::Enum(crate::nominal::Nominal::new(EnumType {
+        copy: true,
         restricted_storage: false,
         redacted: false,
         name: "AllocError".into(),
@@ -681,6 +686,7 @@ pub fn tuple(fields: Vec<Ty>) -> Ty {
     );
     structural(
         EnumType {
+            copy: true,
             name: format!(
                 "tuple[{}]",
                 fields
@@ -711,6 +717,7 @@ pub fn option(element: Ty) -> Ty {
     let identity = format!("Option[{}]", element.identity_name());
     structural(
         EnumType {
+            copy: true,
             restricted_storage: element.restricted_storage(),
             redacted: false,
             name: format!("Option[{element}]"),
@@ -741,6 +748,7 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
     let identity = format!("Result[{}, {}]", ok.identity_name(), error.identity_name());
     structural(
         EnumType {
+            copy: true,
             restricted_storage: ok.restricted_storage() || error.restricted_storage(),
             redacted: false,
             name: format!("Result[{ok}, {error}]"),

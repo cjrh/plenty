@@ -26,6 +26,7 @@ fn maps_only_errors_and_preserves_success_payloads() {
     assert_output(
         r#"
 from std.error import map_error
+@copy
 enum Domain:
     Parse(ParseError)
 def classify(error: ParseError) -> Domain:
@@ -118,6 +119,7 @@ class Resource:
 def result() -> Result[Resource, i64]:
     print("result").unwrap()
     Ok(Resource(42))
+@copy
 enum MapperError:
     Unavailable
 def mapper(fail: bool) -> Result[OnceClosure[[i64], i64], MapperError]:
@@ -223,9 +225,11 @@ fn check_error(source: &str) -> String {
 fn result_method_maps_with_variant_constructor_values() {
     assert_output(
         r#"
+@copy
 enum AppError:
     Io(IoError)
     Parse(ParseError)
+@copy
 enum Wrapped[T]:
     One(T)
 def parsed(text: &str) -> Result[i64, AppError | OverflowError[i64]]:
@@ -255,6 +259,7 @@ def main() -> Result[(), AppError | IoError | AllocError | OverflowError[i64]]:
 fn result_method_accepts_closures_with_extra_payloads_and_captures() {
     assert_output(
         r#"
+@copy
 enum AppError:
     Io(str, IoError)
 def label(cause: IoError) -> AppError:
@@ -316,7 +321,7 @@ def main() -> ():
 
 #[test]
 fn result_method_rejects_wrong_receivers_and_mappers() {
-    let prelude = "enum E:\n    Io(IoError)\n    Two(str, IoError)\ndef wrong(error: ParseError) -> E:\n    E.Io(IoError.InvalidInput)\ndef good(error: IoError) -> E:\n    E.Io(error)\n";
+    let prelude = "@copy\nenum E:\n    Io(IoError)\n    Two(str, IoError)\ndef wrong(error: ParseError) -> E:\n    E.Io(IoError.InvalidInput)\ndef good(error: IoError) -> E:\n    E.Io(error)\n";
     for (body, expected) in [
         (
             "    print(\"x\").map_error(wrong)?\n",
@@ -359,7 +364,7 @@ fn result_method_rejects_wrong_receivers_and_mappers() {
     }
     // Propagation is unchanged: `?` never selects a variant.
     let error = check_error(
-        "enum E:\n    Io(IoError)\ndef f() -> Result[(), E]:\n    print(\"x\")?\n    Ok(())\ndef main() -> ():\n    drop(f())\n",
+        "@copy\nenum E:\n    Io(IoError)\ndef f() -> Result[(), E]:\n    print(\"x\")?\n    Ok(())\ndef main() -> ():\n    drop(f())\n",
     );
     assert!(error.contains("cannot propagate as"), "{error}");
 }
@@ -388,6 +393,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 fn result_method_and_constructor_values_allocate_nothing() {
     assert_output(
         r#"
+@copy
 enum AppError:
     Parse(ParseError)
 def main() -> Result[(), AllocError | IoError]:

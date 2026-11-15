@@ -21,6 +21,7 @@ from std.ready import Interest, Selector, WaitError
 from std.sync import CancellationToken
 from std.time import Deadline, Duration, deadline_at, instant_at, monotonic_now, seconds
 
+@copy
 pub enum ServerError:
     InvalidConfig
     InvalidPattern
@@ -181,16 +182,19 @@ pub enum Match:
 
 # Exact matching is the default. Redirect checks the other spelling only
 # after an exact path miss, and only for a method that spelling accepts.
+@copy
 pub enum TrailingSlash:
     Exact
     Redirect
 
 # Only successfully matched captures are decoded. These reasons carry no raw
 # target, capture, query, header or body data into application rendering.
+@copy
 pub enum PathRefusal:
     InvalidEscape
     InvalidUtf8
 
+@copy
 pub enum RefusalError:
     Allocation(AllocError)
     BodyTooLarge
@@ -1902,6 +1906,7 @@ const give_up: i64 = 2
 # Why an Opener could not open a connection. TimedOut counts in `timeouts`,
 # Cancelled in `cancelled` and Failed in `protocol_errors`; Gone (the client
 # went away) is not counted.
+@copy
 pub enum OpenError:
     TimedOut
     Cancelled

@@ -162,6 +162,7 @@ from std.net import TcpStream
 from std.sync import CancellationToken
 from std.time import Deadline
 
+@copy
 pub enum Route:
     Events
     Watch

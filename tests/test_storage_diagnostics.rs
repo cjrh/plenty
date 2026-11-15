@@ -97,7 +97,7 @@ fn declarations_name_references_and_generators_separately() {
             "generators cannot be stored in class fields",
         ),
         (
-            "enum E:\n    A(&i64)",
+            "@copy\nenum E:\n    A(&i64)",
             "references cannot be stored in enum payloads",
         ),
         (

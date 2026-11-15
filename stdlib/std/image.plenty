@@ -9,6 +9,7 @@ from std.bytes import Bytes
 from std.compress import CompressError
 from std.io import StreamError
 
+@copy
 pub enum ImageError:
     OutOfRange
     Corrupt
@@ -19,6 +20,7 @@ pub enum ImageError:
     Allocation(AllocError)
 
 # Channels are interleaved in the order of the name, 8 bits each.
+@copy
 pub enum ColorType:
     Gray
     GrayAlpha
@@ -45,12 +47,14 @@ pub enum ColorType:
             case _:
                 False
 
+@copy
 pub enum Format:
     Png
     Jpeg
     Gif
     WebP
 
+@copy
 pub enum Filter:
     Nearest
     Bilinear
