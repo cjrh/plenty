@@ -2809,13 +2809,7 @@ unsafe fn format(adapter: Format, value: u128, ty: &Type, out: &mut crate::rende
     let reference = if ty.flat_field() {
         (value as u64 as *const u128).wrapping_sub(1)
     } else {
-        let storage = value as u64 as *const u8;
-        let inline = if storage.is_null() {
-            0
-        } else {
-            ty.inline_bytes as usize
-        };
-        let words = 1 + inline.div_ceil(16);
+        let words = ty.slot_words();
         let slot: &mut [u128] = if words <= STACK_WORDS {
             &mut stack[..words]
         } else {
@@ -2826,17 +2820,9 @@ unsafe fn format(adapter: Format, value: u128, ty: &Type, out: &mut crate::rende
             heap.resize(words, 0u128);
             &mut heap
         };
-        if inline == 0 {
-            slot[0] = value;
-        } else {
-            // SAFETY: a value with inline storage addresses `inline` bytes,
-            // which stay borrowed for the call.
-            unsafe {
-                std::ptr::copy_nonoverlapping(storage, slot[1..].as_mut_ptr().cast::<u8>(), inline)
-            };
-            let copy = slot[1..].as_ptr() as u64 as u128;
-            slot[0] = (value & !(u64::MAX as u128)) | copy;
-        }
+        // A sum's scalar variant has no active storage, even if another
+        // variant does. Typed relocation also repairs nested record pointers.
+        unsafe { ranges::store(slot.as_mut_ptr(), value, ty) };
         slot.as_ptr()
     };
     let mut result = 0u128;

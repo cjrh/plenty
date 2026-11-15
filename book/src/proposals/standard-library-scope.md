@@ -99,7 +99,7 @@ choice with a measurement or allocation check before implementation.
 | #477 | Progress bar | Plenty | Terminal drawing over `std.io` |
 | #478 | `std.shlex` | Plenty | Small tokenizer |
 | #480 | `std.memmap` | Plenty | A few system calls behind small runtime entries |
-| #481 | `std.bigint` | Decide | Measure Plenty limb arithmetic against native call cost; `num-bigint` allocates infallibly |
+| #481 | [`std.bigint`](../design/stdlib/bigint.md) | Plenty | Implemented canonical limbs and fallible algorithms; the [proposal](bigint.md) records the native-library assessment |
 | #482 | LRU cache | Plenty | `dict` and `std.deque` |
 | #483 | BLAKE3 | Native | Cryptography with SIMD; confirm hashing allocates nothing |
 | #484 | inotify | Plenty | A few system calls behind small runtime entries |

@@ -29,6 +29,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.dataframe",
         include_str!("../../stdlib/std/dataframe.plentyi"),
     ),
+    ("std.bigint", include_str!("../../stdlib/std/bigint.plenty")),
     ("std.math", include_str!("../../stdlib/std/math.plenty")),
     (
         "std.complex",

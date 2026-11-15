@@ -891,3 +891,6 @@ mod test_window_iteration;
 
 #[path = "test_arrays.rs"]
 mod test_arrays;
+
+#[path = "test_std_bigint.rs"]
+mod test_std_bigint;

@@ -110,7 +110,7 @@ individually. Numeric types retain `f64.PI`, `f64.E`, `f64.TAU`, `f64.INF`, and
 | `divmod[T: IntType](a: T, b: T) -> Result[(T, T), MathError]` | Same-type integer floor quotient and remainder; zero divisor is `Domain`, signed minimum divided by `-1` is `Overflow` |
 
 Integer combinatorics report `Overflow` when the result cannot fit `u64`.
-Unlike Python, Plenty has no arbitrary-precision integer type. `gcd` and `lcm`
+Use [`std.bigint`](bigint.md) for arbitrary-precision integer arithmetic. `gcd` and `lcm`
 take two unsigned inputs; convert signed magnitudes explicitly. Generic helpers
 specialize against operations in their bodies, with normal language errors for
 unsupported types. They allocate nothing. Integer helpers return ordinary

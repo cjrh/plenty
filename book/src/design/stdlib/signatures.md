@@ -18,95 +18,96 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 111-188
-- [`std.actor.net`](#stdactornet): 190-253
-- [`std.actor.tls`](#stdactortls): 255-284
-- [`std.actor.http.server`](#stdactorhttpserver): 286-349
-- [`std.archive`](#stdarchive): 351-417
-- [`std.atomic`](#stdatomic): 419-428
-- [`std.bytes`](#stdbytes): 430-502
-- [`std.cache.lru`](#stdcachelru): 504-526
-- [`std.channel`](#stdchannel): 528-532
-- [`std.cli`](#stdcli): 534-564
-- [`std.cli.fileinput`](#stdclifileinput): 566-575
-- [`std.cli.progress`](#stdcliprogress): 577-601
-- [`std.collections`](#stdcollections): 603-630
-- [`std.complex`](#stdcomplex): 632-658
-- [`std.compress`](#stdcompress): 660-690
-- [`std.concurrent`](#stdconcurrent): 692-696
-- [`std.crypto`](#stdcrypto): 698-779
-- [`std.csv`](#stdcsv): 781-844
-- [`std.dataframe`](#stddataframe): 846-1045
-- [`std.db.kv`](#stddbkv): 1047-1079
-- [`std.db.sqlite`](#stddbsqlite): 1081-1145
-- [`std.deque`](#stddeque): 1147-1161
-- [`std.diff`](#stddiff): 1163-1192
-- [`std.encoding`](#stdencoding): 1194-1261
-- [`std.env`](#stdenv): 1263-1277
-- [`std.error`](#stderror): 1279-1300
-- [`std.fmt`](#stdfmt): 1302-1369
-- [`std.fs`](#stdfs): 1371-1472
-- [`std.fs.dirs`](#stdfsdirs): 1474-1484
-- [`std.fs.lock`](#stdfslock): 1486-1501
-- [`std.fs.watch`](#stdfswatch): 1503-1538
-- [`std.graph`](#stdgraph): 1540-1628
-- [`std.http`](#stdhttp): 1630-1701
-- [`std.http.decoder`](#stdhttpdecoder): 1703-1720
-- [`std.http.body`](#stdhttpbody): 1722-1757
-- [`std.http.client`](#stdhttpclient): 1759-1869
-- [`std.http.cookie`](#stdhttpcookie): 1871-1903
-- [`std.http.files`](#stdhttpfiles): 1905-1918
-- [`std.http.https`](#stdhttphttps): 1920-1934
-- [`std.http.proxy`](#stdhttpproxy): 1936-1957
-- [`std.http.server`](#stdhttpserver): 1959-2060
-- [`std.http.sse`](#stdhttpsse): 2062-2081
-- [`std.http.tls`](#stdhttptls): 2083-2100
-- [`std.http.typed`](#stdhttptyped): 2102-2135
-- [`std.http.websocket`](#stdhttpwebsocket): 2137-2172
-- [`std.http.wss`](#stdhttpwss): 2174-2180
-- [`std.image`](#stdimage): 2182-2228
-- [`std.io`](#stdio): 2230-2336
-- [`std.io.typed`](#stdiotyped): 2338-2376
-- [`std.serial`](#stdserial): 2378-2444
-- [`std.json`](#stdjson): 2446-2598
-- [`std.jwt`](#stdjwt): 2600-2647
-- [`std.log`](#stdlog): 2649-2716
-- [`std.markdown`](#stdmarkdown): 2718-2752
-- [`std.template`](#stdtemplate): 2754-2791
-- [`std.math`](#stdmath): 2793-2864
-- [`std.mime`](#stdmime): 2866-2892
-- [`std.net`](#stdnet): 2894-2976
-- [`std.path`](#stdpath): 2978-2995
-- [`std.process`](#stdprocess): 2997-3055
-- [`std.random`](#stdrandom): 3057-3078
-- [`std.ready`](#stdready): 3080-3111
-- [`std.regex`](#stdregex): 3113-3166
-- [`std.report`](#stdreport): 3168-3179
-- [`std.secrets`](#stdsecrets): 3181-3207
-- [`std.shlex`](#stdshlex): 3209-3218
-- [`std.sketch`](#stdsketch): 3220-3258
-- [`std.sketch.xor`](#stdsketchxor): 3260-3271
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3273-3288
-- [`std.signal`](#stdsignal): 3290-3307
-- [`std.simd`](#stdsimd): 3309-3468
-- [`std.stat`](#stdstat): 3470-3503
-- [`std.plot`](#stdplot): 3505-3594
-- [`std.linalg`](#stdlinalg): 3596-3637
-- [`std.sync`](#stdsync): 3639-3671
-- [`std.system`](#stdsystem): 3673-3732
-- [`std.tempfile`](#stdtempfile): 3734-3766
-- [`std.test`](#stdtest): 3768-3810
-- [`std.text`](#stdtext): 3812-3855
-- [`std.thread`](#stdthread): 3857-3861
-- [`std.time`](#stdtime): 3863-3907
-- [`std.tls`](#stdtls): 3909-3991
-- [`std.toml`](#stdtoml): 3993-4092
-- [`std.unicode`](#stdunicode): 4094-4106
-- [`std.units`](#stdunits): 4108-4345
-- [`std.units.catalogue`](#stdunitscatalogue): 4347-5125
-- [`std.url`](#stdurl): 5127-5155
-- [`std.uuid`](#stduuid): 5157-5180
-- [`std.xml`](#stdxml): 5182-5215
+- [`std.actor`](#stdactor): 112-189
+- [`std.actor.net`](#stdactornet): 191-254
+- [`std.actor.tls`](#stdactortls): 256-285
+- [`std.actor.http.server`](#stdactorhttpserver): 287-350
+- [`std.archive`](#stdarchive): 352-418
+- [`std.atomic`](#stdatomic): 420-429
+- [`std.bigint`](#stdbigint): 431-465
+- [`std.bytes`](#stdbytes): 467-539
+- [`std.cache.lru`](#stdcachelru): 541-563
+- [`std.channel`](#stdchannel): 565-569
+- [`std.cli`](#stdcli): 571-601
+- [`std.cli.fileinput`](#stdclifileinput): 603-612
+- [`std.cli.progress`](#stdcliprogress): 614-638
+- [`std.collections`](#stdcollections): 640-667
+- [`std.complex`](#stdcomplex): 669-695
+- [`std.compress`](#stdcompress): 697-727
+- [`std.concurrent`](#stdconcurrent): 729-733
+- [`std.crypto`](#stdcrypto): 735-816
+- [`std.csv`](#stdcsv): 818-881
+- [`std.dataframe`](#stddataframe): 883-1082
+- [`std.db.kv`](#stddbkv): 1084-1116
+- [`std.db.sqlite`](#stddbsqlite): 1118-1182
+- [`std.deque`](#stddeque): 1184-1198
+- [`std.diff`](#stddiff): 1200-1229
+- [`std.encoding`](#stdencoding): 1231-1298
+- [`std.env`](#stdenv): 1300-1314
+- [`std.error`](#stderror): 1316-1337
+- [`std.fmt`](#stdfmt): 1339-1406
+- [`std.fs`](#stdfs): 1408-1509
+- [`std.fs.dirs`](#stdfsdirs): 1511-1521
+- [`std.fs.lock`](#stdfslock): 1523-1538
+- [`std.fs.watch`](#stdfswatch): 1540-1575
+- [`std.graph`](#stdgraph): 1577-1665
+- [`std.http`](#stdhttp): 1667-1738
+- [`std.http.decoder`](#stdhttpdecoder): 1740-1757
+- [`std.http.body`](#stdhttpbody): 1759-1794
+- [`std.http.client`](#stdhttpclient): 1796-1906
+- [`std.http.cookie`](#stdhttpcookie): 1908-1940
+- [`std.http.files`](#stdhttpfiles): 1942-1955
+- [`std.http.https`](#stdhttphttps): 1957-1971
+- [`std.http.proxy`](#stdhttpproxy): 1973-1994
+- [`std.http.server`](#stdhttpserver): 1996-2097
+- [`std.http.sse`](#stdhttpsse): 2099-2118
+- [`std.http.tls`](#stdhttptls): 2120-2137
+- [`std.http.typed`](#stdhttptyped): 2139-2172
+- [`std.http.websocket`](#stdhttpwebsocket): 2174-2209
+- [`std.http.wss`](#stdhttpwss): 2211-2217
+- [`std.image`](#stdimage): 2219-2265
+- [`std.io`](#stdio): 2267-2373
+- [`std.io.typed`](#stdiotyped): 2375-2413
+- [`std.serial`](#stdserial): 2415-2481
+- [`std.json`](#stdjson): 2483-2635
+- [`std.jwt`](#stdjwt): 2637-2684
+- [`std.log`](#stdlog): 2686-2753
+- [`std.markdown`](#stdmarkdown): 2755-2789
+- [`std.template`](#stdtemplate): 2791-2828
+- [`std.math`](#stdmath): 2830-2901
+- [`std.mime`](#stdmime): 2903-2929
+- [`std.net`](#stdnet): 2931-3013
+- [`std.path`](#stdpath): 3015-3032
+- [`std.process`](#stdprocess): 3034-3092
+- [`std.random`](#stdrandom): 3094-3115
+- [`std.ready`](#stdready): 3117-3148
+- [`std.regex`](#stdregex): 3150-3203
+- [`std.report`](#stdreport): 3205-3216
+- [`std.secrets`](#stdsecrets): 3218-3244
+- [`std.shlex`](#stdshlex): 3246-3255
+- [`std.sketch`](#stdsketch): 3257-3295
+- [`std.sketch.xor`](#stdsketchxor): 3297-3308
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3310-3325
+- [`std.signal`](#stdsignal): 3327-3344
+- [`std.simd`](#stdsimd): 3346-3505
+- [`std.stat`](#stdstat): 3507-3540
+- [`std.plot`](#stdplot): 3542-3631
+- [`std.linalg`](#stdlinalg): 3633-3674
+- [`std.sync`](#stdsync): 3676-3708
+- [`std.system`](#stdsystem): 3710-3769
+- [`std.tempfile`](#stdtempfile): 3771-3803
+- [`std.test`](#stdtest): 3805-3847
+- [`std.text`](#stdtext): 3849-3892
+- [`std.thread`](#stdthread): 3894-3898
+- [`std.time`](#stdtime): 3900-3944
+- [`std.tls`](#stdtls): 3946-4028
+- [`std.toml`](#stdtoml): 4030-4129
+- [`std.unicode`](#stdunicode): 4131-4143
+- [`std.units`](#stdunits): 4145-4382
+- [`std.units.catalogue`](#stdunitscatalogue): 4384-5162
+- [`std.url`](#stdurl): 5164-5192
+- [`std.uuid`](#stduuid): 5194-5217
+- [`std.xml`](#stdxml): 5219-5252
 
 ## `std.actor`
 
@@ -425,6 +426,42 @@ Compiler-provided: `Atomic`, `fence`. Their signatures are on the reference page
 ```text
 enum Ordering
     Relaxed | Release | Acquire | AcqRel | SeqCst
+```
+
+## `std.bigint`
+
+Signed arbitrary-precision integers, fallible arithmetic, bounded radix conversion and inline small values. Errors: `BigIntError`. [Reference](bigint.md).
+
+```text
+enum BigIntError
+    InvalidDigit | InvalidRadix | LimitExceeded | OutOfRange | ZeroDivision | Allocation(AllocError)
+class BigInt
+    def is_zero(self) -> bool
+    def is_negative(self) -> bool
+    def cmp(self, other: &BigInt) -> i64
+    def to_i64(self) -> Result[i64, BigIntError]
+    def to_u64(self) -> Result[u64, BigIntError]
+    def bit_length(self) -> i64
+    def to_f64(self) -> f64
+    def __add__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def __radd__(self, other: i64) -> Result[BigInt, AllocError]
+    def __neg__(self) -> Result[BigInt, AllocError]
+    def __sub__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def __mul__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def add_assign(self: &mut BigInt, other: &BigInt) -> Result[(), AllocError]
+    def __floordiv__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def __mod__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def checked_divmod(self, other: &BigInt) -> Result[(BigInt, BigInt), BigIntError]
+    def __lshift__(self, count: i64) -> Result[BigInt, AllocError]
+    def __rshift__(self, count: i64) -> Result[BigInt, AllocError]
+    def __and__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def __or__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def __xor__(self, other: &BigInt) -> Result[BigInt, AllocError]
+    def to_string(self, radix: i64 = 10, max_digits: NonNegative[i64] = 10000) -> Result[str, BigIntError]
+    def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]
+def from_i64(value: i64) -> BigInt
+def from_u64(value: u64) -> Result[BigInt, AllocError]
+def parse(text: &strview, radix: i64 = 10, max_digits: NonNegative[i64] = 10000) -> Result[BigInt, BigIntError]
 ```
 
 ## `std.bytes`

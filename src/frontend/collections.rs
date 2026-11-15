@@ -4991,6 +4991,29 @@ impl Lower<'_> {
         {
             return Err(base.at.error(format!("KeyView does not support `{name}`; use keys_snapshot() for owned list methods, or to_set() for an owned set")));
         }
+        if ty == Ty::U64 && matches!(name, "widening_mul" | "carrying_add") {
+            let count = if name == "carrying_add" { 2 } else { 1 };
+            if args.len() != count {
+                return Err(base.at.error(format!("{name} takes {count} arguments")));
+            }
+            let argument = self.expr_expected(&args[0], Some(Ty::U64), ops)?;
+            self.same(argument, Some(Ty::U64), &args[0].at)?;
+            let last = if name == "carrying_add" {
+                let carry = self.expr_expected(&args[1], Some(Ty::Bool), ops)?;
+                self.same(carry, Some(Ty::Bool), &args[1].at)?;
+                ops.push(Op::Integer(IntegerOp::CarryingAdd));
+                Ty::Bool
+            } else {
+                ops.push(Op::Integer(IntegerOp::WideningMul));
+                Ty::U64
+            };
+            let Ty::Enum(tuple) = crate::sum::tuple(vec![Ty::U64, last]) else {
+                unreachable!()
+            };
+            ops.push(Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)));
+            Self::end_reads(loans, ops);
+            return Ok(Some(Ty::Enum(tuple)));
+        }
         if ty.is_int() && matches!(name, "wrapping_add" | "wrapping_sub" | "wrapping_mul") {
             if args.len() != 1 {
                 return Err(base.at.error("wrapping arithmetic takes one argument"));

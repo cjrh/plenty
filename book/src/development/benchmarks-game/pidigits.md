@@ -21,5 +21,11 @@ Threads: 1. License: [Benchmarks Game revised BSD](../benchmarks-game.md#referen
 
 ## Plenty implementation
 
-No Plenty program is available yet. Plenty's standard library has no arbitrary-precision integer type; the benchmark needs bignum multiply, add and divide. The reference needs GMP (gmp.h and -lgmp).
-See [blocked benchmarks](../benchmarks-game.md#blocked-benchmarks) for backlog B38 and issue #481.
+The single-threaded spigot uses [`std.bigint`](../../design/stdlib/bigint.md)
+for fallible arbitrary-precision arithmetic. It follows the bundled C
+reference's algorithm and emits ten digits per labelled line; a partial final
+line is padded to ten characters. The Plenty program needs no GMP dependency.
+
+```plenty fragment
+{{#include ../../../../benchmarks/game/pidigits/plenty/pidigits.plenty}}
+```

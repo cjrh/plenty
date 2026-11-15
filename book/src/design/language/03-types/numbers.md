@@ -110,6 +110,11 @@ Prefix `&` and `&mut` still create borrows.
 integer types and compute modulo two to the integer width. They allocate
 nothing. Ordinary `+`, `-`, and `*` keep their overflow checks.
 
+For `u64`, `value.widening_mul(other) -> (u64, u64)` returns the low and high
+halves of the exact product. `value.carrying_add(other, carry: bool) -> (u64,
+bool)` returns the wrapped sum and carry-out. Both are allocation-free and
+infallible. They support limb arithmetic such as [`std.bigint`](../../stdlib/bigint.md).
+
 `value.rotate_left(count)` and `value.rotate_right(count)` rotate the bits of
 an integer: bits leaving one end enter at the other, so none are lost. The count
 has the receiver's type, and a typed receiver guides an unsuffixed count literal.

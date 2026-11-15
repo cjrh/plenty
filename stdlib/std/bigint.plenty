@@ -1,0 +1,674 @@
+# Arbitrary precision signed integers. Canonical signed magnitude with inline i64.
+# Arithmetic algorithms follow the base-power limb approach described in
+# The Art of Computer Programming, vol. 2, sections 4.3.1 and 4.3.3
+# (Donald Knuth): schoolbook arithmetic, Knuth division and Karatsuba.
+from std.fmt import Formatter, FormatError
+
+pub enum BigIntError:
+    InvalidDigit
+    InvalidRadix
+    LimitExceeded
+    OutOfRange
+    ZeroDivision
+    Allocation(AllocError)
+
+enum Value:
+    Small(i64)
+    Large(bool, list[u64])
+
+pub class BigInt:
+    _value: Value
+
+    pub def is_zero(self) -> bool:
+        match &self._value:
+            case Value.Small(n):
+                *n == 0
+            case Value.Large(_, _):
+                False
+
+    pub def is_negative(self) -> bool:
+        match &self._value:
+            case Value.Small(n):
+                *n < 0
+            case Value.Large(negative, _):
+                *negative
+
+    def word_len(self) -> i64:
+        match &self._value:
+            case Value.Small(n):
+                0 if *n == 0 else 1
+            case Value.Large(_, words):
+                len(words)
+
+    def word(self, index: i64) -> u64:
+        if index < 0 or index >= self.word_len():
+            return 0u64
+        match &self._value:
+            case Value.Small(n):
+                unchecked:
+                    u64(-(*n + 1)) + 1u64 if *n < 0 else u64(*n)
+            case Value.Large(_, words):
+                words[index]
+
+    pub def cmp(self, other: &BigInt) -> i64:
+        if self.is_negative() != other.is_negative():
+            return -1 if self.is_negative() else 1
+        result = magnitude_cmp(self, other)
+        unchecked:
+            -result if self.is_negative() else result
+
+    pub def to_i64(self) -> Result[i64, BigIntError]:
+        match &self._value:
+            case Value.Small(n):
+                Ok(*n)
+            case Value.Large(_, _):
+                Err(BigIntError.OutOfRange)
+
+    pub def to_u64(self) -> Result[u64, BigIntError]:
+        if self.is_negative() or self.word_len() > 1:
+            return Err(BigIntError.OutOfRange)
+        Ok(self.word(0))
+
+    pub def bit_length(self) -> i64:
+        if self.is_zero():
+            return 0
+        unchecked:
+            mut high = self.word(self.word_len() - 1)
+            mut bits = (self.word_len() - 1) * 64
+            while high != 0u64:
+                bits += 1
+                high >>= 1u64
+            bits
+
+    pub def to_f64(self) -> f64:
+        unchecked:
+            bits = self.bit_length()
+            if bits <= 53:
+                value = f64(self.word(0))
+                return -value if self.is_negative() else value
+            if bits > 1024:
+                return -f64.INF if self.is_negative() else f64.INF
+            shift = bits - 53
+            mut top = 0u64
+            for i in range(53):
+                position = bits - i - 1
+                top = (top << 1u64) | ((self.word(position // 64) >> u64(position % 64)) & 1u64)
+            guard_position = shift - 1
+            guard = ((self.word(guard_position // 64) >> u64(guard_position % 64)) & 1u64) != 0u64
+            mut sticky = False
+            for i in range(guard_position // 64):
+                sticky = sticky or self.word(i) != 0u64
+            remaining = u64(guard_position % 64)
+            if remaining != 0u64:
+                sticky = sticky or (self.word(guard_position // 64) << (64u64 - remaining)) != 0u64
+            if guard and (sticky or (top & 1u64) != 0u64):
+                top += 1u64
+            value = f64(top) * 2.0.pow(f64(shift))
+            -value if self.is_negative() else value
+
+    pub def __add__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        match &self._value:
+            case Value.Small(a):
+                match &other._value:
+                    case Value.Small(b):
+                        result = checked:
+                            *a + *b
+                        match result:
+                            case Ok(n):
+                                return Ok(from_i64(n))
+                            case Err(_):
+                                pass
+                    case _:
+                        pass
+            case _:
+                pass
+        if self.is_negative() == other.is_negative():
+            return Ok(canonical(self.is_negative(), magnitude_add(self, other)?))
+        order = magnitude_cmp(self, other)
+        if order == 0:
+            return Ok(from_i64(0))
+        if order > 0:
+            Ok(canonical(self.is_negative(), magnitude_sub(self, other)?))
+        else:
+            Ok(canonical(other.is_negative(), magnitude_sub(other, self)?))
+
+    pub def __radd__(self, other: i64) -> Result[BigInt, AllocError]:
+        self + from_i64(other)
+
+    pub def __neg__(self) -> Result[BigInt, AllocError]:
+        match &self._value:
+            case Value.Small(n):
+                if *n != i64.MIN:
+                    unchecked:
+                        return Ok(from_i64(-*n))
+            case _:
+                pass
+        Ok(canonical(not self.is_negative(), words(self)?))
+
+    pub def __sub__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        match &self._value:
+            case Value.Small(a):
+                match &other._value:
+                    case Value.Small(b):
+                        result = checked:
+                            *a - *b
+                        match result:
+                            case Ok(n):
+                                return Ok(from_i64(n))
+                            case Err(_):
+                                pass
+                    case _:
+                        pass
+            case _:
+                pass
+        if self.is_negative() != other.is_negative():
+            return Ok(canonical(self.is_negative(), magnitude_add(self, other)?))
+        order = magnitude_cmp(self, other)
+        if order == 0:
+            return Ok(from_i64(0))
+        if order > 0:
+            Ok(canonical(self.is_negative(), magnitude_sub(self, other)?))
+        else:
+            Ok(canonical(not self.is_negative(), magnitude_sub(other, self)?))
+
+    pub def __mul__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        if self.is_zero() or other.is_zero():
+            return Ok(from_i64(0))
+        match &self._value:
+            case Value.Small(a):
+                match &other._value:
+                    case Value.Small(b):
+                        result = checked:
+                            *a * *b
+                        match result:
+                            case Ok(n):
+                                return Ok(from_i64(n))
+                            case Err(_):
+                                pass
+                    case _:
+                        pass
+            case _:
+                pass
+        a = words(self)?
+        b = words(other)?
+        Ok(canonical(self.is_negative() != other.is_negative(), multiply(&a, &b)?))
+
+    pub def add_assign(self: &mut BigInt, other: &BigInt) -> Result[(), AllocError]:
+        result = (self + other)?
+        self._value = result._value
+        Ok(())
+
+    pub def __floordiv__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        if other.is_zero():
+            __trap("BigInt.__floordiv__: divisor is zero")
+        pair = quotient_remainder(self, other)?
+        (q, _) = pair
+        Ok(q)
+
+    pub def __mod__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        if other.is_zero():
+            __trap("BigInt.__mod__: divisor is zero")
+        pair = quotient_remainder(self, other)?
+        (_, r) = pair
+        Ok(r)
+
+    pub def checked_divmod(self, other: &BigInt) -> Result[(BigInt, BigInt), BigIntError]:
+        if other.is_zero():
+            return Err(BigIntError.ZeroDivision)
+        quotient_remainder(self, other).map_error(BigIntError.Allocation)
+
+    pub def __lshift__(self, count: i64) -> Result[BigInt, AllocError]:
+        if count < 0:
+            __trap("BigInt.__lshift__: count is negative")
+        if self.is_zero():
+            return Ok(from_i64(0))
+        match &self._value:
+            case Value.Small(n):
+                if count < 63:
+                    factor = unchecked:
+                        1i64 << count
+                    result = checked:
+                        *n * factor
+                    match result:
+                        case Ok(value):
+                            return Ok(from_i64(value))
+                        case Err(_):
+                            pass
+                elif count == 63 and *n == -1:
+                    return Ok(from_i64(i64.MIN))
+            case _:
+                pass
+        unchecked:
+            extra = count // 64
+            if extra > i64.MAX - self.word_len() - 1:
+                return Err(AllocError.CapacityOverflow)
+            mut result = zeros(self.word_len() + extra + 1)?
+            shift = u64(count % 64)
+            for i in range(self.word_len()):
+                value = self.word(i)
+                result[i + extra] = result[i + extra] | (value << shift)
+                if shift != 0u64:
+                    result[i + extra + 1] = value >> (64u64 - shift)
+            Ok(canonical(self.is_negative(), result))
+
+    pub def __rshift__(self, count: i64) -> Result[BigInt, AllocError]:
+        if count < 0:
+            __trap("BigInt.__rshift__: count is negative")
+        match &self._value:
+            case Value.Small(n):
+                if count >= 63:
+                    return Ok(from_i64(-1 if *n < 0 else 0))
+                unchecked:
+                    return Ok(from_i64(*n >> count))
+            case _:
+                pass
+        unchecked:
+            extra = count // 64
+            if extra >= self.word_len():
+                return Ok(from_i64(-1 if self.is_negative() else 0))
+            shift = u64(count % 64)
+            mut result = zeros(self.word_len() - extra)?
+            mut discarded = False
+            for i in range(extra):
+                discarded = discarded or self.word(i) != 0u64
+            if shift != 0u64:
+                discarded = discarded or (self.word(extra) << (64u64 - shift)) != 0u64
+            for i in range(len(result)):
+                result[i] = self.word(i + extra) >> shift
+                if shift != 0u64:
+                    result[i] = result[i] | (self.word(i + extra + 1) << (64u64 - shift))
+            value = canonical(self.is_negative(), result)
+            if self.is_negative() and discarded:
+                return value - from_i64(1)
+            Ok(value)
+
+    pub def __and__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        bitwise(self, other, 0)
+
+    pub def __or__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        bitwise(self, other, 1)
+
+    pub def __xor__(self, other: &BigInt) -> Result[BigInt, AllocError]:
+        bitwise(self, other, 2)
+
+    pub def to_string(self, radix: i64 = 10, max_digits: NonNegative[i64] = 10000) -> Result[str, BigIntError]:
+        if radix < 2 or radix > 36:
+            return Err(BigIntError.InvalidRadix)
+        width = digit_count(self, radix, max_digits.get()).map_error(BigIntError.Allocation)?
+        if width > max_digits.get():
+            return Err(BigIntError.LimitExceeded)
+        mut digits = list[str]().map_error(BigIntError.Allocation)?
+        if self.is_negative():
+            digits.append("-").map_error(BigIntError.Allocation)?
+        render_digits(self, radix, width, &mut digits).map_error(BigIntError.Allocation)?
+        "".join(&digits).map_error(BigIntError.Allocation)
+
+    pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
+        match self.to_string():
+            case Ok(text):
+                out.text(text)
+            case Err(BigIntError.Allocation(cause)):
+                Err(FormatError.Allocation(cause))
+            case Err(_):
+                Err(FormatError.LimitExceeded)
+
+pub def from_i64(value: i64) -> BigInt:
+    BigInt(Value.Small(value))
+
+pub def from_u64(value: u64) -> Result[BigInt, AllocError]:
+    if value <= 9223372036854775807u64:
+        unchecked:
+            return Ok(from_i64(i64(value)))
+    Ok(canonical(False, [value]?))
+
+pub def parse(text: &strview, radix: i64 = 10, max_digits: NonNegative[i64] = 10000) -> Result[BigInt, BigIntError]:
+    if radix < 2 or radix > 36:
+        return Err(BigIntError.InvalidRadix)
+    data = text.as_bytes()
+    if len(data) == 0:
+        return Err(BigIntError.InvalidDigit)
+    negative = data[0] == 45u8
+    start = 1 if negative or data[0] == 43u8 else 0
+    unchecked:
+        if len(data) - start > max_digits.get():
+            return Err(BigIntError.LimitExceeded)
+        if start == len(data):
+            return Err(BigIntError.InvalidDigit)
+        for i in range(start, len(data)):
+            digit = digit_value(data[i])
+            if digit < 0 or digit >= radix:
+                return Err(BigIntError.InvalidDigit)
+        value = parse_digits(data, start, len(data), radix).map_error(BigIntError.Allocation)?
+        if negative:
+            (-value).map_error(BigIntError.Allocation)
+        else:
+            Ok(value)
+
+def digit_value(ch: u8) -> i64:
+    unchecked:
+        if ch >= 48u8 and ch <= 57u8:
+            i64(ch - 48u8)
+        elif ch >= 65u8 and ch <= 90u8:
+            i64(ch - 65u8) + 10
+        elif ch >= 97u8 and ch <= 122u8:
+            i64(ch - 97u8) + 10
+        else:
+            -1
+
+def radix_power(radix: i64, exponent: i64) -> Result[BigInt, AllocError]:
+    unchecked:
+        mut result = from_i64(1)
+        mut base = from_i64(radix)
+        mut count = exponent
+        while count > 0:
+            if count % 2 != 0:
+                result = (result * base)?
+            count //= 2
+            if count > 0:
+                base = (base * base)?
+        Ok(result)
+
+def parse_digits(data: &[u8], start: i64, stop: i64, radix: i64) -> Result[BigInt, AllocError]:
+    unchecked:
+        if stop - start <= 12:
+            mut value = 0
+            for i in range(start, stop):
+                value = value * radix + digit_value(data[i])
+            return Ok(from_i64(value))
+        middle = start + (stop - start) // 2
+        left = parse_digits(data, start, middle, radix)?
+        right = parse_digits(data, middle, stop, radix)?
+        power = radix_power(radix, stop - middle)?
+        shifted = (left * power)?
+        shifted + right
+
+def digit_count(value: &BigInt, radix: i64, limit: i64) -> Result[i64, AllocError]:
+    if value.is_zero():
+        return Ok(1)
+    unchecked:
+        possible = value.word_len() * 64 + 1
+        mut high = possible if limit >= possible else limit + 1
+        mut low = 1
+        while low < high:
+            middle = low + (high - low) // 2
+            power = radix_power(radix, middle)?
+            if magnitude_cmp(value, &power) < 0:
+                high = middle
+            else:
+                low = middle + 1
+        Ok(low)
+
+def render_digits(value: &BigInt, radix: i64, width: i64, output: &mut list[str]) -> Result[(), AllocError]:
+    unchecked:
+        if width <= 12:
+            mut n = value.word(0)
+            mut digits: list[str] = []?
+            alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+            for _ in range(width):
+                digits.append(alphabet[i64(n % u64(radix))])?
+                n //= u64(radix)
+            mut i = len(digits)
+            while i > 0:
+                i -= 1
+                output.append(digits[i])?
+            return Ok(())
+        right_width = width // 2
+        power = radix_power(radix, right_width)?
+        (q, r) = divide_magnitude(value, &power)?
+        left = canonical(False, q)
+        right = canonical(False, r)
+        render_digits(&left, radix, width - right_width, output)?
+        render_digits(&right, radix, right_width, output)?
+        Ok(())
+
+# Only this constructor can create a large representation. Zero has no sign;
+# every value in the signed word range returns to the inline representation.
+def canonical(negative: bool, source: list[u64]) -> BigInt:
+    mut value = source
+    trim(&mut value)
+    if len(value) == 0:
+        return from_i64(0)
+    if len(value) == 1:
+        limit = 9223372036854775808u64 if negative else 9223372036854775807u64
+        if value[0] <= limit:
+            unchecked:
+                if negative and value[0] == 9223372036854775808u64:
+                    return from_i64(i64.MIN)
+                n = -i64(value[0]) if negative else i64(value[0])
+                return from_i64(n)
+    BigInt(Value.Large(negative, value))
+
+def trim(value: &mut list[u64]) -> ():
+    while len(value) > 0:
+        if value[-1] != 0u64:
+            return
+        drop(value.pop())
+
+def zeros(length: i64) -> Result[list[u64], AllocError]:
+    mut result = list[u64].with_capacity(length)?
+    for _ in range(length):
+        result.append(0u64)?
+    Ok(result)
+
+def words(value: &BigInt) -> Result[list[u64], AllocError]:
+    mut result = list[u64].with_capacity(value.word_len())?
+    for i in range(value.word_len()):
+        result.append(value.word(i))?
+    Ok(result)
+
+def magnitude_cmp(a: &BigInt, b: &BigInt) -> i64:
+    if a.word_len() != b.word_len():
+        return -1 if a.word_len() < b.word_len() else 1
+    unchecked:
+        mut i = a.word_len()
+        while i > 0:
+            i -= 1
+            if a.word(i) != b.word(i):
+                return -1 if a.word(i) < b.word(i) else 1
+    0
+
+def magnitude_add(a: &BigInt, b: &BigInt) -> Result[list[u64], AllocError]:
+    unchecked:
+        n = a.word_len() if a.word_len() > b.word_len() else b.word_len()
+        mut result = list[u64].with_capacity(n + 1)?
+        mut carry = False
+        for i in range(n):
+            (word, overflow) = a.word(i).carrying_add(b.word(i), carry)
+            result.append(word)?
+            carry = overflow
+        if carry:
+            result.append(1u64)?
+        Ok(result)
+
+def magnitude_sub(a: &BigInt, b: &BigInt) -> Result[list[u64], AllocError]:
+    mut result = list[u64].with_capacity(a.word_len())?
+    mut borrow = False
+    for i in range(a.word_len()):
+        x = a.word(i)
+        y = b.word(i)
+        difference = x.wrapping_sub(y)
+        result.append(difference.wrapping_sub(1u64 if borrow else 0u64))?
+        borrow = x < y or (borrow and difference == 0u64)
+    Ok(result)
+
+def multiply(a: &list[u64], b: &list[u64]) -> Result[list[u64], AllocError]:
+    unchecked:
+        if len(a) >= 32 and len(b) >= 32 and len(a) <= 2 * len(b) and len(b) <= 2 * len(a):
+            n = len(a) if len(a) > len(b) else len(b)
+            half = n // 2
+            low_a = canonical(False, a[:half]?)
+            high_a = canonical(False, a[half:]?)
+            low_b = canonical(False, b[:half]?)
+            high_b = canonical(False, b[half:]?)
+            z0 = (low_a * low_b)?
+            z2 = (high_a * high_b)?
+            sum_a = (low_a + high_a)?
+            sum_b = (low_b + high_b)?
+            product = (sum_a * sum_b)?
+            middle0 = (product - z0)?
+            middle = (middle0 - z2)?
+            shifted_middle = (middle << (half * 64))?
+            shifted_high = (z2 << (half * 128))?
+            sum = (z0 + shifted_middle)?
+            total = (sum + shifted_high)?
+            return words(&total)
+        mut out = zeros(len(a) + len(b))?
+        for i in range(len(a)):
+            mut carry = 0u64
+            for j in range(len(b)):
+                (low, high) = a[i].widening_mul(b[j])
+                (sum, c1) = low.carrying_add(out[i + j], False)
+                (total, c2) = sum.carrying_add(carry, False)
+                out[i + j] = total
+                carry = high + (1u64 if c1 else 0u64) + (1u64 if c2 else 0u64)
+            out[i + len(b)] = carry
+        Ok(out)
+
+def quotient_remainder(a: &BigInt, b: &BigInt) -> Result[(BigInt, BigInt), AllocError]:
+    match &a._value:
+        case Value.Small(x):
+            match &b._value:
+                case Value.Small(y):
+                    result = checked:
+                        (*x // *y, *x % *y)
+                    match result:
+                        case Ok(pair):
+                            (q, r) = pair
+                            return Ok((from_i64(q), from_i64(r)))
+                        case Err(_):
+                            pass
+                case _:
+                    pass
+        case _:
+            pass
+    (quotient, rest) = divide_magnitude(a, b)?
+    mut q = canonical(a.is_negative() != b.is_negative(), quotient)
+    mut remainder = canonical(False, rest)
+    if a.is_negative() != b.is_negative() and not remainder.is_zero():
+        q = (q - from_i64(1))?
+        remainder = canonical(b.is_negative(), magnitude_sub(b, &remainder)?)
+    elif b.is_negative() and not remainder.is_zero():
+        remainder = (-remainder)?
+    Ok((q, remainder))
+
+# Algorithm D in base 2^32: each double digit fits u64, including trial
+# quotient estimation. Storage remains u64 limbs outside this division scratch.
+def digits32(value: &BigInt) -> Result[list[u64], AllocError]:
+    unchecked:
+        mut out = list[u64].with_capacity(value.word_len() * 2)?
+        for i in range(value.word_len()):
+            out.append(value.word(i) & 4294967295u64)?
+            out.append(value.word(i) >> 32u64)?
+        trim(&mut out)
+        Ok(out)
+
+def pack32(digits: &list[u64]) -> Result[list[u64], AllocError]:
+    unchecked:
+        mut out = list[u64].with_capacity((len(digits) + 1) // 2)?
+        mut i = 0
+        while i < len(digits):
+            high = digits[i + 1] if i + 1 < len(digits) else 0u64
+            out.append(digits[i] | (high << 32u64))?
+            i += 2
+        Ok(out)
+
+def scale32(digits: &mut list[u64], factor: u64) -> Result[(), AllocError]:
+    unchecked:
+        mut carry = 0u64
+        for i in range(len(digits)):
+            value = digits[i] * factor + carry
+            digits[i] = value & 4294967295u64
+            carry = value >> 32u64
+        if carry != 0u64:
+            digits.append(carry)?
+        Ok(())
+
+def divide_magnitude(a: &BigInt, b: &BigInt) -> Result[(list[u64], list[u64]), AllocError]:
+    unchecked:
+        if magnitude_cmp(a, b) < 0:
+            empty: list[u64] = []?
+            return Ok((empty, words(a)?))
+        mut u = digits32(a)?
+        mut v = digits32(b)?
+        n = len(v)
+        m = len(u) - n
+        factor = 4294967296u64 // (v[-1] + 1u64)
+        scale32(&mut u, factor)?
+        scale32(&mut v, factor)?
+        if len(u) == m + n:
+            u.append(0u64)?
+        mut q = zeros(m + 1)?
+        mut j = m + 1
+        while j > 0:
+            j -= 1
+            numerator = (u[j + n] << 32u64) | u[j + n - 1]
+            mut guess = numerator // v[n - 1]
+            mut residual = numerator % v[n - 1]
+            if guess >= 4294967296u64:
+                guess = 4294967295u64
+                residual = u[j + n - 1] + v[n - 1]
+            if n > 1:
+                while residual < 4294967296u64 and guess * v[n - 2] > (residual << 32u64) + u[j + n - 2]:
+                    guess -= 1u64
+                    residual += v[n - 1]
+                    if residual >= 4294967296u64:
+                        break
+            mut borrow = 0u64
+            for i in range(n):
+                product = guess * v[i] + borrow
+                low = product & 4294967295u64
+                borrow = (product >> 32u64) + (1u64 if u[j + i] < low else 0u64)
+                u[j + i] = u[j + i].wrapping_sub(low) & 4294967295u64
+            negative = u[j + n] < borrow
+            u[j + n] = u[j + n].wrapping_sub(borrow) & 4294967295u64
+            if negative:
+                guess -= 1u64
+                mut carry = 0u64
+                for i in range(n):
+                    total = u[j + i] + v[i] + carry
+                    u[j + i] = total & 4294967295u64
+                    carry = total >> 32u64
+                u[j + n] = (u[j + n] + carry) & 4294967295u64
+            q[j] = guess
+        mut r = u[:n]?
+        mut carry = 0u64
+        mut i = len(r)
+        while i > 0:
+            i -= 1
+            value = (carry << 32u64) | r[i]
+            r[i] = value // factor
+            carry = value % factor
+        Ok((pack32(&q)?, pack32(&r)?))
+
+def bitwise(a: &BigInt, b: &BigInt, operation: i64) -> Result[BigInt, AllocError]:
+    match &a._value:
+        case Value.Small(x):
+            match &b._value:
+                case Value.Small(y):
+                    result = (*x & *y) if operation == 0 else ((*x | *y) if operation == 1 else (*x ^ *y))
+                    return Ok(from_i64(result))
+                case _:
+                    pass
+        case _:
+            pass
+    unchecked:
+        n = (a.word_len() if a.word_len() > b.word_len() else b.word_len()) + 1
+        mut out = zeros(n)?
+        mut ac = a.is_negative()
+        mut bc = b.is_negative()
+        for i in range(n):
+            aw = a.word(i)
+            bw = b.word(i)
+            (ax, next_a) = (~aw).carrying_add(0u64, ac) if a.is_negative() else (aw, False)
+            (bx, next_b) = (~bw).carrying_add(0u64, bc) if b.is_negative() else (bw, False)
+            ac = next_a
+            bc = next_b
+            out[i] = (ax & bx) if operation == 0 else ((ax | bx) if operation == 1 else (ax ^ bx))
+        negative = (out[-1] >> 63u64) != 0u64
+        if negative:
+            mut carry = True
+            for i in range(n):
+                (word, next) = (~out[i]).carrying_add(0u64, carry)
+                out[i] = word
+                carry = next
+        Ok(canonical(negative, out))

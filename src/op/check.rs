@@ -807,6 +807,9 @@ fn step(
             arith(stack, "// or %")?;
         }
         Op::Integer(kind) => {
+            if *kind == IntegerOp::CarryingAdd && stack.pop() != Some(Ty::Bool) {
+                return Err("carrying_add requires a bool carry".into());
+            }
             let ty = stack.pop().ok_or("integer operation stack underflow")?;
             if !ty.is_int() {
                 return Err("bitwise and wrapping operations require integers".into());
@@ -814,7 +817,19 @@ fn step(
             if *kind != IntegerOp::Not && stack.pop().as_ref() != Some(&ty) {
                 return Err("integer operations require same-typed operands".into());
             }
-            stack.push(ty);
+            if matches!(kind, IntegerOp::WideningMul | IntegerOp::CarryingAdd) {
+                if ty != Ty::U64 {
+                    return Err("limb operations require u64".into());
+                }
+                stack.push(Ty::U64);
+                stack.push(if *kind == IntegerOp::CarryingAdd {
+                    Ty::Bool
+                } else {
+                    Ty::U64
+                });
+            } else {
+                stack.push(ty);
+            }
         }
         Op::Numeric(operation) => operation.check(stack)?,
         Op::CheckedArith {
