@@ -26,7 +26,7 @@ def pinned_revision(lockfile, package, repository):
         for p in tomllib.loads(lockfile.read_text())["package"]
         if p["name"] == package
     }
-    prefix = f"git+https://github.com/cjrh/{repository}?branch=fork#"
+    prefix = f"git+https://github.com/plentylang/{repository}?branch=fork#"
     if len(matches) != 1 or not next(iter(matches)).startswith(prefix):
         raise ValueError(f"{package}: expected one locked {repository} fork revision")
     revision = matches.pop().removeprefix(prefix)

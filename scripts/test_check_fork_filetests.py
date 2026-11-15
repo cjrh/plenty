@@ -45,7 +45,7 @@ class ForkCheckTests(unittest.TestCase):
             lock.write_text('[[package]]\nname="regalloc2"\nsource="registry+example"\n')
             with self.assertRaises(ValueError):
                 check.pinned_revision(lock, 'regalloc2', 'regalloc2')
-            lock.write_text('[[package]]\nname="regalloc2"\nsource="git+https://github.com/cjrh/regalloc2?branch=fork#' + 'a' * 40 + '"\n')
+            lock.write_text('[[package]]\nname="regalloc2"\nsource="git+https://github.com/plentylang/regalloc2?branch=fork#' + 'a' * 40 + '"\n')
             self.assertEqual(check.pinned_revision(lock, 'regalloc2', 'regalloc2'), 'a' * 40)
 
     def test_ignored_path_patch_is_error(self):

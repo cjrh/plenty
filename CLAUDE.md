@@ -129,7 +129,7 @@ affected performance comparisons. See the
 [development workflow](book/src/development/workflow.md#dependency-versions).
 
 Cranelift and regalloc2 come from the project's forks, branch `fork` of
-`cjrh/wasmtime` and `cjrh/regalloc2`, checked out beside the primary worktree
+`plentylang/wasmtime` and `plentylang/regalloc2`, checked out beside the primary worktree
 as `../wasmtime` and `../regalloc2`. A code generation fix may be made there;
 see [Cranelift and regalloc2 forks](book/src/development/workflow.md#cranelift-and-regalloc2-forks)
 for the procedure.

@@ -9,9 +9,9 @@ publish = false
 [dependencies]
 # The compiler's Cranelift and regalloc2 forks, at the revisions its lockfile
 # records; the reader parses hand-written CLIF.
-cranelift-codegen = { git = "https://github.com/cjrh/wasmtime", branch = "fork", features = ["x86", "disas"] }
-cranelift-control = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
-cranelift-reader = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
+cranelift-codegen = { git = "https://github.com/plentylang/wasmtime", branch = "fork", features = ["x86", "disas"] }
+cranelift-control = { git = "https://github.com/plentylang/wasmtime", branch = "fork" }
+cranelift-reader = { git = "https://github.com/plentylang/wasmtime", branch = "fork" }
 
 [patch.crates-io]
-regalloc2 = { git = "https://github.com/cjrh/regalloc2", branch = "fork" }
+regalloc2 = { git = "https://github.com/plentylang/regalloc2", branch = "fork" }
