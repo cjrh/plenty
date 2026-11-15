@@ -594,6 +594,14 @@ reads the header's values, which reach the exit too.
 
 A body that never falls through and has no `continue` gets no latch.
 
+For an integer-tested backedge, the Cranelift fork elaborates its successor
+arguments before the condition (issue #977). A backedge argument can still
+consume the old induction value while the condition consumes its increment;
+finishing the old uses first avoids a register copy and split-edge jump.
+Operand positions and the instruction skeleton stay unchanged, so this does
+not reorder effects or remove arithmetic checks. Floating comparisons and
+forward branches retain their existing elaboration order.
+
 Rotation removes one instruction per pass from tight loops: the `reverse`
 kernel's swap loop matches C's eight instructions. In loops that make calls,
 regalloc2 can place a split's moves on the latch's back edge instead; `fasta`

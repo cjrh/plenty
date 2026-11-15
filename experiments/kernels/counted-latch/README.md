@@ -10,8 +10,9 @@ finishes the old counter's uses before the increment and removes both.
 The candidate is Cranelift commit `d27f16528a`, based on the pinned
 `98c03730582a07fe57c027f0e18e821040c68b8c`. `cranelift.patch` preserves its exact
 source and regression tests. After qualification, the user authorized publication:
-the fork's `fork` branch now points to this commit. Production lockfile adoption
-and the bounded benchmark rewrite remain separate work under issue #972. This is not a claim that
+the fork's `fork` branch now points to this commit. The subsequent
+[issue #972 adoption](../bounded-arguments/adoption/README.md) selects the
+production/harness pins and rewrites the benchmark. This is not a claim that
 all counted escape loops are fixed. Plenty's baseline is `eacaf201`.
 
 ## Kernel counts and rejected variants
