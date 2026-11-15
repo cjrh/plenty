@@ -1,12 +1,16 @@
 # Arbitrary-precision integers (`std.bigint`)
 
-**Status: Implemented.** [`std.bigint`](../design/stdlib/bigint.md) supplies
-inline small values, fallible Plenty limb arithmetic, Karatsuba multiplication,
-Knuth division, bounded divide-and-conquer radix conversion, and `u64` limb
-builtins. The implementation uses direct published algorithms rather than a
-crate port; no native kernel or third-party code is included. The reference
+**Status: Implemented.** [`std.bigint`](../../design/stdlib/bigint.md) supplies
+inline small values, fallible Plenty limb arithmetic, Karatsuba, Toom-3 and
+packed five-prime NTT/CRT multiplication, Knuth division, bounded
+divide-and-conquer radix conversion, and `u64` limb builtins. The implementation
+uses direct published algorithms rather than a crate port; no native kernel or third-party code is included. The reference
 settles public signatures, errors and limits. This page preserves the design
-comparison for issue #481; scheduling belongs to [B38](../backlog.md).
+comparison for issue #481; the [delivery record](../../completed-work/libraries.md#b38-library-breadth)
+records the implemented scope. Issue #987 remains open for the measured
+performance gap with Malachite. The optional native kernel was conditional on
+evidence and is not required to complete this proposal; that candidate remains
+in [B38](../../backlog.md).
 
 ## Original recommendation
 
@@ -40,17 +44,17 @@ than every other crate, and ARM64 was not measured. It also parses decimal text
 
 - **Fallible allocation.** Every allocation in `std` reports `AllocError`; a
   Rust allocation failure in the runtime aborts the process
-  ([Rust panics](../design/toolchain/02-architecture/runtime.md#rust-panics)).
+  ([Rust panics](../../design/toolchain/02-architecture/runtime.md#rust-panics)).
 - **License.** Plenty is MIT OR Apache-2.0. No current dependency is used under
   a copyleft license. The only license expressions that mention LGPL also
   offer MIT OR Apache-2.0.
 - **Size and build cost.** Code in the runtime archive costs nothing to programs
   that do not reach it, but grows the compiler and its build. The
-  [engine criteria](../design/toolchain/01-building/engines.md#when-a-module-is-an-engine)
+  [engine criteria](../../design/toolchain/01-building/engines.md#when-a-module-is-an-engine)
   move a module out of the archive above 2 MB per program or one minute of
   build time.
 - **Platforms.** Linux x86-64 and ARM64, macOS ARM64, Windows x86-64 MSVC
-  ([cross-platform assessment](cross-platform.md)).
+  ([cross-platform assessment](../cross-platform.md)).
 - **Project preference.** Implement in Plenty unless native complexity or
   security justifies a wrapper (B38, `AGENTS.md`).
 
@@ -77,7 +81,7 @@ is enabled, and its FFT path allocates regardless.
 The runtime can already contain one infallible Rust library: `ring`'s RSA
 operations run inside `actor_heap::within` with a pre-reserved arena. An
 allocation failure there jumps back and reports `AllocError`
-([RSA allocation](../design/stdlib/crypto-keys.md#allocation-and-key-material)).
+([RSA allocation](../../design/stdlib/crypto-keys.md#allocation-and-key-material)).
 Applying this to malachite would fail for these reasons:
 
 - **Platforms.** The arena router exists only on Linux x86-64 and ARM64. On
@@ -94,7 +98,7 @@ Applying this to malachite would fail for these reasons:
   arena cannot catch its failures at all.
 
 An engine (shared library) does not help either: Rust's `Vec` aborts there
-too, and the [linalg engine](../design/stdlib/linalg-engine.md#allocation-contract)
+too, and the [linalg engine](../../design/stdlib/linalg-engine.md#allocation-contract)
 reports allocation failure only because it uses fallible faer APIs and a fork.
 Forking malachite (about 650,000 lines with `malachite-base`) to make it
 fallible is not maintainable.
@@ -217,7 +221,7 @@ Rust build.
 
 ## Historical API direction
 
-The following historical sketch informed the implementation. The [module reference](../design/stdlib/bigint.md) records the settled API (`to_string`, text views and `BigIntError`, among other changes).
+The following historical sketch informed the implementation. The [module reference](../../design/stdlib/bigint.md) records the settled API (`to_string`, text views and `BigIntError`, among other changes).
 
 ```text
 from std.bigint import BigInt
@@ -251,7 +255,7 @@ def parse(text: &str, radix: i64) -> Result[BigInt, ParseError | AllocError]
 - **Equality and ordering.** `==` is structural, so it is correct only if the
   representation is canonical. Every value that fits in `i64` is `Small`, and
   limbs carry no high zeros. Classes have no ordering operators until the
-  [user-defined ordering](user-type-ordering.md) proposal's `__cmp__` lands, so
+  [user-defined ordering](../user-type-ordering.md) proposal's `__cmp__` lands, so
   `cmp` is a method for now. The implemented `BigInt` is not a dictionary
   key because its magnitude storage includes a list, which is not a supported
   structural key field.
