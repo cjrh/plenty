@@ -1,0 +1,43 @@
+# Extracted production forward transform; setup is outside the repeated loop.
+def transform_forward(data: &mut [u64], roots: &[u64], p: u64) -> ():
+    unchecked:
+        n = len(data)
+        mut width = n
+        mut step = 1
+        while width >= 2:
+            half = width // 2
+            mut start = 0
+            while start < n:
+                block = &mut data[start:start + width]
+                transform_forward_block(&mut block[:half], &mut block[half:], roots, step, p)
+                start += width
+            width = half
+            step *= 2
+
+def transform_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64) -> ():
+    unchecked:
+        mut k = 0
+        for j in range(len(low)):
+            u = low[j]
+            v = high[j]
+            sum = u + v
+            difference = u + p - v
+            low[j] = sum - p if sum >= p else sum
+            high[j] = transform_twiddle(difference - p if difference >= p else difference, roots[k], roots[len(roots) // 2 + k], p)
+            k += step
+
+def transform_twiddle(value: u64, root: u64, factor: u64, p: u64) -> u64:
+    unchecked:
+        q = value.wrapping_mul(factor) >> 32u64
+        r = value.wrapping_mul(root).wrapping_sub(q.wrapping_mul(p))
+        r.wrapping_sub(p) if r >= p else r
+
+def main() -> Result[(), AllocError | IoError | ParseError | OverflowError[u64]]:
+    argv = args()?
+    count = i64.parse(argv[1])?
+    mut data = [u64(i) % 998244353u64 for i in range(8192)]?
+    roots = [(1u64 if i < 4096 else 4u64) for i in range(8192)]?
+    for _ in range(count):
+        transform_forward(&mut data, &roots, 998244353u64)
+    print(data[0])?
+    Ok(())

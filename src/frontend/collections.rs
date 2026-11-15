@@ -1366,7 +1366,20 @@ impl Lower<'_> {
                 crate::sum::EnumOp::Field(t.clone(), 0, 0)
             }));
         } else {
-            ops.push(Op::Split(t.clone(), 0));
+            // Primitive tuple producers already leave scalar fields on the
+            // stack. Destructure without round-tripping through inline slots.
+            // Only read-loan markers may intervene: no value has been stored,
+            // borrowed or passed to another operation.
+            let constructor = ops.iter().rposition(|op| !matches!(op, Op::UseLoan(_)));
+            let fresh = fields.iter().all(|ty| ty.is_int() || *ty == Ty::Bool)
+                && constructor.is_some_and(|index| {
+                    matches!(&ops[index], Op::Enum(crate::sum::EnumOp::New(source, 0)) if source == t)
+                });
+            if fresh {
+                ops.remove(constructor.unwrap());
+            } else {
+                ops.push(Op::Split(t.clone(), 0));
+            }
         }
         ops.extend(
             slots

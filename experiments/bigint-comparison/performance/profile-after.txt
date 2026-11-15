@@ -1,0 +1,58 @@
+--------------------------------------------------------------------------------
+Profile data file 'target/perf987/final.cg' (creator: callgrind-3.27.1)
+--------------------------------------------------------------------------------
+I1 cache:
+D1 cache:
+LL cache:
+Timerange: Basic block 0 - 8022877
+Trigger: Program termination
+Profiled target:  target/perf987/bench-symbols render bcdd1fe3babaab325bb39dd798d6140d4e77d5f1d453da38e77c3ed175c46438047257f4a81e36e0e0f2af7a58144855b8f5fdfad416384ccb24c93ca87dd05ff86767e4050ada44d10bb028a0ac38766f9273ac8fe6309ad642576f90459f0fede8530e84fff519527531ed6acb98cc7b81c7c88910c1f83359cd38f6fa8a9bd5083849f7ed3e89c972416fa86680ff25886f8fe44a99538bd18dfc1738d1e3478fc8d4cb40f8dcf17f3ac506d35e80ca38578d90962185e5751d6d47163c34bac756d866a8ded35cd98942a751300e1943ed41661155be3db6e47248ffddfdde2e779d3e59cddf4e5a86992860471ee01d6554329140c4d719633d5b99d100 f1efd100dbf0f2b580fdac29250abd670fe482f683e82e83a4bae40555d85dac270326f98f82ff17682380bfe89dc3e8beae165dbb18514d7a410c492e9b542cb783bee619477bd7b3ea60b99b489d406e19eea9cd4041728bedc8e8e8b5fb7d6b3b72ce4dc8cc183a2a00cb839b667c5d3a13739b8be1dedd31eb5e9a51a2e9401269e3434eb93310f1b267c498f4b9d4fbc92ca4de4790d1f0eace1d6d7a9211a637c89ec1db6727a10daa962a82102e89d943c293c27746cf4bc25f06f9c86b7a894505ae805758cc0cf2286764133e0164f81ae07f6e4704ba1b1e279227fdcb5528466ea4d21933714bb230baca4d395ddabfda3b5f2f1c9ce969b65fa9 10 (PID 2088929, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       80
+Include dirs:
+User annotated:
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir
+--------------------------------------------------------------------------------
+42,951,106 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                  file:function
+--------------------------------------------------------------------------------
+5,823,165 (13.56%)  ???:<plenty_runtime::aggregates::Collection>::try_reserve [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+4,311,967 (10.04%)  ???:<plenty_runtime::entries::Entries>::push [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+2,690,671 ( 6.26%)  ???:<plenty_runtime::aggregates::Collection>::try_add [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+2,211,632 ( 5.15%)  ???:<plenty_runtime::aggregates::Collection>::growth [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,877,348 ( 4.37%)  ???:<plenty_runtime::aggregates::Collection>::try_store [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,794,258 ( 4.18%)  ???:<plenty_runtime::entries::Entries>::set [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,706,480 ( 3.97%)  ???:plenty_op_29 [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,373,823 ( 3.20%)  ???:__plenty_fn_std.bigint.divide_digits [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,112,878 ( 2.59%)  ???:<plenty_runtime::entries::Entries>::get [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,111,370 ( 2.59%)  ???:plenty_runtime::aggregates::collection_destroy [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,105,040 ( 2.57%)  ???:__plenty_fn_std.bigint.multiply [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+1,032,718 ( 2.40%)  ???:<plenty_runtime::aggregates::Collection>::locate [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  796,226 ( 1.85%)  ???:plenty_runtime::aggregates::release_next [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  760,078 ( 1.77%)  ???:__plenty_fn_std.bigint.render_digits'2 [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  707,216 ( 1.65%)  ???:__plenty_fn___plenty_class_std.bigint.BigInt.word [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  701,992 ( 1.63%)  /usr/src/debug/glibc-2.43-9.fc44.x86_64/string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms [/usr/lib64/libc.so.6]
+  690,165 ( 1.61%)  ???:<plenty_runtime::aggregates::Type>::record [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  522,548 ( 1.22%)  ???:__plenty_fn___plenty_class_std.bigint.BigInt.word_len [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  509,783 ( 1.19%)  ???:plenty_runtime::aggregates::retain [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  490,802 ( 1.14%)  /usr/src/debug/glibc-2.43-9.fc44.x86_64/string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms [/usr/lib64/libc.so.6]
+  472,843 ( 1.10%)  ???:plenty_runtime::small_pool::free [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  471,762 ( 1.10%)  ???:__plenty_fn_std.bigint.canonical [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  442,320 ( 1.03%)  ???:plenty_runtime::small_pool::alloc [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  438,921 ( 1.02%)  ???:plenty_release [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  434,850 ( 1.01%)  ???:plenty_runtime::aggregates::try_collection_new [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  420,856 ( 0.98%)  ???:plenty_op_4 [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+  361,053 ( 0.84%)  ???:plenty_op_35 [/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-symbols]
+
+--------------------------------------------------------------------------------
+The following files chosen for auto-annotation could not be found:
+--------------------------------------------------------------------------------
+  /usr/src/debug/glibc-2.43-9.fc44.x86_64/string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S
+  /usr/src/debug/glibc-2.43-9.fc44.x86_64/string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S

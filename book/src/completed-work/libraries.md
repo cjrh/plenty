@@ -17,7 +17,7 @@ scope decision, not a second task list.
 
 | Delivery | Contract / evidence |
 | --- | --- |
-| [Arbitrary-precision integers](../design/stdlib/bigint.md) | Inline `i64` values and canonical `u64` limbs, fallible arithmetic, Karatsuba multiplication, Knuth division, bounded divide-and-conquer radix conversion, and compiler widening-multiply/add-with-carry methods (issue #481 design; B38 implementation). |
+| [Arbitrary-precision integers](../design/stdlib/bigint.md) | Inline `i64` values and canonical `u64` limbs, fallible arithmetic, Karatsuba and small-prime NTT/CRT multiplication, Knuth division, bounded divide-and-conquer radix conversion, and compiler widening-multiply/add-with-carry methods (issue #481 design; B38 implementation). |
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
 | [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
 | [Ordinary-path directory creation](../design/stdlib/fs/creation.md) | New `fs.create_dirs` follows OS symlink and dot-segment resolution, applies the requested mode to each missing level and returns unit without opening readable handles. The rooted API remains strict. |
@@ -34,6 +34,25 @@ scope decision, not a second task list.
 | [System](../design/stdlib/system.md) | Bounded Linux procfs snapshots for CPU/memory/load/uptime/block devices/disk I/O/processes (issue #487). Positive, fallible CPU-availability estimates for pool sizing and a [coverage/backend assessment](../design/stdlib/system-backends.md) were added by issue #716; Linux uses affinity and visible conventional cgroup quotas, with explicit platform limits. |
 
 Remaining breadth is **B38** in the [backlog](../backlog.md).
+
+### Bigint scratch and limb costs (issue #987)
+
+Karatsuba now borrows operand limbs and combines its three products directly
+into the result instead of constructing shifted intermediate bigints. Fixed
+multiplication and division scratch loops borrow views, and each text conversion
+shares its radix powers. Small parsing retains its allocation-free scalar path;
+single-word rendering avoids a power cache. Immediate scalar tuple destructuring
+also keeps widening-multiply and carrying-add results in compiler scalar values.
+The retained comparison in `experiments/bigint-comparison/performance/`
+records instruction counts against the merged baseline and independent Malachite
+oracle, including the substantial remaining gap. No native bigint dependency
+is introduced.
+
+Issue #987 also adds a direct Plenty two-prime NTT/CRT path for large balanced
+products, using exact Montgomery and Shoup arithmetic and reusable fixed
+scratch. The algorithm investigation and before/after evidence are retained in
+`experiments/bigint-comparison/algorithm/`. Medium products retain Karatsuba;
+Malachite’s truncated vector transforms and Toom-3 are not implemented here.
 
 Issue #705 corrects the [archive PAX decimal parser](../design/stdlib/archive.md#limits)
 to accept every nonnegative `i64`, including its final eight values. Boundary

@@ -1,0 +1,93 @@
+function u0:74(i128, i128, i64) -> i128 tail {
+    ss0 = explicit_slot 32, align = 16
+    ss1 = explicit_slot 32, align = 16
+    ss2 = explicit_slot 16, align = 16
+
+block0(v0: i128, v1: i128, v2: i64):
+    ; line 4
+    v9, v10 = isplit v0
+    jump block3
+
+block3:
+    v3 = iconst.i64 0
+    v161 = icmp.i64 sle v10, v3  ; v3 = 0
+    ; line 5
+    v30 = iconst.i64 3
+    v38 = stack_addr.i64 ss0
+    v42 = iconst.i64 16
+    v43 = iadd v38, v42  ; v42 = 16
+    ; line 6
+    v71 = stack_addr.i64 ss1
+    v76 = iadd v71, v42  ; v42 = 16
+    ; line 4
+    v11 = iconst.i64 1
+    brif v161, block2(v3), block4(v3, v3)  ; v3 = 0, v3 = 0, v3 = 0
+
+block4(v27: i64, v63: i64):
+    ; line 5
+    v28, v29 = isplit.i128 v0
+    v178 = iconst.i64 3
+    v179 = ishl v27, v178  ; v178 = 3
+    v32 = iadd v28, v179
+    v34 = load.i64 notrap aligned v32
+    v36 = imul v34, v2
+    v37 = umulhi v34, v2
+    v180 = iadd.i64 v38, v42  ; v42 = 16
+    ; line 6
+    v65 = iadd v36, v63
+    v66 = icmp ult v65, v36
+    v181 = iadd.i64 v71, v42  ; v42 = 16
+    ; line 7
+    v100, v101 = isplit.i128 v1
+    v102 = icmp ult v27, v101
+    brif v102, block7, block6
+
+block6 cold:
+    trap user3
+
+block7:
+    ; line 6
+    ; line 7
+    v107 = iadd.i64 v100, v179
+    store notrap aligned v65, v107
+    ; line 8
+    brif.i8 v66, block8, block11
+
+block11:
+    jump block9
+
+block8:
+    v183 = iconst.i64 1
+    jump block10(v183)  ; v183 = 1
+
+block9:
+    v182 = iconst.i64 0
+    jump block10(v182)  ; v182 = 0
+
+block10(v110: i64):
+    v113, v114 = uadd_overflow.i64 v37, v110
+    brif v114, block12, block13
+
+block12 cold:
+    v186 = iconst.i64 1
+    v187 = iconcat.i64 v113, v186  ; v186 = 1
+    jump block1(v187)
+
+block13:
+    jump block5
+
+block5:
+    v184 = iconst.i64 1
+    v185 = iadd.i64 v27, v184  ; v184 = 1
+    ; line 4
+    v130 = icmp slt v185, v10
+    brif v130, block4(v185, v113), block2(v113)
+
+block2(v134: i64):
+    ; line 9
+    v135 = uextend.i128 v134
+    jump block1(v135)
+
+block1(v5: i128):
+    return v5
+}

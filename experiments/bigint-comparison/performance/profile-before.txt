@@ -1,0 +1,50 @@
+--------------------------------------------------------------------------------
+Profile data file '/tmp/issue987-symbols.cg' (creator: callgrind-3.27.1)
+--------------------------------------------------------------------------------
+I1 cache:
+D1 cache:
+LL cache:
+Timerange: Basic block 0 - 11530364
+Trigger: Program termination
+Profiled target:  /tmp/issue987-baseline-bench render bcdd1fe3babaab325bb39dd798d6140d4e77d5f1d453da38e77c3ed175c46438047257f4a81e36e0e0f2af7a58144855b8f5fdfad416384ccb24c93ca87dd05ff86767e4050ada44d10bb028a0ac38766f9273ac8fe6309ad642576f90459f0fede8530e84fff519527531ed6acb98cc7b81c7c88910c1f83359cd38f6fa8a9bd5083849f7ed3e89c972416fa86680ff25886f8fe44a99538bd18dfc1738d1e3478fc8d4cb40f8dcf17f3ac506d35e80ca38578d90962185e5751d6d47163c34bac756d866a8ded35cd98942a751300e1943ed41661155be3db6e47248ffddfdde2e779d3e59cddf4e5a86992860471ee01d6554329140c4d719633d5b99d100 f1efd100dbf0f2b580fdac29250abd670fe482f683e82e83a4bae40555d85dac270326f98f82ff17682380bfe89dc3e8beae165dbb18514d7a410c492e9b542cb783bee619477bd7b3ea60b99b489d406e19eea9cd4041728bedc8e8e8b5fb7d6b3b72ce4dc8cc183a2a00cb839b667c5d3a13739b8be1dedd31eb5e9a51a2e9401269e3434eb93310f1b267c498f4b9d4fbc92ca4de4790d1f0eace1d6d7a9211a637c89ec1db6727a10daa962a82102e89d943c293c27746cf4bc25f06f9c86b7a894505ae805758cc0cf2286764133e0164f81ae07f6e4704ba1b1e279227fdcb5528466ea4d21933714bb230baca4d395ddabfda3b5f2f1c9ce969b65fa9 10 (PID 4, part 1)
+Events recorded:  Ir
+Events shown:     Ir
+Event sort order: Ir
+Thresholds:       80
+Include dirs:
+User annotated:
+Auto-annotation:  on
+
+--------------------------------------------------------------------------------
+Ir
+--------------------------------------------------------------------------------
+65,450,067 (100.0%)  PROGRAM TOTALS
+
+--------------------------------------------------------------------------------
+Ir                  file:function
+--------------------------------------------------------------------------------
+8,237,292 (12.59%)  ???:<plenty_runtime::aggregates::Collection>::try_reserve [/tmp/issue987-baseline-bench]
+6,217,266 ( 9.50%)  ???:__plenty_fn_std.bigint.multiply [/tmp/issue987-baseline-bench]
+6,005,359 ( 9.18%)  ???:<plenty_runtime::entries::Entries>::push [/tmp/issue987-baseline-bench]
+3,745,917 ( 5.72%)  ???:<plenty_runtime::aggregates::Collection>::try_add [/tmp/issue987-baseline-bench]
+3,032,687 ( 4.63%)  ???:<plenty_runtime::aggregates::Collection>::growth [/tmp/issue987-baseline-bench]
+2,616,196 ( 4.00%)  ???:<plenty_runtime::aggregates::Collection>::try_store [/tmp/issue987-baseline-bench]
+2,478,556 ( 3.79%)  ???:<plenty_runtime::entries::Entries>::set [/tmp/issue987-baseline-bench]
+2,378,160 ( 3.63%)  ???:plenty_op_29 [/tmp/issue987-baseline-bench]
+1,651,386 ( 2.52%)  ???:__plenty_fn_std.bigint.divide_magnitude [/tmp/issue987-baseline-bench]
+1,559,439 ( 2.38%)  ???:<plenty_runtime::aggregates::Type>::record [/tmp/issue987-baseline-bench]
+1,427,016 ( 2.18%)  ???:<plenty_runtime::aggregates::Collection>::locate [/tmp/issue987-baseline-bench]
+1,333,495 ( 2.04%)  ???:__plenty_fn_std.bigint.from_i64 [/tmp/issue987-baseline-bench]
+1,287,337 ( 1.97%)  ???:plenty_runtime::aggregates::collection_destroy [/tmp/issue987-baseline-bench]
+1,146,574 ( 1.75%)  ???:<plenty_runtime::entries::Entries>::get [/tmp/issue987-baseline-bench]
+1,062,716 ( 1.62%)  ???:__plenty_fn___plenty_class_std.bigint.BigInt.word [/tmp/issue987-baseline-bench]
+1,018,615 ( 1.56%)  ???:__memset_avx2_unaligned_erms [/usr/lib64/libc.so.6]
+  995,471 ( 1.52%)  ???:plenty_runtime::aggregates::release [/tmp/issue987-baseline-bench]
+  919,179 ( 1.40%)  ???:<plenty_runtime::aggregates::Type>::active_payload [/tmp/issue987-baseline-bench]
+  905,097 ( 1.38%)  ???:__plenty_fn_std.bigint.canonical [/tmp/issue987-baseline-bench]
+  882,706 ( 1.35%)  ???:__plenty_fn_std.bigint.render_digits'2 [/tmp/issue987-baseline-bench]
+  802,727 ( 1.23%)  ???:__plenty_fn___plenty_class_std.bigint.BigInt.word_len [/tmp/issue987-baseline-bench]
+  797,107 ( 1.22%)  ???:__plenty_fn___plenty_class_std.bigint.BigInt.__mul__ [/tmp/issue987-baseline-bench]
+  725,131 ( 1.11%)  ???:plenty_release [/tmp/issue987-baseline-bench]
+  719,687 ( 1.10%)  ???:plenty_runtime::aggregates::release_next [/tmp/issue987-baseline-bench]
+  706,645 ( 1.08%)  ???:plenty_runtime::small_pool::free [/tmp/issue987-baseline-bench]

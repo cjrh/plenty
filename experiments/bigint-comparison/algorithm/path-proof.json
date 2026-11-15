@@ -1,0 +1,85 @@
+{
+  "constants": {
+    "MUL_TOOM22_THRESHOLD": 16,
+    "MUL_TOOM33_THRESHOLD": 105,
+    "MUL_TOOM44_THRESHOLD": 300,
+    "MUL_TOOM6H_THRESHOLD": 300,
+    "MUL_TOOM8H_THRESHOLD": 389,
+    "MUL_TOOM32_TO_TOOM43_THRESHOLD": 58,
+    "MUL_TOOM32_TO_TOOM53_THRESHOLD": 300,
+    "MUL_TOOM42_TO_TOOM53_THRESHOLD": 121,
+    "MUL_TOOM42_TO_TOOM63_THRESHOLD": 100,
+    "MUL_FFT_THRESHOLD": 389
+  },
+  "equal_fft_threshold": 1000,
+  "profile_candidates_1024_limbs": [
+    {
+      "np": 4,
+      "bits": 92,
+      "alen": 713,
+      "zlen": 1425,
+      "ztrunc": 1536,
+      "depth": 11,
+      "score": 0.05491199999999999
+    },
+    {
+      "np": 5,
+      "bits": 116,
+      "alen": 565,
+      "zlen": 1129,
+      "ztrunc": 1280,
+      "depth": 11,
+      "score": 0.0594
+    },
+    {
+      "np": 6,
+      "bits": 144,
+      "alen": 456,
+      "zlen": 911,
+      "ztrunc": 1024,
+      "depth": 10,
+      "score": 0.04608
+    },
+    {
+      "np": 7,
+      "bits": 168,
+      "alen": 391,
+      "zlen": 781,
+      "ztrunc": 1024,
+      "depth": 10,
+      "score": 0.05376
+    },
+    {
+      "np": 8,
+      "bits": 192,
+      "alen": 342,
+      "zlen": 683,
+      "ztrunc": 768,
+      "depth": 10,
+      "score": 0.04991999999999999
+    }
+  ],
+  "selected_profile": {
+    "np": 6,
+    "bits": 144,
+    "alen": 456,
+    "zlen": 911,
+    "ztrunc": 1024,
+    "depth": 10,
+    "score": 0.04608
+  },
+  "path_evidence": {
+    "16": "Small u64 limb multiply",
+    "256": "4 limbs <16: basecase",
+    "2048": "32 limbs in [16,105): Toom22",
+    "8192": "128 limbs in [105,300): Toom33",
+    "65536": "1024 limbs >=1000: FFT"
+  },
+  "source_hashes": {
+    "src/platform_64.rs": "297b7b6f08b4f9a0dc50d6f4e281ff73846c2c0575b2fe9e33cd5ee5d3dedddd",
+    "src/natural/arithmetic/mul/mod.rs": "95020bf1a46b6feafb74383d2d828a32e3f5f21a9394a3d3fe99e619d8bf1cc9",
+    "src/natural/arithmetic/mul/context.rs": "eb049d15bec0ca6dc0908b333b4f10fc871fa343fb16900e5a0c73afa79a0111",
+    "src/natural/arithmetic/mul/fft/mod.rs": "53931b142448dcbf129f9f09b3d3dd2255a970045fcfe84e19c818d1a3e683ef",
+    "src/natural/arithmetic/mul/fft/body.rs": "0108834b897b811e5cc9dd03948f0d7a950b62a08ef573a77496032422a860e4"
+  }
+}

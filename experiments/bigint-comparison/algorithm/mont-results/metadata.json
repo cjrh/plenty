@@ -1,0 +1,19 @@
+{
+  "cpu_affinity": 0,
+  "binaries": {
+    "baseline": {
+      "path": "/home/caleb/Documents/repos/plenty/target/issue-987-evidence/bigint-comparison/bench",
+      "sha256": "05525f70a9d329fad05d687d641c196c3de3a4989d2c491022923290d8cff042"
+    },
+    "candidate": {
+      "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/perf987/bench-ntt-final",
+      "sha256": "25629bcfe941bc95f5941115c0d1cce0b1c5c2b8c2672ddb925029afcf6c0702"
+    },
+    "malachite": {
+      "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-performance/target/ntt-oracle-rust/release/plenty-bigint-comparison",
+      "sha256": "2151dd07d0ec58f3651a3b26f7514666a9744adf99fd45f3ffe4baf7d691d3aa"
+    }
+  },
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)\n",
+  "host": "Linux lavender 7.3.3-200.fc44.x86_64 #1 SMP PREEMPT_DYNAMIC Fri Nov  6 20:34:09 UTC 2026 x86_64 GNU/Linux\n"
+}

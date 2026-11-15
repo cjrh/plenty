@@ -52,6 +52,13 @@ fn oracle(path: &str) {
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
+    if args[1] == "mul-oracle" {
+        for line in std::fs::read_to_string(&args[2]).unwrap().lines() {
+            let (a, b) = line.split_once('\t').unwrap();
+            emit(&(&parse(a) * &parse(b)));
+        }
+        return;
+    }
     if args[1] == "oracle" {
         oracle(&args[2]);
         return;

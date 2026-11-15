@@ -1,0 +1,166 @@
+==== experiments/bigint-comparison/performance/limb-slots.clif u0:74
+function u0:74(i128, i128, i64) -> i128 tail {
+    ss0 = explicit_slot 32, align = 16
+    ss1 = explicit_slot 32, align = 16
+    ss2 = explicit_slot 16, align = 16
+
+block0(v0: i128, v1: i128, v2: i64):
+    v9, v10 = isplit v0
+    jump block3
+
+block3:
+    v3 = iconst.i64 0
+    v161 = icmp.i64 sle v10, v3  ; v3 = 0
+    v30 = iconst.i64 3
+    v38 = stack_addr.i64 ss0
+    v42 = iconst.i64 16
+    v43 = iadd v38, v42  ; v42 = 16
+    v71 = stack_addr.i64 ss1
+    v76 = iadd v71, v42  ; v42 = 16
+    v11 = iconst.i64 1
+    brif v161, block2(v3), block4(v3, v3)  ; v3 = 0, v3 = 0, v3 = 0
+
+block4(v27: i64, v63: i64):
+    v28, v29 = isplit.i128 v0
+    v188 = iconst.i64 3
+    v189 = ishl v27, v188  ; v188 = 3
+    v32 = iadd v28, v189
+    v34 = load.i64 notrap aligned v32
+    v36 = imul v34, v2
+    v41 = uextend.i128 v36
+    store notrap aligned v41, v38
+    v37 = umulhi v34, v2
+    v44 = uextend.i128 v37
+    v190 = iadd.i64 v38, v42  ; v42 = 16
+    store notrap aligned v44, v190
+    v57 = load.i128 notrap aligned v38
+    v58 = ireduce.i64 v57
+    v65 = iadd v58, v63
+    v74 = uextend.i128 v65
+    store notrap aligned v74, v71
+    v66 = icmp ult v65, v58
+    v169 = uextend.i128 v66
+    v191 = iadd.i64 v71, v42  ; v42 = 16
+    store notrap aligned v169, v191
+    v91 = load.i128 notrap aligned v71
+    v100, v101 = isplit.i128 v1
+    v102 = icmp ult v27, v101
+    trapz v102, user3
+    jump block7
+
+block7:
+    v92 = ireduce.i64 v91
+    v107 = iadd.i64 v100, v189
+    store notrap aligned v92, v107
+    brif.i8 v66, block8, block11
+
+block11:
+    jump block9
+
+block8:
+    v193 = iconst.i64 1
+    jump block10(v193)  ; v193 = 1
+
+block9:
+    v192 = iconst.i64 0
+    jump block10(v192)  ; v192 = 0
+
+block10(v110: i64):
+    v113, v114 = uadd_overflow.i64 v37, v110
+    brif v114, block12, block13
+
+block12 cold:
+    v196 = iconst.i64 1
+    v197 = iconcat.i64 v113, v196  ; v196 = 1
+    jump block1(v197)
+
+block13:
+    jump block5
+
+block5:
+    v194 = iconst.i64 1
+    v195 = iadd.i64 v27, v194  ; v194 = 1
+    v130 = icmp slt v195, v10
+    brif v130, block4(v195, v113), block2(v113)
+
+block2(v134: i64):
+    v135 = uextend.i128 v134
+    jump block1(v135)
+
+block1(v5: i128):
+    return v5
+}
+
+     0:  pushq %rbp
+     1:  movq %rsp, %rbp
+     4:  subq $0x80, %rsp
+     b:  movq %rbx, 0x50(%rsp)
+    10:  movq %r12, 0x58(%rsp)
+    15:  movq %r13, 0x60(%rsp)
+    1a:  movq %r14, 0x68(%rsp)
+    1f:  movq %r15, 0x70(%rsp)
+    24:  movq %rdx, %r14
+    27:  xorq %r15, %r15
+    2a:  leaq (%rsp), %r9
+    2e:  leaq 0x20(%rsp), %r10
+    33:  testq %rsi, %rsi
+    36:  jg 0x44
+    3c:  movq %r15, %rax
+    3f:  jmp 0xf2
+    44:  movq %r15, %rbx
+    47:  movq (%rdi, %r15, 8), %rax
+    4b:  movq %rax, %rdx
+    4e:  imulq %r8, %rdx
+    52:  xorq %r11, %r11
+    55:  movq %rdx, (%rsp)
+    59:  movq %r11, 8(%rsp)
+    5e:  mulq %r8
+    61:  xorq %rax, %rax
+    64:  movq %rdx, 0x10(%r9)
+    68:  movq %rax, 0x18(%r9)
+    6c:  movq (%rsp), %r11
+    70:  movq 8(%rsp), %rax
+    75:  addq %r11, %rbx
+    78:  xorq %rax, %rax
+    7b:  movq %rbx, 0x20(%rsp)
+    80:  movq %rax, 0x28(%rsp)
+    85:  cmpq %r11, %rbx
+    88:  setb %al
+    8b:  movzbq %al, %r12
+    8f:  xorq %rax, %rax
+    92:  movq %r12, 0x10(%r10)
+    96:  movq %rax, 0x18(%r10)
+    9a:  movq 0x20(%rsp), %r13
+    9f:  movq 0x28(%rsp), %rax
+    a4:  movq %r15, %rax
+    a7:  cmpq %rcx, %rax
+    aa:  jae 0x127
+    b0:  movq %r13, (%r14, %rax, 8)
+    b4:  cmpq %r11, %rbx
+    b7:  jb 0xc5
+    bd:  xorq %r11, %r11
+    c0:  jmp 0xcb
+    c5:  movl $1, %r11d
+    cb:  addq %r11, %rdx
+    ce:  jb 0x11a
+    d4:  addq $1, %rax
+    db:  cmpq %rsi, %rax
+    de:  jge 0xef
+    e4:  movq %rdx, %rbx
+    e7:  movq %rax, %r15
+    ea:  jmp 0x47
+    ef:  movq %rdx, %rax
+    f2:  xorq %rcx, %rcx
+    f5:  movq 0x50(%rsp), %rbx
+    fa:  movq 0x58(%rsp), %r12
+    ff:  movq 0x60(%rsp), %r13
+   104:  movq 0x68(%rsp), %r14
+   109:  movq 0x70(%rsp), %r15
+   10e:  addq $0x80, %rsp
+   115:  movq %rbp, %rsp
+   118:  popq %rbp
+   119:  retq
+   11a:  movl $1, %ecx
+   11f:  movq %rdx, %rax
+   122:  jmp 0xf5
+   127:  ud2
