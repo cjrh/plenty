@@ -1,9 +1,9 @@
 # Arbitrary precision signed integers. Canonical signed magnitude with inline i64.
 # Arithmetic algorithms follow the base-power limb approach described in
 # The Art of Computer Programming, vol. 2, sections 4.3.1 and 4.3.3
-# (Donald Knuth): schoolbook arithmetic, Knuth division and Karatsuba.
+# (Donald Knuth): schoolbook arithmetic, Knuth division, Karatsuba and Toom-3.
 # Large multiplication independently implements small-prime NTT/CRT, with
-# Montgomery products and Shoup fixed-twiddle reduction:
+# 128-bit digit packing and exact Montgomery reduction:
 # https://flintlib.org/doc/algorithms/fft/multimodular.html
 # No third-party code or data is included.
 from std.fmt import Formatter, FormatError
@@ -584,30 +584,178 @@ def add_shifted(out: &mut [u64], value: &[u64], offset: i64) -> ():
 
 def multiply(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
     unchecked:
-        if use_transform(len(a), len(b)):
-            return multiply_transform(a, b)
         mut out = zeros(len(a) + len(b))?
+        if len(a) < 32 or len(b) < 32 or len(a) > 2 * len(b) or len(b) > 2 * len(a):
+            multiply_schoolbook(a, b, &mut out)
+        else:
+            multiply_into(a, b, &mut out)?
+        Ok(out)
+
+# Output regions start zeroed and cannot resize. The low and high recursive
+# products occupy disjoint final regions; interpolation reads them before
+# adding the middle coefficients, eliminating two owning arrays per node.
+def multiply_into(a: &[u64], b: &[u64], out: &mut [u64]) -> Result[(), AllocError]:
+    unchecked:
+        if use_transform(len(a), len(b)):
+            return multiply_transform_wide_into(a, b, out)
+        n = len(a) if len(a) > len(b) else len(b)
+        third = (n + 2) // 3
+        shorter = len(a) if len(a) < len(b) else len(b)
+        if n >= 128 and len(a) > 2 * third and len(b) > 2 * third and 4 * n <= 5 * shorter:
+            return multiply_toom3_into(a, b, third, out)
         if len(a) >= 32 and len(b) >= 32 and len(a) <= 2 * len(b) and len(b) <= 2 * len(a):
-            n = len(a) if len(a) > len(b) else len(b)
             half = n // 2
-            z0 = multiply(&a[:half], &b[:half])?
-            z2 = multiply(&a[half:], &b[half:])?
+            middle_start = half * 2
+            multiply_into(&a[:half], &b[:half], &mut out[:middle_start])?
+            multiply_into(&a[half:], &b[half:], &mut out[middle_start:])?
             sum_a = add_words(&a[:half], &a[half:])?
             sum_b = add_words(&b[:half], &b[half:])?
             mut middle = multiply(&sum_a, &sum_b)?
-            subtract_words(&mut middle, &z0)
-            subtract_words(&mut middle, &z2)
+            subtract_words(&mut middle, &out[:middle_start])
+            subtract_words(&mut middle, &out[middle_start:])
             trim(&mut middle)
-            add_shifted(&mut out, &z0, 0)
-            add_shifted(&mut out, &middle, half)
-            add_shifted(&mut out, &z2, half * 2)
+            add_shifted(out, &middle, half)
         else:
-            multiply_schoolbook(a, b, &mut out)
+            multiply_schoolbook(a, b, out)
+        Ok(())
+
+# Toom-3 evaluates the limb polynomials at 0, 1, -1, 2 and infinity.
+# Signed evaluation is represented only by a magnitude and one sign bit;
+# interpolation coefficients are nonnegative. No public BigInt temporaries
+# or copying operand slices are needed in this recursion.
+def multiply_toom3_into(a: &[u64], b: &[u64], k: i64, out: &mut [u64]) -> Result[(), AllocError]:
+    unchecked:
+        a0 = &a[:k]
+        a1 = &a[k:2 * k]
+        a2 = &a[2 * k:]
+        b0 = &b[:k]
+        b1 = &b[k:2 * k]
+        b2 = &b[2 * k:]
+        low_end = 2 * k
+        high_start = 4 * k
+        multiply_into(a0, b0, &mut out[:low_end])?
+        multiply_into(a2, b2, &mut out[high_start:])?
+        a_sum = add_words(a0, a2)?
+        b_sum = add_words(b0, b2)?
+        a_one = add_words(&a_sum, a1)?
+        b_one = add_words(&b_sum, b1)?
+        mut v1 = multiply(&a_one, &b_one)?
+        (a_negative, a_minus) = absolute_difference(&a_sum, a1)?
+        (b_negative, b_minus) = absolute_difference(&b_sum, b1)?
+        vm = multiply(&a_minus, &b_minus)?
+        mut odd = zeros(len(v1) + 1)?
+        if a_negative != b_negative:
+            add_words_into(&v1, &vm, &mut odd)
+        else:
+            copy_words(&v1, &mut odd[:len(v1)])
+            subtract_words(&mut odd, &vm)
+        divide_words_two(&mut odd)
+        trim(&mut odd)
+        subtract_words(&mut v1, &out[:low_end])
+        subtract_words(&mut v1, &out[high_start:])
+        subtract_words(&mut v1, &odd)
+        trim(&mut v1)
+        a_two = evaluate_two(a0, a1, a2)?
+        b_two = evaluate_two(b0, b1, b2)?
+        mut cubic = multiply(&a_two, &b_two)?
+        subtract_words(&mut cubic, &out[:low_end])
+        subtract_scaled(&mut cubic, &out[high_start:], 16u64)
+        divide_words_two(&mut cubic)
+        subtract_words(&mut cubic, &odd)
+        subtract_scaled(&mut cubic, &v1, 2u64)
+        divide_words_three(&mut cubic)
+        trim(&mut cubic)
+        subtract_words(&mut odd, &cubic)
+        trim(&mut odd)
+        add_shifted(out, &odd, k)
+        add_shifted(out, &v1, 2 * k)
+        add_shifted(out, &cubic, 3 * k)
+        Ok(())
+
+def absolute_difference(a: &[u64], b: &[u64]) -> Result[(bool, list[u64]), AllocError]:
+    unchecked:
+        mut an = len(a)
+        mut bn = len(b)
+        while an > 0 and a[an - 1] == 0u64:
+            an -= 1
+        while bn > 0 and b[bn - 1] == 0u64:
+            bn -= 1
+        mut negative = an < bn
+        if an == bn:
+            mut i = an
+            while i > 0:
+                i -= 1
+                if a[i] != b[i]:
+                    negative = a[i] < b[i]
+                    break
+        mut out = zeros(an if an > bn else bn)?
+        if negative:
+            copy_words(&b[:bn], &mut out[:bn])
+            subtract_words(&mut out, &a[:an])
+        else:
+            copy_words(&a[:an], &mut out[:an])
+            subtract_words(&mut out, &b[:bn])
+        trim(&mut out)
+        Ok((negative, out))
+
+def evaluate_two(a: &[u64], b: &[u64], c: &[u64]) -> Result[list[u64], AllocError]:
+    unchecked:
+        mut out = zeros(len(a) + 1)?
+        mut carry = 0u64
+        for i in range(len(a)):
+            x = b[i]
+            y = c[i] if i < len(c) else 0u64
+            (first, c1) = a[i].carrying_add(x << 1u64, False)
+            (second, c2) = first.carrying_add(y << 2u64, False)
+            (word, c3) = second.carrying_add(carry, False)
+            out[i] = word
+            carry = (x >> 63u64) + (y >> 62u64) + (1u64 if c1 else 0u64) + (1u64 if c2 else 0u64) + (1u64 if c3 else 0u64)
+        out[len(a)] = carry
+        trim(&mut out)
         Ok(out)
 
-# Full transforms have a power-of-two padding cost. Retain Karatsuba in the
+# Subtract a small multiple without constructing another limb array.
+def subtract_scaled(out: &mut [u64], value: &[u64], factor: u64) -> ():
+    unchecked:
+        mut carry = 0u64
+        mut borrow = False
+        for i in range(len(out)):
+            x = value[i] if i < len(value) else 0u64
+            (low, high) = x.widening_mul(factor)
+            (scaled, overflow) = low.carrying_add(carry, False)
+            carry = high + (1u64 if overflow else 0u64)
+            old = out[i]
+            difference = old.wrapping_sub(scaled)
+            out[i] = difference.wrapping_sub(1u64 if borrow else 0u64)
+            borrow = old < scaled or (borrow and difference == 0u64)
+
+def divide_words_two(value: &mut [u64]) -> ():
+    unchecked:
+        mut carry = 0u64
+        mut i = len(value)
+        while i > 0:
+            i -= 1
+            word = value[i]
+            value[i] = (word >> 1u64) | carry
+            carry = word << 63u64
+
+# Each interpolation numerator is exactly divisible. Base-2^32 long
+# division keeps the two-digit dividend inside a u64 on every step.
+def divide_words_three(value: &mut [u64]) -> ():
+    unchecked:
+        mut remainder = 0u64
+        mut i = len(value)
+        while i > 0:
+            i -= 1
+            word = value[i]
+            high = (remainder << 32u64) | (word >> 32u64)
+            low = ((high % 3u64) << 32u64) | (word & 4294967295u64)
+            value[i] = ((high // 3u64) << 32u64) | (low // 3u64)
+            remainder = low % 3u64
+
+# Full transforms have a power-of-two padding cost. Retain recursion in the
 # sparsely occupied band after each size jump, as well as for small/unbalanced
-# inputs. The upper bound is the common root order of the two primes.
+# inputs. The retained capacity bound is within all five prime root orders.
 def use_transform(a: i64, b: i64) -> bool:
     if a < 1024 or b < 1024:
         return False
@@ -616,94 +764,100 @@ def use_transform(a: i64, b: i64) -> bool:
     if a > 2 * b or b > 2 * a or a + b > 524288:
         return False
     unchecked:
-        digits = 4 * (a + b)
+        digits = (a + 1) // 2 + (b + 1) // 2
         mut n = 1
         while n < digits:
             n *= 2
         digits >= 7 * (n // 8)
 
-# Exact small-prime convolution followed by CRT and base-2^16 carry recovery.
-# This is an independent implementation of the multimodular FFT method (see
-# the reference acknowledgements), rather than a port of Malachite/FLINT code.
-# Both primes have primitive root 3; their common transform order is 2^21.
-# At that limit a coefficient is below 2^20 * 65535^2 < p*q < 2^60.
-def multiply_transform(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
+def copy_words(source: &[u64], out: &mut [u64]) -> ():
+    for i in range(len(out)):
+        out[i] = source[i]
+
+# Wide exact transforms pack two u64 limbs per digit. Five independently
+# generated Proth primes provide >299 coefficient bits; the common root
+# order exceeds the retained transform limit. Constants and certificates are
+# regenerated by experiments/bigint-comparison/algorithms-next/constants.py.
+def multiply_transform_wide_into(a: &[u64], b: &[u64], out: &mut [u64]) -> Result[(), AllocError]:
     unchecked:
-        digits = 4 * (len(a) + len(b))
+        digits = (len(a) + 1) // 2 + (len(b) + 1) // 2
         mut n = 1
         while n < digits:
             n *= 2
         mut x = zeros(n)?
         mut y = zeros(n)?
-        mut roots = zeros(n)?
-        mut first = zeros(digits)?
-        transform_product(a, b, &mut x, &mut y, &mut roots, 998244353u64, 998244351u64)
-        transform_copy(&x, &mut first)
-        transform_product(a, b, &mut x, &mut y, &mut roots, 1004535809u64, 1004535807u64)
-        mut out = zeros(len(a) + len(b))?
-        transform_recover(&first, &x, &mut out)
-        Ok(out)
+        mut roots = zeros(n // 2)?
+        mut residues0 = zeros(digits)?
+        mut residues1 = zeros(digits)?
+        mut residues2 = zeros(digits)?
+        mut residues3 = zeros(digits)?
+        transform_wide_product(a, b, &mut x, &mut y, &mut roots, 1152779667606863873u64, 3u64, 1152779667606863871u64, 2269391999729648u64, 438850205479958496u64, 577409928151867344u64)
+        copy_words(&x, &mut residues0)
+        transform_wide_product(a, b, &mut x, &mut y, &mut roots, 1152702701792919553u64, 5u64, 1152702701792919551u64, 3500845022838768u64, 549807853720474145u64, 836242407834260066u64)
+        copy_words(&x, &mut residues1)
+        transform_wide_product(a, b, &mut x, &mut y, &mut roots, 1152654323281297409u64, 3u64, 1152654323281297407u64, 4274901208793072u64, 1065844120376875002u64, 870989715713157113u64)
+        copy_words(&x, &mut residues2)
+        transform_wide_product(a, b, &mut x, &mut y, &mut roots, 1152647726211530753u64, 3u64, 1152647726211530751u64, 4380454325059568u64, 726084339089016087u64, 915534325496093643u64)
+        copy_words(&x, &mut residues3)
+        transform_wide_product(a, b, &mut x, &mut y, &mut roots, 1152577357467353089u64, 7u64, 1152577357467353087u64, 5506354231902192u64, 1052221714738828282u64, 443901272462896093u64)
+        transform_wide_recover(&residues0, &residues1, &residues2, &residues3, &x, out)
+        Ok(())
 
-def transform_copy(source: &[u64], out: &mut [u64]) -> ():
-    for i in range(len(out)):
-        out[i] = source[i]
-
-# Montgomery reduction with R=2^32. Inputs are below p<2^30, so t+m*p
-# is below 2^63. The low-word multiplication deliberately wraps modulo R.
-def transform_multiply(a: u64, b: u64, p: u64, inverse: u64) -> u64:
+# REDC with R=2^64. The caller supplies high<p, so T<p*R and the
+# unreduced result is below 2p < 2^61. The low word cancellation is exact.
+def transform_wide_reduce(low: u64, high: u64, p: u64, inverse: u64) -> u64:
     unchecked:
-        t = a.wrapping_mul(b)
-        m = t.wrapping_mul(inverse) & 4294967295u64
-        value = t.wrapping_add(m.wrapping_mul(p)) >> 32u64
-        value.wrapping_sub(p) if value >= p else value
+        m = low.wrapping_mul(inverse)
+        (m_low, m_high) = m.widening_mul(p)
+        (_, carry) = low.carrying_add(m_low, False)
+        result = high + m_high + (1u64 if carry else 0u64)
+        result - p if result >= p else result
 
-def transform_power(base: u64, exponent: u64, p: u64) -> u64:
-    unchecked:
-        mut x = base
-        mut power = exponent
-        mut result = 1u64
-        while power > 0u64:
-            if power & 1u64 != 0u64:
-                result = result * x % p
-            x = x * x % p
-            power >>= 1u64
-        result
+def transform_wide_multiply(a: u64, b: u64, p: u64, inverse: u64) -> u64:
+    (low, high) = a.widening_mul(b)
+    transform_wide_reduce(low, high, p, inverse)
 
-def transform_load(words: &[u64], out: &mut [u64]) -> ():
+def transform_wide_power(base: u64, exponent: u64, p: u64, inverse: u64, r: u64, r2: u64) -> u64:
+    mut x = transform_wide_multiply(base, r2, p, inverse)
+    mut power = exponent
+    mut result = r
+    while power > 0u64:
+        if power & 1u64 != 0u64:
+            result = transform_wide_multiply(result, x, p, inverse)
+        x = transform_wide_multiply(x, x, p, inverse)
+        power >>= 1u64
+    result
+
+def transform_wide_load(words: &[u64], out: &mut [u64], p: u64, inverse: u64, r3: u64) -> ():
     unchecked:
-        for i in range(len(words)):
-            word = words[i]
-            for j in range(4):
-                out[4 * i + j] = (word >> (u64(j) * 16u64)) & 65535u64
-        for i in range(4 * len(words), len(out)):
+        count = (len(words) + 1) // 2
+        for i in range(count):
+            low = words[2 * i]
+            high = words[2 * i + 1] if 2 * i + 1 < len(words) else 0u64
+            reduced = transform_wide_reduce(low, high % p, p, inverse)
+            out[i] = transform_wide_multiply(reduced, r3, p, inverse)
+        for i in range(count, len(out)):
             out[i] = 0u64
 
-def transform_product(a: &[u64], b: &[u64], x: &mut [u64], y: &mut [u64], roots: &mut [u64], p: u64, inverse: u64) -> ():
+def transform_wide_product(a: &[u64], b: &[u64], x: &mut [u64], y: &mut [u64], roots: &mut [u64], p: u64, generator: u64, inverse: u64, r: u64, r2: u64, r3: u64) -> ():
     unchecked:
         n = len(x)
-        r = 4294967296u64 % p
-        root = transform_power(3u64, (p - 1u64) // u64(n), p) * r % p
-        roots[0] = 1u64
-        for i in range(1, len(roots) // 2):
-            roots[i] = transform_multiply(roots[i - 1], root, p, inverse)
-        for i in range(len(roots) // 2):
-            roots[len(roots) // 2 + i] = (roots[i] << 32u64) // p
-        transform_load(a, x)
-        transform_load(b, y)
-        transform_forward(x, roots, p)
-        transform_forward(y, roots, p)
+        root = transform_wide_power(generator, (p - 1u64) // u64(n), p, inverse, r, r2)
+        roots[0] = r
+        for i in range(1, len(roots)):
+            roots[i] = transform_wide_multiply(roots[i - 1], root, p, inverse)
+        transform_wide_load(a, x, p, inverse, r3)
+        transform_wide_load(b, y, p, inverse, r3)
+        transform_wide_forward(x, roots, p, inverse)
+        transform_wide_forward(y, roots, p, inverse)
         for i in range(n):
-            x[i] = transform_multiply(x[i], y[i], p, inverse)
-        transform_inverse(x, roots, p)
-        # Pointwise Montgomery multiplication contributes R^-1. This scale
-        # includes R^2, cancelling both that factor and the final REDC.
-        scale = transform_power(u64(n), p - 2u64, p) * (r * r % p) % p
+            x[i] = transform_wide_multiply(x[i], y[i], p, inverse)
+        transform_wide_inverse(x, roots, p, inverse)
+        scale = transform_wide_multiply(transform_wide_power(u64(n), p - 2u64, p, inverse, r, r2), 1u64, p, inverse)
         for i in range(n):
-            x[i] = transform_multiply(x[i], scale, p, inverse)
+            x[i] = transform_wide_multiply(x[i], scale, p, inverse)
 
-# Decimation in frequency produces bit-reversed output. The inverse uses
-# decimation in time, so no bit-reversal permutation or its scratch is needed.
-def transform_forward(data: &mut [u64], roots: &[u64], p: u64) -> ():
+def transform_wide_forward(data: &mut [u64], roots: &[u64], p: u64, inverse: u64) -> ():
     unchecked:
         n = len(data)
         mut width = n
@@ -713,12 +867,12 @@ def transform_forward(data: &mut [u64], roots: &[u64], p: u64) -> ():
             mut start = 0
             while start < n:
                 block = &mut data[start:start + width]
-                transform_forward_block(&mut block[:half], &mut block[half:], roots, step, p)
+                transform_wide_forward_block(&mut block[:half], &mut block[half:], roots, step, p, inverse)
                 start += width
             width = half
             step *= 2
 
-def transform_inverse(data: &mut [u64], roots: &[u64], p: u64) -> ():
+def transform_wide_inverse(data: &mut [u64], roots: &[u64], p: u64, inverse: u64) -> ():
     unchecked:
         n = len(data)
         mut width = 2
@@ -728,12 +882,12 @@ def transform_inverse(data: &mut [u64], roots: &[u64], p: u64) -> ():
             mut start = 0
             while start < n:
                 block = &mut data[start:start + width]
-                transform_inverse_block(&mut block[:half], &mut block[half:], roots, step, p)
+                transform_wide_inverse_block(&mut block[:half], &mut block[half:], roots, step, p, inverse)
                 start += width
             width *= 2
             step //= 2
 
-def transform_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64) -> ():
+def transform_wide_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64, inverse: u64) -> ():
     unchecked:
         mut k = 0
         for j in range(len(low)):
@@ -742,37 +896,76 @@ def transform_forward_block(low: &mut [u64], high: &mut [u64], roots: &[u64], st
             sum = u + v
             difference = u + p - v
             low[j] = sum - p if sum >= p else sum
-            high[j] = transform_twiddle(difference - p if difference >= p else difference, roots[k], roots[len(roots) // 2 + k], p)
+            high[j] = transform_wide_multiply(difference - p if difference >= p else difference, roots[k], p, inverse)
             k += step
 
-def transform_inverse_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64) -> ():
+def transform_wide_inverse_block(low: &mut [u64], high: &mut [u64], roots: &[u64], step: i64, p: u64, inverse: u64) -> ():
     unchecked:
         mut k = 0
         for j in range(len(low)):
-            root = roots[0] if k == 0 else p - roots[len(roots) // 2 - k]
-            factor = roots[len(roots) // 2] if k == 0 else 4294967295u64 - roots[len(roots) - k]
+            root = roots[0] if k == 0 else p - roots[len(roots) - k]
             u = low[j]
-            v = transform_twiddle(high[j], root, factor, p)
+            v = transform_wide_multiply(high[j], root, p, inverse)
             sum = u + v
             difference = u + p - v
             low[j] = sum - p if sum >= p else sum
             high[j] = difference - p if difference >= p else difference
             k += step
 
-def transform_recover(first: &[u64], second: &[u64], out: &mut [u64]) -> ():
+# Garner's mixed-radix conversion uses exact modular products. The fixed
+# inverse constants and Proth witnesses are independently regenerated in
+# the experiment proof, including every cross-prime residue.
+def transform_garner_step(value: u64, digit: u64, reciprocal: u64, p: u64, inverse: u64, r2: u64) -> u64:
     unchecked:
-        mut carry = 0u64
-        for i in range(len(out)):
-            mut word = 0u64
+        d = value + p - digit % p
+        difference = d - p if d >= p else d
+        product = transform_wide_multiply(difference, reciprocal, p, inverse)
+        transform_wide_multiply(product, r2, p, inverse)
+
+def transform_wide_recover(a: &[u64], b: &[u64], c: &[u64], d: &[u64], e: &[u64], out: &mut [u64]) -> ():
+    unchecked:
+        mut carry0 = 0u64
+        mut carry1 = 0u64
+        mut carry2 = 0u64
+        for i in range((len(out) + 1) // 2):
+            c0 = a[i]
+            c1 = transform_garner_step(b[i], c0, 312876447629491759u64, 1152702701792919553u64, 1152702701792919551u64, 549807853720474145u64)
+            c2 = transform_garner_step(transform_garner_step(c[i], c0, 171887048208605330u64, 1152654323281297409u64, 1152654323281297407u64, 1065844120376875002u64), c1, 864490742460949231u64, 1152654323281297409u64, 1152654323281297407u64, 1065844120376875002u64)
+            c3 = transform_garner_step(transform_garner_step(transform_garner_step(d[i], c0, 1143042328493092594u64, 1152647726211530753u64, 1152647726211530751u64, 726084339089016087u64), c1, 207476590718054569u64, 1152647726211530753u64, 1152647726211530751u64, 726084339089016087u64), c2, 960539771842767573u64, 1152647726211530753u64, 1152647726211530751u64, 726084339089016087u64)
+            c4 = transform_garner_step(transform_garner_step(transform_garner_step(transform_garner_step(e[i], c0, 43848051642774040u64, 1152577357467353089u64, 1152577357467353087u64, 1052221714738828282u64), c1, 272978847821206010u64, 1152577357467353089u64, 1152577357467353087u64, 1052221714738828282u64), c2, 938527276794829683u64, 1152577357467353089u64, 1152577357467353087u64, 1052221714738828282u64), c3, 126063148472975365u64, 1152577357467353089u64, 1152577357467353087u64, 1052221714738828282u64)
+            mut x0 = c4
+            mut x1 = 0u64
+            mut x2 = 0u64
+            mut x3 = 0u64
+            mut x4 = 0u64
             for j in range(4):
-                k = 4 * i + j
-                a = first[k]
-                b = second[k]
-                difference = b + 1004535809u64 - a
-                digit = (difference * 669690699u64 % 1004535809u64) * 998244353u64 + a + carry
-                word |= (digit & 65535u64) << (u64(j) * 16u64)
-                carry = digit >> 16u64
-            out[i] = word
+                prime = 1152647726211530753u64 if j == 0 else (1152654323281297409u64 if j == 1 else (1152702701792919553u64 if j == 2 else 1152779667606863873u64))
+                digit = c3 if j == 0 else (c2 if j == 1 else (c1 if j == 2 else c0))
+                (lo0, hi0) = x0.widening_mul(prime)
+                (lo1, hi1) = x1.widening_mul(prime)
+                (lo2, hi2) = x2.widening_mul(prime)
+                (lo3, hi3) = x3.widening_mul(prime)
+                (lo4, _) = x4.widening_mul(prime)
+                (next0, t0) = lo0.carrying_add(digit, False)
+                (next1, t1) = lo1.carrying_add(hi0, t0)
+                (next2, t2) = lo2.carrying_add(hi1, t1)
+                (next3, t3) = lo3.carrying_add(hi2, t2)
+                (next4, _) = lo4.carrying_add(hi3, t3)
+                x0 = next0
+                x1 = next1
+                x2 = next2
+                x3 = next3
+                x4 = next4
+            (word0, t0) = x0.carrying_add(carry0, False)
+            (word1, t1) = x1.carrying_add(carry1, t0)
+            (next0, t2) = x2.carrying_add(carry2, t1)
+            (next1, t3) = x3.carrying_add(0u64, t2)
+            carry0 = next0
+            carry1 = next1
+            carry2 = x4 + (1u64 if t3 else 0u64)
+            out[2 * i] = word0
+            if 2 * i + 1 < len(out):
+                out[2 * i + 1] = word1
 
 def multiply_schoolbook(a: &[u64], b: &[u64], out: &mut [u64]) -> ():
     unchecked:
@@ -943,13 +1136,3 @@ def bitwise(a: &BigInt, b: &BigInt, operation: i64) -> Result[BigInt, AllocError
                 out[i] = word
                 carry = next
         Ok(canonical(negative, out))
-
-# Shoup's fixed-multiplier reduction with R=2^32. Here factor=floor(root*R/p)
-# and value<p<2^30. The quotient estimate is at most one too small, so the
-# residual lies in [0,2p); all products fit u64. Inverse twiddles use
-# floor((p-root)*R/p) = R-1-floor(root*R/p), since root is nonzero modulo p.
-def transform_twiddle(value: u64, root: u64, factor: u64, p: u64) -> u64:
-    unchecked:
-        q = value.wrapping_mul(factor) >> 32u64
-        r = value.wrapping_mul(root).wrapping_sub(q.wrapping_mul(p))
-        r.wrapping_sub(p) if r >= p else r

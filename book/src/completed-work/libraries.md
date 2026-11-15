@@ -17,7 +17,7 @@ scope decision, not a second task list.
 
 | Delivery | Contract / evidence |
 | --- | --- |
-| [Arbitrary-precision integers](../design/stdlib/bigint.md) | Inline `i64` values and canonical `u64` limbs, fallible arithmetic, Karatsuba and small-prime NTT/CRT multiplication, Knuth division, bounded divide-and-conquer radix conversion, and compiler widening-multiply/add-with-carry methods (issue #481 design; B38 implementation). |
+| [Arbitrary-precision integers](../design/stdlib/bigint.md) | Inline `i64` values and canonical `u64` limbs, fallible arithmetic, Karatsuba, Toom-3 and packed five-prime NTT/CRT multiplication, Knuth division, bounded divide-and-conquer radix conversion, and compiler widening-multiply/add-with-carry methods (issue #481 design; B38 implementation). |
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
 | [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
 | [Ordinary-path directory creation](../design/stdlib/fs/creation.md) | New `fs.create_dirs` follows OS symlink and dot-segment resolution, applies the requested mode to each missing level and returns unit without opening readable handles. The rooted API remains strict. |
@@ -48,11 +48,41 @@ records instruction counts against the merged baseline and independent Malachite
 oracle, including the substantial remaining gap. No native bigint dependency
 is introduced.
 
-Issue #987 also adds a direct Plenty two-prime NTT/CRT path for large balanced
-products, using exact Montgomery and Shoup arithmetic and reusable fixed
-scratch. The algorithm investigation and before/after evidence are retained in
-`experiments/bigint-comparison/algorithm/`. Medium products retain Karatsuba;
-Malachite’s truncated vector transforms and Toom-3 are not implemented here.
+The initial algorithm work for issue #987 added a direct Plenty two-prime
+NTT/CRT path with 16-bit digits for large balanced products, using exact
+Montgomery and Shoup arithmetic and reusable fixed scratch. Its investigation
+and before/after evidence are retained in
+`experiments/bigint-comparison/algorithm/`.
+
+The follow-up in `experiments/bigint-comparison/algorithms-next/` adds Toom-3
+for medium products, with evaluations at 0, ±1, 2, and infinity, and replaces
+the large-product path with five-prime NTT/CRT over 128-bit digits (two `u64`
+limbs). The independently generated, approximately 60-bit Proth primes have
+exact primality witnesses retained in `algorithms-next/constants.py`. Residue,
+root and product arithmetic uses exact Montgomery reduction with R = 2⁶⁴;
+Garner CRT reconstructs coefficients in five scalar `u64` words before
+base-2¹²⁸ carries. At 65,536 bits per operand, packing reduces the transform
+length to 1,024 from the original 8,192 and intermediate 32-bit path's 4,096.
+Karatsuba and Toom-3 write their low and high products into disjoint final-output
+regions, avoiding two owned recursive product arrays. Evaluation and
+interpolation scratch remains
+fallible. Toom-3 currently starts at 128 limbs with nonempty thirds in both
+operands and a size ratio at most 5:4; the NTT retains its 1,024-limb minimum per
+operand, 2:1 ratio, seven-eighths occupancy and 524,288 combined-limb limit.
+Occupancy includes odd-limb padding in the actual 128-bit digit counts; the
+primes' 2⁴⁰ transform order exceeds the retained cap. Independent Python,
+Malachite and Plenty oracle checks pass 608 products; the constants proof checks
+the arithmetic bounds and primality witnesses. There is no new public API,
+native dependency, copied third-party code or tables, floating-point arithmetic,
+or SIMD.
+
+Final measurements reduce multiplication from about 40.84 million to
+16.31 million instructions at 65,536 bits (2.50×), and from 84.36 million to
+33.92 million at 131,072 bits (2.49×). The remaining Malachite gaps are about
+18.4× and 19.0× respectively. The experiment report in
+`experiments/bigint-comparison/algorithms-next/` records the exact final counts
+and timings. Truncated vector transforms and specialized squaring remain
+absent; issue #987 remains open.
 
 Issue #705 corrects the [archive PAX decimal parser](../design/stdlib/archive.md#limits)
 to accept every nonnegative `i64`, including its final eight values. Boundary

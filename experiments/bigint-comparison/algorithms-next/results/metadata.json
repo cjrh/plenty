@@ -1,0 +1,23 @@
+{
+  "cpu_affinity": 0,
+  "binaries": {
+    "baseline": {
+      "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-algorithms-next/target/bigint-next/bench-baseline",
+      "sha256": "78c5e84c285d8b043b45dec9c38083744ba5fce264fd39a1c4fa28646e72ce9a"
+    },
+    "candidate": {
+      "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-algorithms-next/target/bigint-next/bench-final",
+      "sha256": "08eb3f96b374f7dd6bb9d3d10ea6860ae6e31dc8462da61dd8daed394f73b5a5"
+    },
+    "malachite": {
+      "path": "/home/caleb/Documents/repos/plenty/.worktrees/issue-987-bigint-algorithms-next/target/bigint-next/malachite",
+      "sha256": "2151dd07d0ec58f3651a3b26f7514666a9744adf99fd45f3ffe4baf7d691d3aa"
+    }
+  },
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)\n",
+  "host": "Linux lavender 7.3.3-200.fc44.x86_64 #1 SMP PREEMPT_DYNAMIC Fri Nov  6 20:34:09 UTC 2026 x86_64 GNU/Linux\n",
+  "compiler_sha256": "5038566687877247def16893f65604c7dd3a3e90b4fddc90112bc0b0894cf304",
+  "bigint_source_sha256": "ce1616f7940839d2ee50a0e413282efbe9da7b78ca014e0163059165f1ead713",
+  "gcc": "gcc (GCC) 16.2.1 20261029 (Red Hat 16.2.1-3)",
+  "program_profile": "optimized default; no runtime-checks; scalar exact integer transforms"
+}

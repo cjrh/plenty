@@ -201,6 +201,57 @@ fn karatsuba_unequal_halves_and_carry_chains() {
 }
 
 #[test]
+fn toom3_products_cover_thirds_signs_and_carry_chains() {
+    let mut body = String::new();
+    let mut expected = String::new();
+    for (index, (a, b)) in [
+        (104, 104),
+        (105, 105),
+        (127, 127),
+        (128, 128),
+        (129, 129),
+        (159, 128),
+        (160, 128),
+        (161, 128),
+        (191, 128),
+        (192, 128),
+        (192, 129),
+        (193, 130),
+        (255, 255),
+        (256, 256),
+        (257, 257),
+        (511, 511),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let x = "f".repeat(a * 16);
+        let y = "f".repeat(b * 16);
+        let lo = a.min(b) * 16;
+        let hi = a.max(b) * 16;
+        let product = format!(
+            "{}e{}{}1",
+            "f".repeat(lo - 1),
+            "f".repeat(hi - lo),
+            "0".repeat(lo - 1)
+        );
+        body.push_str(&format!("    x{index} = parse(\"-{x}\", 16, 100000)?\n    y{index} = parse(\"{y}\", 16, 100000)?\n    print((x{index} * y{index})?.to_string(16, 100000)? == \"-{product}\")?\n"));
+        expected.push_str("True\n");
+    }
+    // These full-size inputs force opposite signs at evaluation point -1.
+    // Multiplication by (2^shift+1) has an independent shift/add oracle.
+    for (index, n) in [128usize, 129, 192, 256, 511].into_iter().enumerate() {
+        let k = n.div_ceil(3);
+        let shift = 64 * n - 1;
+        let third_shift = 64 * k;
+        body.push_str(&format!("    high{index} = (from_i64(1) << {shift})?\n    middle{index} = (((from_i64(1) << {third_shift})? - from_i64(1))? << {third_shift})?\n    a{index} = ((high{index} + middle{index})? + from_i64(1))?\n    b{index} = (high{index} + from_i64(1))?\n    want{index} = ((a{index} << {shift})? + a{index})?\n    print((a{index} * b{index})? == want{index}, ((-a{index})? * b{index})? == (-want{index})?)?\n"));
+        expected.push_str("True True\n");
+    }
+    assert_eq!(run(&body, false), expected);
+    assert_eq!(run(&body, true), expected);
+}
+
+#[test]
 fn transform_products_cover_padding_carries_signs_and_unequal_operands() {
     let mut body = String::new();
     let mut expected = String::new();
@@ -247,6 +298,30 @@ fn transform_products_cover_padding_carries_signs_and_unequal_operands() {
 fn transform_allocation_failures_preserve_operands() {
     let output = run(
         r#"    a = (from_i64(1) << 65535)?
+    original = copy(a)?
+    mut failures = 0
+    for budget in range(80):
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        product = a * a
+        print("__test_restore_allocations__")?
+        if product.is_err():
+            unchecked:
+                failures += 1
+        if a != original:
+            return Err(BigIntError.OutOfRange)
+    print(failures > 0, a == original)?
+"#,
+        true,
+    );
+    assert!(output.ends_with("True True\n"), "{output}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn toom3_allocation_failures_preserve_operands() {
+    let output = run(
+        r#"    a = (from_i64(1) << 8191)?
     original = copy(a)?
     mut failures = 0
     for budget in range(80):

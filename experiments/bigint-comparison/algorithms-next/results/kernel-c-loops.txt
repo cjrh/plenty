@@ -1,0 +1,55 @@
+main loop 0x400440-0x400456: 6 instructions
+    400440  mov %rax,(%r15,%rax,8)
+    400444  lea 0x1(%rax),%rdx
+    400448  add $0x2,%rax
+    40044c  mov %rdx,(%r15,%rdx,8)
+    400450  cmp $0x400,%rax
+    400456  jne 400440 <main+0x80>
+main loop 0x400470-0x40047e: 5 instructions
+    400470  mov %rdx,(%rax)
+    400473  add $0x10,%rax
+    400477  mov %rdx,-0x8(%rax)
+    40047b  cmp %rax,%rcx
+    40047e  jne 400470 <main+0xb0>
+main loop 0x400558-0x4005f6: 41 instructions
+    400558  add %r11,%r8
+    40055b  add $0x8,%rcx
+    40055f  cmp $0x1ff,%r8
+    400566  ja 4006a1 <main+0x2e1>
+    40056c  mov (%rcx),%rax
+    40056f  mov (%rcx,%r10,8),%rdx
+    400573  mov %rax,%rdi
+    400576  add %rdx,%rdi
+    400579  jb 4006a1 <main+0x2e1>
+    40057f  add %rbx,%rax
+    400582  jb 4006a1 <main+0x2e1>
+    400588  sub %rdx,%rax
+    40058b  jb 4006a1 <main+0x2e1>
+    400591  cmp %rdi,%r12
+    400594  lea (%rdi,%rbp,1),%rdx
+    400598  lea (%rax,%rbp,1),%rsi
+    40059c  cmovae %rdi,%rdx
+    4005a0  cmp %rax,%r12
+    4005a3  cmovb %rsi,%rax
+    4005a7  mov %rdx,(%rcx)
+    4005aa  mulq (%r14,%r8,8)
+    4005ae  mov %rax,(%rsp)
+    4005b2  mov (%rsp),%rsi
+    4005b6  mov %rdx,0x8(%rsp)
+    4005bb  mov 0x8(%rsp),%rdi
+    4005c0  mov %rsi,%rax
+    4005c3  imul %r13,%rax
+    4005c7  mul %rbx
+    4005ca  mov %rax,(%rsp)
+    4005ce  mov (%rsp),%rax
+    4005d2  mov %rdx,0x8(%rsp)
+    4005d7  mov 0x8(%rsp),%rdx
+    4005dc  add %rsi,%rax
+    4005df  mov %r15,%rax
+    4005e2  adc %rdx,%rdi
+    4005e5  cmp %rdi,%r12
+    4005e8  cmovb %rbx,%rax
+    4005ec  sub %rax,%rdi
+    4005ef  mov %rdi,(%rcx,%r10,8)
+    4005f3  cmp %rcx,%r9
+    4005f6  jne 400558 <main+0x198>
