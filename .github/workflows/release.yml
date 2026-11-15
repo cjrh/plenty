@@ -3,9 +3,9 @@
 #
 # plan          verify the tag: on main, matching Cargo.toml; read the pins
 # test          full test suite on the Ubuntu host, as CI runs it
-# build         glibc 2.28 container: build with the tracked lockfile, run the
-#               test suite with the shipped toolchain, audit ELF dependencies,
-#               package the archives
+# build         glibc 2.28: build/test/audit the compiler with the shipped tools
+# engine        concurrently build/validate each Linux engine in the same image
+# package       join same-run validated artifacts, audit and package the archives
 # smoke         extract the archive in clean distribution containers with only
 #               the documented prerequisites, offline, and compile/run programs
 # native-build  prepare experimental macOS and Windows compilers
@@ -60,6 +60,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
       build_matrix: ${{ steps.pins.outputs.build_matrix }}
+      engine_matrix: ${{ steps.pins.outputs.engine_matrix }}
       smoke_matrix: ${{ steps.pins.outputs.smoke_matrix }}
       native_matrix: ${{ steps.pins.outputs.native_matrix }}
       linux: ${{ steps.pins.outputs.linux }}
@@ -130,7 +131,7 @@ jobs:
       - run: python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
   build:
-    name: Build and test (${{ matrix.target }}, glibc 2.28)
+    name: Prepare compiler and tests (${{ matrix.target }}, glibc 2.28)
     needs: plan
     if: needs.plan.outputs.linux == 'true'
     runs-on: ${{ matrix.runner }}
@@ -166,22 +167,20 @@ jobs:
             echo "CFLAGS=$release_cflags"
             echo "CXXFLAGS=$release_cflags"
           } >> "$GITHUB_ENV"
-      # Non-overlapping targets: compiler cache cleanup must not remove Polars.
+      # Compiler cleanup never traverses either independent engine target.
       - name: Restore glibc 2.28 dependencies
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: |
             . -> target/release-compiler
-            plenty-dataframe -> target
-            plenty-linalg -> target
-          key: release-glibc-v1-${{ matrix.target }}-${{ hashFiles('scripts/release/toolchain.env', 'scripts/release/target.sh', 'scripts/build_native_engine.py') }}
+          key: release-glibc-compiler-v2-${{ matrix.target }}-${{ hashFiles('scripts/release/toolchain.env', 'scripts/release/target.sh') }}
           cache-bin: "false"
-      - name: Build, test, audit, package
+      - name: Build, test and audit compiler
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export SOURCE_DATE_EPOCH
-          scripts/release/build.sh --out-dir dist --test --engine-workspace-targets
+          scripts/release/build.sh --out-dir dist --test --phase prepare
       - name: Preserve executable-size evidence on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -190,6 +189,122 @@ jobs:
           path: target/size-evidence/
           if-no-files-found: ignore
           retention-days: 14
+      - name: Preserve validated Linux compiler
+        run: tar -cf compiler.tar -C target/release-compiler/release plenty plentyc
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-linux-compiler-${{ matrix.target }}
+          path: compiler.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  engine:
+    name: Prepare ${{ matrix.engine }} (${{ matrix.target }}, glibc 2.28)
+    needs: plan
+    if: needs.plan.outputs.linux == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.engine_matrix) }}
+    env:
+      PLENTY_RELEASE_TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: target/release-engine
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    container:
+      image: ${{ matrix.image }}
+      options: --user 1001:1001
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select pinned release environment
+        run: |
+          scripts/release/build.sh --out-dir dist --test --phase setup
+          . scripts/release/toolchain.env
+          . scripts/release/target.sh
+          {
+            echo "RUSTUP_TOOLCHAIN=$RUST_VERSION"
+            echo "RUSTFLAGS=-C target-cpu=$release_cpu"
+            echo "PLENTY_RUNTIME_RUSTFLAGS=-C target-cpu=$release_cpu"
+            echo "CFLAGS=$release_cflags"
+            echo "CXXFLAGS=$release_cflags"
+          } >> "$GITHUB_ENV"
+      - name: Restore glibc 2.28 engine dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: plenty-${{ matrix.engine }} -> target
+          key: release-glibc-engine-v2-${{ matrix.target }}-${{ matrix.engine }}-${{ hashFiles('scripts/release/toolchain.env', 'scripts/release/target.sh', 'scripts/build_native_engine.py') }}
+          cache-bin: "false"
+      - name: Build and validate Linux engine
+        env:
+          ENGINE: ${{ matrix.engine }}
+        run: |
+          scripts/release/build.sh --out-dir dist --test --phase engine --engine "$ENGINE" --engine-workspace-targets
+          tar -cf engine.tar -C "target/release-engine/$ENGINE-install" .
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-linux-engine-${{ matrix.target }}-${{ matrix.engine }}
+          path: engine.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    name: Package (${{ matrix.target }}, glibc 2.28)
+    needs: [plan, build, engine]
+    if: needs.plan.outputs.linux == 'true'
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    env:
+      PLENTY_RELEASE_TARGET: ${{ matrix.target }}
+      CARGO_TARGET_DIR: target/release-compiler
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    container:
+      image: ${{ matrix.image }}
+      options: --user 1001:1001
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select pinned release environment
+        run: |
+          scripts/release/build.sh --out-dir dist --phase setup
+          . scripts/release/toolchain.env
+          . scripts/release/target.sh
+          {
+            echo "RUSTUP_TOOLCHAIN=$RUST_VERSION"
+            echo "RUSTFLAGS=-C target-cpu=$release_cpu"
+            echo "PLENTY_RUNTIME_RUSTFLAGS=-C target-cpu=$release_cpu"
+            echo "CFLAGS=$release_cflags"
+            echo "CXXFLAGS=$release_cflags"
+          } >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-linux-compiler-${{ matrix.target }}
+          path: artifacts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-linux-engine-${{ matrix.target }}-*
+          path: artifacts/engines
+      - name: Assemble, audit and package Linux release
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir -p target/release-compiler/release artifacts/libraries
+          tar -xf artifacts/compiler.tar -C target/release-compiler/release
+          . scripts/release/target.sh
+          for engine in $release_engines; do
+            tar -xf "artifacts/engines/release-linux-engine-$PLENTY_RELEASE_TARGET-$engine/engine.tar" -C artifacts/libraries
+          done
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          scripts/release/build.sh --out-dir dist --phase package --engine-dir artifacts/libraries
       - name: Archive matches the tag
         run: |
           test -f "dist/plenty-${{ needs.plan.outputs.version }}-${{ matrix.target }}.tar.gz"
@@ -201,9 +316,10 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+
   smoke:
     name: Smoke test (${{ matrix.target }}, ${{ matrix.image }})
-    needs: [plan, build]
+    needs: [plan, package]
     if: needs.plan.outputs.linux == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -422,7 +538,7 @@ jobs:
     # Tag pushes only: a manual run is a dry run. Skipped or failed jobs in
     # `needs` also skip this job.
     if: github.event_name == 'push'
-    needs: [plan, test, build, smoke, native-build, native-engine, native-package, native-smoke]
+    needs: [plan, test, build, engine, package, smoke, native-build, native-engine, native-package, native-smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -440,3 +556,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PLENTY_RELEASE_TARGETS: ${{ needs.plan.outputs.targets }}
+
+  timings:
+    name: Check timing report
+    if: always()
+    needs: [plan, test, build, engine, package, smoke, native-build, native-engine, native-package, native-smoke, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Summarize job and step durations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B scripts/check_timings.py ci --repo "$GITHUB_REPOSITORY" --run "$GITHUB_RUN_ID" --output target/check-timings-ci
+          cat target/check-timings-ci/timings.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload timing report and raw timestamps
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: check-timings
+          path: target/check-timings-ci/
+          if-no-files-found: ignore
+          retention-days: 30

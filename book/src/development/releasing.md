@@ -145,37 +145,48 @@ own workspace sources and validates the resulting artifacts. Compiler and engine
 target directories do not overlap, so compiler-cache cleanup cannot discard
 engine-only dependencies.
 
-Linux host and glibc-image full suites use the existing `ci` Cargo profile:
-workspace code is optimized at level 1 while debug assertions and overflow checks
-remain enabled. Shipped executables still use the unchanged `release` profile,
-CPU baseline and glibc 2.28 environment. The native unit checks retain their
-existing profile.
+Linux compiler preparation retains the full all-feature workspace suite with
+the existing debug-checked `ci` Cargo profile. Independent engine jobs run each
+engine's formatting, tests and Clippy through `build_native_engine.py --validate`.
+All preparation jobs use the same pinned glibc 2.28 images.
+Shipped executables still use the unchanged `release` profile, CPU baseline and
+glibc 2.28 environment. The native unit checks retain their existing profile.
+Linux package jobs require all build and engine matrices to succeed, then audit
+and assemble same-run validated tar artifacts before unchanged fresh-distribution
+smoke gates.
 
 Linux release caches are separate from ordinary Ubuntu CI because the build
 images and flags differ. GitHub cache scope lets tag runs restore default-branch
 caches, but a cache saved for one tag is unavailable to another tag. A manual
-Linux dry run on `main` can seed the Linux caches for subsequent tags; without
-that rehearsal they start cold. Native caches are populated by normal
-qualification on `main`. Hosted cold/warm timings must be compared after these
-changes run; the cache configuration alone is not a measured speedup.
+Linux dry run on `main` can seed the Linux caches for subsequent tags; new
+keys otherwise start cold. Native caches are populated by normal qualification
+on `main`. Hosted cold/warm timings must be compared after these changes run; the
+cache configuration alone is not a measured speedup.
 
 For Linux CI setup, `build.sh --out-dir DIR --test --phase setup` installs and
-checks the pinned tools without compiling or packaging. The complete invocation
-repeats those checks and runs the suite. `--engine-workspace-targets` places each
-engine's Cargo output in its own workspace `target/`, outside the compiler's
-`CARGO_TARGET_DIR`; omitting it preserves the local output layout.
+checks the pinned tools without compiling or packaging. `--test --phase prepare` builds
+and tests the compiler; `--phase engine --engine NAME` builds and validates one
+engine; `--phase package --engine-dir DIR` audits and assembles the compiler
+plus libraries from DIR, and rejects `--test`. The default all phase stays serial
+for local builds. The complete invocation repeats setup checks and runs every
+phase. `--engine-workspace-targets` places each engine's Cargo output in its own
+workspace `target/`, outside the compiler's `CARGO_TARGET_DIR`; omitting it
+preserves the local output layout.
 
 | Job | Work |
 |---|---|
 | Verify tag | Requires the tagged commit to be on `main` and the tag to equal `v` plus the `Cargo.toml` version (`scripts/release/check-version.sh`) |
 | Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
-| Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both engines and packages them in the compiler archive |
+| Prepare compiler and tests | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the full test suite with the `ci` profile, and audits the compiler (`build.sh --out-dir dist --test --phase prepare`) |
+| Prepare engine | For each engine (dataframe, linalg) and architecture in the same pinned glibc 2.28 image: builds and validates the engine with the pinned baseline (`build.sh --out-dir dist --test --phase engine --engine NAME --engine-workspace-targets`) |
+| Package | For each architecture, requires build and engine matrices to succeed: assembles same-run validated artifacts, audits and packages them in the compiler archive (`build.sh --out-dir dist --phase package --engine-dir DIR`) |
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
 | Prepare compiler (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables and runs platform-boundary and compiler/runtime unit tests (`build-native.sh --test --phase prepare`) |
 | Prepare dataframe (experimental) | Concurrently builds the dataframe engine and runs its formatting, tests and Clippy checks with the pinned baseline |
 | Package (experimental) | Requires both preparations, audits the supplied executables and engine, and packages the archive (`build-native.sh --phase package`) |
 | Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
 | Publish | Tag pushes only. Creates a draft release with every target's archives and checksums, then publishes it (`publish.sh`) |
+| Check timing report | Runs after every job, including publish, even when predecessors fail; retains summary and raw job/step data for 30 days when produced. Cancellation can prevent reporting. |
 
 The separate [native OS qualification workflow](ci-workflow.md#native-os-qualification)
 prepares the compiler and dataframe engine concurrently, then packages their

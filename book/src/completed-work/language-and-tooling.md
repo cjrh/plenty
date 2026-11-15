@@ -185,14 +185,29 @@ been run on hosted runners; elapsed savings remain unmeasured.
 ## Release build reuse (issue #859)
 
 The [release workflow](../development/releasing.md#what-the-workflow-does)
-prepares native compilers and dataframe engines concurrently, then audits and
-packages their same-run artifacts before clean-runner smoke tests. Compatible
-native dependency caches share keys with main-branch qualification; isolated
-Linux compiler and engine caches can be seeded by a main-branch dry run.
-Linux full suites use the existing debug-checked `ci` profile; release binary
-flags, test coverage, archive audits and publication gates remain unchanged.
-The v0.8.18 baseline had a 21m48s Windows dataframe build after compiler checks;
-post-change hosted savings remain to be measured.
+prepares native compilers and dataframe engines concurrently. The Linux
+follow-up (issue #986) overlaps compiler preparation and the full all-feature
+`ci`-profile workspace suite with independent dataframe and linalg validation
+in the same pinned glibc 2.28 images. Packaging requires all preparation matrices
+to succeed, then audits their same-run tar artifacts before unchanged
+fresh-distribution smoke checks. Local `build.sh` defaults remain serial and
+complete; explicit setup/prepare/engine/package phases support CI.
+
+Compatible native dependency caches share keys with main-branch qualification.
+Linux compiler/engine caches are separate; a manual Linux dry run on `main`
+can seed them, but no seeding is claimed here. New keys start cold and
+tag-private caches do not warm unrelated tags. Toolchains, CPU/libc baselines,
+full suites including doctests, notices, archive audits and publish gates are
+unchanged. A final timing-report job retains summaries and raw timestamps for
+30 days when produced; cancellation can prevent reporting.
+
+Successful Release run 43434502863 at ff7f7a81 spanned 2518 seconds; Linux
+x86-64 and ARM64 preparation took 1864 and 1832 seconds respectively. In
+failed run 43647440161 at 6a466afb, the x86-64 job took 1646 seconds, with
+about 401 seconds of integration execution followed by 573 seconds of engine
+preparation. These are old-pipeline baselines, not speedup measurements. Local
+validation covered 383 Python tests (four skipped), actionlint, ShellCheck and
+phase fixtures; hosted execution and changed-pipeline savings remain unmeasured.
 
 ## Short file extensions (issue #851)
 
