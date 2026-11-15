@@ -518,4 +518,73 @@ def main() -> Result[(), IoError]:
         clif.contains("isub"),
         "the trip countdown is missing: {clif}"
     );
+    assert!(
+        !clif.contains("icmp sgt"),
+        "the positive-entry proof permits a nonzero latch: {clif}"
+    );
+}
+
+/// Only a range's positive-entry proof permits the nonzero latch. Counts
+/// remain exact at zero/final completion, break and continue, including very
+/// large ranges that leave early. Floating escape tests retain unorderedness.
+#[test]
+fn private_countdown_nonzero_latch_preserves_escape_and_count_edges() {
+    let source = r#"
+def count(n: i64, stop: i64) -> i64:
+    mut total = 0
+    for _ in range(n):
+        total = total.wrapping_add(1)
+        if total == stop:
+            break
+        if total % 2 == 0:
+            continue
+    total
+
+def escape(n: i64, cr: f64, ci: f64) -> (i64, bool):
+    mut zr = 0.0
+    mut zi = 0.0
+    mut tr = 0.0
+    mut ti = 0.0
+    mut iterations = 0
+    for _ in range(n):
+        if tr + ti <= 4.0:
+            zi = 2.0 * zr * zi + ci
+            zr = tr - ti + cr
+            tr = zr * zr
+            ti = zi * zi
+            iterations = iterations.wrapping_add(1)
+        else:
+            break
+    (iterations, tr + ti <= 4.0)
+
+def main() -> Result[(), IoError]:
+    print(count(-5, -1), count(0, -1), count(1, -1), count(2, -1), count(50, -1))?
+    print(count(i64.MAX, 2), count(50, 1), count(50, 50))?
+    print(escape(0, f64.NAN, 0.0), escape(1, f64.NAN, 0.0), escape(50, f64.NAN, 0.0))?
+    print(escape(50, 0.0, 0.0), escape(50, 3.0, 0.0), escape(1, 3.0, 0.0))?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("program");
+        plenty::compile_source_to_executable_with_options(
+            source,
+            &path,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = support::output_within(
+            &mut std::process::Command::new(path),
+            &[],
+            std::time::Duration::from_secs(15),
+        );
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "0 0 1 2 50\n2 1 50\n(0, True) (1, False) (1, False)\n(50, True) (1, False) (1, False)\n"
+        );
+    }
 }

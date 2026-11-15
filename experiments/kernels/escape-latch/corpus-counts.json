@@ -1,0 +1,791 @@
+[
+  {
+    "file": "experiments/kernels/accessor-tail/variants.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a",
+        "instructions": 8
+      },
+      {
+        "function": "%b",
+        "instructions": 6
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a",
+        "instructions": 8
+      },
+      {
+        "function": "%b",
+        "instructions": 6
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bounded-arguments/variants.clif",
+    "baseline_exit": 0,
+    "baseline": [],
+    "candidate_exit": 0,
+    "candidate": []
+  },
+  {
+    "file": "experiments/kernels/bytes/dispatch.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:59",
+        "instructions": 62
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:59",
+        "instructions": 62
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bytes/registers.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:59",
+        "instructions": 37
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:59",
+        "instructions": 37
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bytes-literals/clif/fill.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a_as_emitted",
+        "instructions": 15
+      },
+      {
+        "function": "%b_set_call_only",
+        "instructions": 15
+      },
+      {
+        "function": "%c_set_trap_only",
+        "instructions": 15
+      },
+      {
+        "function": "%d_no_negative_join",
+        "instructions": 14
+      },
+      {
+        "function": "%e_trap_only_no_join",
+        "instructions": 14
+      },
+      {
+        "function": "%f_call_without_loop_values",
+        "instructions": 15
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a_as_emitted",
+        "instructions": 15
+      },
+      {
+        "function": "%b_set_call_only",
+        "instructions": 15
+      },
+      {
+        "function": "%c_set_trap_only",
+        "instructions": 15
+      },
+      {
+        "function": "%d_no_negative_join",
+        "instructions": 14
+      },
+      {
+        "function": "%e_trap_only_no_join",
+        "instructions": 14
+      },
+      {
+        "function": "%f_call_without_loop_values",
+        "instructions": 15
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/bytes-literals/clif/read.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a_as_emitted",
+        "instructions": 7
+      },
+      {
+        "function": "%b_method_call_only",
+        "instructions": 7
+      },
+      {
+        "function": "%c_trap_only",
+        "instructions": 7
+      },
+      {
+        "function": "%d_enter_only",
+        "instructions": 7
+      },
+      {
+        "function": "%e_site_last",
+        "instructions": 7
+      },
+      {
+        "function": "%f_arguments_in_a_slot",
+        "instructions": 7
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a_as_emitted",
+        "instructions": 7
+      },
+      {
+        "function": "%b_method_call_only",
+        "instructions": 7
+      },
+      {
+        "function": "%c_trap_only",
+        "instructions": 7
+      },
+      {
+        "function": "%d_enter_only",
+        "instructions": 7
+      },
+      {
+        "function": "%e_site_last",
+        "instructions": 7
+      },
+      {
+        "function": "%f_arguments_in_a_slot",
+        "instructions": 7
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/caller-context/variants.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%with_scope",
+        "instructions": 17
+      },
+      {
+        "function": "%proved_no_scope",
+        "instructions": 7
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%with_scope",
+        "instructions": 16
+      },
+      {
+        "function": "%proved_no_scope",
+        "instructions": 7
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/clif/cold_args.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%n_call_no_args",
+        "instructions": 12
+      },
+      {
+        "function": "%o_trap_only",
+        "instructions": 12
+      },
+      {
+        "function": "%p_store_index_trap",
+        "instructions": 12
+      },
+      {
+        "function": "%q_store_both_trap",
+        "instructions": 12
+      },
+      {
+        "function": "%r_call_len_only",
+        "instructions": 12
+      },
+      {
+        "function": "%s_call_index_only",
+        "instructions": 12
+      },
+      {
+        "function": "%t_call_index_first_only",
+        "instructions": 12
+      },
+      {
+        "function": "%u_global_scratch",
+        "instructions": 12
+      },
+      {
+        "function": "%v_stack_scratch_site_only",
+        "instructions": 12
+      },
+      {
+        "function": "%w_stack_record_addr_arg",
+        "instructions": 12
+      },
+      {
+        "function": "%x_record_fresh_addr",
+        "instructions": 12
+      },
+      {
+        "function": "%y_global_then_trap",
+        "instructions": 12
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%n_call_no_args",
+        "instructions": 12
+      },
+      {
+        "function": "%o_trap_only",
+        "instructions": 12
+      },
+      {
+        "function": "%p_store_index_trap",
+        "instructions": 12
+      },
+      {
+        "function": "%q_store_both_trap",
+        "instructions": 12
+      },
+      {
+        "function": "%r_call_len_only",
+        "instructions": 12
+      },
+      {
+        "function": "%s_call_index_only",
+        "instructions": 12
+      },
+      {
+        "function": "%t_call_index_first_only",
+        "instructions": 12
+      },
+      {
+        "function": "%u_global_scratch",
+        "instructions": 12
+      },
+      {
+        "function": "%v_stack_scratch_site_only",
+        "instructions": 12
+      },
+      {
+        "function": "%w_stack_record_addr_arg",
+        "instructions": 12
+      },
+      {
+        "function": "%x_record_fresh_addr",
+        "instructions": 12
+      },
+      {
+        "function": "%y_global_then_trap",
+        "instructions": 12
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/clif/reverse.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%reverse_a_plenty",
+        "instructions": 14
+      },
+      {
+        "function": "%reverse_b_nonneg_hi",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_c_split_once",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_d_rotated",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_e_trapz",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_f_hoisted",
+        "instructions": 8
+      },
+      {
+        "function": "%reverse_g_unchecked_top",
+        "instructions": 9
+      },
+      {
+        "function": "%reverse_h_shared_trap_block",
+        "instructions": 14
+      },
+      {
+        "function": "%reverse_i_param_per_check",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_j_param_unrotated",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_k_args_in_memory",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_l_memory_unrotated",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_m_site_first",
+        "instructions": 12
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%reverse_a_plenty",
+        "instructions": 14
+      },
+      {
+        "function": "%reverse_b_nonneg_hi",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_c_split_once",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_d_rotated",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_e_trapz",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_f_hoisted",
+        "instructions": 8
+      },
+      {
+        "function": "%reverse_g_unchecked_top",
+        "instructions": 9
+      },
+      {
+        "function": "%reverse_h_shared_trap_block",
+        "instructions": 14
+      },
+      {
+        "function": "%reverse_i_param_per_check",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_j_param_unrotated",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_k_args_in_memory",
+        "instructions": 12
+      },
+      {
+        "function": "%reverse_l_memory_unrotated",
+        "instructions": 13
+      },
+      {
+        "function": "%reverse_m_site_first",
+        "instructions": 12
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/clist-zip/variants.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a_pulls",
+        "instructions": 41
+      },
+      {
+        "function": "%b_direct",
+        "instructions": 12
+      },
+      {
+        "function": "%c_shared",
+        "instructions": 9
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a_pulls",
+        "instructions": 41
+      },
+      {
+        "function": "%b_direct",
+        "instructions": 12
+      },
+      {
+        "function": "%c_shared",
+        "instructions": 9
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/field-rng/clif/remainder.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a_as_dumped",
+        "instructions": 12
+      },
+      {
+        "function": "%b_no_shift",
+        "instructions": 11
+      },
+      {
+        "function": "%c_not_returned",
+        "instructions": 11
+      },
+      {
+        "function": "%d_not_stored",
+        "instructions": 13
+      },
+      {
+        "function": "%e_negated_product",
+        "instructions": 10
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a_as_dumped",
+        "instructions": 12
+      },
+      {
+        "function": "%b_no_shift",
+        "instructions": 11
+      },
+      {
+        "function": "%c_not_returned",
+        "instructions": 11
+      },
+      {
+        "function": "%d_not_stored",
+        "instructions": 12
+      },
+      {
+        "function": "%e_negated_product",
+        "instructions": 10
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/gather-latch-params.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:60",
+        "instructions": 7
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:60",
+        "instructions": 7
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/gather-lowered.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:60",
+        "instructions": 7
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:60",
+        "instructions": 7
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/gather-merged-latch.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:60",
+        "instructions": 7
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:60",
+        "instructions": 7
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/sum-f32-merged.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:63",
+        "instructions": 8
+      },
+      {
+        "function": "u0:63",
+        "instructions": 6
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:63",
+        "instructions": 8
+      },
+      {
+        "function": "u0:63",
+        "instructions": 6
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/sum-index-merged.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:61",
+        "instructions": 8
+      },
+      {
+        "function": "u0:61",
+        "instructions": 6
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:61",
+        "instructions": 8
+      },
+      {
+        "function": "u0:61",
+        "instructions": 6
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/sum-iter-merged.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:62",
+        "instructions": 5
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:62",
+        "instructions": 5
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/float-loads/use-state.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%exit_sum",
+        "instructions": 6
+      },
+      {
+        "function": "%exit_count",
+        "instructions": 5
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%exit_sum",
+        "instructions": 6
+      },
+      {
+        "function": "%exit_count",
+        "instructions": 5
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/scalar-captures/variants.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a_capture_loads",
+        "instructions": 9
+      },
+      {
+        "function": "%b_capture_ssa",
+        "instructions": 8
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a_capture_loads",
+        "instructions": 9
+      },
+      {
+        "function": "%b_capture_ssa",
+        "instructions": 8
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/text-set-scan/scan.clif",
+    "baseline_exit": 0,
+    "baseline": [],
+    "candidate_exit": 0,
+    "candidate": []
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/assumed.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:58",
+        "instructions": 9
+      },
+      {
+        "function": "u0:58",
+        "instructions": 9
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:58",
+        "instructions": 9
+      },
+      {
+        "function": "u0:58",
+        "instructions": 9
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/checked.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:58",
+        "instructions": 14
+      },
+      {
+        "function": "u0:58",
+        "instructions": 12
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:58",
+        "instructions": 14
+      },
+      {
+        "function": "u0:58",
+        "instructions": 12
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/float-load.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:58",
+        "instructions": 7
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:58",
+        "instructions": 7
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/unchecked-index/lowered.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "u0:58",
+        "instructions": 9
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "u0:58",
+        "instructions": 9
+      }
+    ]
+  },
+  {
+    "file": "experiments/kernels/unused-range/variants.clif",
+    "baseline_exit": 0,
+    "baseline": [
+      {
+        "function": "%a",
+        "instructions": 6
+      },
+      {
+        "function": "%b",
+        "instructions": 5
+      }
+    ],
+    "candidate_exit": 0,
+    "candidate": [
+      {
+        "function": "%a",
+        "instructions": 6
+      },
+      {
+        "function": "%b",
+        "instructions": 5
+      }
+    ]
+  }
+]

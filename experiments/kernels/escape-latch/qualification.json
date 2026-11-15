@@ -1,0 +1,80 @@
+{
+  "issue": 977,
+  "plenty_base": "6a466afb62aab4a476082fb823afe5e5abd0186c",
+  "backend_baseline": "d27f16528ab79ae70b6e0f4caca1d5e3a787e92b",
+  "backend_candidate": "7d63dc32d326a0a260aa6dae03010bfd1321d091",
+  "backend_published": false,
+  "production_lock_changed": false,
+  "dependency_pr": 1271,
+  "excluded_issue_980_revisions": [
+    "76470301a2",
+    "94ed85d10c"
+  ],
+  "native_comparisons_per_backend": 480000,
+  "focused_range_tests": 11,
+  "fork_filetests": 420,
+  "excluded_filetest": "egraph/exponential-selects.clif (s390x unsupported by selected build)",
+  "fork_egraph_unit_tests": 3,
+  "fork_clippy": "passed",
+  "fork_format": "passed",
+  "plenty_clippy": "passed",
+  "plenty_format": "passed",
+  "docs_site": {
+    "default_pages": 1648,
+    "development_pages": 824
+  },
+  "compilers": {
+    "candidate-plenty": "c0a35c06f58b23fd77f14f42b19b873218083917e9eb3aa61fa48193f9920ba2",
+    "candidate-compile-bench": "bff61b462ecee84fc3ee15fa3c9390763fc98818486d18369fa56a0121bb9997",
+    "baseline-plenty": "4f4051a79aa503d89462bb2606fc971edb8ba39f9701ad02d4bd220153d36044",
+    "baseline-compile-bench": "bddc7a952f3873f2bf9c5e3cb147e2fac04c51e10045144e841f348f00a8674a"
+  },
+  "host": "Linux-7.3.3-200.fc44.x86_64-x86_64-with-glibc2.43",
+  "cpu_model": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+  "gcc": "gcc (GCC) 16.2.1 20261029 (Red Hat 16.2.1-3)",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "new_clif_assertion_baseline_passes": false,
+  "new_clif_assertion_candidate_passes": true,
+  "source_scope": "unused range element and break leaving this loop",
+  "source_corpus_programs": 38,
+  "source_corpus_growing_loops": 0,
+  "rejected_global_compilers": {
+    "plenty": "502c35b8cb3cbd6d6122a1fd18c9e5d52168788bae4a17b3b01c8c9ddb37a2c5",
+    "compile-bench": "9f6bb6887d1bd7b45fb70e0b2e85c5e53ad06712de49b9a19d50d1eda043abe9"
+  },
+  "final_source_files": {
+    "src/codegen/collections.rs": "72e4fcc01fa7392f9e5a9d3fa252000408faa075bf2955b991f25fa9513f119e",
+    "src/op.rs": "3a6a2142771257b72248ea0f07361238e661a4074862f98e98877d41300bdb7a",
+    "tests/test_range_loops.rs": "313e06f38c6371fb924da6b7a3a546fa91b5312da58d250d0bc14a1265440624"
+  },
+  "full_suite": {
+    "command": "RUSTC_WRAPPER= CARGO_BUILD_JOBS=3 PLENTY_CACHE=off just test",
+    "result": "passed",
+    "compiler_tests": 315,
+    "integration_tests": 6892,
+    "integration_ignored": 4,
+    "runtime_tests": 304,
+    "runtime_ignored": 5,
+    "other_tests": 11,
+    "compile_seconds": 45.9,
+    "execution_seconds": 274.2,
+    "timings_report": "suite-20261114T233454-814123"
+  },
+  "runtime_samples": 84,
+  "runtime_outputs_match": true,
+  "compile_samples": 24,
+  "runtime_cpu_speedup_established": false,
+  "aot_instruction_change_percent": -0.07747,
+  "docs_links": "passed",
+  "docs_python": {
+    "tests": 377,
+    "skipped": 4,
+    "result": "passed"
+  },
+  "production_compatibility": {
+    "backend": "98c03730",
+    "focused_range_tests": 11,
+    "result": "passed",
+    "manifest_diff": false
+  }
+}

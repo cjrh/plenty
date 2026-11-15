@@ -2121,6 +2121,15 @@ impl Lowerer<'_, '_> {
             .filter(|(range, _)| range.countdown_private && types[range.target as usize] == Ty::I64)
             .map(|(range, stop)| (range.remaining, range.target, stop));
         self.counters.counted.extend(counted);
+        // The guard admits only a positive range length. Every path reaching
+        // the latch has performed exactly one private countdown step, so the
+        // resulting count is nonnegative and != 0 is equivalent to > 0.
+        // Restrict this shape to escape loops: changing a straight loop's
+        // condition can perturb allocation elsewhere in a large function.
+        let nonzero_latch = range
+            .as_ref()
+            .filter(|range| range.target_private && crate::op::breaks_out(body))
+            .map(|range| range.remaining);
         let low = nonnegative.as_ref().map(|counter| counter.local);
         let mut relation = if rotated {
             self.enter_relation(condition, body, low, &types, invariant)?
@@ -2154,7 +2163,16 @@ impl Lowerer<'_, '_> {
             let outer = self.counters.bounds.version.replace(version);
             let fast = self.bcx.create_block();
             self.lower_loop_copy(
-                condition, body, fast, exit, &proven, &mut None, facts, rotated, false,
+                condition,
+                body,
+                fast,
+                exit,
+                &proven,
+                &mut None,
+                facts,
+                rotated,
+                false,
+                nonzero_latch,
             )?;
             let version = std::mem::replace(&mut self.counters.bounds.version, outer).unwrap();
             self.stack = initial.clone();
@@ -2205,7 +2223,16 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().brif(holds.unwrap(), fast, &[], checked, &[]);
                 self.bcx.seal_block(fast);
                 if !self.lower_loop_copy(
-                    condition, body, checked, exit, &proven, &mut None, facts, rotated, true,
+                    condition,
+                    body,
+                    checked,
+                    exit,
+                    &proven,
+                    &mut None,
+                    facts,
+                    rotated,
+                    true,
+                    nonzero_latch,
                 )? {
                     self.bcx.seal_block(checked);
                 }
@@ -2224,6 +2251,7 @@ impl Lowerer<'_, '_> {
                 facts,
                 rotated,
                 true,
+                nonzero_latch,
             )? {
                 self.bcx.seal_block(header);
             }
@@ -2314,6 +2342,7 @@ impl Lowerer<'_, '_> {
         facts: usize,
         rotated: bool,
         seal: bool,
+        nonzero_latch: Option<u8>,
     ) -> Result<bool> {
         let iteration = self.bcx.create_block();
         let latch = if rotated {
@@ -2413,7 +2442,12 @@ impl Lowerer<'_, '_> {
             // the latch unreachable; an edge from it would turn the body's
             // reads into block parameters.
             if !self.bcx.is_unreachable() {
-                let test = self.lower_rotated_condition(condition, facts)?;
+                let test = if let Some(local) = nonzero_latch {
+                    let remaining = self.read_local(local);
+                    self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remaining, 0)
+                } else {
+                    self.lower_rotated_condition(condition, facts)?
+                };
                 self.bcx.ins().brif(test, iteration, &[], exit, &[]);
             }
             self.bcx.seal_block(iteration);

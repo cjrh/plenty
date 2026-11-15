@@ -1781,9 +1781,7 @@ kernels, raw samples and reproduction instructions are retained in
 
 This milestone delivers qualification and the user-authorized publication of
 `d27f16528a` to the Cranelift fork. The [issue #972 adoption](#bounded-spectral-norm-benchmark-issue-972)
-selects it in the production and harness lockfiles. The original escape loop
-remains at 20 instructions; its issue #977
-scope and issue #978's scalar-copy scope remain open. Issue #980 separately
+selects it in the production and harness lockfiles. The [escape-latch continuation](#counted-escape-latch-experiment-issue-977) qualifies a further local reduction from 20 to 18 instructions; its publication and production adoption remain issue #977, while the remaining scalar copies belong to issue #978. Issue #980 separately
 tracks the remaining matrix floating-load instruction. The benchmark rewrite
 under issue #972 uses this scheduling change.
 
@@ -1811,3 +1809,23 @@ and ranges are retained with the experiment.
 This adopts only the published integer-backedge scheduling; issue #980's
 separate floating-load folding experiment remains unadopted, and issue #977's
 original escape-loop gap remains open.
+
+
+## Counted escape latch experiment (issue #977)
+
+The original escape kernel now has a qualified local candidate that uses 18
+instructions per pass against the published d27 backend's 20 and C's 15. A
+positive-entry private countdown in a loop with an early `break` uses a nonzero
+latch; x64 reuses its decrement
+flags and hoists dead-on-exit critical-backedge register copies, allowing the
+empty edge's unconditional jump to collapse. The three remaining scalar copies
+belong to issue #978. Zero/final counts, early exits and unordered floating
+comparisons retain their behavior.
+
+The candidate is recorded in `experiments/kernels/escape-latch/`, including the
+local fork patch, baseline/candidate assembly and all 38 source-program loop
+counts. It is separate from issue #972's production adoption of d27 (local PR
+#1271), and excludes the unpublished issue #980 changes. This milestone records
+local implementation and qualification, not publication or production backend
+adoption: no lockfile changes ship here. Issue #977 remains open for those
+steps; the fork needs user-authorized publication before its production pin.
