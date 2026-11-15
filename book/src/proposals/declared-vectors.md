@@ -1,21 +1,20 @@
 # Declared vectors for related floating-point components
 
-**Status: Approved investigation design; bounded source-level Vec3 prototype implemented.**
-Local issue #967 requests this comparison before adopting a vector type.
-The B83 [inline-array prerequisite](../design/language/03-types/arrays.md) has
-shipped in local PR #1262. The [bounded experiment](../completed-work/performance.md#declared-vector-prototype-issue-967),
-local PR #1263, recorded a negative native speedup result. The
-[paired-magnitude continuation](../completed-work/performance.md#paired-declared-vector-experiment-issue-967)
-subsequently improves the measured AVX2 native workload. The authorized
-[source-level prototype](../completed-work/performance.md#source-level-vec3-prototype-issue-967)
-now implements the initial f64 [`Vec3`](../design/stdlib/vector.md) API with
-ordinary class storage and private native-local lowering. Compact layout,
-broader collection/workload adoption and cross-target qualification remain
-outstanding. Approval of this
-proposal accepts the investigation contract, not a public API, physical layout
-or production speedup. Unrelated scalar code retains the [scalar row heuristic](../design/toolchain/02-architecture/numerical-loops.md#rows)
-and explicit [`std.simd`](../design/stdlib/simd.md). B23/B83 in the
-[backlog](../backlog.md) retain the remaining scope.
+**Status: Rejected for adoption, 2026-11-15.**
+
+The source-level Vec3 prototype in local PR #1274 executes 22.25% fewer AVX2
+instructions, but median cycles are effectively tied (+0.24%); the default CPU
+profile is 14.82% slower. The user rejected adoption and closed issue #967.
+The unmerged implementation and its rationale are preserved on the remote
+branch `origin/codex/issue-967-source-vec3` (remote ref
+`refs/heads/codex/issue-967-source-vec3`). This branch is an experiment archive,
+not the implemented behavior on main. No Vec3 adoption, compact layout or
+collection redesign remains scheduled by this proposal.
+
+Inline arrays from PR #1262 remain delivered independently. Earlier native
+experiments in PRs #1263/#1270 remain useful historical evidence; the positive
+native-only pairing result did not establish a source-level adoption win.
+The text below records the investigation contract and alternatives.
 
 ## The problem and intended use
 

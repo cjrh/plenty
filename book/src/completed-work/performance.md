@@ -1682,8 +1682,9 @@ Four-rounding-mode randomized/IEEE checks cover all state fields, final masked
 exception flags, immutable masses, unaligned guarded boundaries and nonpositive
 NULL trips. NaN payloads and trapping exception order are not promised.
 No production compiler, public vector API or collection layout changes here.
-Public boundary costs, list/clist layout, other targets and broader workload
-qualification remain in issue #967 and B23. See the retained experiment
+The later source-level continuation was rejected for adoption; issue #967 is
+closed as rejected, with its unmerged implementation preserved on
+`origin/codex/issue-967-source-vec3`. See the retained experiment
 `experiments/declared-vectors/paired.md` for attribution, raw data and reproduction.
 
 ## Scalar floating-load folding experiment (issue #980)
@@ -1748,7 +1749,7 @@ layout, Vec4 and public API qualification remain outside this delivery. The
 candidate preserves scalar ordered reduction/sqrt/div and does not integrate
 current adjacent-magnitude pairing; this result does not reject all possible
 native lowerings.
-[Outstanding SIMD scope](../backlog.md) remains in B23 and issue #967.
+[Outstanding SIMD scope](../backlog.md) remains in B23; issue #967's vector adoption was subsequently rejected.
 
 
 ## Integer latch scheduling experiment (issue #977)
@@ -1777,6 +1778,11 @@ under issue #972 awaits production adoption of the qualified scheduling change.
 
 ## Source-level Vec3 prototype (issue #967)
 
+**Rejected for adoption.** The unmerged source prototype in local PR #1274 is
+preserved on `origin/codex/issue-967-source-vec3` (remote ref
+`refs/heads/codex/issue-967-source-vec3`). Issue #967 is closed as rejected;
+the implemented API described here exists only on that experimental branch.
+
 The bounded implementation adds [std.vector.Vec3](../design/stdlib/vector.md):
 a copy class with three f64 fields, scalar Plenty method bodies and eligible
 x86 native-local lowering. Ordinary class storage and call ABI are retained:
@@ -1794,4 +1800,5 @@ expose retained call and array materialization costs. The source experiment
 `experiments/declared-vectors/source.md` records attribution, measurements,
 reproduction and floating-environment limits. The existing benchmark remains
 unchanged. Compact layout, clist flattening, broader workload adoption, other
-vector types and cross-target qualification remain in issue #967 and B23.
+vector types and cross-target qualification are not scheduled by this rejected
+investigation.

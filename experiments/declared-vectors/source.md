@@ -1,5 +1,11 @@
 # Source-level Vec3 prototype (issue #967)
 
+**Rejected for adoption, 2026-11-15.** The user rejected local PR #1274 after
+the source-level speed gate failed. This unmerged prototype is preserved on
+`origin/codex/issue-967-source-vec3` (remote ref
+`refs/heads/codex/issue-967-source-vec3`). Issue #967 is closed as rejected;
+this branch and its evidence are retained for inspection, not queued adoption.
+
 This continuation implements `std.vector.Vec3` in ordinary Plenty source and
 compiles the source n-body program through the normal compiler. No CLIF kernel,
 machine-code replacement or foreign vector implementation is injected. The
@@ -215,5 +221,5 @@ target/vec3-source/verify-fenv target/vec3-source/libvec.so
 ```
 
 The source-level prototype does not adopt a benchmark rewrite, compact layout,
-a runtime ISA dispatcher or a blanket speed guarantee. Broader workload,
-call/collection and cross-target qualification remain in issue #967.
+a runtime ISA dispatcher or a blanket speed guarantee. The rejected investigation does not schedule further workload,
+call/collection or cross-target adoption work.

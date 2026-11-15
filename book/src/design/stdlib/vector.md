@@ -1,5 +1,10 @@
 # std.vector
 
+**Rejected prototype; preserved only on `origin/codex/issue-967-source-vec3`.**
+Local PR #1274 is not adopted into main. AVX2 median cycles were effectively
+tied (+0.24%), and the default CPU was 14.82% slower. The API below documents
+this archived experimental branch, not an available std module on main.
+
 `from std.vector import Vec3` provides a copyable class with three public `f64`
 fields, `x`, `y` and `z`. Its scalar Plenty implementation defines the results;
 optimized builds may keep eligible local values in private SIMD registers.
