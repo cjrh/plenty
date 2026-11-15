@@ -1,9 +1,9 @@
 # Documentation site deployment
 
-[The public book](https://cjrh.info/plenty/) defaults to development until the
+[The public book](https://plentylang.org/) defaults to development until the
 first published release is admitted in `book/releases.json`. After that, the
-root serves the selected stable release. [Development documentation](https://cjrh.info/plenty/dev/)
-always follows `main`; admitted releases live under `/plenty/VERSION/`.
+root serves the selected stable release. [Development documentation](https://plentylang.org/dev/)
+always follows `main`; admitted releases live under `/VERSION/`.
 Every page identifies its version and offers a version menu. Matching chapters
 are preserved when switching versions; missing chapters fall back to that
 version's homepage. The links work without JavaScript; JavaScript also preserves
@@ -22,7 +22,7 @@ and its source commit, explicitly marking local changes. Each version's
 `docs-version.json` records the full revision and Cargo package version;
 the package version alone does not identify a development build. Labels are
 static HTML. Raw `mdbook serve` previews content without deployment metadata.
-To preview the complete site, mount `book/site` at `/plenty/` on a static HTTP
+To preview the complete site, mount `book/site` at `/` on a static HTTP
 server; configure unknown paths to serve its root `404.html` as GitHub does.
 
 The build needs no Plenty compiler. Do not use `mdbook test` for Plenty fences;
@@ -45,6 +45,22 @@ admitted versions together, so development updates preserve older books. Each
 build receives its own `site-url` prefix for nested 404 assets. Check navigation,
 anchors, search, print, version switching and Plenty highlighting under each
 prefix; repeat those checks on the public site after deployment.
+
+## Repository transfer and custom domain
+
+The compiler repository is `plentylang/plenty`. Its Pages site uses
+`plentylang.org`, with documentation at `/` and development documentation at
+`/dev/`. Verify the domain under the organization, then set that hostname in
+**Settings > Pages > Custom domain** before pointing the domain's apex DNS to
+GitHub Pages. Enable HTTPS when its certificate is ready. Follow GitHub's
+[custom-domain setup](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
+and [domain verification](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/verifying-your-custom-domain-for-github-pages).
+
+GitHub redirects the old repository address after a transfer, but does not
+redirect its Pages site. Keeping `cjrh.info/plenty/` working requires a redirect
+on that host, preserving the chapter path, query, and fragment. The new site's
+root layout removes the old `/plenty/` prefix. A repository transfer alone does
+not publish local documentation changes or configure DNS.
 
 ## First publication and recovery
 

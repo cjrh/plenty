@@ -168,13 +168,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--prefix", default="/plenty/")
+    parser.add_argument("--prefix", default="/")
     parser.add_argument("--manifest", type=Path, help="Alternate release manifest for admission checks")
     args = parser.parse_args()
     repo = args.source.resolve()
     output = (args.output or repo / "book/site").resolve()
-    if not re.fullmatch(r"/(?:[A-Za-z0-9_-]+/)+", args.prefix):
-        raise ValueError("Prefix must be a site path such as /plenty/")
+    if not re.fullmatch(r"/(?:[A-Za-z0-9_-]+/)*", args.prefix):
+        raise ValueError("Prefix must be / or a site path such as /plenty/")
     if output.exists() and (not (output / "versions.json").is_file()):
         raise ValueError("Refusing to replace a directory not built by this helper")
     manifest = load_releases(repo, args.manifest)

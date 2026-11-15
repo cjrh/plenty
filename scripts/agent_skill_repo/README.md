@@ -3,7 +3,7 @@
 This repository contains the `plenty` skill: instructions and reference pages
 that help coding agents (Claude Code, Codex, Cursor, and others that read the
 [Agent Skills](https://agentskills.io) format) write correct
-[Plenty](https://github.com/cjrh/plenty) programs.
+[Plenty](https://github.com/plentylang/plenty) programs.
 
 This release matches **Plenty @VERSION@**. Each Plenty release has a matching
 tag here, `v@VERSION@`; install the tag that matches `plenty --version`.

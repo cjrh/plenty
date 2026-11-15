@@ -14,22 +14,24 @@ from build_docs_site import add_navigation, destination, extract_release, load_r
 
 class DocsSiteTests(unittest.TestCase):
     def test_selector_preserves_chapter_or_falls_back_without_script(self):
-        versions = [dict(id="default", label="Stable", url="/plenty/", pages={"index.html", "nested/chapter.html"}),
-                    dict(id="old", label="Plenty 0.1.0", url="/plenty/0.1.0/", pages={"index.html"})]
-        self.assertEqual(destination(versions[0], "nested/chapter.html"), "/plenty/nested/chapter.html")
-        self.assertEqual(destination(versions[1], "nested/chapter.html"), "/plenty/0.1.0/index.html")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for chapter in versions[0]["pages"]:
-                page = root / chapter
-                page.parent.mkdir(parents=True, exist_ok=True)
-                page.write_text('<body><aside>Stable</aside><main>Chapter</main></body>')
-            add_navigation(root, versions[0], versions, "/plenty/")
-            text = (root / "nested/chapter.html").read_text()
-            self.assertIn('href="/plenty/nested/chapter.html" data-same-chapter="true"', text)
-            self.assertIn('href="/plenty/0.1.0/index.html">', text)
-            self.assertIn('<script src="/plenty/docs-switcher.js">', text)
-            self.assertIn('<details', text)
+        for prefix in ("/", "/plenty/"):
+            with self.subTest(prefix=prefix):
+                versions = [dict(id="default", label="Stable", url=prefix, pages={"index.html", "nested/chapter.html"}),
+                            dict(id="old", label="Plenty 0.1.0", url=prefix + "0.1.0/", pages={"index.html"})]
+                self.assertEqual(destination(versions[0], "nested/chapter.html"), prefix + "nested/chapter.html")
+                self.assertEqual(destination(versions[1], "nested/chapter.html"), prefix + "0.1.0/index.html")
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    for chapter in versions[0]["pages"]:
+                        page = root / chapter
+                        page.parent.mkdir(parents=True, exist_ok=True)
+                        page.write_text('<body><aside>Stable</aside><main>Chapter</main></body>')
+                    add_navigation(root, versions[0], versions, prefix)
+                    text = (root / "nested/chapter.html").read_text()
+                    self.assertIn(f'href="{prefix}nested/chapter.html" data-same-chapter="true"', text)
+                    self.assertIn(f'href="{prefix}0.1.0/index.html">', text)
+                    self.assertIn(f'<script src="{prefix}docs-switcher.js">', text)
+                    self.assertIn('<details', text)
 
     def test_migration_redirect_has_no_javascript_fallback_and_preserves_fragment(self):
         text = redirect_page('/plenty/dev/new.html')
