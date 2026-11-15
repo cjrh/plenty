@@ -813,11 +813,27 @@ fn executable_shebang_uses_the_cache_and_runs_again_each_time() {
 // Issue #676: linker wrappers can consume inputs absent from native depfiles.
 #[cfg(target_os = "linux")]
 fn native_tool(name: &str) -> Option<PathBuf> {
+    native_tool_in_path(name, &std::env::var_os("PATH")?)
+}
+
+#[cfg(target_os = "linux")]
+fn native_tool_in_path(name: &str, paths: &std::ffi::OsStr) -> Option<PathBuf> {
     use std::io::Read;
     use std::os::unix::fs::PermissionsExt;
-    std::env::split_paths(&std::env::var_os("PATH")?)
+    std::env::split_paths(paths)
         .map(|dir| dir.join(name))
         .find(|path| {
+            // Cache masquerades are native executables too, but copying one does
+            // not relocate GCC and wrapping one can recurse through PATH (#984).
+            let Ok(real) = path.canonicalize() else {
+                return false;
+            };
+            if matches!(
+                real.file_name().and_then(|name| name.to_str()),
+                Some("ccache" | "sccache")
+            ) {
+                return false;
+            }
             let mut magic = [0; 4];
             path.metadata()
                 .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -826,6 +842,31 @@ fn native_tool(name: &str) -> Option<PathBuf> {
                     .is_ok()
                 && magic == *b"\x7fELF"
         })
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn native_tool_discovery_skips_cache_masquerades() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let root = tempfile::tempdir().unwrap();
+    let mut directories = Vec::new();
+    for name in ["ccache", "sccache", "gcc"] {
+        let directory = root.path().join(name);
+        std::fs::create_dir(&directory).unwrap();
+        let executable = directory.join(name);
+        // Discovery checks executable ELF identity without executing candidates.
+        std::fs::write(&executable, b"\x7fELF").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&executable, directory.join("cc")).unwrap();
+        directories.push(directory);
+    }
+    let paths = std::env::join_paths(&directories[..2]).unwrap();
+    assert_eq!(native_tool_in_path("cc", &paths), None);
+    let paths = std::env::join_paths(&directories).unwrap();
+    assert_eq!(
+        native_tool_in_path("cc", &paths),
+        Some(directories[2].join("cc"))
+    );
 }
 
 #[cfg(target_os = "linux")]
