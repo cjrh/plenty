@@ -1,9 +1,9 @@
 # Documentation site deployment
 
-[The public book](https://plentylang.org/) defaults to development until the
+[The public book](https://plentylang.org/docs/) defaults to development until the
 first published release is admitted in `book/releases.json`. After that, the
-root serves the selected stable release. [Development documentation](https://plentylang.org/dev/)
-always follows `main`; admitted releases live under `/VERSION/`.
+documentation root serves the selected stable release. [Development documentation](https://plentylang.org/docs/dev/)
+always follows `main`; admitted releases live under `/docs/VERSION/`.
 Every page identifies its version and offers a version menu. Matching chapters
 are preserved when switching versions; missing chapters fall back to that
 version's homepage. The links work without JavaScript; JavaScript also preserves
@@ -17,8 +17,9 @@ retention are described in [versioned documentation](documentation-versions.md).
 See the [development workflow](workflow.md#documentation-site) for pinned tools and local preview commands.
 
 For only the current checkout, `python3 -B scripts/build_book.py` writes
-`book/book`. The complete site helper writes `book/site`. Both show Development
-and its source commit, explicitly marking local changes. Each version's
+`book/book`. The complete site helper writes the homepage and all books to
+`book/site`, with documentation under `book/site/docs`. Books show Development and its source
+commit, explicitly marking local changes. Each version's
 `docs-version.json` records the full revision and Cargo package version;
 the package version alone does not identify a development build. Labels are
 static HTML. Raw `mdbook serve` previews content without deployment metadata.
@@ -46,11 +47,33 @@ build receives its own `site-url` prefix for nested 404 assets. Check navigation
 anchors, search, print, version switching and Plenty highlighting under each
 prefix; repeat those checks on the public site after deployment.
 
+## Homepage and documentation paths
+
+`website/index.html` and `website/assets/site.css` provide the homepage at `/`.
+The official artwork lives in `logos/`; the builder publishes its SVG and PNG
+under `assets/`. These sources ship in the same Pages artifact as the books,
+with no separate hosting service or frontend build dependencies.
+
+Documentation lives at `/docs/`, development documentation at `/docs/dev/`, and
+admitted releases at `/docs/VERSION/`. Every book's version banner includes a
+**Plenty home** link. Known chapter and version URLs from the former root layout
+get forwarding pages to their new locations, preserving queries and fragments
+with JavaScript and providing an ordinary link without it. The root homepage
+and site-wide 404 page are reserved; the former root book index is now `/docs/`.
+Redirects cover pages present in the books built by the current manifest, not
+a registry of previously removed pages.
+
+GitHub serves the root `404.html` even for missing documentation paths. It links
+to the homepage and docs without JavaScript; with JavaScript, recognized docs
+and legacy version prefixes open the corresponding book's 404 page. The complete
+site check covers the homepage, logo, styles, redirects, and all book links.
+
 ## Repository transfer and custom domain
 
 The compiler repository is `plentylang/plenty`. Its Pages site uses
-`plentylang.org`, with documentation at `/` and development documentation at
-`/dev/`. Verify the domain under the organization, then set that hostname in
+`plentylang.org`, with the homepage at `/`, documentation at `/docs/`, and
+development documentation at `/docs/dev/`. Verify the domain under the
+organization, then set that hostname in
 **Settings > Pages > Custom domain** before pointing the domain's apex DNS to
 GitHub Pages. Enable HTTPS when its certificate is ready. Follow GitHub's
 [custom-domain setup](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
@@ -59,8 +82,8 @@ and [domain verification](https://docs.github.com/en/pages/configuring-a-custom-
 GitHub redirects the old repository address after a transfer, but does not
 redirect its Pages site. Keeping `cjrh.info/plenty/` working requires a redirect
 on that host, preserving the chapter path, query, and fragment. The new site's
-root layout removes the old `/plenty/` prefix. A repository transfer alone does
-not publish local documentation changes or configure DNS.
+layout replaces the old `/plenty/` prefix with `/docs/`. A repository transfer
+alone does not publish local documentation changes or configure DNS.
 
 ## First publication and recovery
 

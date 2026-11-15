@@ -65,7 +65,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--prefix", default="/")
+    parser.add_argument("--prefix", default="/docs/")
     args = parser.parse_args()
     source = args.source.resolve()
     output = (args.output or source / "book/book").resolve()
