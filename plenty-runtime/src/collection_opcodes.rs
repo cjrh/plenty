@@ -101,7 +101,7 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         // A text view's source, start, stop and the bound flags.
         TEXT_VIEW_SUBVIEW | TEXT_VIEW_OF_STR => 1,
         // Child spawn: separate redirected files and explicit inherited files.
-        197 => 2,
+        197 | 503 => 2,
         // File input, fill and copy_within.
         188 | 237 | 282
         // AEAD and HKDF.

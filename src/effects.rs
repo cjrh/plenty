@@ -134,7 +134,7 @@ impl ProcessOp {
     pub fn effect(self) -> Effect {
         match self {
             Self::EnvGet | Self::EnvVars | Self::CurrentDir => Effect::Environment,
-            Self::ChangeDir => Effect::ProcessGlobal,
+            Self::ChangeDir | Self::Exec => Effect::ProcessGlobal,
             Self::Spawn | Self::Pipe | Self::Wait | Self::Signal | Self::Poll => Effect::Child,
             Self::SignalListen => Effect::SignalDisposition,
             Self::DuplicateFile | Self::FileDescriptor => Effect::Handle,
@@ -313,6 +313,7 @@ mod tests {
     #[test]
     fn only_process_global_effects_are_denied_to_workers() {
         assert!(ProcessOp::ChangeDir.effect().worker_denial().is_some());
+        assert!(ProcessOp::Exec.effect().worker_denial().is_some());
         assert!(ProcessOp::SignalListen.effect().worker_denial().is_some());
         for op in [
             ProcessOp::EnvGet,

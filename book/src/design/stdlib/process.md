@@ -364,6 +364,30 @@ subtraction and pipe cursors use explicit arithmetic opt-outs justified by
 successful storage growth, validated statuses and concrete file progress.
 Caller arithmetic modes do not change these boundaries.
 
+## Replacing the current process
+
+`Command.exec() -> Result[(), IoError]` replaces the calling Linux process
+with an **absolute** executable path. Success never returns: the PID, working
+directory, standard streams, signal semantics and final status belong to the
+selected executable. Arguments and environment edits retain their native bytes;
+`env_clear` and explicit inherited file copies work as with `spawn`. This is
+useful for executable proxies that must forward signals and status directly.
+
+Replacement rejects relative executable paths, a configured working directory,
+stream redirection, and a changed process group with `IoError.InvalidInput`.
+These restrictions keep a failed replacement from applying those changes to the
+calling process. Other failures retain their `IoError`; selected file copies'
+close-on-exec flags are restored, and signal dispositions remain unchanged.
+The command can still be inspected or used after an error.
+
+`exec` is a process-global effect and is rejected in workers. Before calling
+it, stop other threads that could spawn processes: explicitly inherited
+file copies temporarily lose close-on-exec immediately around the native
+`execve` request. Successful replacement ends the other threads. No Plenty
+cleanup runs after success; explicitly close resources that the new executable
+must not retain. Unselected descriptors keep their operating-system
+close-on-exec behavior.
+
 ## Ownership and reaping
 
 Plenty has no user destructors, so dropping a `Child` closes the pipe ends it

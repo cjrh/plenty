@@ -19,7 +19,7 @@ macro_rules! check_family {
 #[test]
 fn scratch_operand_contract_matches_typed_primitives() {
     check_family!(ProcessOp: EnvGet, EnvVars, CurrentDir, ChangeDir, Spawn, Pipe, Wait,
-        Signal, Poll, SignalListen, DuplicateFile, FileDescriptor);
+        Signal, Poll, SignalListen, DuplicateFile, FileDescriptor, Exec);
     check_family!(BytesOp: New, Len, Capacity, Get, Set, Reserve, Resize, Push,
         Append, Overwrite, FromList, ToList, FromText, ToText, WriteFloat,
         WriteFloatSpec, Find, FindIn, FindBytes, Count, Matches, MatchesText,

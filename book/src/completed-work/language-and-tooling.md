@@ -1842,3 +1842,18 @@ mutable, borrowing and one-shot parallel callbacks remain excluded. The
 `spawn`, `submit`, `map` and `map_result` pool entry contracts are unchanged.
 See [parallel pipelines](../design/language/09-iteration/06-pipelines.md#parallel-pipelines)
 and [thin target certification](../design/facilities/03-concurrency/effects.md#thin-callable-targets).
+
+## Process replacement for executable proxies (issue #988)
+
+`std.process.Command.exec` provides Linux process replacement with native argument
+and environment bytes, direct PID/status/signal behavior and explicitly inherited
+file copies. Failed replacement preserves working directory, standard streams,
+signal dispositions and descriptor flags. Relative executable paths and setup
+that would alter the calling process before execution are rejected. See
+[process replacement](../design/stdlib/process.md#replacing-the-current-process).
+
+The separately maintained Plenty toolchain-manager application uses this boundary
+for offline compiler selection and installation leases. Manager binary publication
+requires an already published compiler containing this API, adopted official
+release trust roots, and host qualification; the proposal remains active until
+those delivery gates are met.

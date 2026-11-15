@@ -263,6 +263,22 @@ pub class Command:
     pub def clear_inherited_files(self: &mut Command) -> ():
         self._inherited.clear()
 
+    # Replaces this process on success. A failed replacement leaves cwd,
+    # streams and process group unchanged, so those setup options are rejected.
+    pub def exec(self) -> Result[(), IoError]:
+        if self._change_dir or self._stdin != inherit or self._stdout != inherit or self._stderr != inherit:
+            return Err(IoError.InvalidInput)
+        match self._process_group:
+            case ProcessGroup.Inherit:
+                pass
+            case _:
+                return Err(IoError.InvalidInput)
+        mut spec = allocated(copy(self._spec))?
+        for byte in &self._env:
+            allocated(spec.append(*byte))?
+        flags = (1 << 25) if self._clear_env else 0
+        __process_exec(spec, self._argc, flags, self._files, self._inherited)
+
     # The command is reusable: each call starts another child.
     pub def spawn(self) -> Result[Child, IoError]:
         mut spec = allocated(list[u8].with_capacity(extent(extent(len(self._spec), len(self._dir))?, len(self._env))?))?
