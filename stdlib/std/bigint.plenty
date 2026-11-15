@@ -294,13 +294,16 @@ pub class BigInt:
     pub def to_string(self, radix: i64 = 10, max_digits: NonNegative[i64] = 10000) -> Result[str, BigIntError]:
         if radix < 2 or radix > 36:
             return Err(BigIntError.InvalidRadix)
-        width = digit_count(self, radix, max_digits.get()).map_error(BigIntError.Allocation)?
+        if self.word_len() <= 1:
+            return render_one_word(self, radix, max_digits.get())
+        mut powers = RadixPowers([from_i64(radix)].map_error(BigIntError.Allocation)?, dict[i64, BigInt]().map_error(BigIntError.Allocation)?)
+        width = digit_count(self, radix, max_digits.get(), &mut powers).map_error(BigIntError.Allocation)?
         if width > max_digits.get():
             return Err(BigIntError.LimitExceeded)
         mut digits = list[str]().map_error(BigIntError.Allocation)?
         if self.is_negative():
             digits.append("-").map_error(BigIntError.Allocation)?
-        render_digits(self, radix, width, &mut digits).map_error(BigIntError.Allocation)?
+        render_digits(self, radix, width, &mut digits, &mut powers).map_error(BigIntError.Allocation)?
         "".join(&digits).map_error(BigIntError.Allocation)
 
     pub def display[W](self, out: &mut Formatter[W]) -> Result[(), FormatError]:
@@ -338,7 +341,11 @@ pub def parse(text: &strview, radix: i64 = 10, max_digits: NonNegative[i64] = 10
             digit = digit_value(data[i])
             if digit < 0 or digit >= radix:
                 return Err(BigIntError.InvalidDigit)
-        value = parse_digits(data, start, len(data), radix).map_error(BigIntError.Allocation)?
+        value = if len(data) - start <= 12:
+            parse_small(data, start, len(data), radix)
+        else:
+            mut powers = RadixPowers([from_i64(radix)].map_error(BigIntError.Allocation)?, dict[i64, BigInt]().map_error(BigIntError.Allocation)?)
+            parse_digits(data, start, len(data), radix, &mut powers).map_error(BigIntError.Allocation)?
         if negative:
             (-value).map_error(BigIntError.Allocation)
         else:
@@ -355,34 +362,53 @@ def digit_value(ch: u8) -> i64:
         else:
             -1
 
-def radix_power(radix: i64, exponent: i64) -> Result[BigInt, AllocError]:
-    unchecked:
-        mut result = from_i64(1)
-        mut base = from_i64(radix)
-        mut count = exponent
-        while count > 0:
-            if count % 2 != 0:
-                result = (result * base)?
-            count //= 2
-            if count > 0:
-                base = (base * base)?
-        Ok(result)
+# Each conversion shares the binary powers instead of squaring them again
+# at every recursive split and digit-count probe.
+class RadixPowers:
+    values: list[BigInt]
+    exact: dict[i64, BigInt]
 
-def parse_digits(data: &[u8], start: i64, stop: i64, radix: i64) -> Result[BigInt, AllocError]:
+    def power(self: &mut RadixPowers, exponent: i64) -> Result[&BigInt, AllocError]:
+        if exponent not in self.exact:
+            self.compute(exponent)?
+        Ok(self.exact.get_ref(exponent).unwrap())
+
+    def compute(self: &mut RadixPowers, exponent: i64) -> Result[(), AllocError]:
+        unchecked:
+            mut result = from_i64(1)
+            mut count = exponent
+            mut index = 0
+            while count > 0:
+                if index == len(self.values):
+                    previous = &self.values[index - 1]
+                    square = (previous * previous)?
+                    self.values.append(square)?
+                if count % 2 != 0:
+                    result = (result * self.values[index])?
+                count //= 2
+                index += 1
+            self.exact.insert(exponent, result)?
+            Ok(())
+
+def parse_small(data: &[u8], start: i64, stop: i64, radix: i64) -> BigInt:
+    unchecked:
+        mut value = 0
+        for i in range(start, stop):
+            value = value * radix + digit_value(data[i])
+        from_i64(value)
+
+def parse_digits(data: &[u8], start: i64, stop: i64, radix: i64, powers: &mut RadixPowers) -> Result[BigInt, AllocError]:
     unchecked:
         if stop - start <= 12:
-            mut value = 0
-            for i in range(start, stop):
-                value = value * radix + digit_value(data[i])
-            return Ok(from_i64(value))
+            return Ok(parse_small(data, start, stop, radix))
         middle = start + (stop - start) // 2
-        left = parse_digits(data, start, middle, radix)?
-        right = parse_digits(data, middle, stop, radix)?
-        power = radix_power(radix, stop - middle)?
+        left = parse_digits(data, start, middle, radix, &mut powers)?
+        right = parse_digits(data, middle, stop, radix, &mut powers)?
+        power = powers.power(stop - middle)?
         shifted = (left * power)?
         shifted + right
 
-def digit_count(value: &BigInt, radix: i64, limit: i64) -> Result[i64, AllocError]:
+def digit_count(value: &BigInt, radix: i64, limit: i64, powers: &mut RadixPowers) -> Result[i64, AllocError]:
     if value.is_zero():
         return Ok(1)
     unchecked:
@@ -391,34 +417,53 @@ def digit_count(value: &BigInt, radix: i64, limit: i64) -> Result[i64, AllocErro
         mut low = 1
         while low < high:
             middle = low + (high - low) // 2
-            power = radix_power(radix, middle)?
-            if magnitude_cmp(value, &power) < 0:
+            power = powers.power(middle)?
+            if magnitude_cmp(value, power) < 0:
                 high = middle
             else:
                 low = middle + 1
         Ok(low)
 
-def render_digits(value: &BigInt, radix: i64, width: i64, output: &mut list[str]) -> Result[(), AllocError]:
+def render_one_word(value: &BigInt, radix: i64, limit: i64) -> Result[str, BigIntError]:
+    unchecked:
+        mut count = value.word(0)
+        mut width = 1
+        while count >= u64(radix):
+            count //= u64(radix)
+            width += 1
+        if width > limit:
+            return Err(BigIntError.LimitExceeded)
+        mut digits = list[str]().map_error(BigIntError.Allocation)?
+        if value.is_negative():
+            digits.append("-").map_error(BigIntError.Allocation)?
+        render_word(value.word(0), radix, width, &mut digits).map_error(BigIntError.Allocation)?
+        "".join(&digits).map_error(BigIntError.Allocation)
+
+def render_word(value: u64, radix: i64, width: i64, output: &mut list[str]) -> Result[(), AllocError]:
+    unchecked:
+        mut n = value
+        mut digits: list[str] = []?
+        alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+        for _ in range(width):
+            digits.append(alphabet[i64(n % u64(radix))])?
+            n //= u64(radix)
+        mut i = len(digits)
+        while i > 0:
+            i -= 1
+            output.append(digits[i])?
+        Ok(())
+
+def render_digits(value: &BigInt, radix: i64, width: i64, output: &mut list[str], powers: &mut RadixPowers) -> Result[(), AllocError]:
     unchecked:
         if width <= 12:
-            mut n = value.word(0)
-            mut digits: list[str] = []?
-            alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
-            for _ in range(width):
-                digits.append(alphabet[i64(n % u64(radix))])?
-                n //= u64(radix)
-            mut i = len(digits)
-            while i > 0:
-                i -= 1
-                output.append(digits[i])?
-            return Ok(())
+            return render_word(value.word(0), radix, width, output)
         right_width = width // 2
-        power = radix_power(radix, right_width)?
-        (q, r) = divide_magnitude(value, &power)?
+        power = powers.power(right_width)?
+        (q, r) = divide_magnitude(value, power)?
         left = canonical(False, q)
         right = canonical(False, r)
-        render_digits(&left, radix, width - right_width, output)?
-        render_digits(&right, radix, right_width, output)?
+        render_digits(&left, radix, width - right_width, output, &mut powers)?
+        render_digits(&right, radix, right_width, output, &mut powers)?
         Ok(())
 
 # Only this constructor can create a large representation. Zero has no sign;
@@ -445,10 +490,7 @@ def trim(value: &mut list[u64]) -> ():
         drop(value.pop())
 
 def zeros(length: i64) -> Result[list[u64], AllocError]:
-    mut result = list[u64].with_capacity(length)?
-    for _ in range(length):
-        result.append(0u64)?
-    Ok(result)
+    [0u64 for _ in range(length)]
 
 def words(value: &BigInt) -> Result[list[u64], AllocError]:
     mut result = list[u64].with_capacity(value.word_len())?
@@ -491,38 +533,84 @@ def magnitude_sub(a: &BigInt, b: &BigInt) -> Result[list[u64], AllocError]:
         borrow = x < y or (borrow and difference == 0u64)
     Ok(result)
 
-def multiply(a: &list[u64], b: &list[u64]) -> Result[list[u64], AllocError]:
+# Borrow limbs directly through recursion. The result has enough room for
+# every partial product; the final public constructor trims leading zeroes.
+def add_words(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
     unchecked:
+        n = len(a) if len(a) > len(b) else len(b)
+        mut out = zeros(n + 1)?
+        add_words_into(a, b, &mut out)
+        trim(&mut out)
+        Ok(out)
+
+def add_words_into(a: &[u64], b: &[u64], out: &mut [u64]) -> ():
+    unchecked:
+        mut carry = False
+        n = len(out) - 1
+        for i in range(n):
+            x = a[i] if i < len(a) else 0u64
+            y = b[i] if i < len(b) else 0u64
+            (word, overflow) = x.carrying_add(y, carry)
+            out[i] = word
+            carry = overflow
+        out[n] = 1u64 if carry else 0u64
+
+def subtract_words(out: &mut [u64], b: &[u64]) -> ():
+    mut borrow = False
+    for i in range(len(out)):
+        x = out[i]
+        y = b[i] if i < len(b) else 0u64
+        difference = x.wrapping_sub(y)
+        out[i] = difference.wrapping_sub(1u64 if borrow else 0u64)
+        borrow = x < y or (borrow and difference == 0u64)
+
+def add_shifted(out: &mut [u64], value: &[u64], offset: i64) -> ():
+    unchecked:
+        mut carry = False
+        for i in range(len(value)):
+            (word, overflow) = out[offset + i].carrying_add(value[i], carry)
+            out[offset + i] = word
+            carry = overflow
+        mut position = offset + len(value)
+        while carry:
+            (word, overflow) = out[position].carrying_add(0u64, carry)
+            out[position] = word
+            carry = overflow
+            position += 1
+
+def multiply(a: &[u64], b: &[u64]) -> Result[list[u64], AllocError]:
+    unchecked:
+        mut out = zeros(len(a) + len(b))?
         if len(a) >= 32 and len(b) >= 32 and len(a) <= 2 * len(b) and len(b) <= 2 * len(a):
             n = len(a) if len(a) > len(b) else len(b)
             half = n // 2
-            low_a = canonical(False, a[:half]?)
-            high_a = canonical(False, a[half:]?)
-            low_b = canonical(False, b[:half]?)
-            high_b = canonical(False, b[half:]?)
-            z0 = (low_a * low_b)?
-            z2 = (high_a * high_b)?
-            sum_a = (low_a + high_a)?
-            sum_b = (low_b + high_b)?
-            product = (sum_a * sum_b)?
-            middle0 = (product - z0)?
-            middle = (middle0 - z2)?
-            shifted_middle = (middle << (half * 64))?
-            shifted_high = (z2 << (half * 128))?
-            sum = (z0 + shifted_middle)?
-            total = (sum + shifted_high)?
-            return words(&total)
-        mut out = zeros(len(a) + len(b))?
+            z0 = multiply(&a[:half], &b[:half])?
+            z2 = multiply(&a[half:], &b[half:])?
+            sum_a = add_words(&a[:half], &a[half:])?
+            sum_b = add_words(&b[:half], &b[half:])?
+            mut middle = multiply(&sum_a, &sum_b)?
+            subtract_words(&mut middle, &z0)
+            subtract_words(&mut middle, &z2)
+            trim(&mut middle)
+            add_shifted(&mut out, &z0, 0)
+            add_shifted(&mut out, &middle, half)
+            add_shifted(&mut out, &z2, half * 2)
+        else:
+            multiply_schoolbook(a, b, &mut out)
+        Ok(out)
+
+def multiply_schoolbook(a: &[u64], b: &[u64], out: &mut [u64]) -> ():
+    unchecked:
         for i in range(len(a)):
+            x = a[i]
             mut carry = 0u64
             for j in range(len(b)):
-                (low, high) = a[i].widening_mul(b[j])
+                (low, high) = x.widening_mul(b[j])
                 (sum, c1) = low.carrying_add(out[i + j], False)
                 (total, c2) = sum.carrying_add(carry, False)
                 out[i + j] = total
                 carry = high + (1u64 if c1 else 0u64) + (1u64 if c2 else 0u64)
             out[i + len(b)] = carry
-        Ok(out)
 
 def quotient_remainder(a: &BigInt, b: &BigInt) -> Result[(BigInt, BigInt), AllocError]:
     match &a._value:
@@ -598,6 +686,23 @@ def divide_magnitude(a: &BigInt, b: &BigInt) -> Result[(list[u64], list[u64]), A
         if len(u) == m + n:
             u.append(0u64)?
         mut q = zeros(m + 1)?
+        divide_digits(&mut u, &v, &mut q)
+        mut r = u[:n]?
+        mut carry = 0u64
+        mut i = len(r)
+        while i > 0:
+            i -= 1
+            value = (carry << 32u64) | r[i]
+            r[i] = value // factor
+            carry = value % factor
+        Ok((pack32(&q)?, pack32(&r)?))
+
+# Hold scratch row addresses for the complete quotient loop. No list can grow
+# while these views exist; normalization and allocation happen in the caller.
+def divide_digits(u: &mut [u64], v: &[u64], q: &mut [u64]) -> ():
+    unchecked:
+        n = len(v)
+        m = len(q) - 1
         mut j = m + 1
         while j > 0:
             j -= 1
@@ -630,15 +735,6 @@ def divide_magnitude(a: &BigInt, b: &BigInt) -> Result[(list[u64], list[u64]), A
                     carry = total >> 32u64
                 u[j + n] = (u[j + n] + carry) & 4294967295u64
             q[j] = guess
-        mut r = u[:n]?
-        mut carry = 0u64
-        mut i = len(r)
-        while i > 0:
-            i -= 1
-            value = (carry << 32u64) | r[i]
-            r[i] = value // factor
-            carry = value % factor
-        Ok((pack32(&q)?, pack32(&r)?))
 
 def bitwise(a: &BigInt, b: &BigInt, operation: i64) -> Result[BigInt, AllocError]:
     match &a._value:

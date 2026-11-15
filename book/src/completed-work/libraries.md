@@ -35,6 +35,20 @@ scope decision, not a second task list.
 
 Remaining breadth is **B38** in the [backlog](../backlog.md).
 
+### Bigint scratch and limb costs (issue #987)
+
+Karatsuba now borrows operand limbs and combines its three products directly
+into the result instead of constructing shifted intermediate bigints. Fixed
+multiplication and division scratch loops borrow views, and each text conversion
+shares its radix powers. Small parsing retains its allocation-free scalar path;
+single-word rendering avoids a power cache. Immediate scalar tuple destructuring
+also keeps widening-multiply and carrying-add results in compiler scalar values.
+The retained comparison in `experiments/bigint-comparison/performance/`
+records instruction counts against the merged baseline and independent Malachite
+oracle, including the substantial remaining gap. No native bigint dependency or
+algorithm threshold change is introduced.
+
+
 Issue #705 corrects the [archive PAX decimal parser](../design/stdlib/archive.md#limits)
 to accept every nonnegative `i64`, including its final eight values. Boundary
 tests cover both optimization modes, overflow and malformed digits; the separate

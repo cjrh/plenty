@@ -75,7 +75,11 @@ and dictionary/set keys are not supported; use `cmp` for ordering.
 Addition/subtraction allocate proportional to the operand lengths;
 multiplication uses schoolbook arithmetic and balanced Karatsuba from 32 limbs.
 Division uses Knuth's Algorithm D with temporary base-2³² digits so trial
-quotients fit `u64`. Parsing and rendering split digit ranges recursively.
+quotients fit `u64`. Karatsuba borrows operand limb views and adds its three
+partial products directly into the result; division holds views of its fixed
+scratch buffers while computing quotient digits. Parsing and rendering split
+digit ranges recursively, sharing binary and exact radix powers within one
+conversion. Single-word rendering uses scalar division without a power cache.
 All their scratch allocations are fallible. No native multiplication kernel is
 used, and the threshold is an implementation choice, not a performance promise.
 

@@ -1,0 +1,119 @@
+==== experiments/bigint-comparison/performance/limb-scalars.clif u0:74
+function u0:74(i128, i128, i64) -> i128 tail {
+    ss0 = explicit_slot 32, align = 16
+    ss1 = explicit_slot 32, align = 16
+    ss2 = explicit_slot 16, align = 16
+
+block0(v0: i128, v1: i128, v2: i64):
+    v9, v10 = isplit v0
+    jump block3
+
+block3:
+    v3 = iconst.i64 0
+    v161 = icmp.i64 sle v10, v3  ; v3 = 0
+    v30 = iconst.i64 3
+    v11 = iconst.i64 1
+    brif v161, block2(v3), block4(v3, v3)  ; v3 = 0, v3 = 0, v3 = 0
+
+block4(v27: i64, v63: i64):
+    v28, v29 = isplit.i128 v0
+    v188 = iconst.i64 3
+    v189 = ishl v27, v188  ; v188 = 3
+    v32 = iadd v28, v189
+    v34 = load.i64 notrap aligned v32
+    v100, v101 = isplit.i128 v1
+    v102 = icmp ult v27, v101
+    trapz v102, user3
+    jump block7
+
+block7:
+    v36 = imul.i64 v34, v2
+    v65 = iadd v36, v63
+    v107 = iadd.i64 v100, v189
+    store notrap aligned v65, v107
+    v66 = icmp ult v65, v36
+    brif v66, block8, block11
+
+block11:
+    jump block9
+
+block8:
+    v191 = iconst.i64 1
+    jump block10(v191)  ; v191 = 1
+
+block9:
+    v190 = iconst.i64 0
+    jump block10(v190)  ; v190 = 0
+
+block10(v110: i64):
+    v37 = umulhi.i64 v34, v2
+    v113, v114 = uadd_overflow v37, v110
+    brif v114, block12, block13
+
+block12 cold:
+    v194 = iconst.i64 1
+    v195 = iconcat.i64 v113, v194  ; v194 = 1
+    jump block1(v195)
+
+block13:
+    jump block5
+
+block5:
+    v192 = iconst.i64 1
+    v193 = iadd.i64 v27, v192  ; v192 = 1
+    v130 = icmp slt v193, v10
+    brif v130, block4(v193, v113), block2(v113)
+
+block2(v134: i64):
+    v135 = uextend.i128 v134
+    jump block1(v135)
+
+block1(v5: i128):
+    return v5
+}
+
+     0:  pushq %rbp
+     1:  movq %rsp, %rbp
+     4:  subq $0x60, %rsp
+     8:  movq %rbx, 0x50(%rsp)
+     d:  movq %rdx, %r9
+    10:  xorq %rbx, %rbx
+    13:  testq %rsi, %rsi
+    16:  jg 0x24
+    1c:  movq %rbx, %rax
+    1f:  jmp 0x89
+    24:  movq %rbx, %rdx
+    27:  movq (%rdi, %rbx, 8), %r10
+    2b:  cmpq %rcx, %rbx
+    2e:  jae 0xa7
+    34:  movq %r10, %r11
+    37:  imulq %r8, %r11
+    3b:  addq %r11, %rdx
+    3e:  movq %rdx, (%r9, %rbx, 8)
+    42:  cmpq %r11, %rdx
+    45:  jb 0x56
+    4b:  xorq %r11, %r11
+    4e:  movq %r10, %rax
+    51:  jmp 0x5f
+    56:  movl $1, %r11d
+    5c:  movq %r10, %rax
+    5f:  mulq %r8
+    62:  addq %r11, %rdx
+    65:  jb 0x9a
+    6b:  movq %rbx, %rax
+    6e:  addq $1, %rax
+    75:  cmpq %rsi, %rax
+    78:  jge 0x86
+    7e:  movq %rax, %rbx
+    81:  jmp 0x27
+    86:  movq %rdx, %rax
+    89:  xorq %rcx, %rcx
+    8c:  movq 0x50(%rsp), %rbx
+    91:  addq $0x60, %rsp
+    95:  movq %rbp, %rsp
+    98:  popq %rbp
+    99:  retq
+    9a:  movl $1, %ecx
+    9f:  movq %rdx, %rax
+    a2:  jmp 0x8c
+    a7:  ud2

@@ -1,0 +1,13 @@
+source,engine,repeat,instructions
+experiments/bigint-comparison/limb.plenty,baseline,0,121885076
+experiments/bigint-comparison/limb.plenty,baseline,1,121868385
+experiments/bigint-comparison/limb.plenty,baseline,2,121889163
+experiments/bigint-comparison/limb.plenty,candidate,0,121292989
+experiments/bigint-comparison/limb.plenty,candidate,1,121279275
+experiments/bigint-comparison/limb.plenty,candidate,2,121296634
+experiments/bigint-comparison/bench.plenty,baseline,0,624362932
+experiments/bigint-comparison/bench.plenty,baseline,1,624338650
+experiments/bigint-comparison/bench.plenty,baseline,2,624376398
+experiments/bigint-comparison/bench.plenty,candidate,0,658700444
+experiments/bigint-comparison/bench.plenty,candidate,1,658793520
+experiments/bigint-comparison/bench.plenty,candidate,2,658778799
