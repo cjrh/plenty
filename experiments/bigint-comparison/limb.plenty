@@ -1,0 +1,15 @@
+# A single-word multiplier isolated from the bigint algorithm and allocations.
+def limb(a: &[u64], out: &mut [u64], word: u64) -> Result[u64, OverflowError[u64]]:
+    mut carry = 0u64
+    for i in range(len(a)):
+        (low, high) = a[i].widening_mul(word)
+        (sum, overflow) = low.carrying_add(carry, False)
+        out[i] = sum
+        carry = high + (1u64 if overflow else 0u64)
+    Ok(carry)
+
+def main() -> Result[(), AllocError | OverflowError[u64] | IoError]:
+    a = [u64.MAX, 0u64, u64.MAX, 17u64]?
+    mut out = [0u64, 0u64, 0u64, 0u64]?
+    carry = limb(&a, &mut out, u64.MAX)?
+    print(out[0], out[1], out[2], out[3], carry)

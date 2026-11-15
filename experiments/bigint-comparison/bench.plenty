@@ -1,0 +1,33 @@
+from std.bigint import BigIntError, parse
+from std.fmt import FormatError
+from std.time import monotonic_now
+
+def main() -> Result[(), AllocError | BigIntError | IoError | FormatError | ParseError | OverflowError[u64]]:
+    argv = args()?
+    op = argv[1]
+    a = parse(argv[2], 16, 100000)?
+    b = parse(argv[3], 16, 100000)?
+    count = i64.parse(argv[4])?
+    text = a.to_string(10, 100000)?
+    mut checksum: u64 = 0
+    start = monotonic_now()
+    if op == "add":
+        for _ in range(count):
+            checksum += u64((a + b)?.bit_length())
+    elif op == "mul":
+        for _ in range(count):
+            checksum += u64((a * b)?.bit_length())
+    elif op == "div":
+        for _ in range(count):
+            (q, _) = a.checked_divmod(&b)?
+            checksum += u64(q.bit_length())
+    elif op == "parse":
+        for _ in range(count):
+            checksum += u64(parse(&text, 10, 100000)?.bit_length())
+    elif op == "render":
+        for _ in range(count):
+            checksum += u64(len(a.to_string(10, 100000)?))
+    else:
+        return Err(ParseError.Invalid)
+    elapsed = monotonic_now().saturating_duration_since(&start).as_nanoseconds()
+    print(f"{elapsed} {checksum}"?)
