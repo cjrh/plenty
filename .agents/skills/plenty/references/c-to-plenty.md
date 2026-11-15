@@ -29,17 +29,18 @@ sheet and signature index to verify Plenty APIs.
 | C behavior | Plenty decision |
 |---|---|
 | Widths of `int`, `long`, `size_t`, signedness of `char` depend on target | Select `i32`, `i64`, `u64`, `u8`, etc. from the data contract; do not mechanically map every integer to `i64`. Views expose their length without a separate `size_t`. |
-| Unsigned arithmetic wraps; narrow operands undergo integer promotions | Plenty checked arithmetic does not wrap. Preserve intended modulo arithmetic explicitly, using a wider intermediate plus `T.wrapping_from` where sufficient; full-width overflow needs a separately verified strategy. |
+| Unsigned arithmetic wraps; narrow operands undergo integer promotions | Use matching-width `.wrapping_add`, `.wrapping_sub` and `.wrapping_mul` for intended modulo arithmetic, including `u64`. Preserve C promotions when an intermediate must be wider than the stored result. |
 | Signed overflow is undefined | Establish valid ranges or return an error. `unchecked:` traps on violation and is not a wrapping mode. |
 | Signed `/` truncates toward zero, `%` follows the dividend | Plenty `//` floors and `%` follows the divisor. Adapt both if negatives are permitted; see helper below. |
 | Integer conversions may truncate/reinterpret | `T(value)` requires representability and traps otherwise; `T.try_from(value)?` recovers; `T.wrapping_from(value)` deliberately preserves low integer bits. |
 | Out-of-bounds pointer/index operations are undefined | Plenty indexing traps; `.get()` returns `Option`. Plenty negative indexes address from the end, so validate a C index whose negative values should be rejected. |
 | Shift edge cases depend on signedness and valid counts | Verify both count and value semantics; do not assume a compiler's masked shift count is a language guarantee. |
 
-For example, an 8-bit modulo sum can widen before the operation:
-`u8.wrapping_from(u16(a) + u16(b))` for `a: u8`, `b: u8`.
-The intermediate fits `u16`; casting after an overflowing full-width operation
-would be too late.
+For an 8-bit modulo sum, use `a.wrapping_add(b)` for `a: u8`, `b: u8`.
+Use `T.wrapping_from(value)` when the conversion itself must keep low bits.
+Do not force every narrow C intermediate to wrap: an expression evaluated
+after integer promotion may need a wider Plenty type before the final
+conversion. Casting after an overflowing checked operation would be too late.
 
 ## Example: preserve C signed division
 

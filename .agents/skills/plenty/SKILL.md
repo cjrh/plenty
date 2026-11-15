@@ -58,8 +58,8 @@ See [workflow and packages](references/workflow.md).
 
 Read only the guide for the current conversion:
 
-- [Rust to Python](references/rust-to-python.md): preserve numeric, ownership,
-  and error semantics when making a Python implementation or oracle.
+- [Rust to Plenty](references/rust-to-plenty.md): translate ownership, numeric
+  contracts, errors, and iterator or trait-based code.
 - [Python to Plenty](references/python-to-plenty.md): choose types and ownership,
   make failures explicit, and replace Python-only idioms.
 - [C to Plenty](references/c-to-plenty.md): replace pointers with owners/views,
