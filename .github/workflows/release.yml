@@ -193,7 +193,7 @@ jobs:
       - name: Archive matches the tag
         run: |
           test -f "dist/plenty-${{ needs.plan.outputs.version }}-${{ matrix.target }}.tar.gz"
-          test "$(ls dist | wc -l | tr -d " ")" = 2
+          test "$(find dist -type f | wc -l | tr -d " ")" = 2
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-archive-${{ matrix.target }}
@@ -265,8 +265,6 @@ jobs:
           } >> "$GITHUB_ENV"
       # Reuse compatible default-branch qualification caches on tag releases.
       - name: Restore release compiler dependencies
-        env:
-          CARGO_TERM_COLOR: "" # Match qualification cache fingerprints.
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: . -> target/native-release
@@ -315,8 +313,6 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt --component clippy
           echo "RUSTUP_TOOLCHAIN=$RUST_VERSION" >> "$GITHUB_ENV"
       - name: Restore engine dependencies
-        env:
-          CARGO_TERM_COLOR: "" # Match qualification cache fingerprints.
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: plenty-dataframe -> target
@@ -383,7 +379,7 @@ jobs:
       - name: Archive matches the tag
         run: |
           test -f "dist/plenty-${{ needs.plan.outputs.version }}-${{ matrix.target }}.${{ matrix.ext }}"
-          test "$(ls dist | wc -l | tr -d " ")" = 2
+          test "$(find dist -type f | wc -l | tr -d " ")" = 2
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-archive-${{ matrix.target }}

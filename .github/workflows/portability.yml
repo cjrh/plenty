@@ -9,12 +9,16 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 concurrency:
   group: portability-${{ github.ref }}
   cancel-in-progress: true
 
 # Linux x86-64 and ARM64 already run the full compiler/runtime, optional-engine,
 # and Docker suites in ci.yml. These jobs expose the next native OS blockers.
+# Stable qualification, pinned release preparation and engines run independently.
 # Failures remain failures: a probe success must not imply a working Plenty port.
 jobs:
   compiler:
@@ -37,6 +41,7 @@ jobs:
       run:
         shell: bash
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
@@ -84,6 +89,40 @@ jobs:
         run: |
           set -o pipefail
           cargo test --locked --test integration test_arm_stack_probes:: -- --nocapture 2>&1 | tee artifacts/arm-stack-probe-tests.log
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: portability-${{ matrix.target }}
+          path: |
+            artifacts/
+            target/qualification/cargo-timings/*.html
+          retention-days: 14
+          if-no-files-found: warn
+
+  release-compiler:
+    name: Pinned release compiler (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      PLENTY_RELEASE_TARGET: ${{ matrix.target }}
+      PYTHON: ${{ matrix.target == 'x86_64-pc-windows-msvc' && 'python' || 'python3' }}
+      CARGO_TARGET_DIR: target/native-release
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: mkdir -p artifacts
       - name: Select pinned release environment
         run: |
           . scripts/release/toolchain.env
@@ -115,14 +154,12 @@ jobs:
           path: compiler.tar
           retention-days: 1
           if-no-files-found: error
-      - name: Preserve diagnostics
+      - name: Preserve pinned compiler diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: portability-${{ matrix.target }}
-          path: |
-            artifacts/
-            target/qualification/cargo-timings/*.html
+          name: portability-release-${{ matrix.target }}
+          path: artifacts/
           retention-days: 14
           if-no-files-found: warn
 
@@ -144,6 +181,7 @@ jobs:
       run:
         shell: bash
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Select pinned engine toolchain
         run: |
@@ -171,7 +209,7 @@ jobs:
 
   package:
     name: Native package qualification (${{ matrix.target }})
-    needs: [compiler, dataframe]
+    needs: [compiler, release-compiler, dataframe]
     strategy:
       fail-fast: false
       matrix:
@@ -190,6 +228,7 @@ jobs:
       run:
         shell: bash
     steps:
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install packaging toolchain and license data
         run: |
@@ -211,3 +250,28 @@ jobs:
           scripts/release/build-native.sh --out-dir dist --phase package --engine-dir target/native-release/release
           . scripts/release/target.sh
           "$PYTHON" -B scripts/release/smoke-native.py dist/plenty-*-"$PLENTY_RELEASE_TARGET.$release_archive_ext"
+
+  timings:
+    name: Check timing report
+    if: always()
+    needs: [compiler, release-compiler, dataframe, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Summarize job and step durations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -B scripts/check_timings.py ci --repo "$GITHUB_REPOSITORY" --run "$GITHUB_RUN_ID" --output target/check-timings-ci
+          cat target/check-timings-ci/timings.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload timing report and raw timestamps
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: check-timings
+          path: target/check-timings-ci/
+          if-no-files-found: ignore
+          retention-days: 30
