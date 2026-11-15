@@ -1,11 +1,11 @@
 # Plenty toolchain manager
 
-> **Status: Local implementation under review; not distributed.** Tracked under [B17](../backlog.md).
+> **Status: Implemented locally; not distributed.** Tracked under [B17](../backlog.md).
 > The tool is named `plenty-manager`, written in Plenty, and intended for a
 > new, separate repository named `plenty-manager` in the `plentylang`
 > organization on GitHub. This proposal does not create that repository.
-> The interfaces below define the intended delivered behavior. Official release
-> trust roots and a published bootstrap compiler are still delivery gates.
+> The interfaces below define the intended delivered behavior. A published
+> bootstrap compiler and manager host qualification are still delivery gates.
 
 ## Motivation and existing behavior
 
@@ -164,18 +164,29 @@ files or unsupported cross-compilation targets.
 
 ## Download trust, persistence and failure behavior
 
-Download only from the configured official distribution endpoint over verified
-TLS. Release metadata must identify its schema version, exact compiler version,
-host triple, archive URL, size and cryptographic digest. Resolve moving updates
-to that immutable identity before installation. Reject unsupported hosts before
-downloading; available compiler archives do not prove that the Plenty-written
-manager is qualified on the same platform.
+Get compiler versions from the fixed `cjrh/plenty` GitHub Releases repository
+using verified system TLS, including certificate and hostname checks on each
+request. The repository identity and GitHub HTTPS are the accepted authentication
+contract. Read release tags and asset identities through GitHub's API; exact
+installation selects `vX.Y.Z`, while update selects the highest stable exact
+version with the host's archive and checksum assets. Ignore drafts, prereleases
+and unrelated tags. Resolve an update to that exact identity before installation.
 
-A checksum served beside an archive detects corruption but is not independent
-authentication. Before shipping automatic installation, settle authenticated
-release metadata or signed artifacts, trust-root distribution and rotation,
-and downgrade/replay policy. Do not describe HTTPS plus adjacent checksums as
-a complete supply-chain security design. Use reviewed verification primitives.
+Use the existing release workflow's `plenty-X.Y.Z-HOST.tar.gz` archive and adjacent
+`.sha256` file. Validate names, repository/tag download URLs, API size and the
+checksum's archive filename and digest. The checksum detects inconsistent or
+corrupt downloads; repository HTTPS authenticates their source. No separate
+signed catalog, signing keys, metadata expiry or replay counters are required.
+Exact installs may intentionally select an older stable compiler; update must
+refuse to downgrade the current default.
+
+Asset downloads may follow GitHub's HTTPS CDN redirects, verifying TLS on every
+hop. Limit redirects to the configured repository's release path and GitHub's
+`release-assets.githubusercontent.com` and `objects.githubusercontent.com` hosts;
+reject HTTP downgrades, userinfo, fragments and nonstandard ports. API redirects
+are rejected. Runtime repository/mirror overrides remain outside the initial
+scope. Reject unsupported manager hosts before downloading; available compiler
+archives do not prove manager qualification on the same platform.
 
 Bound metadata and download sizes. Treat archives as untrusted: reject path
 traversal, absolute paths, escaping links, duplicate/conflicting entries and
@@ -210,35 +221,28 @@ bytes, process identity and explicitly inherited installation leases.
 The initial admission is Linux x86-64 GNU. Storage uses the XDG data directory
 (or `PLENTY_MANAGER_HOME`), private staging, per-installation leases and an
 immutable atomic state journal. Compiler archives include their matching Linux
-engines. Signed schema-v1 catalogs authenticate exact artifact identities with
-Ed25519, expire within 31 days and persist a sequence/digest replay high-water
-mark. Explicit updates refuse to downgrade an existing default. The separate
-repository documents bounds, recovery, the complete wire contract and fixture
-qualification.
+engines. Exact installs and updates now use the existing `cjrh/plenty` GitHub
+Releases assets over verified HTTPS. Explicit updates refuse to downgrade an
+existing default. There is no separate signing service or unconfigured trust-root
+gate. The separate repository documents bounds, recovery and API compatibility.
 
-**This is not an adopted production trust root or a distributed manager.**
-The checked-in trust module has no endpoint or key, so automatic installation
-and update fail closed. Release builds need reviewed official endpoints and a
-public key, distributed with the manager binary. Initial key rotation requires
-an explicitly verified replacement manager; there is no online root replacement
-or self-update protocol. Those operational decisions remain for review. A fresh
-installation relies on signature expiry and its trusted clock; it cannot know
-a replay sequence it has never observed.
-
-The implementation also requires a compiler release containing process
-replacement. Publish that prerequisite before pinning an already published
-compiler to build manager releases. Native signed-fixture tests exercise setup
-and installation without a compiler, Rust, Python or other tools on `PATH`,
-but real published archives, official HTTPS distribution, minimum-host
-compatibility and disk-exhaustion qualification remain delivery gates.
+The implementation requires a published compiler release containing process
+replacement before pinning that compiler to build manager releases. Twelve native
+integration scenarios exercise setup and installation with no compiler, Rust,
+Python or other tools on `PATH`, selection and leases, GitHub release filtering
+and pagination, corruption, repository/redirect policy, archive confinement and
+recovery. A live native HTTPS check installed the official v0.8.30 Linux archive,
+verified its checksum, ran both compiler binaries and completed an explicit update.
+Minimum-host compatibility, manager packaging/notices and disk-exhaustion
+qualification remain delivery gates; no manager binaries have been distributed.
 Keep manual archive installation available throughout.
 
 ## Delivery and acceptance
 
 Keep priority and scheduling solely in [B17](../backlog.md#tooling-investigations).
-Before implementation, agree on the release-metadata trust contract, supported
-manager hosts, storage layout and optional-engine scope. Creating the separate
-GitHub repository and publishing binaries are later, explicit operations, not
+The agreed initial scope uses GitHub Releases over verified TLS, Linux x86-64
+GNU, XDG per-user storage and whole archives with matching engines. Creating the
+separate GitHub repository and publishing binaries are later, explicit operations, not
 part of adopting this document.
 
 The first delivery should prove exact-version installation, side-by-side use,
@@ -252,7 +256,7 @@ removal and recovery. Require integration tests for:
 - Offline invocation with network access prohibited, including nested tools.
 - Argument fidelity, spaces/Unicode in paths, supported native argument bytes,
   exit status, signals and interruption on each admitted host.
-- Corrupt downloads, invalid trust metadata, hostile archives, unsupported
+- Corrupt downloads, invalid release metadata, hostile archives, unsupported
   hosts, disk exhaustion, concurrent installation/removal and interrupted update.
 - A downloaded manager installing its build compiler from a clean machine
   without Plenty or Rust already installed, plus manual recovery without it.

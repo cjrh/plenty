@@ -155,7 +155,7 @@ These belong to B17 and are not scheduled implementation commitments:
   would require its own entry-point/discovery design.
 - [`plenty-manager`](proposals/plenty-manager.md): a Plenty-written tool in a
   separate `plentylang/plenty-manager` repository for compiler installation,
-  explicit updates, side-by-side versions and project pins. The local manager implementation is under review; its [process-replacement prerequisite](completed-work/language-and-tooling.md#process-replacement-for-executable-proxies-issue-988) (issue #988) is delivered. Adopt production release authentication, publish the prerequisite compiler, and qualify manager hosts before shipping binaries.
+  explicit updates, side-by-side versions and project pins. The manager is implemented in a separate local repository; its [process-replacement prerequisite](completed-work/language-and-tooling.md#process-replacement-for-executable-proxies-issue-988) (issue #988) is delivered. GitHub Releases over verified TLS is the accepted download contract. Publish a compiler containing the prerequisite, then qualify manager hosts and packaging before shipping binaries.
 - [Language editions](proposals/language-editions.md): wait for a concrete
   incompatible change; prove mixed-edition compilation with shared types/runtime
   before edition or migration tooling.

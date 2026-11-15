@@ -1854,6 +1854,8 @@ that would alter the calling process before execution are rejected. See
 
 The separately maintained Plenty toolchain-manager application uses this boundary
 for offline compiler selection and installation leases. Manager binary publication
-requires an already published compiler containing this API, adopted official
-release trust roots, and host qualification; the proposal remains active until
-those delivery gates are met.
+requires an already published compiler containing this API and host/packaging
+qualification. The accepted download contract uses the fixed compiler repository
+on GitHub Releases over verified system TLS; no separate signing service is
+required. The [manager proposal](../proposals/plenty-manager.md) remains active
+until its distribution gates are met.
