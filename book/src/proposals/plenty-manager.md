@@ -1,6 +1,6 @@
 # Plenty toolchain manager
 
-> **Status: Local implementation under review; not distributed.** Tracked under [B17](../backlog.md).
+> **Status: Implemented locally; not distributed.** Tracked under [B17](../backlog.md).
 > The tool is named `plenty-manager`, written in Plenty, and intended for a
 > new, separate repository named `plenty-manager` in the `plentylang`
 > organization on GitHub. This proposal does not create that repository.
