@@ -70,6 +70,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(total(&values)?)?
     Ok(())
 ```
+```output
+2
+2
+```
 
 Both calls print `2`; the input remains owned by `main`. If inputs can exceed
 `i64`, this is a deliberate restricted port, not a faithful arbitrary-precision

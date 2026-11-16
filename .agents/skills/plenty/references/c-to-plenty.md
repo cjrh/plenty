@@ -57,6 +57,10 @@ def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
     print(trunc_divrem(7, -3)?)?
     Ok(())
 ```
+```output
+(-2, -1)
+(-2, 1)
+```
 
 This prints `(-2, -1)` and `(-2, 1)`. Zero division and `i64.MIN / -1`
 return errors, rather than reproducing C's undefined cases.
