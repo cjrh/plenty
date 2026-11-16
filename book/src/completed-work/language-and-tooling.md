@@ -5,6 +5,20 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## B13 — explicit allocator experiments
+
+The [experimental std module](../design/stdlib/experimental-alloc.md) supplies
+retained system and bounded arena handles plus an integer-only list. Small
+programs exercise either allocator and both together, including growth after
+caller handles are dropped. Existing generator syntax already accepts
+`allocator.list(a for a in b)?`; no parser change was needed. Seven integration
+tests cover routing, partial failures, parent lifetimes and conservative thread
+rejection; executable cases pass with optimization off/on and under Valgrind,
+including injected failures of real C allocations. This is a narrow prototype,
+not builtin allocator support or completion of B13. The
+[evidence](../proposals/allocator-experiments.md) records its boundaries;
+remaining scope stays in [B13](../backlog.md).
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,

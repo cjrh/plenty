@@ -21,6 +21,9 @@ Delivery history and retired backlog entries live here, separate from the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
 
+[Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
+record the narrow retained-system/arena prototype, not completion of B13.
+
 [Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)
 records the shared-cursor lowering and retained instruction evidence for issue #888.
 [Conditional callback captures](completed-work/performance.md#conditional-callback-captures-issue-891)

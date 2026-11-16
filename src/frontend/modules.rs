@@ -71,6 +71,10 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ("std.path", include_str!("../../stdlib/std/path.plenty")),
     ("std.deque", include_str!("../../stdlib/std/deque.plenty")),
     (
+        "std.experimental.alloc",
+        include_str!("../../stdlib/std/experimental/alloc.plentyi"),
+    ),
+    (
         "std.cache.lru",
         include_str!("../../stdlib/std/cache/lru.plenty"),
     ),
@@ -238,11 +242,12 @@ impl ModuleSource {
         match self {
             Self::File(path) => path.clone(),
             Self::Standard(name) => {
-                // Engine facades declare the engine's C symbols, which only
-                // a trusted interface module may do.
-                let extension = if crate::toolchain::ENGINES
-                    .iter()
-                    .any(|engine| engine.module == *name)
+                // Engine facades and the allocator experiment use trusted C
+                // declarations. The latter keeps raw storage private to std.
+                let extension = if *name == "std.experimental.alloc"
+                    || crate::toolchain::ENGINES
+                        .iter()
+                        .any(|engine| engine.module == *name)
                 {
                     "plentyi"
                 } else {

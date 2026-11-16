@@ -1,0 +1,22 @@
+import std.experimental.alloc as memory
+
+def build(allocator: &memory.Allocator) -> Result[memory.IntList, AllocError]:
+    allocator.list(a for a in range(3))
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    arena = memory.arena(&system, 96)?
+    mut persistent = build(&system)?
+    mut temporary = build(&arena)?
+    persistent.append(10)?
+    temporary.append(20)?
+    migrated = temporary.copy_into(&system)?
+    print(persistent.get(3).unwrap(), temporary.get(3).unwrap(), migrated.get(3).unwrap())?
+    print(system.live_blocks(), arena.live_blocks())?
+    # Both lists keep their allocator alive after the caller drops its handles.
+    drop(arena)
+    drop(system)
+    temporary.append(30)?
+    persistent.append(40)?
+    print(temporary.get(4).unwrap(), persistent.get(4).unwrap())?
+    Ok(())

@@ -1,0 +1,10 @@
+import std.experimental.alloc as memory
+
+def main() -> Result[(), AllocError | IoError]:
+    allocator = memory.system()?
+    mut values = allocator.list(a for a in range(5))?
+    values.append(99)?
+    print(values.len(), values.get(5).unwrap(), allocator.live_blocks())?
+    drop(values)
+    print(allocator.live_blocks())?
+    Ok(())

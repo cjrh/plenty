@@ -17,8 +17,11 @@
 >   lowering. [Integer-column filter/count](columnar-list/simd-counts.md) has
 >   automatic SIMD. Broader shapes, packed views and transformations remain B23.
 >
-> This page remains the B13 design record. The newer
-> [portable `std.simd` proposal](std-simd.md) refines B23 with an API contract,
+> The [explicit allocator experiments](allocator-experiments.md) supersede this
+> page's configured-default recommendation: allocator selection should be explicit,
+> with retained owners and no implicit fallback. Their narrow std prototype does
+> not migrate builtin allocation. This page retains the original B13 rationale.
+> The newer [portable `std.simd` proposal](std-simd.md) refines B23 with an API contract,
 > automatic pipeline SIMD and measured backend evidence.
 > The completed [allocation audit](completed/allocation-audit.md) and
 > [native concurrency contract](completed/native-concurrency.md) record the
@@ -29,8 +32,9 @@
 > `CapacityOverflow`. Class, tuple, enum, generator, and range storage is inline
 > and needs no allocation; component expressions and fallible class initializers
 > retain their own errors. `.unwrap()` exists; `.expect(...)` does
-> not. Only object headers record an allocator; container buffers use the global
-> one. Threads start through a scoped `with` manager, and a pool is
+> not. Builtin objects and container buffers use the global allocator; the former
+> object allocator prefix was removed (issue #814). Threads start through a
+> scoped `with` manager, and a pool is
 > `ThreadPoolExecutor(max_workers, queue_capacity)` with `map`, `map_result`,
 > and `reduce_tree`.
 
@@ -41,8 +45,10 @@ have shipped. [B23's delivery record](../completed-work/performance.md#b23-simd)
 describes the initial explicit and automatic SIMD subsets. Generic collections
 are not packed numeric arrays, and ordinary loops remain serial.
 
-Public allocator switching, per-container allocator handles, allocator lifetimes,
-and buffer provenance remain unimplemented. Objects and container buffers use the
+General builtin allocator selection, per-container handles, scoped allocator
+lifetimes and buffer provenance remain unimplemented; the separate
+[experimental library](allocator-experiments.md) exercises retained handles for
+its own integer-only collection. Objects and container buffers use the
 global allocator; objects no longer carry an allocator prefix (issue #814), so
 allocator selection must record provenance without enlarging global objects. Fixed inline arrays and constant value parameters are separately
 [accepted but unimplemented](value-generics.md) under B83; bounded containers
@@ -221,6 +227,10 @@ previously reserved service resources. An application needs a preallocated path
 for that rejection response too.
 
 ## Custom allocators without multiplying everyday types
+
+**Historical recommendation:** the [explicit allocator direction](allocator-experiments.md)
+replaces the configured default below. The provenance and lifetime concerns
+remain; the narrow experiment tests retained handles, not resettable arenas.
 
 The user's proposed separation is viable. Prefer one ordinary constructor with
 an optional allocator argument over unrelated `list_custom`/`dict_custom` names.
