@@ -16,6 +16,9 @@
 #[path = "support/shared.rs"]
 mod test_support;
 
+#[path = "test_allocator_probes.rs"]
+mod test_allocator_probes;
+
 #[path = "test_pipelines.rs"]
 mod test_pipelines;
 

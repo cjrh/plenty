@@ -1,0 +1,223 @@
+# B13 experiment: retained, thread-confined allocators and an i64-only list.
+# Allocation policy, arena bumping, growth and cleanup are written in Plenty.
+# Trusted scalar access is needed because ordinary Plenty containers cannot yet
+# select storage. libc malloc/free provide the system backing blocks only.
+# Explicit allocator passing is modelled on Zig (https://ziglang.org/).
+# No Zig code is included. This is not the final allocator API; see the
+# experimental reference page.
+opaque Pointer
+extern def malloc(size: u64) -> Pointer = "malloc"
+extern def free(pointer: Pointer) -> () = "free"
+extern def load(pointer: Pointer, offset: u64) -> i64 = intrinsic "load"
+extern def store(pointer: Pointer, offset: u64, value: i64) -> () = intrinsic "store"
+extern def load_pointer(pointer: Pointer, offset: u64) -> Pointer = intrinsic "load"
+extern def store_pointer(pointer: Pointer, offset: u64, value: Pointer) -> () = intrinsic "store"
+extern def advance(pointer: Pointer, offset: u64) -> Pointer = intrinsic "offset"
+
+# Eight aligned words: refs, kind, backing, limit, used, live, requests, parent.
+# All supported targets have 64-bit pointers. kind 0 = system, 1 = arena.
+const state_bytes: i64 = 64
+const refs: u64 = 0
+const kind: u64 = 8
+const backing: u64 = 16
+const limit: u64 = 24
+const used: u64 = 32
+const live: u64 = 40
+const requests: u64 = 48
+const parent: u64 = 56
+
+# All storage requests are positive multiples of eight, aligned for i64 and
+# Pointer. This probe deliberately does not expose arbitrary byte layouts.
+def allocate(state: Pointer, size: i64) -> Result[Pointer, AllocError]:
+    if size <= 0 or size % 8 != 0:
+        return Err(AllocError.CapacityOverflow)
+    if load(state, live) == i64.MAX or load(state, requests) == i64.MAX:
+        return Err(AllocError.CapacityOverflow)
+    pointer = if load(state, kind) == 0:
+        p = malloc(u64(size))
+        if p.is_null():
+            return Err(AllocError.OutOfMemory)
+        p
+    else:
+        position = load(state, used)
+        available = unchecked:
+            load(state, limit) - position
+        if size > available:
+            return Err(AllocError.OutOfMemory)
+        p = advance(load_pointer(state, backing), u64(position))
+        unchecked:
+            store(state, used, position + size)
+        p
+    unchecked:
+        store(state, live, load(state, live) + 1)
+        store(state, requests, load(state, requests) + 1)
+    Ok(pointer)
+
+def release_block(state: Pointer, pointer: Pointer) -> ():
+    if pointer.is_null():
+        return
+    if load(state, kind) == 0:
+        free(pointer)
+    unchecked:
+        store(state, live, load(state, live) - 1)
+
+def retain(state: Pointer) -> ():
+    if load(state, refs) == i64.MAX:
+        __trap("Allocator.share: reference count overflow")
+    unchecked:
+        store(state, refs, load(state, refs) + 1)
+
+def release(state: Pointer) -> ():
+    mut current = state
+    while not current.is_null():
+        remaining = unchecked:
+            load(current, refs) - 1
+        store(current, refs, remaining)
+        if remaining != 0:
+            return
+        if load(current, live) != 0:
+            __trap("Allocator: live blocks at final release")
+        if load(current, kind) == 0:
+            free(current)
+            return
+        owner = load_pointer(current, parent)
+        release_block(owner, load_pointer(current, backing))
+        release_block(owner, current)
+        # Walk the retained parent chain without recursive native-stack use.
+        current = owner
+
+def initialize(state: Pointer, tag: i64, buffer: Pointer, capacity: i64, owner: Pointer) -> ():
+    store(state, refs, 1)
+    store(state, kind, tag)
+    store_pointer(state, backing, buffer)
+    store(state, limit, capacity)
+    store(state, used, 0)
+    store(state, live, 0)
+    store(state, requests, 0)
+    store_pointer(state, parent, owner)
+
+# An owning handle. Raw pointers remain private and conservatively thread-bound.
+# Explicit share is allocation-free; implicit deep copying is forbidden by __del__.
+pub class Allocator:
+    _state: Pointer
+
+    def __del__(self: &mut Allocator) -> ():
+        release(self._state)
+        self._state = Pointer.null()
+
+    pub def share(self) -> Allocator:
+        retain(self._state)
+        Allocator(self._state)
+
+    pub def live_blocks(self) -> i64:
+        load(self._state, live)
+
+    pub def allocation_count(self) -> u64:
+        u64(load(self._state, requests))
+
+    # Arena high-water mark, including abandoned growth buffers; zero for system.
+    pub def used_bytes(self) -> i64:
+        load(self._state, used)
+
+    pub def empty_list(self) -> IntList:
+        IntList(self.share(), Pointer.null(), 0, 0)
+
+    pub def list(self, source: Generator[i64]) -> Result[IntList, AllocError]:
+        mut result = self.empty_list()
+        for value in source:
+            result.append(value)?
+        Ok(result)
+
+# A separate system handle has independent counters; no implicit current allocator.
+# Its 64-byte control block is bootstrap storage, not counted in live_blocks.
+pub def system() -> Result[Allocator, AllocError]:
+    state = malloc(u64(state_bytes))
+    if state.is_null():
+        return Err(AllocError.OutOfMemory)
+    initialize(state, 0, Pointer.null(), 0, Pointer.null())
+    Ok(Allocator(state))
+
+# Both metadata and the backing block come from the explicit parent. Rounded
+# down to eight-byte slots. No reset: storage survives until the last handle/list.
+pub def arena(owner: &Allocator, max_bytes: NonNegative[i64]) -> Result[Allocator, AllocError]:
+    capacity = max_bytes.get() - max_bytes.get() % 8
+    state = allocate(owner._state, state_bytes)?
+    buffer = if capacity == 0:
+        Pointer.null()
+    else:
+        match allocate(owner._state, capacity):
+            case Ok(pointer):
+                pointer
+            case Err(error):
+                release_block(owner._state, state)
+                return Err(error)
+    retain(owner._state)
+    initialize(state, 1, buffer, capacity, owner._state)
+    Ok(Allocator(state))
+
+# The inline owner retains the allocator; only its element buffer is allocated.
+# Kept scalar-only to avoid assuming a generic raw layout or element drop ABI.
+pub class IntList:
+    _allocator: Allocator
+    _buffer: Pointer
+    _len: i64
+    _capacity: i64
+
+    def __del__(self: &mut IntList) -> ():
+        release_block(self._allocator._state, self._buffer)
+        self._buffer = Pointer.null()
+        # The allocator field is released after this hook by ordinary cleanup.
+
+    pub def len(self) -> i64:
+        self._len
+
+    pub def is_empty(self) -> bool:
+        self._len == 0
+
+    pub def capacity(self) -> i64:
+        self._capacity
+
+    pub def get(self, index: i64) -> Option[i64]:
+        if index < 0 or index >= self._len:
+            return Nothing
+        unchecked:
+            Some(load(self._buffer, u64(index * 8)))
+
+    # Reserve total capacity, preserving all elements and the original buffer
+    # on failure. Arena growth consumes a new block; old bytes are not reused.
+    pub def reserve(self: &mut IntList, capacity: i64) -> Result[(), AllocError]:
+        if capacity < 0 or capacity > i64.MAX // 8:
+            return Err(AllocError.CapacityOverflow)
+        if capacity <= self._capacity:
+            return Ok(())
+        bytes = unchecked:
+            capacity * 8
+        buffer = allocate(self._allocator._state, bytes)?
+        for index in range(self._len):
+            unchecked:
+                offset = u64(index * 8)
+                store(buffer, offset, load(self._buffer, offset))
+        release_block(self._allocator._state, self._buffer)
+        self._buffer = buffer
+        self._capacity = capacity
+        Ok(())
+
+    pub def append(self: &mut IntList, value: i64) -> Result[(), AllocError]:
+        if self._len == self._capacity:
+            if self._capacity > i64.MAX // 16:
+                return Err(AllocError.CapacityOverflow)
+            capacity = unchecked:
+                4 if self._capacity == 0 else self._capacity * 2
+            self.reserve(capacity)?
+        unchecked:
+            store(self._buffer, u64(self._len * 8), value)
+            self._len += 1
+        Ok(())
+
+    # Migration is explicit. The source and its allocator remain unchanged.
+    pub def copy_into(self, destination: &Allocator) -> Result[IntList, AllocError]:
+        mut result = destination.empty_list()
+        result.reserve(self._len)?
+        for index in range(self._len):
+            result.append(self.get(index).unwrap())?
+        Ok(result)

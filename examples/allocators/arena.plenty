@@ -1,0 +1,17 @@
+import std.experimental.alloc as memory
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    arena = memory.arena(&system, 96)?
+    mut values = arena.list(a for a in range(5))?
+    print(values.len(), arena.used_bytes(), arena.live_blocks())?
+    # Capacity eight is already reserved; no further arena space is needed.
+    values.append(5)?
+    values.append(6)?
+    values.append(7)?
+    print(values.append(8).is_err(), values.len(), values.get(7).unwrap())?
+    drop(values)
+    print(arena.live_blocks(), arena.used_bytes())?
+    drop(arena)
+    print(system.live_blocks())?
+    Ok(())

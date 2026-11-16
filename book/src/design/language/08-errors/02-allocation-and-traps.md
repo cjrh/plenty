@@ -30,7 +30,10 @@ and what has already been consumed. Allocation-free wrapper transport,
 borrowing, inline environments, generator frames, and cleanup bookkeeping do
 not make allocations performed by user expressions or destructors disappear.
 Cleanup on an allocation-error path must still handle its own fallible work.
-No public allocator switching or custom-memory-manager API is exposed.
+Builtin allocation still has no public allocator selection. The separate
+[`std.experimental.alloc`](../../stdlib/experimental-alloc.md) probe supplies
+retained system/arena handles for its integer-only collection; it does not
+change allocation by builtin values or other std modules.
 
 `value.unwrap()` extracts a success payload without allocation, moving it
 when owned. `Err` or `Nothing` deliberately traps. Invalid indexing, absent

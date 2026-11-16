@@ -38,6 +38,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.db.kv`](kv.md) | Ordered byte-key maps, atomic transactions and bounded scans over a versioned SQLite store | `KvError` |
 | [`std.db.sqlite`](sqlite.md) | SQLite databases through prepared statements with typed parameters and reads, owned transactions that roll back on drop, and an explicit value-size limit | `DbError` |
 | [`std.deque`](deque.md) | Owned generic ring buffers with constant-time removal at either end | `AllocError` |
+| [`std.experimental.alloc`](experimental-alloc.md) | Experimental retained system/arena allocators and integer-only lists; not builtin allocator selection | `AllocError` |
 | [`std.diff`](diff.md) | Line, word, character, byte, and list differences as edit operations, with Myers and patience algorithms and unified-diff output | `AllocError` |
 | [`std.encoding`](encoding.md) | Hex, base32/base64, MIME base64 and validated custom alphabets, plus fixed-width integer and IEEE 754 float packing with explicit byte order, over `std.bytes` | `EncodingError` |
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
