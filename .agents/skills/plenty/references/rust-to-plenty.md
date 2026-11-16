@@ -99,6 +99,9 @@ def main() -> Result[(), IoError]:
     print(checksum(b"abc"))?
     Ok(())
 ```
+```output
+108966
+```
 
 Both print `108966`. Neither checksum allocates or consumes the input. This is
 a porting example, not a cryptographic checksum.
