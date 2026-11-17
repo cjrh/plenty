@@ -24,6 +24,14 @@
 //! Linux ABI bindings use the [libc crate](https://github.com/rust-lang/libc),
 //! licensed MIT OR Apache-2.0.
 
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[path = "actor_heap/allocator_tests.rs"]
+mod allocator_tests;
+
 /// `plenty_actor_heap` operations; `stdlib/std/actor.plenty` mirrors them.
 const CREATE: i64 = 0;
 const DISCARD: i64 = 1;
@@ -68,9 +76,25 @@ const UNSUPPORTED: i64 = -4;
 pub(crate) use native::Router;
 #[cfg(feature = "allocation-checks")]
 pub(crate) use native::in_heap;
-pub(crate) use native::{
-    Arena, abandon_arena_call, foreign, outside, recover, running, track_file, untrack_file, within,
-};
+pub(crate) use native::{Arena, foreign, outside, running, track_file, untrack_file, within};
+
+/// A provider callback may hold a mutex and partially moved owned state.
+/// Report its trap normally, but never abandon those frames and resume an actor.
+pub(crate) fn recover(kind: TrapKind) {
+    if crate::allocator::callback_active() {
+        crate::panics::allocator_callback_trap_note();
+        return;
+    }
+    native::recover(kind);
+}
+
+/// Arena exhaustion also abandons frames. During a provider callback it must
+/// fall through to the ordinary allocation-failure report and process exit.
+pub(crate) fn abandon_arena_call() {
+    if !crate::allocator::callback_active() {
+        native::abandon_arena_call();
+    }
+}
 
 #[cfg(all(
     target_os = "linux",

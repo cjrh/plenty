@@ -13,9 +13,9 @@ use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-/// The future compiler bridge must additionally certify callback effects and
-/// prevent nonlocal trap recovery through Rust lock guards. Send alone is only
-/// sufficient for these Rust providers, not for arbitrary compiled callbacks.
+/// The future compiler bridge must additionally certify state, callback effects
+/// and destruction. Native callback scopes prohibit nonlocal trap recovery;
+/// Send alone still cannot certify arbitrary compiled callbacks.
 pub(crate) trait Provider: Send + 'static {
     fn allocate(&mut self, layout: Layout) -> Result<Block, AllocError>;
     fn release(&mut self, block: Block);
@@ -93,7 +93,25 @@ impl Drop for Allocator {
 static NEXT_THREAD: AtomicUsize = AtomicUsize::new(1);
 thread_local! {
     static THREAD_ID: Cell<usize> = const { Cell::new(0) };
+    static CALLBACK_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
+
+/// Actor and arena recovery must not discard a provider's lock or moved owners.
+/// This is thread-local, allocation-free, and remains active in nested callbacks.
+pub(crate) fn callback_active() -> bool {
+    CALLBACK_ACTIVE.with(Cell::get)
+}
+fn callback<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CALLBACK_ACTIVE.with(|active| active.set(self.0));
+        }
+    }
+    let _restore = Restore(CALLBACK_ACTIVE.with(|active| active.replace(true)));
+    f()
+}
+
 fn thread_id() -> usize {
     THREAD_ID.with(|id| {
         if id.get() == 0 {
@@ -142,17 +160,17 @@ unsafe fn allocate<P: Provider>(
 unsafe fn release<P: Provider>(header: NonNull<ProviderHeader>, block: Block) {
     // SAFETY: the retained allocator keeps State<P> alive across the callback.
     let state = unsafe { header.cast::<State<P>>().as_ref() };
-    access(state).guard.release(block);
+    callback(|| access(state).guard.release(block));
 }
 unsafe fn destroy<P: Provider>(header: NonNull<ProviderHeader>) {
     let state = header.cast::<State<P>>().as_ptr();
     // SAFETY: no handles or callbacks remain. Move the owning block out first;
     // dropping the provider may release other blocks, but cannot free this state.
-    unsafe {
+    callback(|| unsafe {
         let storage = ManuallyDrop::into_inner(ptr::read(ptr::addr_of!((*state).storage)));
         ptr::drop_in_place(ptr::addr_of_mut!((*state).provider));
         drop(storage);
-    }
+    });
 }
 
 impl Allocator {
@@ -197,7 +215,9 @@ impl Allocator {
                 let base = NonNull::new(base).ok_or(AllocError::OutOfMemory)?;
                 (base, Source::System(whole))
             }
-            Some(header) => {
+            Some(header) => callback(|| {
+                // Include validation: an invalid returned block must not escape
+                // through actor recovery after the callback unlocks its mutex.
                 // SAFETY: our live count keeps the matching vtable/state alive.
                 let mut block = unsafe { (header.as_ref().allocate)(header, whole)? };
                 if block.len < whole.size() || block.alignment() < whole.align() {
@@ -207,14 +227,14 @@ impl Allocator {
                 block.bytes_mut().fill(0);
                 // SAFETY: exclusive owned block, validated layout, no views.
                 let base = unsafe { NonNull::new_unchecked(block.as_mut_ptr()) };
-                (
+                Ok((
                     base,
                     Source::Provider {
                         allocator: self.clone(),
                         block,
                     },
-                )
-            }
+                ))
+            })?,
         };
         let backing = base.cast::<Backing>();
         // SAFETY: whole contains the aligned Backing followed by the requested

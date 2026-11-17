@@ -56,6 +56,13 @@ records, callback ordering, partial allocation failures, worker cleanup and a
 10,000-node box graph on a small stack; combined allocator checks pass Valgrind.
 These constructors still have no compiler or public Plenty binding.
 
+Native allocator allocation/release/destruction scopes now prevent actor and
+arena recovery from abandoning their locks or moved ownership. Callback traps
+are process-fatal; returned allocation errors remain recoverable. Eleven
+subprocess cases exercise real recovery frames, while scope tests cover nesting,
+thread isolation, allocation-free entry/reporting and native Rust unwinding.
+This is not compiler certification of provider state or effects.
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,
