@@ -90,6 +90,10 @@ impl Declaration {
 /// These declarations are available only in trusted interface modules.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Intrinsic {
+    /// Compiler-generated only: move a complete Plenty slot, including inline
+    /// payload relocation. Not admitted by trusted C declaration syntax.
+    SlotPut,
+    SlotTake,
     Load,
     Store,
     Offset,

@@ -1,0 +1,29 @@
+import std.experimental.alloc as memory
+import block_provider
+
+def message[P: memory.BlockProvider](provider: &mut P) -> Result[memory.ByteBlock, AllocError]:
+    mut block = provider.allocate(3)?
+    block.set(0, 42u8)
+    block.set(2, 99u8)
+    Ok(block)
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    mut first = block_provider.bump(&system, 16)?
+    mut second = block_provider.bump(&system, 8)?
+    mut a = message(&mut first)?
+    b = message(&mut second)?
+    print(a.len(), a.alignment(), first.remaining_bytes(), second.remaining_bytes())?
+    # Independent policy budgets; allocation failure does not change the budget.
+    print(second.allocate(1).is_err(), second.remaining_bytes())?
+    drop(first)
+    drop(second)
+    print(system.live_blocks())?
+    drop(system)
+    # Storage survives its providers, including the original system handle.
+    a.set(0, 7u8)
+    print(a.get(0), a.get(1), a.get(2), b.get(0))?
+    mut tail = a.split_off(1)
+    tail.set(0, 8u8)
+    print(a.len(), tail.len(), tail.alignment(), a.get(0), tail.get(0))?
+    Ok(())

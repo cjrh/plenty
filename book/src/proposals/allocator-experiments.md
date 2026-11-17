@@ -18,6 +18,9 @@ It does not migrate existing allocation sites. Outstanding work remains in
   adding allocator-specific comprehension syntax.
 - The eventual migration must cover strings, boxes, formatting, copying, owning
   slices, scratch buffers and std APIs, not just collection construction.
+- User-defined allocation policies should first use safe owned backing blocks,
+  with raw pointer validity and typed-value cleanup inside the trusted boundary.
+  This does not make arbitrary raw allocator callbacks a safe public interface.
 - Retained allocator state and scoped/resettable arenas are separate designs.
   This experiment implements retained state with no arena reset.
 
@@ -93,13 +96,47 @@ The useful conclusions are limited but concrete:
    `?` and destruction work for this library owner, but builtin buffers still
    need explicit routing changes.
 
+## Safe external block-policy increment
+
+The [safe backing-block API](../design/stdlib/experimental-alloc.md#safe-backing-blocks)
+adds affine zero-initialized byte blocks, checked access and disjoint splitting.
+`examples/allocators/block_provider.plenty` is an ordinary external bump provider;
+`owned_blocks.plenty` consumes it through the generic `BlockProvider` protocol.
+No new compiler operations were needed for this byte-only increment.
+
+Tests cover independent budgets, retained backing after provider destruction,
+split alignment, failure without budget mutation, invalid-access traps,
+unforgeable/private ownership and prohibited copying/thread transfer. Actual
+malloc injection covers metadata and backing failure. Successful programs run
+in both compilation modes and under Valgrind. The byte-only increment was a
+partial stage-1 result; its extension and remaining migration are recorded in
+[B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+
+## Generic owned-payload gate
+
+[`OwnedList[T, P]`](../design/stdlib/experimental-owned-list.md) now stores generic
+owned values in provider-selected blocks. Private compiler operations use the
+existing slot layout and relocate nested inline payloads rather than copying
+pointers into expired stack frames. Extent and alignment are validated before
+access; initialized slots are moved out and cleared before releasing storage.
+The provider is retained by value, receives emptied blocks through `release`,
+and is destroyed only after element and buffer cleanup.
+
+The allocator suite now has twenty tests. It covers nested records, arrays,
+enums, strings, collections, custom destructors and unit; strong growth failure
+with returned inputs; cleanup during error propagation; caching of released
+blocks; rejected malformed providers, private raw access and hidden task/channel
+ownership. Successful fixtures run optimized and unoptimized under Valgrind,
+including injected actual-malloc failures. This satisfies the bounded stage-1
+ownership gate without migrating builtin owners.
+
 ## What this does not establish
 
-This is a two-policy class, not a user-implementable allocator protocol or vtable.
-The raw interface supports only scalar slots, not a generic layout/drop ABI.
-It does not prove generic collections, nested owned payload cleanup, strings,
-formatting, boxed protocols, thread eligibility, resettable arena lifetimes,
-actor integration or the complete std migration. Its C allocator bypasses the
+The original allocator remains a two-policy class; the generic owner uses static
+provider dispatch, not a final uniform allocator handle or stable ABI. Builtin
+list/box/string allocation, formatting, boxed-protocol allocation, thread
+eligibility, resettable arenas, actor integration and the complete std migration
+remain unchanged. Its C allocator bypasses the
 runtime's small-block pool and ordinary allocation-failure accounting.
 
 These are prototype boundaries, not arguments for retaining implicit allocation

@@ -438,14 +438,17 @@ backlog. Async/await remains unadopted and unscheduled under B22's investigation
 The [retained system/arena experiment](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 is delivered; it is not the permanent allocator interface or completion of B13.
 The [allocator design record](proposals/allocator-experiments.md) records the
-agreed direction and evidence. Implement the remaining work in staged PRs:
+agreed direction and evidence. The [stage-1 ownership gate](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
+is delivered: safe external block providers, a generic owned collection, typed
+slot relocation, returned inputs on failed growth, exactly-once destructors and
+provider retention through buffer release. Ordinary packages manage owned
+storage; raw pointer validity and typed cleanup stay inside the trusted boundary.
+The static provider parameter and private slot ABI are experimental, not final
+builtin representations. Implement the remaining work in staged PRs:
 
-1. **Prove extensibility and owned payloads.** Define the allocator interface,
-   implement an allocator outside `std`, and exercise a generic collection of
-   values with destructors. Verify alignment, growth failure, allocator-state
-   lifetime and cleanup, including nested ownership and partial construction.
-   Establish these contracts before integrating builtin owners.
-2. **Integrate builtin owners.** Route builtin lists and boxes through explicit
+2. **Integrate builtin owners.** Settle the retained allocator-handle representation
+   for ordinary builtin types without requiring allocator type parameters on each
+   collection. Route builtin lists and boxes through explicit
    allocators, retaining provenance for growth and destruction. Start with
    small tests showing simultaneous allocators, owners outliving caller handles,
    correct destruction and failure without fallback or corruption.

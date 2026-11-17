@@ -41,74 +41,74 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.db.kv`](#stddbkv): 1085-1117
 - [`std.db.sqlite`](#stddbsqlite): 1119-1183
 - [`std.deque`](#stddeque): 1185-1199
-- [`std.experimental.alloc`](#stdexperimentalalloc): 1201-1223
-- [`std.diff`](#stddiff): 1225-1254
-- [`std.encoding`](#stdencoding): 1256-1323
-- [`std.env`](#stdenv): 1325-1339
-- [`std.error`](#stderror): 1341-1362
-- [`std.fmt`](#stdfmt): 1364-1431
-- [`std.fs`](#stdfs): 1433-1534
-- [`std.fs.dirs`](#stdfsdirs): 1536-1546
-- [`std.fs.lock`](#stdfslock): 1548-1563
-- [`std.fs.watch`](#stdfswatch): 1565-1600
-- [`std.graph`](#stdgraph): 1602-1690
-- [`std.http`](#stdhttp): 1692-1763
-- [`std.http.decoder`](#stdhttpdecoder): 1765-1782
-- [`std.http.body`](#stdhttpbody): 1784-1819
-- [`std.http.client`](#stdhttpclient): 1821-1931
-- [`std.http.cookie`](#stdhttpcookie): 1933-1965
-- [`std.http.files`](#stdhttpfiles): 1967-1980
-- [`std.http.https`](#stdhttphttps): 1982-1996
-- [`std.http.proxy`](#stdhttpproxy): 1998-2019
-- [`std.http.server`](#stdhttpserver): 2021-2122
-- [`std.http.sse`](#stdhttpsse): 2124-2143
-- [`std.http.tls`](#stdhttptls): 2145-2162
-- [`std.http.typed`](#stdhttptyped): 2164-2197
-- [`std.http.websocket`](#stdhttpwebsocket): 2199-2234
-- [`std.http.wss`](#stdhttpwss): 2236-2242
-- [`std.image`](#stdimage): 2244-2290
-- [`std.io`](#stdio): 2292-2398
-- [`std.io.typed`](#stdiotyped): 2400-2438
-- [`std.serial`](#stdserial): 2440-2506
-- [`std.json`](#stdjson): 2508-2660
-- [`std.jwt`](#stdjwt): 2662-2709
-- [`std.log`](#stdlog): 2711-2778
-- [`std.markdown`](#stdmarkdown): 2780-2814
-- [`std.template`](#stdtemplate): 2816-2853
-- [`std.math`](#stdmath): 2855-2926
-- [`std.mime`](#stdmime): 2928-2954
-- [`std.net`](#stdnet): 2956-3038
-- [`std.path`](#stdpath): 3040-3057
-- [`std.process`](#stdprocess): 3059-3118
-- [`std.random`](#stdrandom): 3120-3141
-- [`std.ready`](#stdready): 3143-3174
-- [`std.regex`](#stdregex): 3176-3229
-- [`std.report`](#stdreport): 3231-3242
-- [`std.secrets`](#stdsecrets): 3244-3270
-- [`std.shlex`](#stdshlex): 3272-3281
-- [`std.sketch`](#stdsketch): 3283-3321
-- [`std.sketch.xor`](#stdsketchxor): 3323-3334
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3336-3351
-- [`std.signal`](#stdsignal): 3353-3370
-- [`std.simd`](#stdsimd): 3372-3531
-- [`std.stat`](#stdstat): 3533-3566
-- [`std.plot`](#stdplot): 3568-3657
-- [`std.linalg`](#stdlinalg): 3659-3700
-- [`std.sync`](#stdsync): 3702-3734
-- [`std.system`](#stdsystem): 3736-3795
-- [`std.tempfile`](#stdtempfile): 3797-3829
-- [`std.test`](#stdtest): 3831-3873
-- [`std.text`](#stdtext): 3875-3918
-- [`std.thread`](#stdthread): 3920-3924
-- [`std.time`](#stdtime): 3926-3970
-- [`std.tls`](#stdtls): 3972-4054
-- [`std.toml`](#stdtoml): 4056-4155
-- [`std.unicode`](#stdunicode): 4157-4169
-- [`std.units`](#stdunits): 4171-4408
-- [`std.units.catalogue`](#stdunitscatalogue): 4410-5188
-- [`std.url`](#stdurl): 5190-5218
-- [`std.uuid`](#stduuid): 5220-5243
-- [`std.xml`](#stdxml): 5245-5278
+- [`std.experimental.alloc`](#stdexperimentalalloc): 1201-1247
+- [`std.diff`](#stddiff): 1249-1278
+- [`std.encoding`](#stdencoding): 1280-1347
+- [`std.env`](#stdenv): 1349-1363
+- [`std.error`](#stderror): 1365-1386
+- [`std.fmt`](#stdfmt): 1388-1455
+- [`std.fs`](#stdfs): 1457-1558
+- [`std.fs.dirs`](#stdfsdirs): 1560-1570
+- [`std.fs.lock`](#stdfslock): 1572-1587
+- [`std.fs.watch`](#stdfswatch): 1589-1624
+- [`std.graph`](#stdgraph): 1626-1714
+- [`std.http`](#stdhttp): 1716-1787
+- [`std.http.decoder`](#stdhttpdecoder): 1789-1806
+- [`std.http.body`](#stdhttpbody): 1808-1843
+- [`std.http.client`](#stdhttpclient): 1845-1955
+- [`std.http.cookie`](#stdhttpcookie): 1957-1989
+- [`std.http.files`](#stdhttpfiles): 1991-2004
+- [`std.http.https`](#stdhttphttps): 2006-2020
+- [`std.http.proxy`](#stdhttpproxy): 2022-2043
+- [`std.http.server`](#stdhttpserver): 2045-2146
+- [`std.http.sse`](#stdhttpsse): 2148-2167
+- [`std.http.tls`](#stdhttptls): 2169-2186
+- [`std.http.typed`](#stdhttptyped): 2188-2221
+- [`std.http.websocket`](#stdhttpwebsocket): 2223-2258
+- [`std.http.wss`](#stdhttpwss): 2260-2266
+- [`std.image`](#stdimage): 2268-2314
+- [`std.io`](#stdio): 2316-2422
+- [`std.io.typed`](#stdiotyped): 2424-2462
+- [`std.serial`](#stdserial): 2464-2530
+- [`std.json`](#stdjson): 2532-2684
+- [`std.jwt`](#stdjwt): 2686-2733
+- [`std.log`](#stdlog): 2735-2802
+- [`std.markdown`](#stdmarkdown): 2804-2838
+- [`std.template`](#stdtemplate): 2840-2877
+- [`std.math`](#stdmath): 2879-2950
+- [`std.mime`](#stdmime): 2952-2978
+- [`std.net`](#stdnet): 2980-3062
+- [`std.path`](#stdpath): 3064-3081
+- [`std.process`](#stdprocess): 3083-3142
+- [`std.random`](#stdrandom): 3144-3165
+- [`std.ready`](#stdready): 3167-3198
+- [`std.regex`](#stdregex): 3200-3253
+- [`std.report`](#stdreport): 3255-3266
+- [`std.secrets`](#stdsecrets): 3268-3294
+- [`std.shlex`](#stdshlex): 3296-3305
+- [`std.sketch`](#stdsketch): 3307-3345
+- [`std.sketch.xor`](#stdsketchxor): 3347-3358
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3360-3375
+- [`std.signal`](#stdsignal): 3377-3394
+- [`std.simd`](#stdsimd): 3396-3555
+- [`std.stat`](#stdstat): 3557-3590
+- [`std.plot`](#stdplot): 3592-3681
+- [`std.linalg`](#stdlinalg): 3683-3724
+- [`std.sync`](#stdsync): 3726-3758
+- [`std.system`](#stdsystem): 3760-3819
+- [`std.tempfile`](#stdtempfile): 3821-3853
+- [`std.test`](#stdtest): 3855-3897
+- [`std.text`](#stdtext): 3899-3942
+- [`std.thread`](#stdthread): 3944-3948
+- [`std.time`](#stdtime): 3950-3994
+- [`std.tls`](#stdtls): 3996-4078
+- [`std.toml`](#stdtoml): 4080-4179
+- [`std.unicode`](#stdunicode): 4181-4193
+- [`std.units`](#stdunits): 4195-4432
+- [`std.units.catalogue`](#stdunitscatalogue): 4434-5212
+- [`std.url`](#stdurl): 5214-5242
+- [`std.uuid`](#stduuid): 5244-5267
+- [`std.xml`](#stdxml): 5269-5302
 
 ## `std.actor`
 
@@ -1200,7 +1200,7 @@ class Deque[T]
 
 ## `std.experimental.alloc`
 
-Experimental retained system/arena allocators and integer-only lists; not builtin allocator selection. Errors: `AllocError`. [Reference](experimental-alloc.md).
+Experimental retained allocators, safe byte blocks and generic owned lists; not builtin allocator selection. Errors: `AllocError`. [Reference](experimental-alloc.md).
 
 ```text
 class Allocator
@@ -1208,10 +1208,34 @@ class Allocator
     def live_blocks(self) -> i64
     def allocation_count(self) -> u64
     def used_bytes(self) -> i64
+    def block(self, size: i64) -> Result[ByteBlock, AllocError]
     def empty_list(self) -> IntList
     def list(self, source: Generator[i64]) -> Result[IntList, AllocError]
+    def allocate(self: &mut Allocator, size: i64) -> Result[ByteBlock, AllocError]
+    def release(self: &mut Allocator, block: ByteBlock) -> ()
 def system() -> Result[Allocator, AllocError]
 def arena(owner: &Allocator, max_bytes: NonNegative[i64]) -> Result[Allocator, AllocError]
+protocol BlockProvider
+    def allocate(self: &mut BlockProvider, size: i64) -> Result[ByteBlock, AllocError]
+    def release(self: &mut BlockProvider, block: ByteBlock) -> ()
+class ByteBlock
+    def len(self) -> i64
+    def is_empty(self) -> bool
+    def alignment(self) -> i64
+    def get(self, index: i64) -> u8
+    def set(self: &mut ByteBlock, index: i64, value: u8) -> ()
+    def split_off(self: &mut ByteBlock, at: i64) -> ByteBlock
+class AppendFailure[T]
+    error: AllocError
+    value: T
+class OwnedList[T, P]
+    def len(self) -> i64
+    def is_empty(self) -> bool
+    def capacity(self) -> i64
+    def reserve(self: &mut OwnedList[T, P], capacity: i64) -> Result[(), AllocError]
+    def append(self: &mut OwnedList[T, P], value: T) -> Result[(), AppendFailure[T]]
+    def pop(self: &mut OwnedList[T, P]) -> Option[T]
+def owned_list[T, P: BlockProvider](provider: P) -> OwnedList[T, P]
 class IntList
     def len(self) -> i64
     def is_empty(self) -> bool

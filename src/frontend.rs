@@ -18,6 +18,7 @@ use crate::op::{
 };
 use crate::threading::ThreadOp;
 use crate::value::{Heap, Value};
+mod allocator_storage;
 mod annotations;
 mod atomic;
 mod bounded;
@@ -681,7 +682,8 @@ fn builtin_call(function: &str) -> Option<&str> {
 /// Native intrinsics that only std modules call. Each family belongs to the
 /// std module that validates its operands and maps its results.
 fn std_only_intrinsic(name: &str) -> bool {
-    name == "__system_available_parallelism"
+    allocator_storage::named(name)
+        || name == "__system_available_parallelism"
         || name == BYTES_ADOPT
         || name == TRAP
         || crate::numeric::FloatBits::named(name).is_some()
@@ -699,7 +701,8 @@ fn std_only_intrinsic(name: &str) -> bool {
 }
 
 pub(crate) fn builtin(name: &str) -> bool {
-    named_type(name).is_some()
+    allocator_storage::named(name)
+        || named_type(name).is_some()
         || crate::numeric::FloatBits::named(name).is_some()
         || crate::filesystem::FsOp::named(name).is_some()
         || crate::bytes::BytesOp::named(name).is_some()
@@ -1993,6 +1996,9 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if allocator_storage::named(name) && !self.names.contains_key(name) {
+                    return self.allocator_storage(name, types, args, &e.at, ops);
+                }
                 if let Some(name) = builtin_call(name) {
                     return Err(e.at.error(format!("`{name}` is not a generic function")));
                 }
