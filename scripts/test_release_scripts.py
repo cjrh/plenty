@@ -55,6 +55,16 @@ class ThirdPartyNotices(unittest.TestCase):
             "manifest_path": str(self.root / "Cargo.toml"),
         }
 
+    def test_gpui_component_is_isolated_and_missing_notices_fail_closed(self):
+        self.assertEqual(self.notices.COMPONENTS["gpui"], (
+            "experiments/packages/gpui/native/Cargo.toml", ("plenty-gpui",)))
+        output = self.notices.render([self.package], "gpui")
+        self.assertNotIn("SQLite 3.54.0", output)
+        self.assertNotIn("vendored reference C codec", output)
+        self.package.update(name="missing-gpui-dependency", version="1.0.0", license="MIT")
+        with self.assertRaisesRegex(SystemExit, "no license file in shipped packages"):
+            self.notices.render([self.package], "gpui")
+
     def test_omitted_license_uses_complete_pinned_upstream_text(self):
         output = self.notices.render([self.package])
         license_text = (RELEASE / "licenses" / "iced-x86-1.21.0-LICENSE.txt").read_text()

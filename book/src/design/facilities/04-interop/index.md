@@ -10,6 +10,8 @@ nonlocal jump may cross Plenty frames.
 - [Borrowed arguments and text adapters](borrowing-text.md).
 - [Owning foreign resources](foreign-owners.md), and
   [how std.dataframe wraps its engine](dataframe-binding.md) for worker threads.
+- [Experimental GPUI host binding](gpui-binding.md), with main-thread
+  Plenty state inside a resident shared library and a separate Rust GUI host.
 - [Exports and generated C contracts](exports.md), including
   [owned library objects](owned-exports.md).
 - [Trusted raw host interfaces](raw-host-interfaces.md) and

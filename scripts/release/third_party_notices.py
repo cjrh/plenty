@@ -14,7 +14,7 @@ Every listed crate must provide its license text in its source package or
 have a reviewed fallback below. A crate without one fails the build, so a
 new dependency cannot ship without its notice being reviewed.
 
-Usage: third_party_notices.py --repo DIR --out FILE [--component compiler|dataframe] [--list]
+Usage: third_party_notices.py --repo DIR --out FILE [--component compiler|dataframe|linalg|gpui] [--list]
 """
 
 import argparse
@@ -32,6 +32,14 @@ TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
 # ring 0.17.14 ships for std.tls and advanced std.crypto. Its existing
 # vendored source and complete notices are covered through Cargo metadata.
 ROOTS = ("plenty", "plenty-runtime")
+# The experimental GPUI host is not part of compiler release archives. Its
+# independent graph wraps GPUI 0.2.2 (Apache-2.0); enumerate it only on request.
+COMPONENTS = {
+    "compiler": ("Cargo.toml", ROOTS),
+    "dataframe": ("plenty-dataframe/Cargo.toml", ("plenty-dataframe-engine",)),
+    "linalg": ("plenty-linalg/Cargo.toml", ("plenty-linalg-engine",)),
+    "gpui": ("experiments/packages/gpui/native/Cargo.toml", ("plenty-gpui",)),
+}
 # RustCrypto hybrid-array, ctutils and cmov are covered by Cargo metadata,
 # including their unmodified vendored copies used by SHA and HMAC.
 # memchr 2.8.0 is covered by Cargo metadata, including its unmodified
@@ -398,10 +406,11 @@ def main():
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--list", action="store_true", help="print name, version, license only")
-    parser.add_argument("--component", choices=("compiler", "dataframe", "linalg"), default="compiler")
+    parser.add_argument("--component", choices=tuple(COMPONENTS), default="compiler")
     parser.add_argument("--target", choices=TARGETS, default=TARGET)
     args = parser.parse_args()
-    manifest = args.repo / (f"plenty-{args.component}/Cargo.toml" if args.component != "compiler" else "Cargo.toml")
+    relative_manifest, roots = COMPONENTS[args.component]
+    manifest = args.repo / relative_manifest
     metadata = json.loads(
         subprocess.run(
             [
@@ -414,7 +423,7 @@ def main():
             env={**os.environ, "CARGO_TERM_COLOR": "never"},
         ).stdout
     )
-    packages = shipped_packages(metadata, (f"plenty-{args.component}-engine",) if args.component != "compiler" else ROOTS)
+    packages = shipped_packages(metadata, roots)
     if args.component == "compiler":
         packages = embedded_vendor_packages(args.repo, packages)
         uncovered = uncovered_vendor_dirs(args.repo, packages)
