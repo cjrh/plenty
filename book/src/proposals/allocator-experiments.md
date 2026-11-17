@@ -61,8 +61,9 @@ provenance tracking. Private `ThreadOp::AllocatorUse` and
 `ThreadOp::AllocatorProvider` markers cannot coexist with actor execution,
 abandonment or heap operations in one lowered program. This includes unused and
 unrelated bodies and heap observation helpers. System-only retained allocation
-must participate too. Neither marker has a frontend producer yet; existing
-programs retain their current behavior.
+participates too: every private intrinsic for the public `std.alloc` system/list
+binding emits `AllocatorUse`. The custom-provider marker remains private, without
+a frontend producer. Existing allocation syntax is unchanged.
 
 Native registration rejects active actor/arena contexts without bootstrap
 allocation and returns the provider unchanged. The compiler gate does not replace

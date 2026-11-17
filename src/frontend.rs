@@ -70,6 +70,7 @@ mod protocols;
 mod provenance;
 mod quantities;
 mod references;
+mod retained_allocator;
 mod retention;
 mod serial;
 mod serial_derive;
@@ -2932,6 +2933,11 @@ impl Lower<'_> {
                     return Err(e
                         .at
                         .error(format!("`{name}` is reserved for the standard library")));
+                }
+                if allocator_storage::named(name) {
+                    return self
+                        .allocator_storage(name, &[], args, &e.at, ops)
+                        .map(Some);
                 }
                 if name == BYTES_ADOPT {
                     return self.bytes_adopt(args, &e.at, ops).map(Some);

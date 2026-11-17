@@ -36,7 +36,7 @@ mod process;
 mod readiness;
 // Native selected-owner constructors; compiler bindings are still absent.
 #[cfg_attr(not(test), allow(dead_code))]
-mod allocator_owners;
+pub(crate) mod allocator_owners;
 #[cfg(test)]
 mod record_tests;
 #[cfg(test)]
@@ -3385,6 +3385,7 @@ operation_entries! {
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
+    613 614 615 616
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -4308,6 +4309,9 @@ pub(crate) unsafe fn collection_at(
                     Ok(text) => wrap(text as u128, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
+            }
+            ALLOCATOR_SYSTEM..=ALLOCATOR_LIST => {
+                crate::allocator::bindings::operation(op, a, b, descriptor)
             }
             32 => {
                 let result = if (a as i64) < 0 {

@@ -1,0 +1,24 @@
+# Explicit retained allocators. Native storage and atomic retention require the
+# runtime ABI; construction wrappers and policy-independent adapters use Plenty.
+# Explicit allocator passing is modelled on Zig (https://ziglang.org/).
+# No Zig code is included.
+@thread_shareable
+opaque Handle
+
+pub class Allocator:
+    _handle: Handle
+
+    def __del__(self: &mut Allocator) -> ():
+        __allocator_release(self._handle)
+
+    pub def share(self) -> Allocator:
+        Allocator(__allocator_share(self._handle))
+
+    pub def empty_list[T](self) -> Result[list[T], AllocError]:
+        __allocator_list[T](self._handle, 0)
+
+    pub def list_with_capacity[T](self, capacity: i64) -> Result[list[T], AllocError]:
+        __allocator_list[T](self._handle, capacity)
+
+pub def system() -> Allocator:
+    Allocator(__allocator_system())

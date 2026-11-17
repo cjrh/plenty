@@ -360,6 +360,8 @@ impl Drop for Block {
     }
 }
 
+pub(crate) mod bindings;
+
 #[cfg(test)]
 mod managed_tests;
 #[cfg(test)]

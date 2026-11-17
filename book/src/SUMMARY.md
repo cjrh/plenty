@@ -408,6 +408,7 @@
             - [Streaming actor HTTP](design/stdlib/actor-http-streaming.md)
             - [Actor HTTP qualification](design/stdlib/actor-http-qualification.md)
             - [Actor HTTP TLS comparison](design/stdlib/actor-http-tls-comparison.md)
+        - [`std.alloc`](design/stdlib/alloc.md)
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
         - [Text inputs and substring views](design/stdlib/text-input-views.md)

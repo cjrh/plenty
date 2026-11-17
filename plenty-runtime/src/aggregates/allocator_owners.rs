@@ -1,5 +1,5 @@
 //! Native builtin owners whose object and row storage use a selected allocator.
-//! No compiler binding or public constructor yet; only Rust providers are used.
+//! std.alloc binds system-root lists; boxes and custom providers remain native-only.
 use super::*;
 use crate::allocator::{Allocator, Block};
 use std::alloc::Layout;
@@ -85,6 +85,14 @@ unsafe extern "C" fn box_destroy(header: *mut Header) {
             free(header);
         }
     }
+}
+
+pub(crate) fn list_new_in(
+    allocator: &Allocator,
+    ty: &'static Type,
+    capacity: usize,
+) -> Result<*mut Header, AllocError> {
+    try_list_new_in(allocator, ty, capacity).map(|list| list.cast())
 }
 
 fn try_list_new_in(

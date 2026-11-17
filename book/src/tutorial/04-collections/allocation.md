@@ -46,6 +46,33 @@ its arguments, cleaning up any owned argument rather than returning it.
 allocator rejected a request. `CapacityOverflow` means its size cannot be
 represented. Neither variant needs allocation.
 
+## Select list storage explicitly
+
+The initial [`std.alloc`](../../design/stdlib/alloc.md) API lets you select the
+system allocator for a list. The list keeps that selection for growth and
+cleanup, even after the handle is dropped:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    owner = alloc.system()
+    mut values = owner.list_with_capacity[i64](2)?
+    drop(owner)
+    values.append(21)?
+    values.append(42)?
+    print(values)?
+    Ok(())
+```
+```output
+[21, 42]
+```
+
+This API currently offers only the system allocator and builtin lists. It cannot
+coexist with actor operations, and does not redirect allocations made by element
+expressions, copies or other standard-library operations. The ordinary constructors
+above remain available during the explicit-allocation migration.
+
 Use [capacity and reservation](../../design/examples/collections/capacity.md)
 to obtain storage before inserting values you want to keep if reservation
 fails.

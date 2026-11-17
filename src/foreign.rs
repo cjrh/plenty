@@ -94,6 +94,11 @@ pub enum Intrinsic {
     /// payload relocation. Not admitted by trusted C declaration syntax.
     SlotPut,
     SlotTake,
+    /// Std-only retained allocator operation; never admitted by C declarations.
+    Allocator {
+        opcode: i64,
+        descriptor: Option<crate::op::Ty>,
+    },
     Load,
     Store,
     Offset,

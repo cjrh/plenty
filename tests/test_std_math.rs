@@ -537,14 +537,19 @@ fn every_listed_standard_module_imports() {
     let listed = message.split("available modules: ").nth(1).unwrap();
     let names: Vec<_> = listed.lines().next().unwrap().split(", ").collect();
     assert!(names.contains(&"std.db.sqlite"), "{message}");
+    // Retained allocators and actor operations intentionally cannot coexist,
+    // even in unrelated lowered bodies. Keep both import checks, separately.
     let imports: String = names
         .iter()
+        .filter(|name| **name != "std.alloc")
         .map(|name| format!("import {name}\n"))
         .collect();
     std::fs::write(&source, format!("{imports}def main() -> ():\n    pass\n")).unwrap();
     if let Err(error) = plenty::check_file(&source, None) {
         panic!("{error}");
     }
+    std::fs::write(&source, "import std.alloc\ndef main() -> ():\n    pass\n").unwrap();
+    plenty::check_file(&source, None).unwrap();
 }
 
 #[test]

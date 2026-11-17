@@ -7,6 +7,19 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+The [first public allocator binding](../design/stdlib/alloc.md) (`std.alloc`)
+exposes the explicit system allocator to application code. `system()` obtains a
+allocation-free system-root handle, `Allocator.share()` yields another handle, and
+`empty_list[T]()`/`list_with_capacity[T](capacity)` construct builtin `list[T]`
+with that allocator selected. Handles support workers; lists retain their
+ordinary element-dependent worker and borrowing rules. Allocation failure returns `AllocError` with
+`OutOfMemory`/`CapacityOverflow` variants. Five focused integration tests cover
+handle escape and list growth, worker transfer and construction/destruction,
+nested records with exact-once destruction, and actor heap rejection. Current
+scope excludes custom providers, boxing, generator collection and the full
+std-wide migration. This is groundwork for complete allocator selection, not
+yet completion of B13.
+
 The [experimental std module](../design/stdlib/experimental-alloc.md) supplies
 retained system and bounded arena handles plus an integer-only list. Small
 programs exercise either allocator and both together, including growth after

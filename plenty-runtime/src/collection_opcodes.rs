@@ -1,6 +1,11 @@
 //! Shared dispatcher numbers and the scratch-operand contract.
 //! The compiler includes this file directly; the runtime is linked separately.
 
+pub const ALLOCATOR_SYSTEM: i64 = 613;
+pub const ALLOCATOR_SHARE: i64 = 614;
+pub const ALLOCATOR_RELEASE: i64 = 615;
+pub const ALLOCATOR_LIST: i64 = 616;
+
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;
 pub const SET_IS_DISJOINT: i64 = 64;

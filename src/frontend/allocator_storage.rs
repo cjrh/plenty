@@ -6,7 +6,13 @@ use super::*;
 pub(super) fn named(name: &str) -> bool {
     matches!(
         name,
-        "__allocator_slot_size" | "__allocator_slot_put" | "__allocator_slot_take"
+        "__allocator_slot_size"
+            | "__allocator_slot_put"
+            | "__allocator_slot_take"
+            | "__allocator_system"
+            | "__allocator_share"
+            | "__allocator_release"
+            | "__allocator_list"
     )
 }
 
@@ -25,6 +31,9 @@ impl Lower<'_> {
             .is_some_and(|source| self.generics.source_facts(source).1)
         {
             return Err(at.error(format!("`{name}` is reserved for the standard library")));
+        }
+        if !name.starts_with("__allocator_slot_") {
+            return self.retained_allocator(name, types, args, at, ops);
         }
         let [element] = types else {
             return Err(at.error(format!("`{name}` requires one element type")));
