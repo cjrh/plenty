@@ -1,11 +1,13 @@
 # Retained allocator storage
 
 `plenty-runtime/src/allocator.rs` implements the native storage substrate for
-B13's builtin-owner integration. **It has no compiler binding or public Plenty
-API yet.** Compiled programs still select their existing allocation paths, and
-the experimental Plenty module is unchanged. Native constructors now exercise
-selected-provider storage for ordinary box/list representations; this is not
-completion of language-visible builtin allocator support.
+B13's builtin-owner integration. The [first public language binding](../../stdlib/alloc.md)
+exposes the system allocator root for builtin `list[T]` construction and growth.
+Compiled programs still select their existing allocation paths for all other
+operations, and the experimental Plenty module remains unchanged for arena and
+provider experiments. Native constructors now exercise selected-provider storage
+for ordinary box/list representations; this is not yet completion of language-visible
+builtin allocator support or custom-provider admission.
 
 ## Thread contract decision
 
@@ -25,7 +27,8 @@ compiler verification. Thread-confined Plenty providers remain supported by the
 Two private `ThreadOp` markers track retained-allocator use and provider state:
 
 - **`ThreadOp::AllocatorUse`** marks any retained-allocator operation, including
-  explicit system-allocator storage without custom provider registration. It emits no code and has no frontend producer yet.
+  explicit system-allocator storage without custom provider registration. It emits
+  no code; every private `std.alloc` intrinsic produces it.
 - **`ThreadOp::AllocatorProvider`** names provider state and its allocation/release
   functions. It emits no code and has **no frontend producer**. It reuses worker
   certification without requiring a worker spawn: state must be heap-storable and
@@ -55,12 +58,13 @@ pre-existing state was allocated; those remain bridge gates during public
 bindings and host-entry contracts.
 
 These checks do not certify the callback ABI, returned block representation or
-escaping storage lifetimes. There is no compiled callback adapter or public
-retained handle yet. Initial language integration will exclude actor/arena
+escaping storage lifetimes. There is no compiled custom-provider callback
+adapter. Public system handles and list constructors exclude actor/arena
 interoperability rather than imply that worker-safe fields survive abandonment.
-Native registration guards remain in place. Guards at future public bindings and
-foreign host-entry contracts are still required; the program-wide check does not
-certify separately compiled foreign code.
+Native registration guards remain in place, and `std.alloc` binding entries reject
+ambient actor/arena contexts before allocation or ownership transfer. Trusted
+foreign hosts must keep retained owners out of actor/arena invocations; the
+program-wide check does not certify separately compiled foreign code.
 
 ## Explicit selection and bootstrap
 

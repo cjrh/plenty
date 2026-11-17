@@ -49,6 +49,19 @@ unsafe extern "C" fn entry(storage: *mut u8) -> *mut u8 {
     *state = Some(outside(|| reject(state.take().unwrap())));
     storage
 }
+unsafe extern "C" fn binding_entry(_: *mut u8) -> *mut u8 {
+    // Temporary system routing must not bypass a live actor recovery frame.
+    outside(|| unsafe {
+        crate::allocator::bindings::operation(
+            crate::collection_opcodes::ALLOCATOR_SYSTEM,
+            0,
+            0,
+            std::ptr::null(),
+        );
+    });
+    std::ptr::null_mut()
+}
+
 #[test]
 fn probe() {
     if std::env::var_os("PLENTY_PROVIDER_REGISTRATION_PROBE").is_none() {
@@ -80,6 +93,12 @@ fn probe() {
     assert_eq!(drops.load(Ordering::Relaxed), 0);
     drop(accepted);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
+    let heap = native::create(65536);
+    assert!(heap >= 0);
+    let status = unsafe { native::plenty_actor_run(heap, std::ptr::null_mut(), binding_entry) };
+    assert_ne!(status, 0, "binding admitted an active actor recovery frame");
+    assert_eq!(native::discard(heap), 0);
+    assert!(allocator_registration_allowed());
 }
 #[test]
 fn ambient_context_rejection_returns_provider_without_allocating() {

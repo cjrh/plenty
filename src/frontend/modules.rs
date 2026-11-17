@@ -70,6 +70,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.path", include_str!("../../stdlib/std/path.plenty")),
     ("std.deque", include_str!("../../stdlib/std/deque.plenty")),
+    ("std.alloc", include_str!("../../stdlib/std/alloc.plentyi")),
     (
         "std.experimental.alloc",
         include_str!("../../stdlib/std/experimental/alloc.plentyi"),
@@ -245,6 +246,7 @@ impl ModuleSource {
                 // Engine facades and the allocator experiment use trusted C
                 // declarations. The latter keeps raw storage private to std.
                 let extension = if *name == "std.experimental.alloc"
+                    || *name == "std.alloc"
                     || crate::toolchain::ENGINES
                         .iter()
                         .any(|engine| engine.module == *name)

@@ -43,6 +43,10 @@ impl Lowerer<'_, '_> {
         }
         args.reverse();
         let value = match intrinsic {
+            Intrinsic::Allocator { opcode, descriptor } => {
+                let packed = self.collection_call(*opcode, &args, descriptor.as_ref())?;
+                sig.outputs.first().map(|ty| self.unpack(packed, ty))
+            }
             Intrinsic::SlotPut => {
                 let address = self.bcx.ins().iadd(args[0], args[1]);
                 self.store_slot(address, args[2], &sig.inputs[2].1);

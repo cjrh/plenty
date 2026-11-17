@@ -5,6 +5,38 @@ use std::ptr;
 use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+#[test]
+#[cfg(feature = "allocation-checks")]
+fn compiled_binding_reports_failures_and_cleans_partial_lists() {
+    use crate::aggregates::wrap;
+    use crate::allocator::bindings::operation;
+    use crate::collection_opcodes::*;
+    unsafe {
+        crate::accounting::fail_after(Some(0));
+        let root = operation(ALLOCATOR_SYSTEM, 0, 0, ptr::null());
+        assert_eq!(root, 0);
+        assert_eq!(operation(ALLOCATOR_SHARE, root, 0, ptr::null()), 0);
+        operation(ALLOCATOR_RELEASE, root, 0, ptr::null());
+        crate::accounting::fail_after(None);
+        assert_eq!(
+            operation(ALLOCATOR_LIST, root, u64::MAX as u128, &LIST),
+            wrap(wrap(0, AllocError::CapacityOverflow as u64), 1)
+        );
+        for successes in 0..=3 {
+            crate::accounting::fail_after(Some(successes));
+            let result = operation(ALLOCATOR_LIST, root, 8, &LIST);
+            crate::accounting::fail_after(None);
+            if successes < 3 {
+                assert_eq!(result, wrap(wrap(0, AllocError::OutOfMemory as u64), 1));
+            } else {
+                assert_ne!(result, 0);
+                assert_eq!(result >> 64, 0);
+                plenty_release(result as *mut Header);
+            }
+        }
+    }
+}
+
 static INTEGER: Type = Type {
     kind: b'4',
     affine: false,
