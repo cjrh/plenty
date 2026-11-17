@@ -208,9 +208,14 @@ An operation that takes ownership of a value and can fail before using it
 (send, submit, enqueue, admit) returns the value in its error, generic over the
 value's type: `Undelivered[M]` and `RequestError[M]` in `std.actor`,
 `SendError[T]` for [channels](../facilities/03-concurrency/channels.md),
-`SubmitError[F]` for executors, `SpawnError[F]` for thread starts. Exception:
+`SubmitError[F]` for executors, `SpawnError[F]` for thread starts, `BoxError[T]` for
+`std.alloc` boxes. Exception:
 a scoped `spawn` with borrowed arguments reports the job-free `SpawnError[()]`
-and drops its moved arguments, because an error cannot carry a loan.
+and drops its moved arguments, because an error cannot carry a loan. A second
+exception is `std.alloc`'s `Allocator.list(source)`: it consumes its generator on
+every return, including failure before its first resume. This keeps one consuming
+contract for owned and borrowing frames; their loans end when the call returns. See
+[selected boxes and collection](alloc.md#selected-boxes-and-collection).
 
 ## Parameters
 
@@ -257,7 +262,11 @@ compatibility aliases. SSE's optional `event` and `id` follow the required
 
 ### Limits
 
-Every input-driven allocation has a cap.
+Every input-driven allocation has a cap. Exception: `std.alloc`'s
+`Allocator.list(source)` is an unbounded general-purpose collector with no
+`max_` parameter. Callers can bound the source or select a budgeted provider;
+the system root imposes no finite budget. Allocation errors still propagate; see
+[selected boxes and collection](alloc.md#selected-boxes-and-collection).
 
 - One or two caps: named `max_<thing>: NonNegative[i64]` parameters with defaults
   (`std.url.parse(text, max_bytes)`, `std.db.kv.connect(..., max_length)`).
@@ -369,6 +378,8 @@ modern formatting hook is selected. See
 | Containers | `in` does not dispatch to std container methods | B49; issue #623 records the length/diagnostic fix |
 | Bytes | `list[u8]` OS strings | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |
+| Returning moved inputs | `std.alloc` `Allocator.list` drops its generator on failure instead of returning it | [Selected boxes and collection](alloc.md#selected-boxes-and-collection); adopted policy, not a defect |
 | Limits | `bounds:` spelling; `std.actor.net.Limits` shape | Not yet tracked |
+| Limits | `std.alloc` `Allocator.list` is an unbounded collector without a cap | [Selected boxes and collection](alloc.md#selected-boxes-and-collection); adopted policy, not a defect |
 | Names | Predicates without `is_`; `count()` as size; `watch` shapes; `new` | Not yet tracked |
 | Sizes | `std.simd` counts a view's whole vectors with `len_<vector>(values)` functions; a view type with `len()` needs references in fields | B11 |

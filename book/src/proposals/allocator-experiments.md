@@ -1,6 +1,6 @@
 # Explicit allocators: narrow experiments
 
-**Status: experiment history and delivered public custom-provider bridge for B13.**
+**Status: experiment history and delivered public custom-provider, selected-box and collector bridge for B13.**
 This revises the default-allocator direction in the
 [earlier memory proposal](memory-parallelism-and-simd.md#custom-allocators-without-multiplying-everyday-types).
 It does not migrate existing allocation sites. Outstanding work remains in
@@ -209,13 +209,34 @@ ownership. Successful fixtures run optimized and unoptimized under Valgrind,
 including injected actual-malloc failures. This satisfies the bounded stage-1
 ownership gate without migrating builtin owners.
 
+## Selected boxes and generator collection
+
+The [public selected-box and collector increment](../design/stdlib/alloc.md#selected-boxes-and-collection)
+adds two operations to the `std.alloc` bridge:
+
+- `Allocator.box(value)` moves a value into an ordinary concrete `Box[T]` whose
+  storage uses the selected allocator. Failure returns the unchanged value in
+  `BoxError[T]`. The compiled path uses the private box intrinsic (opcode 658)
+  with a borrowed source and a success-only commit.
+- `Allocator.list(source)` collects a generator by ordinary Plenty iteration over
+  a selected empty list and `append`. No collector intrinsic was added. The
+  generator is consumed on every return; failures drop its captures, current item
+  and partial output exactly once.
+
+The collector has no item cap of its own. Callers can bound the source or select
+a budgeted provider; the system root imposes no finite budget. Consuming failure
+and the absence of a cap are narrow, adopted exceptions recorded in the [std conventions](../design/stdlib/conventions.md#returning-moved-inputs);
+other std APIs keep the existing rules. The increment leaves actor exclusion,
+callback safety and registration's two bootstrap allocations unchanged. Its
+tests are in `tests/test_std_alloc_consumers.rs`.
+
 ## What this does not establish
 
 The original experimental allocator remains a two-policy class; its generic
 owner uses static provider dispatch, not the public retained-handle bridge.
 Those experiments do not migrate builtin allocation or establish worker safety.
-The separate public bridge supports selected lists and blocks, but not public
-selected boxes, generator collection, full language/std allocation routing,
+The separate public bridge supports selected boxes, selected lists (including
+generator collection) and blocks, but not full language/std allocation routing,
 removal of implicit defaults, resettable arenas or actor integration. The
 experimental C allocator bypasses the
 runtime's small-block pool and ordinary allocation-failure accounting.

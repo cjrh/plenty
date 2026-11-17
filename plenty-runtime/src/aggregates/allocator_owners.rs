@@ -76,8 +76,8 @@ unsafe fn try_box_new_in(
     }
     Ok(boxed)
 }
-/// Transactional compiler registration keeps the original value live until commit.
-pub(crate) unsafe fn provider_box_new(
+/// Transactional compiler callers keep the original value live until commit.
+pub(crate) unsafe fn box_new_in(
     allocator: &Allocator,
     ty: &'static Type,
     value: u128,

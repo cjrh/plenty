@@ -1,10 +1,11 @@
 # `std.alloc` — explicit retained allocators and safe byte blocks
 
 `std.alloc` exposes an explicit system allocator and compiled custom providers.
-It constructs ordinary `list[T]` values whose object, metadata and row storage
-retain the selected allocator. Growth and destruction use that allocator after
-the caller's handle is dropped. This is not comprehensive allocation control; see
-the [remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
+It constructs ordinary `Box[T]` and `list[T]` values whose storage retains the
+selected allocator: a box's own storage, and a list's object, metadata and row
+storage. Growth, taking and destruction use that allocator after the caller's
+handle is dropped. This is not comprehensive allocation control; see the
+[remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
 
 This module also provides validated memory-layout requests and affine
 zero-initialized byte blocks with checked access and disjoint splitting. These
@@ -86,6 +87,46 @@ for invalid configuration rather than requiring a prevalidated integer domain.
 | `Allocator.empty_list[T](self) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with zero row capacity. Object and bookkeeping storage still allocate. |
 | `Allocator.list_with_capacity[T](self, capacity: i64) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with at least the requested element capacity. Zero is valid; negative or unrepresentable capacity returns `CapacityOverflow`. |
 
+### Selected boxes and collection
+
+| Signature | Ownership, allocation and errors |
+| --- | --- |
+| `Allocator.box[T](self, value: T) -> Result[Box[T], BoxError[T]]` | Borrows the allocator and moves `value` into one ordinary `Box[T]` allocation whose storage uses the selected allocator. Failure returns the unchanged value. |
+| `Allocator.list[T](self, source: Generator[T]) -> Result[list[T], AllocError]` | Borrows the allocator and consumes `source`, building a new list with the selected allocator. Growth allocates as `append` does; no capacity is reserved from the source. |
+
+`BoxError[T]` has one variant, `Allocation(T, AllocError)`. On failure it returns
+the original value unchanged; nothing is moved into the box, and no fallback
+allocator is tried.
+
+A successful `Allocator.box` transfers the value into an ordinary concrete
+`Box[T]`. Moves, borrows, `*box` extraction and destruction follow the
+[boxes](../facilities/01-builtins/boxes.md) rules; the result is not a protocol
+object or callable adaptation. The box keeps its allocator, so taking its content
+with `*box` or dropping the box releases storage through that allocator after the
+caller's handle is gone. Allocations already inside `T` keep their original
+allocators. Borrowed values (`&x`) and values with hidden task or channel
+ownership are rejected, as ordinary element rules require.
+
+`Allocator.list` is ordinary `for` iteration: it creates an empty selected list,
+as `empty_list` does, and appends each yielded element in order. Pass a generator
+expression or generator call as the sole argument so `T` is inferred:
+`owner.list(a for a in b)?`. Elements are ordinary elements, not flattened: a
+generator of `Result[i64, AllocError]` produces `list[Result[i64, AllocError]]`.
+
+The call consumes `source` on every return. On success the list owns every
+yielded element. On failure, including one before the first resume, the
+generator's captures, the current item not yet inserted and the partial list are
+dropped exactly once, and the call returns `Err(AllocError)` with no resumable
+generator. Loans held by the captures end when the call returns, so a borrowed
+source can be used again afterwards.
+
+The collector has no item limit of its own. The system root is unbounded, so a
+source that never ends runs until allocation fails. An explicit provider may
+refuse growth with `OutOfMemory`, which bounds the collection. Source termination
+and allocations made while the generator produces elements remain the caller's
+concern. When the element count is known, `list_with_capacity` reserves it
+before appending.
+
 ### Custom providers
 
 `Provider` requires public methods with these signatures (substitute the concrete
@@ -118,7 +159,7 @@ On success, handles and outstanding owners retain the provider and its bootstrap
 storage until final cleanup. Provider callbacks are serialized. The compiler
 certifies state, transitive callback effects and destructors for worker use even
 when the program never spawns a worker; hidden task/channel ownership is rejected.
-This does not relax ordinary list element or borrow restrictions.
+This does not relax ordinary list or box element and borrow restrictions.
 
 `allocate` receives the full backing request, including private metadata and
 alignment padding, not just the user's payload size. It must return a block with
@@ -153,10 +194,12 @@ Invalid positions trap with the operation and argument, such as
 its new start address; splitting an aligned block at an odd offset yields
 suffix alignment one.
 
-Both list constructors return `OutOfMemory` when storage cannot be obtained.
+The list constructors return `AllocError` when storage cannot be obtained.
 Partial construction releases successful allocations through their selected
-allocator. A failed growth leaves the existing list intact. Element types must
-be heap-storable and must not hide task/channel ownership behind erasure.
+allocator. A failed growth leaves the existing list intact; a failed collection
+drops its partial list as described in [selected boxes and collection](#selected-boxes-and-collection).
+Element types must be heap-storable and must not hide task/channel ownership
+behind erasure.
 
 `Allocator` is affine: move it or explicitly call `share()`, rather than copying
 it. Its representation is private. Lists retain the allocator through element
@@ -175,7 +218,8 @@ stored or discarded without allocation.
 Allocator handles and byte blocks may be moved to workers or shared through
 checked borrows. Lists keep their ordinary element-dependent worker and borrowing
 rules: selecting an allocator does **not** make every `list[T]` thread-shareable
-or permit concurrent mutation. No allocator type parameter is added to the list.
+or permit concurrent mutation. Boxes follow their content's rules in the same
+way. No allocator type parameter is added to the list or box.
 Byte blocks follow ordinary ownership and borrowing rules, allowing exclusive
 write access only through `&mut` and shared read access through `&`.
 
@@ -202,13 +246,12 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 There is no ambient selected allocator or fallback selection in this API.
 Existing allocating syntax and standard-library operations still use their
 legacy paths. Copying, owning slices, sorting scratch space, and allocations
-performed while producing elements are not redirected by selecting a list's
-storage. This is not yet comprehensive explicit allocation control.
+performed while producing elements or boxed content are not redirected by
+selecting storage for a box or list. This is not yet comprehensive explicit allocation control.
 
 `ByteBlock` is allocator backing, not a replacement for the general-purpose
-[`Bytes`](bytes.md) transport buffer. There is no public selected-box constructor,
-generator collector, general typed-storage consumer, byte-view API, reset arena
-or raw callback registration here.
+[`Bytes`](bytes.md) transport buffer. There is no general typed-storage consumer,
+byte-view API, reset arena or raw callback registration here.
 
 Retained allocator use cannot coexist with actor execution, abandonment or heap
 operations anywhere in the same lowered program, including unrelated lowered

@@ -83,8 +83,8 @@ unsafe fn record(id: u64, storage: &mut [u128; 6]) {
             .add(3)
             .cast::<ranges::Range>()
             .write(ranges::Range::new(id, id + 3, 1, true));
-        storage[5] = allocator_owners::provider_box_new(&Allocator::system(), &BOX, id as u128)
-            .unwrap() as u128;
+        storage[5] =
+            allocator_owners::box_new_in(&Allocator::system(), &BOX, id as u128).unwrap() as u128;
     }
 }
 

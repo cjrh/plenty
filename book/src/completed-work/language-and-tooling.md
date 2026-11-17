@@ -7,6 +7,36 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected boxes and generator collection
+
+[`Allocator.box`](../design/stdlib/alloc.md#selected-boxes-and-collection) moves a
+value into an ordinary concrete `Box[T]` whose storage uses the selected
+allocator. Success transfers ownership; failure returns the unchanged value in
+`BoxError[T].Allocation`. The box keeps its provider for taking and destruction.
+Its compiled path uses the private `__allocator_box` intrinsic (opcode 658) with a
+borrowed source and a success-only commit, so allocations already inside the
+content keep their original allocators.
+
+[`Allocator.list`](../design/stdlib/alloc.md#selected-boxes-and-collection)
+collects a generator as ordinary Plenty iteration over a selected empty list and
+`append`. It adds no collector intrinsic and reserves no capacity from the source.
+The call consumes the generator on every return: failures drop its captures, the
+current uninserted item and the partial list exactly once, with no resumable
+result. The collector has no item cap of its own; the system root is unbounded,
+and source termination and producer allocations remain the caller's concern.
+
+The collector's consuming-failure and no-cap policies are narrow exceptions in the
+[std conventions](../design/stdlib/conventions.md#returning-moved-inputs), with
+their limit recorded under [Limits](../design/stdlib/conventions.md#limits). The
+rule is not relaxed for other std APIs. Actor exclusion, callback safety and
+registration's two bootstrap allocations are unchanged. Issue #994 fixes native
+allocator dispatch to reject unsupported contexts before reading descriptors;
+ten bounded arena subprocess probes exercise both actual dispatcher entry paths.
+
+Coverage is in `tests/test_std_alloc_consumers.rs`. Dictionaries, sets, strings,
+formatting, copying, owning slices, scratch buffers, other std APIs and implicit
+defaults remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+
 ### Public compiled custom providers
 
 [`std.alloc`](../design/stdlib/alloc.md#custom-providers) now registers ordinary
@@ -36,8 +66,10 @@ docs-site check. Focused Valgrind coverage traced 36 successful compiled executi
 ignored tests and timing evidence.
 
 This delivers public compiled custom providers, not comprehensive allocation
-control. Public selected boxes, generator collection, allocating language/std
-migration and removal of implicit defaults remain in
+control. Selected boxes and generator collection were then still outstanding; the
+[public selected-box milestone](#public-selected-boxes-and-generator-collection)
+later delivered them. Allocating language/std migration and removal of implicit
+defaults remained in
 [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
 Scoped/resettable arenas and thread-confined experiments stay separate.
 

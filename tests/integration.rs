@@ -20,6 +20,8 @@ mod test_support;
 mod test_allocator_probes;
 #[path = "test_std_alloc.rs"]
 mod test_std_alloc;
+#[path = "test_std_alloc_consumers.rs"]
+mod test_std_alloc_consumers;
 
 #[path = "test_pipelines.rs"]
 mod test_pipelines;
