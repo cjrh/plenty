@@ -2,7 +2,8 @@
 //! other rows keep aligned slots and owner-local inline payloads.
 use crate::aggregates::Type;
 use crate::entry_order::Order;
-use crate::{memory, ranges};
+use crate::{allocator, memory, ranges};
+use std::alloc::Layout;
 use std::cmp::Ordering;
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
@@ -82,9 +83,9 @@ pub(crate) struct Entry {
     pub value: u128,
 }
 
-/// A byte buffer backed by `Vec<u128>` for aligned inline payloads. Length and
-/// capacity count bytes; allocation rounds up to whole words. Generated code
-/// reads the pointer and byte count through `list_layout`.
+/// Raw row-buffer descriptor. Entries owns its storage, through either the
+/// legacy Vec path or a selected allocator. Length and capacity count bytes;
+/// allocation rounds up to whole words. Generated code reads this ABI prefix.
 #[repr(C)]
 pub(crate) struct Words {
     ptr: NonNull<u128>,
@@ -178,7 +179,7 @@ impl Words {
     }
 }
 
-// SAFETY: `Words` owns its buffer exactly as `Vec<u128>` does.
+// SAFETY: Entries owns the buffer, whose contents move with this descriptor.
 unsafe impl Send for Words {}
 // SAFETY: as for `Send`.
 unsafe impl Sync for Words {}
@@ -198,13 +199,6 @@ impl DerefMut for Words {
     }
 }
 
-impl Drop for Words {
-    fn drop(&mut self) {
-        // SAFETY: the parts describe this buffer's allocation, as in `with`.
-        drop(unsafe { Vec::from_raw_parts(self.ptr.as_ptr(), 0, self.capacity / 16) });
-    }
-}
-
 #[repr(C)]
 pub(crate) struct Entries {
     data: Words,
@@ -215,6 +209,79 @@ pub(crate) struct Entries {
     value: Option<&'static Type>,
     stride: usize,
     order: RowOrder,
+    // After the compiler-visible prefix, preserving dense-list ABI offsets.
+    selected: Option<Selected>,
+}
+
+struct SelectedStorage {
+    block: Option<allocator::Block>,
+    allocator: allocator::Allocator,
+}
+struct SelectedState {
+    value: SelectedStorage,
+    backing: ManuallyDrop<allocator::Block>,
+}
+/// Out-of-line bookkeeping is allocated through the selected provider, not a
+/// global Box. Legacy collections carry only an optional pointer to this state.
+struct Selected(NonNull<SelectedState>);
+impl Selected {
+    fn new(allocator: allocator::Allocator) -> Result<Self, memory::AllocError> {
+        let mut backing = allocator.allocate(Layout::new::<SelectedState>())?;
+        // SAFETY: the block provides the complete aligned layout. State owns
+        // its backing until Drop moves that block out before freeing the state.
+        unsafe {
+            let state = backing.as_mut_ptr().cast::<SelectedState>();
+            state.write(SelectedState {
+                value: SelectedStorage {
+                    block: None,
+                    allocator,
+                },
+                backing: ManuallyDrop::new(backing),
+            });
+            Ok(Self(NonNull::new_unchecked(state)))
+        }
+    }
+}
+impl Deref for Selected {
+    type Target = SelectedStorage;
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: this affine owner retains the state for the borrow.
+        unsafe { &self.0.as_ref().value }
+    }
+}
+impl DerefMut for Selected {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: the mutable borrow is exclusive; Selected cannot be cloned.
+        unsafe { &mut self.0.as_mut().value }
+    }
+}
+impl Drop for Selected {
+    fn drop(&mut self) {
+        // SAFETY: move backing out first so it outlives field cleanup, including
+        // if a Rust provider panics. Release data and handle before state storage.
+        unsafe {
+            let state = self.0.as_ptr();
+            let backing = ManuallyDrop::take(&mut (*state).backing);
+            std::ptr::drop_in_place(std::ptr::addr_of_mut!((*state).value));
+            drop(backing);
+        }
+    }
+}
+// SAFETY: owned state consists only of Send/Sync Block and Allocator values;
+// shared access is read-only, mutation requires an exclusive borrow.
+unsafe impl Send for Selected {}
+unsafe impl Sync for Selected {}
+
+impl Drop for Entries {
+    fn drop(&mut self) {
+        if self.selected.is_none() {
+            // SAFETY: only the legacy path creates Vec storage. Selected blocks
+            // are released by their owner field, never reconstructed as a Vec.
+            drop(unsafe {
+                Vec::from_raw_parts(self.data.ptr.as_ptr(), 0, self.data.capacity / 16)
+            });
+        }
+    }
 }
 
 // A bitset occupies the same storage alternative as insertion-order links;
@@ -279,23 +346,30 @@ impl Entries {
             },
             removed: false,
             order: RowOrder::Dense,
+            selected: None,
         }
     }
+    pub(crate) fn new_in(
+        key: &'static Type,
+        allocator: allocator::Allocator,
+    ) -> Result<Self, memory::AllocError> {
+        let mut entries = Self::new(key, None);
+        entries.selected = Some(Selected::new(allocator)?);
+        Ok(entries)
+    }
     pub fn ordered(key: &'static Type, value: Option<&'static Type>) -> Self {
-        Self {
-            order: RowOrder::Linked(Order::new()),
-            // Hash rows retain canonical slots, including an unused value slot
-            // for sets; their references and ownership traversal share this ABI.
-            stride: (key.slot_words() + value.map_or(1, Type::slot_words)) * 16,
-            ..Self::new(key, value)
-        }
+        let mut entries = Self::new(key, value);
+        entries.order = RowOrder::Linked(Order::new());
+        // Hash rows retain canonical slots, including an unused value slot
+        // for sets; their references and ownership traversal share this ABI.
+        entries.stride = (key.slot_words() + value.map_or(1, Type::slot_words)) * 16;
+        entries
     }
     pub fn enum_set(key: &'static Type) -> Self {
         debug_assert!(enum_bits::eligible(key));
-        Self {
-            order: RowOrder::from_bits(enum_bits::Bits::new(enum_bits::cardinality(key))),
-            ..Self::new(key, None)
-        }
+        let mut entries = Self::new(key, None);
+        entries.order = RowOrder::from_bits(enum_bits::Bits::new(enum_bits::cardinality(key)));
+        entries
     }
     // Expose the storage alternatives to callers so they can dispatch once.
     #[inline(always)]
@@ -337,6 +411,7 @@ impl Entries {
             value: self.value,
             stride: self.stride,
             order: RowOrder::from_bits(self.bits()?),
+            selected: None,
         })
     }
     pub fn set_bits(&mut self, bits: enum_bits::Bits) {
@@ -635,10 +710,35 @@ impl Entries {
             .checked_mul(self.stride)
             .ok_or(memory::AllocError::CapacityOverflow)?;
         let previous = self.data.as_ptr();
-        self.data.try_reserve(bytes)?;
+        let old = if let Some(selected) = &mut self.selected {
+            let needed = self
+                .data
+                .len
+                .checked_add(bytes)
+                .ok_or(memory::AllocError::CapacityOverflow)?;
+            let layout = Layout::array::<u128>(needed.div_ceil(16))
+                .map_err(|_| memory::AllocError::CapacityOverflow)?;
+            if layout.size() <= self.data.capacity {
+                return Ok(());
+            }
+            let mut block = selected.allocator.allocate(layout)?;
+            // SAFETY: the new block is aligned, sufficiently large and disjoint.
+            // This moves bytes, including padding, without interpreting them.
+            let data = unsafe { block.as_mut_ptr() };
+            unsafe { data.copy_from_nonoverlapping(self.data.base(), self.data.len) };
+            self.data.ptr = unsafe { NonNull::new_unchecked(data.cast()) };
+            self.data.capacity = layout.size();
+            selected.block.replace(block)
+        } else {
+            self.data.try_reserve(bytes)?;
+            None
+        };
         if previous != self.data.as_ptr() {
             self.relocate(0);
         }
+        // Preserve old payload storage until all nested addresses are repaired.
+        // Its bytes are moved owners, not values to destroy again.
+        drop(old);
         Ok(())
     }
     /// Reservation belongs to the surrounding transactional operation.

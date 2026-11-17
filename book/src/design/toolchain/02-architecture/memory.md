@@ -117,9 +117,9 @@ content slot without the type; it is laid out as described under
 
 ## Allocator provenance
 
-Runtime objects and container buffers both come from the global allocator, and
-an object allocation carries no prefix before its header: with only one
-allocator, freeing needs no record of which one created an object. A plain box is a
+Compiler-selected runtime objects and container buffers still come from the
+global allocator. Those legacy allocations carry no prefix before their header,
+since their deallocation route is fixed. A plain box is a
 16-byte header followed by its content: a flat class record, or a slot. A
 binary-trees node is a 48-byte box in a 48-byte pool block (C: a 32-byte
 malloc chunk); with glibc malloc and a descriptor and padding word per box it
@@ -137,10 +137,12 @@ takes snapshot them into caller-owned storage, then clear the source. These are
 ownership moves, not deep copies or retains. The std owner tracks initialized
 length and runs ordinary typed destruction before returning buffers to the
 retained provider. Neither these operations nor typed block bytes are public.
-This leaves builtin runtime object layout and allocation unchanged. A separate
-[native retained-handle substrate](allocator-storage.md) supplies thread-safe
-storage ownership and serialized Rust provider callbacks; it is not yet connected
-to compiler lowering or builtin owners.
+A separate [native retained-handle substrate](allocator-storage.md) supplies
+thread-safe storage ownership and serialized Rust provider callbacks. Internal
+box/list constructors now use it for object and row-buffer storage, with retained
+prefixes and ordered destruction. Dense-list ABI offsets are preserved, although
+runtime collection bookkeeping has grown. Compiler lowering still selects the
+legacy path; no public Plenty allocator binding connects these constructors.
 
 ### Small-block pool
 

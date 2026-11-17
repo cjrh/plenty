@@ -226,12 +226,11 @@ fn try_flex_layout<H, E>(count: usize) -> Result<Layout, AllocError> {
         .map(|(layout, _)| layout.pad_to_align())
         .ok_or(AllocError::CapacityOverflow)
 }
-/// Runtime objects come from the global allocator with no prefix: only one
-/// allocator exists, so freeing needs no record of which one created an
-/// object. Public allocator selection (backlog B13) must record provenance
-/// again, and must not cost objects of the global allocator their size; see
-/// "Allocator provenance" in book/src/design/toolchain/02-architecture/memory.md.
-fn object_layout<H, E>(count: usize) -> Result<Layout, AllocError> {
+/// Common object layout, excluding any allocator-provenance prefix. The legacy
+/// helpers below use the global allocator. Selected box/list constructors add
+/// an owning prefix and use their provider instead; see "Allocator provenance"
+/// in book/src/design/toolchain/02-architecture/memory.md.
+pub(crate) fn object_layout<H, E>(count: usize) -> Result<Layout, AllocError> {
     let object = try_flex_layout::<H, E>(count)?;
     assert!(
         object.size() != 0,

@@ -34,6 +34,9 @@ pub(crate) mod net;
 mod operand_tests;
 mod process;
 mod readiness;
+// Native selected-owner constructors; compiler bindings are still absent.
+#[cfg_attr(not(test), allow(dead_code))]
+mod allocator_owners;
 #[cfg(test)]
 mod record_tests;
 #[cfg(test)]
@@ -642,6 +645,16 @@ unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_box_destroy(header: *mut Header, ty: &'static Type) {
     unsafe {
+        if release_box_content(header, ty, false) {
+            memory::free::<Boxed, u128>(header.cast(), ty.key().field_words());
+        }
+    }
+}
+
+/// Return true only after all content is released. Allocator callbacks make
+/// child release observable, so selected owners require the ordered walk.
+unsafe fn release_box_content(header: *mut Header, ty: &'static Type, ordered: bool) -> bool {
+    unsafe {
         let boxed = header.cast::<Boxed>();
         let content = ty.key();
         // The compiler's release of this content queues each owned child
@@ -649,14 +662,14 @@ pub(crate) unsafe extern "C" fn plenty_box_destroy(header: *mut Header, ty: &'st
         // destroyed and the box can be freed now. It exists only for content
         // whose release runs no code, where the order is unobservable; see
         // "Box destruction" in book/src/design/toolchain/02-architecture/memory.md.
-        if let Some(release_content) = ty.drop {
+        if !ordered && let Some(release_content) = ty.drop {
             debug_assert_eq!(ty.kind, b'O');
             release_content(std::ptr::addr_of_mut!((*boxed).slot).cast());
         } else if let Some(child) = release_next_field(Boxed::content(boxed, content), content) {
             memory::continue_after(header, child);
-            return;
+            return false;
         }
-        memory::free::<Boxed, u128>(boxed, content.field_words());
+        true
     }
 }
 unsafe extern "C" fn adapted_box_destroy(header: *mut Header) {
@@ -897,6 +910,13 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
 }
 unsafe extern "C" fn collection_destroy(header: *mut Header) {
     unsafe {
+        if release_collection_content(header) {
+            memory::free::<Collection, u8>(header.cast(), 0);
+        }
+    }
+}
+unsafe fn release_collection_content(header: *mut Header) -> bool {
+    unsafe {
         let c = header.cast::<Collection>();
         let ty = &*(*c).ty;
         // A list of values that own nothing needs no per-row release; skipping
@@ -914,13 +934,13 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
             (*c).drop_entry = Some(index);
             if let Some(child) = release_next((*c).entries.slot(index, false), ty.key()) {
                 memory::continue_after(header, child);
-                return;
+                return false;
             }
             if let Some(value) = ty.value
                 && let Some(child) = release_next((*c).entries.slot(index, true), value)
             {
                 memory::continue_after(header, child);
-                return;
+                return false;
             }
             entry = if ty.kind == b'L' {
                 (index + 1 < (*c).entries.len()).then_some(index + 1)
@@ -929,7 +949,7 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
             };
         }
         std::ptr::drop_in_place(c);
-        memory::free::<Collection, u8>(c, 0);
+        true
     }
 }
 /// Build the endpoint pair directly in the caller's two-slot tuple storage.

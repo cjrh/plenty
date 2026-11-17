@@ -450,10 +450,12 @@ builtin representations. Implement the remaining work in staged PRs:
    Builtin handles must be thread-safe from the outset, without allocator type
    parameters on each collection. Complete the compiler-certified provider bridge:
    check provider state, callback effects and destruction, and prevent nonlocal
-   trap recovery through held callback locks. Route builtin lists and boxes through explicit
-   allocators, retaining provenance for growth and destruction. Start with
-   small tests showing simultaneous allocators, owners outliving caller handles,
-   correct destruction and failure without fallback or corruption.
+   trap recovery through held callback locks. Native box/list object allocation,
+   list row growth and ordered destruction now retain selected providers; connect
+   those paths to compiler lowering and the public explicit-allocator interface.
+   Add compiled-program tests for simultaneous allocators, owners outliving caller
+   handles, worker-safe callbacks, destruction and failure without fallback or
+   corruption. Native tests alone do not complete this stage.
 3. **Complete the migration.** Cover dictionaries, sets, strings, formatting,
    copying, owning slices, scratch buffers and allocating std APIs. Maintain an
    allocation-site inventory and verify routing, ownership and failure behavior

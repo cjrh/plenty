@@ -48,6 +48,14 @@ The system root bypasses ambient actor/arena routing while preserving allocation
 instrumentation. This is native infrastructure only: compiler-certified Plenty
 callbacks, builtin list/box lowering and the migration are not implemented by it.
 
+Native constructors now route ordinary box/list object storage and list row
+growth through selected providers. They retain provenance through iterative
+child destruction, release replaced buffers only after inline relocation, and
+preserve existing rows on failure. Eleven new native tests include nested owned
+records, callback ordering, partial allocation failures, worker cleanup and a
+10,000-node box graph on a small stack; combined allocator checks pass Valgrind.
+These constructors still have no compiler or public Plenty binding.
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,
