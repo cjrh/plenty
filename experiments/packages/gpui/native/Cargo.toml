@@ -1,0 +1,28 @@
+[package]
+name = "plenty-gpui"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[features]
+application = []
+
+[[bin]]
+name = "plenty-gpui"
+path = "src/main.rs"
+required-features = ["application"]
+
+[dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x11"] }
+
+[build-dependencies]
+cc = "1"
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+strip = "debuginfo"

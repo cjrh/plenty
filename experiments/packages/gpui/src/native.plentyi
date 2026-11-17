@@ -1,0 +1,6 @@
+# Trusted indirect GPUI command ABI. Function addresses belong to the
+# resident Rust host; Frame validates nulls and numeric frame tokens expire.
+pub opaque Function
+pub extern def begin_raw(function: Function, frame: u64, axis: u32, gap: f32, padding: f32, background: u32) -> u32 = function
+pub extern def end_raw(function: Function, frame: u64) -> u32 = function
+pub extern def text_raw(function: Function, frame: u64, text: &str as utf8, color: u32, size: f32, action: u64) -> u32 = function

@@ -1,0 +1,68 @@
+# Experimental bounded GPUI 0.2.2 bridge (Zed Industries, Apache-2.0; https://gpui.rs/).
+import native
+
+# Only the resident host may supply these exact-prototype code addresses.
+pub type Function = native.Function
+
+pub enum GpuiError:
+    OutOfMemory
+    CapacityOverflow
+    InvalidContext
+    LimitExceeded
+    InvalidLayout
+    InvalidArgument
+    NativeFailure
+
+
+def checked(status: u32) -> Result[(), GpuiError]:
+    match status:
+        case 0u32:
+            Ok(())
+        case 1u32:
+            Err(GpuiError.OutOfMemory)
+        case 2u32:
+            Err(GpuiError.CapacityOverflow)
+        case 3u32:
+            Err(GpuiError.InvalidContext)
+        case 4u32:
+            Err(GpuiError.LimitExceeded)
+        case 5u32:
+            Err(GpuiError.InvalidLayout)
+        case 6u32:
+            Err(GpuiError.InvalidArgument)
+        case _:
+            Err(GpuiError.NativeFailure)
+
+pub def allocation(error: AllocError) -> GpuiError:
+    match error:
+        case AllocError.OutOfMemory:
+            GpuiError.OutOfMemory
+        case AllocError.CapacityOverflow:
+            GpuiError.CapacityOverflow
+
+# A token and its functions authorize one synchronous main-thread render only.
+pub class Frame:
+    token: u64
+    begin_function: Function
+    end_function: Function
+    text_function: Function
+    pub def __init__(self, token: u64, begin_function: Function, end_function: Function, text_function: Function) -> Result[(), GpuiError]:
+        if token == 0u64 or begin_function.is_null() or end_function.is_null() or text_function.is_null():
+            return Err(GpuiError.InvalidContext)
+        self.token = token
+        self.begin_function = begin_function
+        self.end_function = end_function
+        self.text_function = text_function
+        Ok(())
+    pub def row(self, gap: f32 = 8.0f32, padding: f32 = 8.0f32, background: u32 = 0x202020u32) -> Result[(), GpuiError]:
+        checked(native.begin_raw(self.begin_function, self.token, 0u32, gap, padding, background))
+    pub def column(self, gap: f32 = 8.0f32, padding: f32 = 8.0f32, background: u32 = 0x202020u32) -> Result[(), GpuiError]:
+        checked(native.begin_raw(self.begin_function, self.token, 1u32, gap, padding, background))
+    pub def end(self) -> Result[(), GpuiError]:
+        checked(native.end_raw(self.end_function, self.token))
+    pub def text(self, text: &str, color: u32 = 0xffffffu32, size: f32 = 20.0f32) -> Result[(), GpuiError]:
+        checked(native.text_raw(self.text_function, self.token, text, color, size, 0u64))
+    pub def button(self, text: &str, action: u64, color: u32 = 0xffffffu32, size: f32 = 20.0f32) -> Result[(), GpuiError]:
+        if action == 0u64:
+            return Err(GpuiError.InvalidArgument)
+        checked(native.text_raw(self.text_function, self.token, text, color, size, action))

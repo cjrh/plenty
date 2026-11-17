@@ -620,3 +620,27 @@ Issue #923 puts the Linux table in the alternate compile-time branch, so
 non-Linux imports no longer fail with an unreachable-statement diagnostic.
 A compiler regression test selects both branches on every host; native OS
 qualification also exercises the real target selection through JSON imports.
+
+## Experimental GPUI host binding
+
+`experiments/packages/gpui/` supplies a pinned GPUI 0.2.2 Rust host and a
+resident Plenty shared application library, without adding GPUI to the compiler
+or runtime graph. One window, bounded row/column/text/click commands and the
+Plenty-owned counter are delivered. A static-archive link probe exposed duplicate
+Rust runtime/allocator symbols; the approved shared-library revision uses normal
+export hiding and passes opaque command addresses per render. No symbol
+suppression, archive surgery or compiler callback expansion was used.
+
+Six deterministic Rust boundary tests and optimized/fast-compile Plenty lifecycle
+tests cover state transitions, error/configuration paths and exactly-once
+originating destruction. Real Fedora 44 X11/Xwayland XTest smoke checks rendered
+Count pixels, Increment/Reset and clean native close. A deferred quit avoids an
+upstream inline X11-close borrow panic. These are separate from the runner's
+headless ABI/model tests, which do not qualify a renderer.
+
+See the [binding reference](../design/facilities/04-interop/gpui-binding.md) and
+package README for bounds, dependencies and build commands. GPUI allocations
+and upstream panic paths can terminate the process. The UI is not a complete
+keyboard/accessibility API. Binary redistribution is not qualified: optional
+GPUI notice generation reports 31 transitive crates missing license texts rather
+than emitting incomplete notices. Remaining scope stays under B38.

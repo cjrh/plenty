@@ -1,0 +1,37 @@
+import gpui
+
+class State:
+    count: i64
+    def __init__(self) -> ():
+        self.count = 0
+
+export def create() -> Result[State, AllocError] = "gpui_app_create":
+    Ok(State())
+
+export def render(state: &State, token: u64, begin_function: gpui.Function, end_function: gpui.Function, text_function: gpui.Function) -> Result[(), gpui.GpuiError] = "gpui_app_render":
+    frame = gpui.Frame(token, begin_function, end_function, text_function)?
+    frame.column(gap=16.0f32, padding=24.0f32)?
+    frame.text(&"Plenty + GPUI")?
+    label = f"Count: {state.count}".map_error(gpui.allocation)?
+    frame.text(&label)?
+    frame.row()?
+    frame.button(&"Increment", 1u64)?
+    frame.button(&"Reset", 2u64)?
+    frame.end()?
+    frame.end()?
+    Ok(())
+
+export def event(state: &mut State, action: u64) -> Result[(), gpui.GpuiError] = "gpui_app_event":
+    match action:
+        case 1u64:
+            # Bound the teaching example's counter instead of allowing overflow.
+            if state.count == 1000000:
+                return Err(gpui.GpuiError.LimitExceeded)
+            incremented = checked:
+                state.count + 1
+            state.count = incremented.map_error(def(error: OverflowError[i64]) -> gpui.GpuiError: gpui.GpuiError.LimitExceeded)?
+        case 2u64:
+            state.count = 0
+        case _:
+            return Err(gpui.GpuiError.InvalidArgument)
+    Ok(())
