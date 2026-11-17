@@ -182,8 +182,10 @@ behavior in place. ARM qualification currently covers 4 KiB pages.
 Generated frames larger than a page probe each page. The handler recognizes a
 data fault below the entry frame and no more than one page below the faulting
 stack pointer. AArch64 loop probes leave SP unchanged, so the compiler also
-registers their exact store addresses in the read-only trap table. At those
-addresses only, the handler checks the negative probe offset in x16 against the
+registers their exact store addresses in the read-only trap table (except in
+[explicit executable callback mode](../../facilities/04-interop/exports.md#executable-callbacks),
+which retains probing but does not register these specialized diagnostics). At
+those addresses only, the handler checks the negative probe offset in x16 against the
 frame size in x17 and uses the resulting probe address as the stack frontier.
 Other faults retain the default action. Foreign code skipping stack pages is
 outside this detection. Stack sizes remain the system's limits, and core-file
@@ -227,8 +229,8 @@ its own.
 
 Inline checks (integer overflow, division by zero, shift counts, float-to-integer
 casts, `unwrap`) branch to a cold trap block; checks of one kind at one
-position share the block. In an executable the block is a single x86 `ud2` or
-AArch64 `udf`, with its own Cranelift trap code, and the object holds a trap table mapping
+position share the block. In an ordinary executable the block is a single x86
+`ud2` or AArch64 `udf`, with its own Cranelift trap code, and the object holds a trap table mapping
 each such address to the check's kind and site record. Its addresses are
 32-bit offsets the linker resolves, so a PIE applies no relocations to it
 and its pages stay unread until a check fails. `plenty_main`
@@ -244,9 +246,13 @@ argument registers for a native C helper entry. Any other
 `SIGILL` goes to the previous action. The table lists only
 functions reachable from exported functions and destructors, so linker
 garbage collection still removes the rest. A function has 247 trap codes;
-later checks, and every check in a library or `--fuzz` build,
-compute the pointer in the cold block and call the helper. Either way the
-passing path gains nothing. A check whose
+later checks, and every check in a library, `--fuzz` build or
+[explicit executable callback build](../../facilities/04-interop/exports.md#executable-callbacks),
+compute the pointer in the cold block and call the helper. Executable callback
+builds omit the startup table altogether so it cannot root unused callback or
+destructor bodies after native section GC. Live native references and type
+metadata still retain their originating bodies through ordinary relocations.
+Neither check form adds a helper call on the passing path. A check whose
 condition the compiler computes from constants and finds false, such as the
 divisor's zero test in `x // 10` or the count test in `x >> 13`, emits no branch
 or trap call, in debug and release builds. A check that may fire, or always

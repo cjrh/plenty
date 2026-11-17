@@ -135,7 +135,14 @@ not enable dynamic executable symbol discovery (`-rdynamic`), arbitrary retained
 callbacks, thread transfer or reentrancy. All pointer/loan/serialization obligations
 in the generated header still apply. Returned owners must be destroyed exactly
 once after callback cessation. Reachability follows direct references and address
-relocations; unused adapters can be removed by native section GC.
+relocations; unused adapters and their private checked bodies can be removed by
+native section GC. This explicit mode uses the existing runtime-helper checks
+throughout the application instead of registering a startup signal-trap table:
+otherwise that table would retain unused callback and destructor bodies. Live
+checks retain their failure semantics, source diagnostics and actor containment.
+Stack probing stays enabled. On unqualified AArch64 callback builds, specialized
+below-SP loop-probe-PC overflow diagnostics are not registered; stack-page
+protection remains, but that specialized diagnostic is not promised.
 
 This initial mode is qualified on Linux GNU x86-64, requires the baseline CPU
 level and excludes test hooks,

@@ -1,13 +1,86 @@
 # Unified executable qualification (2026-11-17)
 
 Fedora 44, Linux GNU x86-64, Rust 1.100.0, Plenty 0.8.32 from this branch,
-GPUI **0.2.2**. The current desktop is GNOME/Wayland with a real Xwayland
-window at scale 1; the fixture removes `WAYLAND_DISPLAY`. Renderer:
+GPUI **0.2.2**. The original approved desktop smoke used GNOME/Wayland with
+a real Xwayland window at scale 1; the fixture removed `WAYLAND_DISPLAY`. Renderer:
 AMD Radeon 780M Graphics / RADV PHOENIX / Mesa 26.2.6,
 `is_software_emulated: false`. No test renderer or virtual desktop substituted.
 Artifacts and detailed logs stay in ignored `target/` and `/tmp/gpui-*`.
 
-## Current results
+## Post-review checked-callback correction (issue #993)
+
+Independent review rejected candidate `672bccdb` because the retained startup
+trap table rooted otherwise-unused checked callback/destructor bodies. An unused
+callback could therefore require an unavailable native import. The original
+constant-returning GC test did not cover this defect; the original green suite
+below was not sufficient evidence for that dead-stripping claim.
+
+Explicit executable-export builds now use existing runtime-helper checks
+throughout the application, without a startup signal-trap table. Only the
+`entry.is_some() && interface.is_none()` path registers that table; ordinary
+application, library and fuzz behavior is unchanged. Native references and type
+metadata still retain live checked bodies/destructors through normal relocations.
+Stack probes stay enabled. Unqualified AArch64 callback builds do not register
+below-SP loop-probe PCs for specialized overflow diagnostics; probe protection
+remains, but that diagnostic and AArch64 qualification are not promised.
+
+Post-fix evidence:
+
+- The reviewer's exact missing-native-import reproduction now links and exits
+  zero in both optimized and fast-compile modes. Both modes failed before this
+  fix. Logs: `/tmp/gpui-gc-{old,new}-repro.log`.
+- Five focused callback tests passed. New regressions cover a dead checked
+  callback plus an unused owned class with a checked destructor, all depending
+  on an undefined native import; and live native-referenced callback/destructor
+  failure diagnostics with the correct source lines, in both modes. Existing
+  ownership, protected adapters, publication and production Cargo-runtime actor
+  containment checks passed. `/tmp/gpui-gc-callback-tests2.log`.
+- Focused callbacks/exports/trap locations/library metadata/unloading/actors/
+  stack overflow: final all-features rerun 139 passed, including object-before-GC
+  witnesses and wide relocation inspection. `/tmp/gpui-gc-focused-final.log`.
+- Strict root workspace/all-target/all-feature Clippy passed:
+  `/tmp/gpui-gc-clippy-final.log`.
+- Fresh headless GPUI lifecycle/ABI checks passed in both modes with `DISPLAY`
+  and `WAYLAND_DISPLAY` unset: `/tmp/gpui-gc-counter-headless.log`. No additional
+  desktop input or hardware smoke was performed; the original smoke below is
+  preserved historical evidence, not a post-fix rerun.
+- Narrow optimized emitted-code comparison: the positive checked-divide passing
+  path remains 27 instructions, with unchanged frame/probe configuration. The
+  cold check changes from `ud2` to site `lea`, helper `call`, `ud2` (+12 bytes).
+  C's equivalent floor-divide kernel takes 11 passing-path instructions; the
+  16-instruction pre-existing gap is four frame instructions, two redundant
+  zero-check instructions, eight remainder recomputation/save/restore
+  instructions, one sign-normalization instruction and one floor-adjustment
+  instruction. No speedup or general optimizer change is claimed. Disassembly,
+  C comparison and objects: `/tmp/gpui-gc-emitted/`.
+- Full post-fix timed `CARGO_BUILD_JOBS=6 just test`: **passed**, 432.3s
+  (47.5s compile, 384.7s run, including lock/cache effects). Compiler 332,
+  CLI two, integration 6964/four ignored, benchmark-generator nine, runtime
+  339/five ignored; both doc-test targets passed with zero tests. Log:
+  `/tmp/gpui-gc-full-suite.log`; report:
+  `target/check-timings/suite-20261117T220230-3624279/timings.{md,json}`.
+  The report labels HEAD `672bccdb` because this fixing diff was uncommitted
+  during the run; both newly added regressions passed in that run. No readiness
+  implementation changed and issue #992 did not reproduce in this run.
+- Root/native fmt checks and all three post-fix docs CI checks passed: 820
+  Markdown files/6213 local targets/no missing links, Python 389 tests/four
+  skips, pinned mdBook 0.5.4 complete 3328-page site. Logs:
+  `/tmp/gpui-gc-fmt-final.log` and `/tmp/gpui-gc-doc-{links,python,site}.log`.
+- Fresh link/symbol evidence in `/tmp/gpui-gc-native-evidence/` again shows
+  exactly one main, Plenty main, runtime startup, Rust allocator, panic entry
+  and allocation-error handler; one native support archive; no application DSO,
+  RPATH or RUNPATH. The current uninstrumented development-Rust/optimized-Plenty
+  binary is 33,877,976 bytes; the archive remains 229,327,304 bytes. These are
+  warm development artifacts, not release or clean-build measurements.
+
+Initial new fixture assertions incorrectly expected absolute source paths and
+absence of undefined names in the static symbol table. They were corrected to
+check root-relative diagnostics, actual defined bodies and live relocations;
+linking itself still requires no definition of the unavailable native import.
+The final focused rerun also checks that every dead body/destructor witness
+exists in the application object before native section GC removes it.
+
+## Original infrastructure evidence (`672bccdb`)
 
 - Compiler release build passed. Both optimized and fast-compile application
   objects/headers linked and ran against one Cargo-built support archive.
@@ -22,7 +95,7 @@ Artifacts and detailed logs stay in ignored `target/` and `/tmp/gpui-*`.
 - **One user-approved hardware smoke** (`test_counter.py --smoke`) passed:
   rendered Count pixels, XTest Increment/Reset, restored pixels, Alt+F4 close,
   successful exit and exactly one `STATE_DESTROYED` from Plenty's originating
-  destructor. Current artifacts:
+  destructor. Preserved artifacts:
   `/tmp/plenty-gpui-lifecycle-smoke/{before,incremented,reset}.png` and
   `runner.log`; command log `/tmp/gpui-counter-smoke.log`. No further intrusive
   run was made for this milestone. Headless tests are ABI/model tests only.
@@ -45,8 +118,8 @@ Artifacts and detailed logs stay in ignored `target/` and `/tmp/gpui-*`.
   four skips; complete published site checked 3328 HTML pages. Logs:
   `/tmp/gpui-doc-{links,python,site}-final.log`.
 
-The final **full timed `just test` passed**: 332 compiler unit tests, two CLI
-unit tests, 6962 integration tests (four ignored), nine benchmark-generator
+The original candidate's **full timed `just test` passed**: 332 compiler unit
+tests, two CLI unit tests, 6962 integration tests (four ignored), nine benchmark-generator
 tests and 339 runtime tests (five ignored); both doc-test targets passed with
 zero tests. Total 356.0s (50.0s compile, 306.0s run), including cache/lock effects.
 Report: `target/check-timings/suite-20261117T213558-2423550/timings.{md,json}`;
@@ -92,7 +165,8 @@ xkbcommon. Evidence: `/tmp/gpui-cli-proof/` and
 
 ## Costs and lock
 
-These are mixed/warm development measurements, **not clean/release benchmarks**.
+These original-candidate measurements are mixed/warm development measurements,
+**not clean/release benchmarks**.
 The unstripped optimized-Plenty/development-Rust counter is 33,878,664 bytes;
 its native support archive is 229,327,304 bytes. The mixed native target
 folder occupied 2.1 GiB. Warm native support builds reported roughly one

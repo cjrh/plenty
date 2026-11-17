@@ -139,6 +139,191 @@ fn executable_exports_callbacks_ownership_errors_visibility_and_gc() {
     }
 }
 
+/// Even checked private bodies and destructor/type-metadata edges must vanish
+/// with unused C adapters. The native dependency deliberately has no definition.
+#[test]
+fn executable_exports_strip_unused_checked_callbacks_and_metadata() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::write(
+        root.join("native.plentyi"),
+        "pub extern def unavailable() -> i32 = \"unused_widget_dependency\"\n",
+    )
+    .unwrap();
+    let source = root.join("unused_checked.plenty");
+    std::fs::write(
+        &source,
+        r#"import native
+class Unused:
+    value: i32
+    def __del__(self) -> ():
+        unchecked:
+            drop(native.unavailable() // self.value)
+export def unused(value: i32) -> i32 = "proof_unused_checked":
+    unchecked:
+        native.unavailable() // value
+export def create_unused() -> Result[Unused, AllocError] = "proof_create_unused":
+    Ok(Unused(1i32))
+def main() -> i32:
+    0i32
+"#,
+    )
+    .unwrap();
+    let unused_symbols = [
+        "proof_unused_checked",
+        "__plenty_fn_unused",
+        "proof_create_unused",
+        "proof_Unused_destroy",
+        "__plenty_fn___plenty_class_Unused.__del__",
+        "__plenty_drop___plenty_class_Unused.__del__",
+    ];
+    for optimize in [false, true] {
+        let options = CompileOptions {
+            executable_exports: Some("proof".into()),
+            optimize,
+            strip: false,
+            ..Default::default()
+        };
+        let object = root.join("unused_checked.o");
+        plenty::compile_file_to_object_with_options(&source, &object, None, &options).unwrap();
+        let symbols = success(Command::new("nm").arg(&object).output().unwrap());
+        let symbols = String::from_utf8(symbols.stdout).unwrap();
+        for unused in unused_symbols {
+            assert!(
+                symbols.contains(unused),
+                "missing GC witness {unused}: {symbols}"
+            );
+        }
+        let executable = root.join("unused_checked");
+        plenty::compile_file_to_executable_with_options(&source, &executable, None, &options)
+            .unwrap();
+        success(Command::new(&executable).output().unwrap());
+        let symbols = success(
+            Command::new("nm")
+                .arg("--defined-only")
+                .arg(&executable)
+                .output()
+                .unwrap(),
+        );
+        let symbols = String::from_utf8(symbols.stdout).unwrap();
+        for unused in unused_symbols {
+            assert!(!symbols.contains(unused), "retained {unused}: {symbols}");
+        }
+        // Linkers may leave unused undefined entries in .symtab. No live
+        // relocation may still depend on the unavailable native implementation.
+        let relocations = success(
+            Command::new("readelf")
+                .arg("-rW")
+                .arg(&executable)
+                .output()
+                .unwrap(),
+        );
+        let relocations = String::from_utf8(relocations.stdout).unwrap();
+        assert!(
+            !relocations.contains("unused_widget_dependency"),
+            "{relocations}"
+        );
+    }
+}
+
+#[test]
+fn executable_exports_live_native_callbacks_and_destructor_checks_report_source() {
+    const SOURCE: &str = r#"import native
+class State:
+    value: i32
+    def __del__(self) -> ():
+        unchecked:
+            drop(100i32 // self.value)
+export def create(value: i32) -> Result[State, AllocError] = "proof_create":
+    Ok(State(value))
+export def checked(value: i32) -> i32 = "proof_checked":
+    unchecked:
+        100i32 // value
+def main() -> i32:
+    native.drive()
+"#;
+    const DRIVER: &str = r#"
+#include "proof.h"
+#include <assert.h>
+int32_t drive(void) {
+    assert(proof_checked(4) == 25);
+    proof_State *state = NULL;
+    uint32_t error = 99;
+    assert(proof_create(4, &state, &error) == 0 && state != NULL);
+    proof_State_destroy(state);
+#if DESTRUCTOR
+    state = NULL;
+    assert(proof_create(0, &state, &error) == 0 && state != NULL);
+    proof_State_destroy(state); /* follows the originating type-metadata edge */
+#else
+    (void)proof_checked(0); /* an actual native relocation retains this body */
+#endif
+    return 99; /* the failed check must not return */
+}
+"#;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let source = root.join("live_checks.plenty");
+    std::fs::write(&source, SOURCE).unwrap();
+    std::fs::write(
+        root.join("native.plentyi"),
+        "pub extern def drive() -> i32 = \"drive\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("drive.c"), DRIVER).unwrap();
+    for optimize in [false, true] {
+        let options = CompileOptions {
+            executable_exports: Some("proof".into()),
+            optimize,
+            strip: false,
+            ..Default::default()
+        };
+        plenty::compile_file_to_object_with_options(&source, &root.join("app.o"), None, &options)
+            .unwrap();
+        for destructor in [false, true] {
+            success(
+                Command::new("cc")
+                    .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-c"])
+                    .arg(format!("-DDESTRUCTOR={}", u8::from(destructor)))
+                    .arg(root.join("drive.c"))
+                    .arg("-o")
+                    .arg(root.join("drive.o"))
+                    .output()
+                    .unwrap(),
+            );
+            let executable = root.join("live_checks");
+            plenty::compile_file_to_executable_with_options(
+                &source,
+                &executable,
+                None,
+                &CompileOptions {
+                    link_args: vec![root.join("drive.o").into_os_string()],
+                    ..options.clone()
+                },
+            )
+            .unwrap();
+            let output = Command::new(&executable).output().unwrap();
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            assert_eq!(output.status.code(), Some(1), "{stderr}");
+            assert!(stderr.contains("division by zero"), "{stderr}");
+            let check = if destructor {
+                "drop(100i32 // self.value)"
+            } else {
+                "100i32 // value"
+            };
+            let line = SOURCE
+                .lines()
+                .position(|line| line.contains(check))
+                .unwrap()
+                + 1;
+            assert!(
+                stderr.contains(&format!("live_checks.plenty:{line}:")),
+                "wrong source diagnostic: {stderr}"
+            );
+        }
+    }
+}
+
 #[test]
 fn executable_exports_validate_modes_names_abi_and_publication() {
     let temp = tempfile::tempdir().unwrap();
@@ -300,7 +485,7 @@ unsafe extern "C" fn trapped(storage: *mut u8) -> *mut u8 {
 unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
     // Test actual executable-feature dispatch/router, not Cargo's cfg(test) library.
     unsafe {
-        // Plenty main registers this object's check table before native callbacks.
+        // Enter ordinary Plenty startup before exercising native callbacks.
         let status = plenty_runtime::main(argc, argv);
         assert_eq!(status, 0);
         assert_eq!(plenty_actor_heap(7, 0), 0); // PREPARE

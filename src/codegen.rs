@@ -818,7 +818,10 @@ fn object_module(
     out.coverage = build.coverage;
 
     let mut runtime = declare_runtime(&mut out.module, build.test_hooks)?;
-    if entry.is_some() && !build.coverage {
+    // Executable C callbacks are native-linker roots, not unconditional roots.
+    // Reuse library helper checks: a startup check table would retain private
+    // callback/destructor bodies even after their unused adapters are collected.
+    if entry.is_some() && interface.is_none() && !build.coverage {
         let table = out.declare_traps()?;
         let register = out
             .module
