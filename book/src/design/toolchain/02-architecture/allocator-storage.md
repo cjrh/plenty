@@ -1,30 +1,27 @@
 # Retained allocator storage
 
-`plenty-runtime/src/allocator.rs` implements the native storage substrate for
-B13's builtin-owner integration. The [first public language binding](../../stdlib/alloc.md)
-exposes the system allocator root for builtin `list[T]` construction and growth.
-Also public are validated layout requests and affine safe byte blocks (`ByteBlock`)
-with checked access, disjoint splitting and no copying or raw-pointer escape.
-Compiled programs still select their existing allocation paths for all other
-operations, and the experimental Plenty module remains unchanged for arena and
-provider experiments. Native constructors now exercise selected-provider storage
-for ordinary box/list representations; this is not yet completion of language-visible
-builtin allocator support or custom-provider admission.
+`plenty-runtime/src/allocator.rs` implements B13's native storage substrate.
+The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
+compiled custom-provider registration, builtin lists and safe byte blocks.
+Providers receive validated `Layout` requests and return affine `ByteBlock`
+owners, without raw-pointer escape. Public selected boxes and generator
+collection remain unavailable; other allocating language/std operations still
+use their existing paths. The experimental module remains separate.
 
 ## Thread contract decision
 
-Builtin allocator handles are to support safe cross-thread use from the outset,
+Builtin allocator handles support safe cross-thread use from the outset,
 without allocator type parameters on `list[T]` and `Box[T]`. Their current worker
 checks inspect element types; hiding a thread-confined provider behind an
 otherwise worker-eligible list would bypass those checks.
 
 The native substrate therefore retains only `Send + 'static` Rust providers and
-serializes their allocation and release callbacks. This is not yet a certificate
-for compiled Plenty callbacks: their state, effects and destruction also need
-compiler verification. Thread-confined Plenty providers remain supported by the
+serializes their allocation and release callbacks. Compiled Plenty providers
+also pass compiler certification of their state, effects and destruction.
+Thread-confined Plenty providers remain supported by the
 [experimental generic owner](../../stdlib/experimental-owned-list.md).
 
-## Compiler admission groundwork
+## Compiler admission
 
 Two private `ThreadOp` markers track retained-allocator use and provider state:
 
@@ -32,7 +29,8 @@ Two private `ThreadOp` markers track retained-allocator use and provider state:
   explicit system-allocator storage without custom provider registration. It emits
   no code; every private `std.alloc` intrinsic produces it.
 - **`ThreadOp::AllocatorProvider`** names provider state and its allocation/release
-  functions. It emits no code and has **no frontend producer**. It reuses worker
+  functions. Private registration lowering in `frontend/allocator_storage.rs`
+  emits it and specializes the std callback wrappers. It reuses worker
   certification without requiring a worker spawn: state must be heap-storable and
   contain no hidden task/channel/executor ownership; callbacks must borrow that
   exact state mutably. Transitive calls, indirect targets and state destructors
@@ -56,17 +54,18 @@ execution, abandonment or heap operations fail with: "retained allocator use
 cannot be combined with actor execution, abandonment or heap operations in the
 same program; initial allocator integration excludes actor interoperability".
 This is not a security boundary, capability tracking or proof of where
-pre-existing state was allocated; those remain bridge gates during public
-bindings and host-entry contracts.
+pre-existing state was allocated; trusted host-entry contracts must still
+exclude incompatible provenance.
 
-These checks do not certify the callback ABI, returned block representation or
-escaping storage lifetimes. There is no compiled custom-provider callback
-adapter. Public system handles, lists and blocks exclude actor/arena
+These checks are paired with private compiled callback adapters and runtime
+block validation; they are not arbitrary foreign-provenance certification.
+Public system handles, providers, lists and blocks exclude actor/arena
 interoperability rather than imply that worker-safe fields survive abandonment.
 Native registration guards remain in place, and `std.alloc` binding entries reject
 ambient actor/arena contexts before allocation or ownership transfer. Trusted
 foreign hosts must keep retained owners out of actor/arena invocations; the
-program-wide check does not certify separately compiled foreign code.
+program-wide check does not certify separately compiled foreign code. Unused
+imports participate, including programs that use only `Layout`.
 
 ## Explicit selection and bootstrap
 
@@ -75,11 +74,22 @@ explicitly selected system root. Obtaining or cloning the system root allocates
 nothing. There is no current/default allocator and no fallback after provider
 failure.
 
-Creating a provider handle requires an explicit bootstrap allocator. It supplies
-the complete, aligned state allocation, including the reference count, callback
-table, mutex and provider payload. A failed bootstrap returns both the allocation
-error and the original provider. The state retains its backing until after the
-provider is destroyed; no `Arc` or hidden system allocation supplies that state.
+Native provider registration requires an explicit bootstrap allocator for its
+aligned control/state allocation, including reference count, callback table,
+mutex and provider payload. Compiled registration in `allocator/compiled.rs`
+makes exactly two allocations through the explicit bootstrap: a selected box
+holding the Plenty `P`, then this control allocation holding its adapter. There
+is no hidden `Arc`, system allocation or fallback. Existing allocations nested
+in `P` keep their original provenance.
+
+The private source is borrowed during registration. First-allocation failure
+leaves it untouched; second-allocation failure releases the provisional state
+box without dropping the relocated copy of `P`. Either failure returns the
+original provider unchanged. Success is followed immediately by the std
+wrapper's non-dropping source commit: no fallible operation or user callback may
+intervene. This transfer avoids both duplicate destruction and retaining a
+second copy of managed fields. Successful owners retain the provider and
+bootstrap backing through final state and child destruction.
 
 Registration rejects an active actor allocation target, actor recovery frame or
 ambient arena with `CreateError::UnsupportedContext`. Rejection happens before
@@ -127,9 +137,9 @@ thread identifier detects same-thread recursion before locking, which traps
 rather than deadlocking. Poisoned provider locks also trap. Cyclic dependencies
 between different providers are not a deadlock-free contract.
 
-This is a Rust-internal interface, not a raw callback ABI for packages. No
-compiled callbacks are connected yet; `Send` alone does not certify their
-state, effects or destruction. Experimental non-atomic backing blocks remain
+The bridge connects only compiler-certified callbacks; it is not a public raw
+callback ABI for packages. `Send` alone would not certify compiled state,
+effects or destruction. Experimental non-atomic backing blocks remain
 thread-confined.
 
 ### Callback trap boundary
@@ -163,7 +173,30 @@ actor/arena recovery works as before.
 The scope does not change allocation routing, certify escaping state or prove
 callback effects safe. In particular, it does not make actor/arena-owned values
 safe to retain past their backing lifetime. Those checks still belong to the
-compiler bridge.
+compiler admission and trusted host contracts.
+
+## Compiled callback ABI
+
+`codegen/allocator_providers.rs` emits local C scalar/pointer adapters, not a
+Rust or Plenty aggregate/enum ABI. Allocation receives the state-box pointer,
+size, alignment and caller-owned output storage, returning a scalar status.
+Release receives the state-box pointer and block-storage pointer. The adapters
+borrow the exact `P` slot and call specialized private std wrappers.
+
+Block transfer uses three explicit words (backing pointer, data pointer, extent)
+with the inline ABI's tail padding, not Rust's unspecified `Block` layout.
+Allocation snapshots the returned descriptor into caller-owned storage before
+its frame expires; release snapshots incoming storage before the owned Plenty
+wrapper consumes it. Native extent/alignment validation precedes typed writes.
+Final release returns the full original block, zeroed throughout, not an empty
+range. Both adapters run while the provider mutex is held and the fatal-cleanup
+scope is active. Final state destruction runs in that scope after the last
+retained reference is gone; no concurrent callback remains to require a lock.
+
+A std-only consuming intrinsic extracts ByteBlock storage without running its
+destructor. Ordinary field projection would destroy the transferred backing.
+The private registration commit likewise consumes the original provider without
+cleanup; neither operation exposes a general-purpose forget facility.
 
 ## Private ByteBlock intrinsic ABI
 
@@ -176,7 +209,7 @@ frame-owned buffers, then normal inline moves snapshot the result before those
 buffers are reused. Descriptor moves do not retain backing; splitting does.
 Final release uses the existing provider callback and managed-cleanup boundaries.
 
-Every retained block intrinsic emits `AllocatorUse` and rejects ambient
+Every runtime block-binding intrinsic emits `AllocatorUse` and rejects ambient
 actor/arena contexts before inspecting operands. Pure Plenty `layout()` validation
 allocates nothing and needs no marker, but importing `std.alloc` still lowers
 other marked bodies, so using only layouts does not bypass actor exclusion.
@@ -189,7 +222,8 @@ a disjoint owner of existing backing.
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
 using a selected allocator. Both the list object and its row buffer use that
 provider. Empty lists retain it too. Compiler lowering reaches the list path
-through `std.alloc`; selected-provider box construction remains native-only.
+through `std.alloc`; selected boxes also hold compiled provider state, but
+ordinary public selected-box construction remains unavailable.
 
 A private prefix before each selected object's ordinary header owns its backing
 block and type descriptor. Ordinary box content offsets and the compiler-visible
@@ -237,8 +271,8 @@ Compiled block-binding tests cover layout validation and privacy, zeroing and
 alignment, moves/returns/container relocation, worker transfers and shared reads,
 bounds traps, and allocation-free splitting under injected failures. Separate
 native binding tests check custom-provider error preservation and final backing
-release/provider destruction on a worker. These do not exercise compiled custom
-providers, which remain unavailable.
+release/provider destruction on a worker. Compiled custom providers have separate
+coverage in `tests/test_std_alloc_provider.rs`.
 
 Eleven additional native owner tests cover object/buffer routing, failed growth
 and partial construction, instrumented system failures, nested records with
@@ -273,13 +307,28 @@ and an arena, with unchanged provider state and no bootstrap allocation. It also
 checks thread isolation and successful registration/destruction after leaving
 those contexts. System-handle and all seven block-binding opcodes are rejected
 under actor recovery even inside temporary System routing, before reading block
-operands. This remains groundwork, not compiled-provider execution.
+operands. These admission checks complement compiled-provider execution.
 
 The earlier 34-test allocator/registration harness passed Valgrind; its exec'd probes
 are not child-traced. Directly tracing the registration probe fails during actor
 heap creation, whose native path reserves 64 GiB of address space, before the
 actor admission checks run. Those checks are validated natively, not under
 Valgrind.
+
+### Compiled-provider coverage
+
+`tests/test_std_alloc_provider.rs` covers state retention through lists/blocks,
+both bootstrap failure points with unchanged returned providers, independent
+budgets without fallback, worker callbacks and final managed destruction,
+serialized mutation, malformed extent/alignment, and process-fatal traps in
+callbacks and transitive cleanup. Admission cases include public mutable method
+signatures, borrowed layouts, hidden channel ownership, transitive effects,
+opaque state and host-callback restrictions without a spawn. Inline generic,
+copyable and enum state exercise the private transfer ABI. A `runtime-checks`
+case injects actual allocation failures to check the two-allocation registration
+budget. The [delivery record](../../../completed-work/language-and-tooling.md#public-compiled-custom-providers)
+and local PR distinguish executed checks from coverage that is only present in
+source, including native-only trap probes and directly traced Valgrind runs.
 
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not

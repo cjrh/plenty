@@ -94,6 +94,12 @@ pub enum Intrinsic {
     /// payload relocation. Not admitted by trusted C declaration syntax.
     SlotPut,
     SlotTake,
+    /// Transactional registration borrows P until the std wrapper commits it.
+    AllocatorRegister(std::sync::Arc<crate::threading::AllocatorProvider>),
+    /// Std allocator commit: consume the transferred source without release.
+    AllocatorCommit,
+    /// Move the private words out of ByteBlock without running its destructor.
+    AllocatorBlockTake,
     /// Std-only retained allocator operation; never admitted by C declarations.
     Allocator {
         opcode: i64,

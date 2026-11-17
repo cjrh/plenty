@@ -84,3 +84,51 @@ pub class Allocator:
 
 pub def system() -> Allocator:
     Allocator(__allocator_system())
+
+
+pub protocol Provider:
+    def allocate(self: &mut Provider, request: &Layout) -> Result[ByteBlock, AllocError]:
+        pass
+    def release(self: &mut Provider, storage: ByteBlock) -> ():
+        pass
+
+pub enum RegistrationError[P]:
+    Allocation(P, AllocError)
+    UnsupportedContext(P)
+
+# Scalar statuses are private ABI constants, mirrored by allocator/compiled.rs.
+const _PROVIDER_OK: i64 = 0
+const _PROVIDER_OUT_OF_MEMORY: i64 = 1
+const _PROVIDER_CAPACITY_OVERFLOW: i64 = 2
+const _REGISTRATION_OUT_OF_MEMORY: i64 = 0
+const _REGISTRATION_CAPACITY_OVERFLOW: i64 = 1
+const _REGISTRATION_UNSUPPORTED_CONTEXT: i64 = 2
+
+def _provider_allocate[P: Provider](state: &mut P, size: i64, alignment: i64) -> (i64, array[u64, 3]):
+    request = layout(size, alignment).unwrap()
+    match state.allocate(&request):
+        case Ok(storage):
+            (_PROVIDER_OK, __allocator_block_take(storage))
+        case Err(AllocError.OutOfMemory):
+            (_PROVIDER_OUT_OF_MEMORY, array[u64, 3].filled(0u64))
+        case Err(AllocError.CapacityOverflow):
+            (_PROVIDER_CAPACITY_OVERFLOW, array[u64, 3].filled(0u64))
+
+def _provider_release[P: Provider](state: &mut P, storage: array[u64, 3]) -> ():
+    state.release(ByteBlock(storage))
+
+pub def allocator[P: Provider](bootstrap: &Allocator, provider: P) -> Result[Allocator, RegistrationError[P]]:
+    mut state = provider
+    match __allocator_register[P](bootstrap._handle, &mut state):
+        case Ok(handle):
+            # No code that can fail or call user code may precede this commit.
+            __allocator_commit[P](state)
+            Ok(Allocator(handle))
+        case Err(status):
+            if status == _REGISTRATION_OUT_OF_MEMORY:
+                return Err(RegistrationError[P].Allocation(state, AllocError.OutOfMemory))
+            if status == _REGISTRATION_CAPACITY_OVERFLOW:
+                return Err(RegistrationError[P].Allocation(state, AllocError.CapacityOverflow))
+            if status == _REGISTRATION_UNSUPPORTED_CONTEXT:
+                return Err(RegistrationError[P].UnsupportedContext(state))
+            __trap("invalid allocator registration status")

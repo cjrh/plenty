@@ -46,7 +46,7 @@ pub(crate) unsafe fn operation(op: i64, a: u128, b: u128, ty: *const Type) -> u1
 /// padding. Only std.alloc owns these arrays; ordinary code cannot obtain or
 /// construct the enclosing ByteBlock's private field. Copying these words is
 /// a move, never a backing retain. Do not cast Rust's unspecified Block layout.
-unsafe fn read_block(storage: u128) -> ManuallyDrop<Block> {
+pub(super) unsafe fn read_block(storage: u128) -> ManuallyDrop<Block> {
     let words = storage as *const u64;
     unsafe {
         ManuallyDrop::new(Block {
@@ -57,7 +57,7 @@ unsafe fn read_block(storage: u128) -> ManuallyDrop<Block> {
     }
 }
 
-unsafe fn write_block(storage: u128, block: Block) -> u128 {
+pub(super) unsafe fn write_block(storage: u128, block: Block) -> u128 {
     let block = ManuallyDrop::new(block);
     let words = storage as *mut u64;
     unsafe {

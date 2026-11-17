@@ -7,6 +7,45 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public compiled custom providers
+
+[`std.alloc`](../design/stdlib/alloc.md#custom-providers) now registers ordinary
+Plenty providers through `allocator(bootstrap, provider)`. Previously only the
+system root was publicly selectable. Public mutable `allocate`/`release`
+methods use safe blocks; state, effects and destructors are worker-certified
+even without `spawn`. Serialized callbacks allow retained handles to keep the
+existing builtin list type and its element-dependent restrictions.
+
+Registration makes exactly two explicit-bootstrap allocations (selected state
+box and control), with no hidden fallback. Both failure points return the
+original provider unchanged in `RegistrationError[P]`; success retains provider
+and bootstrap storage through owner cleanup. Existing nested allocations are
+not redirected. Requests include metadata/padding; release receives the full
+original backing zeroed, after typed cleanup. Returned allocation errors remain
+recoverable; callback, transitive-cleanup and final-state traps are process-fatal.
+Whole-program actor exclusion and native context guards remain in force, not a
+certificate for arbitrary foreign provenance.
+
+`tests/test_std_alloc_provider.rs` supplies compiled coverage for retention,
+failure/rollback, worker execution, callback serialization, private ABI transfer,
+block validation, fatal traps and admission. The registration allocation-budget
+case requires `runtime-checks`. Validation passed: 332 compiler, 6,975 integration
+and 341 runtime tests, executable book examples, Clippy and the complete 3,324-page
+docs-site check. Focused Valgrind coverage traced 36 successful compiled executions;
+30 trap executions ran natively, not under Valgrind. The PR records full counts,
+ignored tests and timing evidence.
+
+This delivers public compiled custom providers, not comprehensive allocation
+control. Public selected boxes, generator collection, allocating language/std
+migration and removal of implicit defaults remain in
+[B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+Scoped/resettable arenas and thread-confined experiments stay separate.
+
+### Earlier increments
+
+The records below retain each increment's scope and validation at delivery;
+limitations subsequently removed are superseded by the public bridge above.
+
 The [first public allocator binding](../design/stdlib/alloc.md) (`std.alloc`)
 exposes the explicit system allocator to application code. `system()` obtains an
 allocation-free system-root handle, `Allocator.share()` yields another handle, and
@@ -15,8 +54,8 @@ with that allocator selected. Handles support workers; lists retain their
 ordinary element-dependent worker and borrowing rules. Allocation failure returns `AllocError` with
 `OutOfMemory`/`CapacityOverflow` variants. Five focused integration tests cover
 handle escape and list growth, worker transfer and construction/destruction,
-nested records with exact-once destruction, and actor heap rejection. Current
-scope excludes custom providers, boxing, generator collection and the full
+nested records with exact-once destruction, and actor heap rejection. That increment
+excluded custom providers, boxing, generator collection and the full
 std-wide migration. This is groundwork for complete allocator selection, not
 yet completion of B13.
 
@@ -29,7 +68,7 @@ checked borrows permit worker reads and exclusive mutation. Compiled tests cover
 validation/privacy, zeroing/alignment, moves/returns/container relocation,
 workers, bounds traps and allocation-free splitting under injected failure.
 Native tests cover custom-provider error preservation and final backing/provider
-destruction on a worker. Public custom-provider registration remains absent.
+destruction on a worker. Public custom-provider registration was not yet present.
 
 The [experimental std module](../design/stdlib/experimental-alloc.md) supplies
 retained system and bounded arena handles plus an integer-only list. Small
@@ -78,7 +117,7 @@ child destruction, release replaced buffers only after inline relocation, and
 preserve existing rows on failure. Eleven new native tests include nested owned
 records, callback ordering, partial allocation failures, worker cleanup and a
 10,000-node box graph on a small stack; combined allocator checks pass Valgrind.
-These constructors still have no compiler or public Plenty binding.
+These constructors initially had no compiler or public Plenty binding.
 
 Native allocator allocation/release/destruction scopes now prevent actor and
 arena recovery from abandoning their locks or moved ownership. Callback traps
@@ -92,8 +131,8 @@ receivers, transitive/indirect effects and destructors without a worker spawn.
 It rejects actor operations reachable from callbacks. Native registration rejects
 active actor/arena contexts before allocating or taking state, returning the
 provider unchanged. Nine compiler tests and a bounded native probe cover these
-checks. There is still no frontend constructor, compiled callback ABI or proof of
-escaping storage lifetimes; initial integration will exclude actor/arena
+checks. At that stage there was no frontend constructor or compiled callback ABI;
+initial integration was chosen to exclude actor/arena
 interoperability rather than silently reroute allocations.
 
 This work also fixes issue #990: worker and hidden-ownership traversal skipped
@@ -117,8 +156,8 @@ the same lowered program. A new `ThreadOp::AllocatorUse` marker covers system-on
 use; provider registration also implies use. The check scans unused and unrelated
 bodies before the no-worker fast path, including actor heap observation helpers.
 Five new tests cover system-only use, unrelated/unused and nested bodies,
-feature-alone compatibility and thread-safe exports. Neither marker has a
-frontend producer, so existing programs are unchanged. This does not complete
+feature-alone compatibility and thread-safe exports. Neither marker initially had a
+frontend producer, leaving existing programs unchanged. That increment did not complete
 public bindings or certify foreign-host and ambient-arena boundaries.
 
 ## Shared integration fixture compilation (2026-11-14)

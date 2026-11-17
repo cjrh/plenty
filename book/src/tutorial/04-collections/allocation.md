@@ -48,8 +48,8 @@ represented. Neither variant needs allocation.
 
 ## Select list storage and backing blocks explicitly
 
-The initial [`std.alloc`](../../design/stdlib/alloc.md) API lets you select the
-system allocator for a list. The list keeps that selection for growth and
+The [`std.alloc`](../../design/stdlib/alloc.md) API lets you select a system or
+custom allocator for a list. The list keeps that selection for growth and
 cleanup, even after the handle is dropped. The same allocator can also provide
 affine zero-initialized byte blocks:
 
@@ -95,11 +95,66 @@ def main() -> Result[(), alloc.LayoutError | AllocError | IoError]:
 Splitting transfers disjoint ranges without allocation or copying. Each range,
 including an empty one, retains the full backing until the last range is dropped.
 Blocks can be borrowed for reading, but cannot be copied into overlapping owners.
-This API currently offers only system-root allocation for blocks and builtin
-lists. It cannot coexist with actor operations, and does not redirect
-allocations made by element expressions, copies or other standard-library
-operations. The ordinary constructors above remain available during the
-explicit-allocation migration.
+
+## Register a custom provider
+
+A provider supplies backing blocks and receives them back for reuse or disposal.
+This minimal forwarding policy delegates to a separate backing handle. Its public
+methods satisfy `alloc.Provider`; no raw pointers or private hooks are needed.
+The bootstrap pays for registration, while `backing` supplies later requests:
+
+```plenty
+import std.alloc as alloc
+
+pub class Forwarding:
+    backing: alloc.Allocator
+
+    pub def allocate(self: &mut Forwarding, request: &alloc.Layout) -> Result[alloc.ByteBlock, AllocError]:
+        self.backing.block(request)
+
+    pub def release(self: &mut Forwarding, storage: alloc.ByteBlock) -> ():
+        drop(storage)
+
+def main() -> Result[(), alloc.RegistrationError[Forwarding] | AllocError | IoError]:
+    bootstrap = alloc.system()
+    backing = alloc.system()
+    owner = alloc.allocator(&bootstrap, Forwarding(backing))?
+    mut values = owner.list_with_capacity[i64](2)?
+    drop(bootstrap)
+    drop(owner)
+    values.append(21)?
+    values.append(42)?
+    print(values)?
+    Ok(())
+```
+```output
+[21, 42]
+```
+
+Use the system handle directly when forwarding adds no policy; this example
+isolates the provider contract rather than offering an allocation optimization.
+Registration makes two allocations through the explicit bootstrap (state box
+and control allocation), with no hidden fallback. Either failure returns the
+unchanged provider in `RegistrationError.Allocation`; `?` preserves that complete
+error here. A native unsupported context returns `UnsupportedContext` with the
+provider. Success lets lists and blocks outlive both initiating handles.
+Pre-existing allocations inside the provider are not redirected.
+
+The request includes private metadata and padding. `release` receives the full
+original backing with all bytes zeroed, so a caching policy can safely reuse it.
+Callbacks serialize, and the compiler checks worker-safe state, effects and
+cleanup even without `spawn`. Return allocation errors rather than trapping:
+callback traps, including cleanup traps, terminate the process.
+
+## Current limits
+
+Retained allocator operations cannot coexist with actor operations anywhere in
+the lowered program, including unused imports and layout-only use. Selection
+does not redirect allocations made by element expressions, copies or other
+standard-library operations, and ordinary list element restrictions still apply.
+Public selected boxes and generator collection are not available. Ordinary
+constructors remain available during the explicit-allocation migration; this
+milestone does not remove implicit defaults or provide resettable arenas.
 
 Use [capacity and reservation](../../design/examples/collections/capacity.md)
 to obtain storage before inserting values you want to keep if reservation

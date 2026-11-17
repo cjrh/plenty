@@ -1,7 +1,7 @@
 //! First language bindings to retained native allocator storage.
 mod support;
 
-fn assert_stdout(source: &str, expected: &str) {
+pub(super) fn assert_stdout(source: &str, expected: &str) {
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("program");
     for optimize in [false, true] {

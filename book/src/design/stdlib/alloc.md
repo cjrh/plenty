@@ -1,17 +1,17 @@
 # `std.alloc` — explicit retained allocators and safe byte blocks
 
-`std.alloc` exposes the explicit system allocator and constructs ordinary
-`list[T]` values whose object, metadata and row storage retain the selected
-allocator. Growth and destruction use that allocator after the caller's handle
-is dropped. Only the system root is publicly constructible in this initial
-binding; see the [remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
+`std.alloc` exposes an explicit system allocator and compiled custom providers.
+It constructs ordinary `list[T]` values whose object, metadata and row storage
+retain the selected allocator. Growth and destruction use that allocator after
+the caller's handle is dropped. This is not comprehensive allocation control; see
+the [remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
 
 This module also provides validated memory-layout requests and affine
 zero-initialized byte blocks with checked access and disjoint splitting. These
 are safe allocator backing types for custom policies: no raw pointers escape,
 no copying is permitted, and blocks retain their provider through all operations.
-Even empty blocks allocate metadata. Valid layouts do not guarantee the
-metadata and payload can both be allocated or are available in memory.
+Fresh block construction allocates metadata even for an empty range. Valid
+layouts do not guarantee that metadata and payload can both be allocated.
 
 Native runtime support is necessary for builtin storage and thread-safe retained
 handles. The public wrappers are written in Plenty. The separate
@@ -77,14 +77,64 @@ The factory never returns `OutOfMemory`. The error name distinguishes request
 validation from the builtin `AllocError`; scalar alignment permits named errors
 for invalid configuration rather than requiring a prevalidated integer domain.
 
-### System allocator and lists
+### Allocator handles and lists
 
 | Signature | Ownership, allocation and errors |
 | --- | --- |
 | `system() -> Allocator` | Creates an explicit system-root handle without allocation. It has no per-instance state or reference count to allocate. |
-| `Allocator.share(self) -> Allocator` | Borrows the handle and returns another owning handle without allocation. For the system root there is no reference count to increment. |
+| `Allocator.share(self) -> Allocator` | Borrows the handle and returns another owning handle without allocation. Custom handles atomically retain their state; the system root has no reference count to increment. |
 | `Allocator.empty_list[T](self) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with zero row capacity. Object and bookkeeping storage still allocate. |
 | `Allocator.list_with_capacity[T](self, capacity: i64) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with at least the requested element capacity. Zero is valid; negative or unrepresentable capacity returns `CapacityOverflow`. |
+
+### Custom providers
+
+`Provider` requires public methods with these signatures (substitute the concrete
+provider type for `Provider` in the receivers):
+
+```plenty fragment
+pub protocol Provider:
+    def allocate(self: &mut Provider, request: &Layout) -> Result[ByteBlock, AllocError]:
+        pass
+    def release(self: &mut Provider, storage: ByteBlock) -> ():
+        pass
+```
+
+`allocator[P: Provider](bootstrap: &Allocator, provider: P) -> Result[Allocator, RegistrationError[P]]`
+borrows the explicit bootstrap and takes the provider by value. Registration
+makes exactly **two allocations through that bootstrap**: a selected state box
+for `P`, then the retained control allocation. There is no hidden system fallback.
+Pre-existing allocations nested in `P` keep their original allocators; registration
+does not migrate them.
+
+`RegistrationError[P]` preserves ownership on failure:
+
+- `Allocation(P, AllocError)` returns the original provider unchanged if either
+  allocation fails, releasing any provisional storage without destroying `P`.
+- `UnsupportedContext(P)` returns it unchanged when a native actor/arena context
+  forbids registration, before allocating or transferring ownership. This is a
+  runtime guard, not certification of arbitrary foreign provenance.
+
+On success, handles and outstanding owners retain the provider and its bootstrap
+storage until final cleanup. Provider callbacks are serialized. The compiler
+certifies state, transitive callback effects and destructors for worker use even
+when the program never spawns a worker; hidden task/channel ownership is rejected.
+This does not relax ordinary list element or borrow restrictions.
+
+`allocate` receives the full backing request, including private metadata and
+alignment padding, not just the user's payload size. It must return a block with
+at least that extent and alignment; oversized blocks are accepted. Insufficient
+extent or alignment traps before typed writes. When the backing is no longer
+needed, `release` receives that **original full block with every byte zeroed**,
+not a zero-length block.
+The provider may cache it or drop it. Typed values have already been destroyed;
+zeroing also hides padding and stale moved-owner representations.
+
+Returned `AllocError` values remain recoverable without fallback. Traps in
+allocation, release, transitive cleanup or final provider destruction are
+**process-fatal**. Same-thread callback recursion traps rather than deadlocking;
+cyclic dependencies between providers have no deadlock-freedom guarantee.
+See the [custom-provider lesson](../../tutorial/04-collections/allocation.md#register-a-custom-provider)
+for a minimal forwarding policy.
 
 ### Safe byte blocks
 
@@ -156,15 +206,16 @@ performed while producing elements are not redirected by selecting a list's
 storage. This is not yet comprehensive explicit allocation control.
 
 `ByteBlock` is allocator backing, not a replacement for the general-purpose
-[`Bytes`](bytes.md) transport buffer. There is no public custom-provider
-registration, typed-storage consumer, byte-view API or reset operation here.
+[`Bytes`](bytes.md) transport buffer. There is no public selected-box constructor,
+generator collector, general typed-storage consumer, byte-view API, reset arena
+or raw callback registration here.
 
 Retained allocator use cannot coexist with actor execution, abandonment or heap
 operations anywhere in the same lowered program, including unrelated lowered
 functions. Importing allocator and actor modules together can therefore be
 rejected even without calls from `main`, including programs that only call the
-pure `layout` factory. Private binding entry points also reject ambient actor/arena contexts
-before allocating or transferring ownership. Trusted separately compiled hosts
+pure `layout` factory. Private runtime binding entry points also reject ambient
+actor/arena contexts before allocating or transferring ownership. Trusted separately compiled hosts
 must keep retained owners out of actor/arena invocations; the binding checks do
 not establish arbitrary foreign provenance or escaping lifetimes.
 

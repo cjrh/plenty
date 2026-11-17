@@ -899,3 +899,6 @@ mod test_arrays;
 
 #[path = "test_std_bigint.rs"]
 mod test_std_bigint;
+
+#[path = "test_std_alloc_provider.rs"]
+mod test_std_alloc_provider;

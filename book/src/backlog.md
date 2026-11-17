@@ -118,7 +118,7 @@ C ABI callbacks and foreign-library lifetimes remain B28.
 | --- | --- | --- |
 | B11 | Broader borrowing | Broader stored references and views beyond [single-origin view classes](design/language/05-ownership/view-classes.md), and nested optional/fallible view payloads; returning a borrow chosen among several reference parameters; symbolic-index collection loans; field-precise loans through `mut` reference bindings. Storing a borrowing generator in a class field, which needs the class to carry its loan (issue #899). Parameters borrowing a reference-carrying value (`&Option[&T]`, references to references); per-name loans for names bound below an exclusive payload, so copying one out leaves its siblings usable (sub-place loans past a dereference). Preserve owner/variant stability and temporary lifetimes; measure precision against compile-time cost. [Proposal](proposals/returned-reference-enums.md); [delivered subset, including returned builtin views, single-origin view classes and streaming user iterators from issue #945 and the `len` call-borrowing fix for issue #683](completed-work/language-and-tooling.md#b11-borrowing). |
 | B12 | Practical I/O and iteration | [Builtin shared windows/chunks](completed-work/language-and-tooling.md#shared-windows-and-chunks-issue-950) are delivered (issue #950). [Streaming user iterators](completed-work/language-and-tooling.md#user-iterators-issue-945-step-3) are delivered (issue #945 step 3); broader stored borrowing is B11 and portable path semantics are B18. Documentation and editor guidance are reconciled for issue #882; the advisory [`text-view-parameter` lint](design/toolchain/01-building/warnings.md#text-view-parameter) delivers reader-parameter suggestions (issue #883). Builtin text operation parity, pure-Plenty readers, direct byte access and [runtime-backed text readers](completed-work/libraries.md#runtime-backed-text-input-views-issue-864) accepting `&strview` are [delivered](completed-work/language-and-tooling.md#b12-io-and-iteration), completing the read-only input scope of issue #864; cached scalar counts are optional pending workload evidence. [Template quote scanning](completed-work/libraries.md#template-quote-scanning) avoids repeated view indexing (issue #881). Explore [one borrowed text type](proposals/unified-borrowed-text.md), subject to naming, representation and generic-reference decisions; ordinary references for getters and retained string handles remain supported; no unification implementation approved. Generator composition (issue #872) is [delivered](completed-work/language-and-tooling.md#b12-io-and-iteration): lent generator loops, [joining different producers](design/language/09-iteration/03-generators.md#frame-ownership-and-identity) where a value is chosen, reassigned or returned (including `Option`/`Result` payloads, whether built there or already built, issue #900), and `next` on borrowed-item pipelines. [Borrowing generator frames](design/language/09-iteration/03-generators.md#borrowing-frames) deliver returned generators, generators wrapping borrowing generators, and `.generator()` over borrowed locals, reference, view and `&mut` sources (issue #899). [Reference items](design/language/09-iteration/03-generators.md#reference-items) (`Generator[&T]`, issue #912) are delivered, and a by-value `Generator[&T]` parameter is a returned-reference origin (issue #921); `.generator()` and comprehensions over reference items remain. Carried-reference generator parameters (issue #913) are delivered; a generator takes a pipeline as `&mut Generator[T]` after `.generator()`, not as a lent `&mut Iter[T]`. Remaining: storing a borrowing frame in a class field (B11), and reassigning a binding to a frame borrowing another owner. Further adapters need use cases; pipeline-specific extensions are B75. [Delivered subset](completed-work/language-and-tooling.md#b12-io-and-iteration). |
-| B13 | Explicit allocator control | Extend the [retained system/arena experiment](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments) to user-implementable allocators, generic owners and all allocating language/std operations, with explicit selection and no implicit default fallback. Settle layout, provenance, scratch allocation and thread contracts; scoped/resettable arena lifetimes remain separate. [Implementation sequence and acceptance checks](#b13-explicit-allocator-implementation-sequence); [direction and evidence](proposals/allocator-experiments.md). Bounded/inline-capacity containers can build on delivered B83 arrays/value parameters. |
+| B13 | Explicit allocator control | Extend [delivered retained system/custom providers, lists and blocks](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments) to public selected boxes, generator collection and all allocating language/std operations; remove implicit defaults and fallback paths. Audit routing, provenance and scratch allocation; scoped/resettable arena lifetimes remain separate. [Implementation sequence and acceptance checks](#b13-explicit-allocator-implementation-sequence); [direction and evidence](proposals/allocator-experiments.md). Bounded/inline-capacity containers can build on delivered B83 arrays/value parameters. |
 | B14 | Typed error composition | Broader Option/Result adapters beyond the delivered fallback/mapping helpers (issues #800/#820), typed composition of parsing/conversion errors, and loop-range proofs for shift counts as well as divisors. Preserve precise errors and use `Failure` only as a last resort. Human-readable reporting extensions are B71. Checked-default core and its arithmetic-boundary rationale (issue #861), recoverable shift counts and float `try_from` (issue #862), module-constant divisor and shift-count proofs (issue #863), coordinated repository/benchmark-template adoption and bounded validation are recorded in the [delivered subset](completed-work/language-and-tooling.md#b14-errors) and [validation record](completed-work/checked-default-validation.md). |
 | B16 | Inference and value conveniences | Partial explicit type arguments, contextual literals across generic arguments; `NonZero[T]` module constants; saturating conversion; zero-size unit storage (unit parameters still take an ABI register and unit fields/elements a slot). Require concrete use cases/contracts, not automatic extensions of today's inference. Parsing/conversion error composition is B14. [Delivered subset, including block-if statement values (issue #674), tuple patterns/nested unpacking (issue #675), expected types through class constructors, `Shared`/`Box` and later branch arms (issue #797), expected-result inference for generic calls (issue #873), ordinary type-parameter inference for lending calls (issue #874), and unit as an ordinary value type (issue #870)](completed-work/language-and-tooling.md#b16-values-and-syntax). |
 | B17 | Modules, tooling and packaging | Shared per-user Git cache; semver selection over tags (separate from multiple-version support); per-module incremental objects (B19); re-exports and import-cycle policy. Warning suppression and deny-warnings policy remain separate decisions after [unused-import diagnostics](completed-work/language-and-tooling.md#b17-tooling-and-packaging) (issue #818). Source formatting: evaluate and implement the conservative [`plenty fmt` proposal](proposals/plenty-fmt.md), with a shared whole-document LSP adapter; no formatter is delivered yet. LSP: document symbols, signature help, `case` pattern variants and incremental module re-checking; [find references and rename](completed-work/language-and-tooling.md#b17-tooling-and-packaging) are delivered. Preserve deterministic lookup, standalone compilation and [reproducibility](design/toolchain/01-building/linking.md). Release artifacts: four targets via `scripts/release/target.sh`, with manual dry runs of the release workflow. [Release build reuse](completed-work/language-and-tooling.md#release-build-reuse-issue-859) (issues #859/#986) records baseline runs; changed-pipeline hosted savings remain unmeasured. Further targets need runtime/linker/artifact tests (B18); std breadth is B38. Exploratory workflows are listed under [tooling investigations](#tooling-investigations). [Delivered subset](completed-work/language-and-tooling.md#b17-tooling-and-packaging), including [multiple transitive dependency versions](proposals/completed/multiversion-dependencies.md) with source identities, edge-specific pins, inspection and shared-resource restrictions, the [completed script design](proposals/completed/single-file-scripts.md) and [optimized build defaults](completed-work/language-and-tooling.md#optimized-builds-by-default-issue-723). Short file aliases are [delivered](completed-work/language-and-tooling.md#short-file-extensions-issue-851) (issue #851). |
@@ -436,45 +436,31 @@ backlog. Async/await remains unadopted and unscheduled under B22's investigation
 ## B13 — explicit allocator implementation sequence
 
 The [retained system/arena experiment](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
-is delivered as an experiment. The [first public binding](design/stdlib/alloc.md)
-now includes validated layout requests and affine safe byte blocks, alongside the
-explicit system allocator for builtin lists; see the [delivered subset](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments).
-The [allocator design record](proposals/allocator-experiments.md) records the
-agreed direction and evidence. Public retained custom-provider registration
-and compiled callback adapters remain outstanding. The
-[stage-1 ownership gate](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
-is delivered: safe external block providers, a generic owned collection, typed
-slot relocation, returned inputs on failed growth, exactly-once destructors and
-provider retention through buffer release. Ordinary packages manage owned
-storage; raw pointer validity and typed cleanup stay inside the trusted boundary.
-The static provider parameter and private slot ABI are experimental, not final
-builtin representations. Implement the remaining work in staged PRs:
+is delivered as a separate experiment. Public [`std.alloc`](design/stdlib/alloc.md)
+now includes system and compiled custom-provider handles, validated layouts,
+safe byte blocks and selected builtin lists; see the
+[delivered bridge](completed-work/language-and-tooling.md#public-compiled-custom-providers).
+The [design record](proposals/allocator-experiments.md) preserves the direction
+and experimental evidence. The bounded stage-1 ownership gate delivered safe
+external block providers, a generic owned collection, typed relocation, returned
+inputs on failed growth and exactly-once cleanup. Its static provider parameter
+and private slot ABI remain experimental, not builtin representations.
 
-2. **Extend allocator selection to more operations.** The [first public binding](design/stdlib/alloc.md)
-   now includes safe byte blocks and validated layout requests alongside system-root
-   selection for builtin `list[T]` construction and growth. Remaining scope: custom
-   provider admission (callback ABI, registration, compiled-callback certification),
-   boxed allocation, generator collection, and full std-wide migration. Build on the [native retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
-   Builtin handles must be thread-safe from the outset, without allocator type
-   parameters on each collection. Complete the compiler-certified provider bridge:
-   connect the private state/effect/destructor admission marker to checked ABI
-   adapters and safe retained state/backing. Wire every public retained-allocator
-   operation into the temporary program-wide actor exclusion, including system-only
-   owners. Keep binding/runtime guards for ambient arenas and foreign host-entry
-   contexts; the compiler gate alone does not prove escaping lifetimes or
-   pre-existing state provenance. Native callbacks prevent actor/arena recovery
-   through their frames: callback traps are process-fatal, while returned
-   allocation errors remain recoverable. Transitive managed cleanup now stays
-   within the callback boundary before lock/scope ends (issue #991).
-   Native box/list object allocation, list row growth and ordered destruction now
-   retain selected providers; connect those paths to compiler lowering and the
-   public explicit-allocator interface beyond the delivered system/list/block subset.
-   Provider callbacks will receive the validated `Layout` request type.
-   Add compiled-program tests for simultaneous
-   allocators, owners outliving caller handles, worker-safe callbacks, destruction
-   and failure without fallback or corruption. Native tests alone do not complete
-   this stage. Relaxing the temporary exclusion requires a separate provenance
-   and abandonment contract; it is not part of initial integration.
+Implement the remaining work in staged PRs:
+
+2. **Extend allocator selection to more operations.** Add public selected boxed
+   allocation and generator collection using the
+   [retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
+   Preserve the delivered bridge's worker-certified state/effects/destructors,
+   serialized callbacks, two explicit-bootstrap allocations with unchanged state
+   on failure, retained owner lifetimes and no fallback. Public retained
+   operations already participate in the temporary whole-program actor exclusion;
+   native guards remain necessary for ambient arenas and foreign hosts. Relaxing
+   that exclusion needs a separate provenance and abandonment contract, not just
+   worker-safe fields. Callback traps and transitive cleanup remain process-fatal
+   (issue #991); returned allocation errors remain recoverable. Validate each new
+   consumer with compiled-program routing, lifetime, worker and failure tests,
+   not native storage tests alone.
 3. **Complete the migration.** Cover dictionaries, sets, strings, formatting,
    copying, owning slices, scratch buffers and allocating std APIs. Maintain an
    allocation-site inventory and verify routing, ownership and failure behavior
