@@ -26,6 +26,14 @@ pub(crate) unsafe fn operation(op: i64, a: u128, b: u128, ty: *const Type) -> u1
             drop(ManuallyDrop::into_inner(handle));
             0
         }
+        ALLOCATOR_BOX => {
+            // The std wrapper owns b until success, then commits without dropping.
+            // On failure no payload bytes have been moved or destroyed.
+            match unsafe { allocator_owners::box_new_in(&handle, &*ty, b) } {
+                Ok(boxed) => boxed as u128,
+                Err(error) => (1 + 2 * error as u128) << 64,
+            }
+        }
         ALLOCATOR_LIST => {
             let result = if (b as i64) < 0 {
                 Err(AllocError::CapacityOverflow)

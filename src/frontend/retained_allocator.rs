@@ -66,6 +66,22 @@ impl Lower<'_> {
                 Some(storage),
                 None,
             ),
+            "__allocator_box" => {
+                let [element] = types else {
+                    return Err(at.error("allocator box requires one element type"));
+                };
+                let element = element.resolve(self.aliases)?.unwrap_or(Ty::Unit);
+                if !element.heap_storable() || crate::boxed::erasure_barrier(&element) {
+                    return Err(at.error(format!("allocator boxes cannot store `{element}`: borrowed or hidden task/channel ownership is unsupported")));
+                }
+                let boxed = Ty::Box(Arc::new(element.clone()));
+                (
+                    code::ALLOCATOR_BOX,
+                    vec![handle, Ty::Ref(Arc::new(element), true)],
+                    Some(crate::sum::result(boxed.clone(), crate::sum::alloc_error())),
+                    Some(boxed),
+                )
+            }
             "__allocator_list" => {
                 let [element] = types else {
                     return Err(at.error("allocator list requires one element type"));

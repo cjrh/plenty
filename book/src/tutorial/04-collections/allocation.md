@@ -49,7 +49,7 @@ represented. Neither variant needs allocation.
 ## Select list storage and backing blocks explicitly
 
 The [`std.alloc`](../../design/stdlib/alloc.md) API lets you select a system or
-custom allocator for a list. The list keeps that selection for growth and
+custom allocator for a list or box. The list keeps that selection for growth and
 cleanup, even after the handle is dropped. The same allocator can also provide
 affine zero-initialized byte blocks:
 
@@ -68,6 +68,50 @@ def main() -> Result[(), AllocError | IoError]:
 ```output
 [21, 42]
 ```
+
+## Box a value and collect a generator
+
+`owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the
+selected allocator. `owner.list(source)` consumes a generator and returns a list
+that keeps the allocator. Both report allocation failures through `?`:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), alloc.BoxError[i64] | AllocError | IoError]:
+    owner = alloc.system()
+    mut boxed = owner.box(41)?
+    reference = &mut *boxed
+    *reference = 42
+    value = *boxed
+    print(value)?
+    values = owner.list(index for index in range(3))?
+    drop(owner)
+    print(values)?
+    Ok(())
+```
+```output
+42
+[0, 1, 2]
+```
+
+A mutable borrow such as `&mut *boxed` edits the content in place. Taking it with
+`*boxed` moves the content out and releases the box's storage through its
+retained allocator.
+
+If boxing fails, `BoxError.Allocation` returns the original value unchanged, so
+the caller can keep it or retry elsewhere rather than losing it.
+
+The generator expression yields each index in order; see
+[generators](../../design/language/09-iteration/03-generators.md).
+The collector infers its element type from the generator and does not reserve
+capacity from the source. When the count is known, reserve it with
+`list_with_capacity` and append, as the
+[selection section](#select-list-storage-and-backing-blocks-explicitly) shows.
+The collector does not cap its input, so bound a generator that could run long
+before collecting it. A failed collection consumes the generator too: its
+captured values and partial list are dropped once, and the call returns the
+`AllocError`.
 
 ## Allocate backing blocks
 
@@ -151,10 +195,10 @@ callback traps, including cleanup traps, terminate the process.
 Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
 does not redirect allocations made by element expressions, copies or other
-standard-library operations, and ordinary list element restrictions still apply.
-Public selected boxes and generator collection are not available. Ordinary
-constructors remain available during the explicit-allocation migration; this
-milestone does not remove implicit defaults or provide resettable arenas.
+standard-library operations, and ordinary list and box element restrictions still
+apply. Ordinary constructors remain available during the explicit-allocation
+migration; selection does not remove implicit defaults or provide resettable
+arenas.
 
 Use [capacity and reservation](../../design/examples/collections/capacity.md)
 to obtain storage before inserting values you want to keep if reservation

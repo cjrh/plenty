@@ -524,3 +524,88 @@ fn selected_box_graph_destruction_remains_iterative() {
         .join()
         .unwrap();
 }
+
+#[test]
+fn selected_box_binding_preserves_failure_input_and_encodes_success() {
+    use crate::allocator::bindings::operation;
+    use crate::collection_opcodes::ALLOCATOR_BOX;
+    DROPS.with(|drops| drops.borrow_mut().clear());
+    unsafe {
+        let mut source = [0; 6];
+        record(93, &mut source);
+        #[cfg(feature = "allocation-checks")]
+        {
+            let before = source;
+            crate::accounting::fail_after(Some(0));
+            let result = operation(ALLOCATOR_BOX, 0, source.as_ptr() as u128, &RECORD_BOX);
+            crate::accounting::fail_after(None);
+            assert_eq!(result, (1 + 2 * AllocError::OutOfMemory as u128) << 64);
+            assert_eq!(source, before);
+            DROPS.with(|drops| assert!(drops.borrow().is_empty()));
+        }
+        let result = operation(ALLOCATOR_BOX, 0, source.as_ptr() as u128, &RECORD_BOX);
+        assert_ne!(result, 0);
+        assert_eq!(result >> 64, 0);
+        source.fill(0);
+        plenty_release(result as *mut Header);
+    }
+    DROPS.with(|drops| assert_eq!(&*drops.borrow(), &[93]));
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn allocator_dispatch_rejects_arena_before_operand_access() {
+    use crate::collection_opcodes::{ALLOCATOR_BOX, ALLOCATOR_LIST, ALLOCATOR_SYSTEM};
+    const PROBE: &str = "PLENTY_SELECTED_BOX_ARENA_PROBE";
+    if let Ok(probe) = std::env::var(PROBE) {
+        let (op, entry) = probe.split_once(':').unwrap();
+        let op = op.parse::<i64>().unwrap();
+        let mut arena = crate::actor_heap::Arena::new(4096).unwrap();
+        let _ = crate::actor_heap::within(&mut arena, || unsafe {
+            // Issue #994: a direct binding call misses earlier descriptor reads.
+            // The argument buffer is valid; none of its pointer operands are.
+            if entry == "operation" {
+                let mut args = [1u128; 6];
+                crate::aggregates::operation(op, args.as_mut_ptr(), ptr::dangling(), ptr::null());
+            } else {
+                crate::aggregates::collection_at(op, 1, 1, 0, ptr::dangling(), ptr::null());
+            }
+        });
+        panic!("allocator arena guard did not terminate");
+    }
+    for op in (ALLOCATOR_SYSTEM..=ALLOCATOR_LIST).chain([ALLOCATOR_BOX]) {
+        for entry in ["operation", "collection_at"] {
+            let probe = format!("{op}:{entry}");
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "aggregates::allocator_owners::tests::allocator_dispatch_rejects_arena_before_operand_access",
+                    "--nocapture",
+                ])
+                .env(PROBE, &probe)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while child.try_wait().unwrap().is_none() {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let output = child.wait_with_output().unwrap();
+                    panic!("{probe} timed out: {output:?}");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            let output = child.wait_with_output().unwrap();
+            assert_eq!(output.status.code(), Some(1), "{probe}: {output:?}");
+            assert!(
+                String::from_utf8_lossy(&output.stderr)
+                    .contains("retained allocator use is unsupported in actor or arena contexts"),
+                "{probe}: {output:?}"
+            );
+        }
+    }
+}

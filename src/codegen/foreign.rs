@@ -48,6 +48,12 @@ impl Lowerer<'_, '_> {
                 for (argument, (_, ty)) in args.iter_mut().zip(&sig.inputs) {
                     if let Ty::Ref(inner, _) = ty {
                         *argument = self.read_typed_reference(*argument, inner);
+                        if *opcode == crate::collection_opcodes::ALLOCATOR_BOX {
+                            // Reference reads leave narrow scalars unpacked; the
+                            // selected-box ABI takes the ordinary packed value.
+                            let value = self.unpack(*argument, inner);
+                            *argument = self.pack(value, inner);
+                        }
                     }
                 }
                 if matches!(*opcode, ALLOCATOR_BLOCK | ALLOCATOR_BLOCK_SPLIT) {

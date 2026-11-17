@@ -2,11 +2,16 @@
 
 `plenty-runtime/src/allocator.rs` implements B13's native storage substrate.
 The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
-compiled custom-provider registration, builtin lists and safe byte blocks.
-Providers receive validated `Layout` requests and return affine `ByteBlock`
-owners, without raw-pointer escape. Public selected boxes and generator
-collection remain unavailable; other allocating language/std operations still
-use their existing paths. The experimental module remains separate.
+compiled custom-provider registration, selected boxes, builtin lists, generator
+collection and safe byte blocks. Providers receive validated `Layout` requests
+and return affine `ByteBlock` owners, without raw-pointer escape.
+`Allocator.box` calls the private intrinsic `__allocator_box` (opcode 658) with a
+borrowed source value. The std wrapper then commits that source with
+`__allocator_commit`, which consumes it without running its destructor, and only
+after a successful box. The generator collector is ordinary Plenty iteration over
+the selected list path, so it adds no collector intrinsic. Other allocating
+language/std operations still use their existing paths. The experimental module
+remains separate.
 
 ## Thread contract decision
 
@@ -221,9 +226,11 @@ a disjoint owner of existing backing.
 
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
 using a selected allocator. Both the list object and its row buffer use that
-provider. Empty lists retain it too. Compiler lowering reaches the list path
-through `std.alloc`; selected boxes also hold compiled provider state, but
-ordinary public selected-box construction remains unavailable.
+provider. Empty lists retain it too. Selected boxes also hold compiled provider
+state. Compiler lowering reaches the box
+path through `Allocator.box` (opcode 658) and the list path through
+`Allocator.empty_list` (opcode 616); the collector then grows that list with
+ordinary `append`.
 
 A private prefix before each selected object's ordinary header owns its backing
 block and type descriptor. Ordinary box content offsets and the compiler-visible
@@ -330,6 +337,9 @@ budget. The [delivery record](../../../completed-work/language-and-tooling.md#pu
 and local PR distinguish executed checks from coverage that is only present in
 source, including native-only trap probes and directly traced Valgrind runs.
 
+`tests/test_std_alloc_consumers.rs` covers selected box ownership, failure and
+returned values, take and worker rules, collector failure cleanup and capture
+loans, and selected-list result inference.
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not
 optimized. Implementation priorities remain in

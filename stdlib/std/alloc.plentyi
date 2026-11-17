@@ -64,6 +64,9 @@ pub class ByteBlock:
             __trap("ByteBlock.split_off: at is outside 0..len() inclusive")
         ByteBlock(__allocator_block_split(&mut self._storage, at))
 
+pub enum BoxError[T]:
+    Allocation(T, AllocError)
+
 pub class Allocator:
     _handle: Handle
 
@@ -75,6 +78,22 @@ pub class Allocator:
 
     pub def share(self) -> Allocator:
         Allocator(__allocator_share(self._handle))
+
+    pub def box[T](self, value: T) -> Result[Box[T], BoxError[T]]:
+        mut content = value
+        match __allocator_box[T](self._handle, &mut content):
+            case Ok(boxed):
+                # Relocation succeeded: commit before any fallible or user code.
+                __allocator_commit[T](content)
+                Ok(boxed)
+            case Err(error):
+                Err(BoxError[T].Allocation(content, error))
+
+    pub def list[T](self, source: Generator[T]) -> Result[list[T], AllocError]:
+        mut output = self.empty_list[T]()?
+        for value in source:
+            output.append(value)?
+        Ok(output)
 
     pub def empty_list[T](self) -> Result[list[T], AllocError]:
         __allocator_list[T](self._handle, 0)

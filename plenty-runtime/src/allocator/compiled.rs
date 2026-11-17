@@ -73,7 +73,7 @@ pub(crate) unsafe fn register(
     }
     let bootstrap = ManuallyDrop::new(Allocator(NonNull::new(bootstrap as *mut ProviderHeader)));
     let ty = unsafe { &*ty };
-    let state = match unsafe { allocator_owners::provider_box_new(&bootstrap, ty, source) } {
+    let state = match unsafe { allocator_owners::box_new_in(&bootstrap, ty, source) } {
         Ok(state) => state,
         Err(AllocError::OutOfMemory) => return error(REGISTRATION_OUT_OF_MEMORY),
         Err(AllocError::CapacityOverflow) => return error(REGISTRATION_CAPACITY_OVERFLOW),

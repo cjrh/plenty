@@ -19,7 +19,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.actor.net`](actor-net.md) | TCP for actors: a listener that starts one actor per connection with admission limits, connections with bounded buffers, back-pressure and deadlines, and nonblocking connect and lookup | `NetError`, `TimerError`, `BytesError` |
 | [`std.actor.tls`](actor-tls.md) | TLS for actor connections: a std.tls session over a `std.actor.net` connection, with plaintext back-pressure and the session in the connection actor's heap | `TlsError`, `TimerError` |
 | [`std.actor.http.server`](actor-http-server.md) | HTTP/1.1 and HTTPS on isolated connection actors, bounded request/response handlers or resumable streaming events, deadlines and draining | `ServerError` |
-| [`std.alloc`](alloc.md) | Explicit retained system and custom-provider allocators for builtin lists and safe byte blocks; validated allocation-free layouts | `AllocError`, `LayoutError`, `RegistrationError[P]` |
+| [`std.alloc`](alloc.md) | Explicit retained system and custom-provider allocators for selected boxes, builtin lists (including generator collection) and safe byte blocks; validated allocation-free layouts | `AllocError`, `BoxError[T]`, `LayoutError`, `RegistrationError[P]` |
 | [`std.archive`](archive.md) | TAR and ZIP readers and writers over `std.io`, and extraction into a new directory under explicit path, link, and size limits | `ArchiveError` |
 | [`std.atomic`](atomic.md) | Inline atomic integers and booleans with compile-time checked orderings, and fences | None |
 | [`std.bigint`](bigint.md) | Signed arbitrary-precision integers, fallible arithmetic, bounded radix conversion and inline small values | `BigIntError` |
