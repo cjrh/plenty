@@ -79,6 +79,15 @@ reject unqualified opaque elements and unsafe destructors; a valid movable-owner
 array destroys its elements on a worker. These checks do not change allocator
 selection in existing programs.
 
+Issue #991 fixed managed cleanup escaping the allocator callback boundary during
+an existing destruction pass. Callbacks now use an isolated nested drop queue,
+so their managed cleanup finishes before the callback returns or unlocks its
+provider. The outer queue is restored on normal return and native Rust unwinding.
+Three native tests cover callback kinds and queue isolation, recoverable allocation
+failure, and iterative cleanup of 10,000 nodes on a 128 KiB stack. Three additional
+actor subprocess cases confirm that transitive cleanup traps remain process-fatal.
+Header/ABI layouts are unchanged; no public bridge is added.
+
 Private admission now excludes retained allocator use and actor operations in
 the same lowered program. A new `ThreadOp::AllocatorUse` marker covers system-only
 use; provider registration also implies use. The check scans unused and unrelated

@@ -117,7 +117,7 @@ pub(crate) fn dropping() -> bool {
 
 /// A user hook's explicit drops finish synchronously before its next statement.
 /// Never hold a RefCell borrow or mutable Rust reference across native callbacks.
-pub(crate) fn with_nested_drops(f: impl FnOnce()) {
+pub(crate) fn with_nested_drops<R>(f: impl FnOnce() -> R) -> R {
     struct Restore(Queue);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -125,7 +125,7 @@ pub(crate) fn with_nested_drops(f: impl FnOnce()) {
         }
     }
     let _restore = Restore(QUEUE.with(|q| q.replace(Queue::default())));
-    f();
+    f()
 }
 
 /// Resume a dying parent's callback after this child's complete destruction.

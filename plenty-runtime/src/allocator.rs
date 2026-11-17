@@ -115,7 +115,11 @@ fn callback<R>(f: impl FnOnce() -> R) -> R {
         }
     }
     let _restore = Restore(CALLBACK_ACTIVE.with(|active| active.replace(true)));
-    f()
+    // A callback may run while an outer managed-object drop queue is draining.
+    // Its own managed cleanup must finish before its lock and fatal-trap scope
+    // end, not be deferred into that outer queue. Preserve the outer queue on
+    // both normal return and native unwinding, just as for Plenty user hooks.
+    crate::memory::with_nested_drops(f)
 }
 
 fn thread_id() -> usize {
@@ -356,5 +360,7 @@ impl Drop for Block {
     }
 }
 
+#[cfg(test)]
+mod managed_tests;
 #[cfg(test)]
 mod tests;

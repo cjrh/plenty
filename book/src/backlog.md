@@ -456,7 +456,8 @@ builtin representations. Implement the remaining work in staged PRs:
    contexts; the compiler gate alone does not prove escaping lifetimes or
    pre-existing state provenance. Native callbacks prevent actor/arena recovery
    through their frames: callback traps are process-fatal, while returned
-   allocation errors remain recoverable.
+   allocation errors remain recoverable. Transitive managed cleanup now stays
+   within the callback boundary before lock/scope ends (issue #991).
    Native box/list object allocation, list row growth and ordered destruction now
    retain selected providers; connect those paths to compiler lowering and the
    public explicit-allocator interface. Add compiled-program tests for simultaneous

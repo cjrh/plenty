@@ -14,6 +14,7 @@ impl Provider for Policy {
     fn allocate(&mut self, layout: Layout) -> Result<Block, AllocError> {
         match self.mode.as_str() {
             "allocate" => crate::fail("provider allocation trap"),
+            "managed-allocate" => release_trapping_value(),
             "short" => return Allocator::system().allocate(Layout::new::<u8>()),
             "recursive" => {
                 return self
@@ -40,6 +41,9 @@ impl Provider for Policy {
         if self.mode == "release" {
             crate::fail("provider release trap");
         }
+        if self.mode == "managed-release" {
+            release_trapping_value();
+        }
         drop(block);
     }
 }
@@ -47,6 +51,39 @@ impl Drop for Policy {
     fn drop(&mut self) {
         if self.mode == "destroy" {
             crate::fail("provider destruction trap");
+        }
+        if self.mode == "managed-destroy" {
+            release_trapping_value();
+        }
+    }
+}
+unsafe extern "C" fn managed_trap(_: *mut crate::memory::Header) {
+    crate::fail("managed provider cleanup trap");
+}
+fn release_trapping_value() {
+    let value = Box::new(crate::memory::Header::new(managed_trap));
+    unsafe {
+        crate::memory::plenty_release(Box::into_raw(value));
+    }
+}
+#[repr(C)]
+struct ManagedDriver {
+    header: crate::memory::Header,
+    context: *mut Context,
+}
+unsafe extern "C" fn managed_driver(header: *mut crate::memory::Header) {
+    unsafe {
+        let driver = Box::from_raw(header.cast::<ManagedDriver>());
+        let ctx = &mut *driver.context;
+        match ctx.mode.as_str() {
+            "managed-destroy" => drop(ctx.allocator.take()),
+            "managed-release" => drop(ctx.block.take()),
+            _ => drop(
+                ctx.allocator
+                    .as_ref()
+                    .unwrap()
+                    .allocate(Layout::new::<u64>()),
+            ),
         }
     }
 }
@@ -68,6 +105,17 @@ unsafe extern "C" fn entry(storage: *mut u8) -> *mut u8 {
     // SAFETY: the probe keeps Context live across the actor call.
     let ctx = unsafe { &mut *storage.cast::<Context>() };
     match ctx.mode.as_str() {
+        "managed-allocate" | "managed-release" | "managed-destroy" => {
+            // Invoke the provider while an outer managed destruction pass is
+            // already active. Its transitive managed trap must still be fatal.
+            let driver = Box::new(ManagedDriver {
+                header: crate::memory::Header::new(managed_driver),
+                context: ctx,
+            });
+            unsafe {
+                crate::memory::plenty_release(Box::into_raw(driver).cast());
+            }
+        }
         "destroy" => drop(ctx.allocator.take()),
         "release" => drop(ctx.block.take()),
         "actor-arena" => {
@@ -142,7 +190,8 @@ fn probe() {
         assert!(result.is_err());
         assert!(!crate::allocator::callback_active());
     }
-    let block = (mode == "release").then(|| allocator.allocate(Layout::new::<u64>()).unwrap());
+    let block = matches!(mode.as_str(), "release" | "managed-release")
+        .then(|| allocator.allocate(Layout::new::<u64>()).unwrap());
     let mut ctx = Context {
         allocator: Some(allocator),
         block,
@@ -180,6 +229,9 @@ fn callbacks_cannot_escape_through_actor_or_arena_recovery() {
         ("allocate", "provider allocation trap", false),
         ("release", "provider release trap", false),
         ("destroy", "provider destruction trap", false),
+        ("managed-allocate", "managed provider cleanup trap", false),
+        ("managed-release", "managed provider cleanup trap", false),
+        ("managed-destroy", "managed provider cleanup trap", false),
         ("short", "insufficient extent or alignment", false),
         ("recursive", "reentrant allocator callback", false),
         ("poison", "poisoned allocator provider", false),
