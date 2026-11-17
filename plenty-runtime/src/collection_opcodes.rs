@@ -6,6 +6,14 @@ pub const ALLOCATOR_SHARE: i64 = 614;
 pub const ALLOCATOR_RELEASE: i64 = 615;
 pub const ALLOCATOR_LIST: i64 = 616;
 
+pub const ALLOCATOR_BLOCK: i64 = 650;
+pub const ALLOCATOR_BLOCK_RELEASE: i64 = 651;
+pub const ALLOCATOR_BLOCK_LEN: i64 = 652;
+pub const ALLOCATOR_BLOCK_ALIGNMENT: i64 = 653;
+pub const ALLOCATOR_BLOCK_GET: i64 = 654;
+pub const ALLOCATOR_BLOCK_SET: i64 = 655;
+pub const ALLOCATOR_BLOCK_SPLIT: i64 = 656;
+
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;
 pub const SET_IS_DISJOINT: i64 = 64;
@@ -100,7 +108,7 @@ pub const fn scratch_operand_count(op: i64) -> usize {
     match op {
         // Float formatting; datagram receive.
         281 | 417 => 2,
-        DICT_LAZY_FINISH => 1,
+        DICT_LAZY_FINISH | ALLOCATOR_BLOCK => 1,
         // Slices: receiver, start, stop, step and the bound flags.
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         // A text view's source, start, stop and the bound flags.

@@ -5,11 +5,73 @@
 @thread_shareable
 opaque Handle
 
+@copy
+pub enum LayoutError:
+    InvalidAlignment
+    Allocation(AllocError)
+
+@copy
+pub class Layout:
+    _size: i64
+    _alignment: i64
+
+    pub def size(self) -> i64:
+        self._size
+
+    pub def alignment(self) -> i64:
+        self._alignment
+
+pub def layout(size: i64, alignment: i64 = 8) -> Result[Layout, LayoutError]:
+    if alignment <= 0:
+        return Err(LayoutError.InvalidAlignment)
+    # Positive alignment makes subtraction safe; the rounded extent must fit i64.
+    unchecked:
+        mask = alignment - 1
+        if alignment & mask != 0:
+            return Err(LayoutError.InvalidAlignment)
+        if size < 0 or size > i64.MAX - mask:
+            return Err(LayoutError.Allocation(AllocError.CapacityOverflow))
+    Ok(Layout(size, alignment))
+
+pub class ByteBlock:
+    # Compiler-private inline ABI: backing, data, extent. Never exposed as bytes.
+    _storage: array[u64, 3]
+
+    def __del__(self: &mut ByteBlock) -> ():
+        __allocator_block_release(&mut self._storage)
+
+    pub def len(self) -> i64:
+        __allocator_block_len(&self._storage)
+
+    pub def is_empty(self) -> bool:
+        self.len() == 0
+
+    pub def alignment(self) -> i64:
+        __allocator_block_alignment(&self._storage)
+
+    pub def get(self, index: i64) -> u8:
+        if index < 0 or index >= self.len():
+            __trap("ByteBlock.get: index is outside 0..len()")
+        __allocator_block_get(&self._storage, index)
+
+    pub def set(self: &mut ByteBlock, index: i64, value: u8) -> ():
+        if index < 0 or index >= self.len():
+            __trap("ByteBlock.set: index is outside 0..len()")
+        __allocator_block_set(&mut self._storage, index, value)
+
+    pub def split_off(self: &mut ByteBlock, at: i64) -> ByteBlock:
+        if at < 0 or at > self.len():
+            __trap("ByteBlock.split_off: at is outside 0..len() inclusive")
+        ByteBlock(__allocator_block_split(&mut self._storage, at))
+
 pub class Allocator:
     _handle: Handle
 
     def __del__(self: &mut Allocator) -> ():
         __allocator_release(self._handle)
+
+    pub def block(self, layout: &Layout) -> Result[ByteBlock, AllocError]:
+        Ok(ByteBlock(__allocator_block(self._handle, layout.size(), layout.alignment())?))
 
     pub def share(self) -> Allocator:
         Allocator(__allocator_share(self._handle))

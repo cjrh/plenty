@@ -3,6 +3,8 @@
 `plenty-runtime/src/allocator.rs` implements the native storage substrate for
 B13's builtin-owner integration. The [first public language binding](../../stdlib/alloc.md)
 exposes the system allocator root for builtin `list[T]` construction and growth.
+Also public are validated layout requests and affine safe byte blocks (`ByteBlock`)
+with checked access, disjoint splitting and no copying or raw-pointer escape.
 Compiled programs still select their existing allocation paths for all other
 operations, and the experimental Plenty module remains unchanged for arena and
 provider experiments. Native constructors now exercise selected-provider storage
@@ -59,7 +61,7 @@ bindings and host-entry contracts.
 
 These checks do not certify the callback ABI, returned block representation or
 escaping storage lifetimes. There is no compiled custom-provider callback
-adapter. Public system handles and list constructors exclude actor/arena
+adapter. Public system handles, lists and blocks exclude actor/arena
 interoperability rather than imply that worker-safe fields survive abandonment.
 Native registration guards remain in place, and `std.alloc` binding entries reject
 ambient actor/arena contexts before allocation or ownership transfer. Trusted
@@ -163,12 +165,31 @@ callback effects safe. In particular, it does not make actor/arena-owned values
 safe to retain past their backing lifetime. Those checks still belong to the
 compiler bridge.
 
+## Private ByteBlock intrinsic ABI
+
+Safe byte blocks are exposed through the public `Allocator.block()` method and
+private intrinsic opcodes 650–656. Its private `array[u64, 3]` stores the backing
+pointer, data pointer and byte extent, with eight bytes of inline tail padding.
+The binding reads/writes these fields explicitly, never by casting Rust's
+unspecified `Block` layout. Constructor and split operations write into
+frame-owned buffers, then normal inline moves snapshot the result before those
+buffers are reused. Descriptor moves do not retain backing; splitting does.
+Final release uses the existing provider callback and managed-cleanup boundaries.
+
+Every retained block intrinsic emits `AllocatorUse` and rejects ambient
+actor/arena contexts before inspecting operands. Pure Plenty `layout()` validation
+allocates nothing and needs no marker, but importing `std.alloc` still lowers
+other marked bodies, so using only layouts does not bypass actor exclusion.
+Private fields prevent direct construction, extraction or mutation of either
+representation. `Allocator.block()` obtains fresh backing; `split_off()` creates
+a disjoint owner of existing backing.
+
 ## Native builtin owner paths
 
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
 using a selected allocator. Both the list object and its row buffer use that
-provider. Empty lists retain it too. These constructors are internal and are not
-called by compiler lowering yet.
+provider. Empty lists retain it too. Compiler lowering reaches the list path
+through `std.alloc`; selected-provider box construction remains native-only.
 
 A private prefix before each selected object's ordinary header owns its backing
 block and type descriptor. Ordinary box content offsets and the compiler-visible
@@ -212,6 +233,13 @@ providers, recursion traps and explicit system allocation inside an ambient
 arena. Trap subprocesses have deadlines. Successful paths pass Valgrind checks
 for invalid access and definite, indirect and possible leaks.
 
+Compiled block-binding tests cover layout validation and privacy, zeroing and
+alignment, moves/returns/container relocation, worker transfers and shared reads,
+bounds traps, and allocation-free splitting under injected failures. Separate
+native binding tests check custom-provider error preservation and final backing
+release/provider destruction on a worker. These do not exercise compiled custom
+providers, which remain unavailable.
+
 Eleven additional native owner tests cover object/buffer routing, failed growth
 and partial construction, instrumented system failures, nested records with
 ranges and owned child boxes, extracted-value cleanup, dense scalar ABI offsets,
@@ -243,9 +271,11 @@ worker. A bounded native subprocess verifies registration rejection under an
 actor allocation target, actor recovery (including temporary System routing),
 and an arena, with unchanged provider state and no bootstrap allocation. It also
 checks thread isolation and successful registration/destruction after leaving
-those contexts. This remains groundwork, not compiled-provider execution.
+those contexts. System-handle and all seven block-binding opcodes are rejected
+under actor recovery even inside temporary System routing, before reading block
+operands. This remains groundwork, not compiled-provider execution.
 
-The 34-test allocator/registration harness passes Valgrind; its exec'd probes
+The earlier 34-test allocator/registration harness passed Valgrind; its exec'd probes
 are not child-traced. Directly tracing the registration probe fails during actor
 heap creation, whose native path reserves 64 GiB of address space, before the
 actor admission checks run. Those checks are validated natively, not under

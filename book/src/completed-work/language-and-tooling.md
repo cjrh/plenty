@@ -8,7 +8,7 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 ## B13 — explicit allocator experiments
 
 The [first public allocator binding](../design/stdlib/alloc.md) (`std.alloc`)
-exposes the explicit system allocator to application code. `system()` obtains a
+exposes the explicit system allocator to application code. `system()` obtains an
 allocation-free system-root handle, `Allocator.share()` yields another handle, and
 `empty_list[T]()`/`list_with_capacity[T](capacity)` construct builtin `list[T]`
 with that allocator selected. Handles support workers; lists retain their
@@ -19,6 +19,17 @@ nested records with exact-once destruction, and actor heap rejection. Current
 scope excludes custom providers, boxing, generator collection and the full
 std-wide migration. This is groundwork for complete allocator selection, not
 yet completion of B13.
+
+The [safe-block binding](../design/stdlib/alloc.md#safe-byte-blocks) adds copyable,
+validated `Layout` requests and affine `ByteBlock` owners. Layout validation and
+disjoint splitting allocate nothing; even empty ranges retain backing. Block
+creation zeroes bytes, preserves allocation errors and supports requested
+alignment. Private representation prevents forging or duplicating owners;
+checked borrows permit worker reads and exclusive mutation. Compiled tests cover
+validation/privacy, zeroing/alignment, moves/returns/container relocation,
+workers, bounds traps and allocation-free splitting under injected failure.
+Native tests cover custom-provider error preservation and final backing/provider
+destruction on a worker. Public custom-provider registration remains absent.
 
 The [experimental std module](../design/stdlib/experimental-alloc.md) supplies
 retained system and bounded arena handles plus an integer-only list. Small

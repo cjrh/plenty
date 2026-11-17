@@ -62,6 +62,16 @@ unsafe extern "C" fn binding_entry(_: *mut u8) -> *mut u8 {
     std::ptr::null_mut()
 }
 
+unsafe extern "C" fn block_binding_entry(storage: *mut u8) -> *mut u8 {
+    // The opcode lives on the probe's stack across this actor invocation.
+    let op = unsafe { *storage.cast::<i64>() };
+    outside(|| unsafe {
+        // Invalid operands must never be inspected while recovery is active.
+        crate::allocator::bindings::block_operation(op, [0; 4]);
+    });
+    std::ptr::null_mut()
+}
+
 #[test]
 fn probe() {
     if std::env::var_os("PLENTY_PROVIDER_REGISTRATION_PROBE").is_none() {
@@ -99,6 +109,22 @@ fn probe() {
     assert_ne!(status, 0, "binding admitted an active actor recovery frame");
     assert_eq!(native::discard(heap), 0);
     assert!(allocator_registration_allowed());
+    for mut op in crate::collection_opcodes::ALLOCATOR_BLOCK
+        ..=crate::collection_opcodes::ALLOCATOR_BLOCK_SPLIT
+    {
+        let heap = native::create(65536);
+        assert!(heap >= 0);
+        let status = unsafe {
+            native::plenty_actor_run(
+                heap,
+                std::ptr::from_mut(&mut op).cast(),
+                block_binding_entry,
+            )
+        };
+        assert_ne!(status, 0, "block opcode {op} admitted actor recovery");
+        assert_eq!(native::discard(heap), 0);
+        assert!(allocator_registration_allowed());
+    }
 }
 #[test]
 fn ambient_context_rejection_returns_provider_without_allocating() {
