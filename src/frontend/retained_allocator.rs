@@ -15,6 +15,9 @@ impl Lower<'_> {
             "std.alloc.Handle".into(),
             crate::foreign::Threads::Shareable,
         );
+        let storage = Ty::Array(Arc::new(Ty::U64), 3);
+        let shared = Ty::Ref(Arc::new(storage.clone()), false);
+        let exclusive = Ty::Ref(Arc::new(storage.clone()), true);
         let (opcode, inputs, output, descriptor) = match name {
             "__allocator_system" => (code::ALLOCATOR_SYSTEM, vec![], Some(handle.clone()), None),
             "__allocator_share" => (
@@ -24,6 +27,45 @@ impl Lower<'_> {
                 None,
             ),
             "__allocator_release" => (code::ALLOCATOR_RELEASE, vec![handle.clone()], None, None),
+            "__allocator_block" => (
+                code::ALLOCATOR_BLOCK,
+                vec![handle, Ty::I64, Ty::I64],
+                Some(crate::sum::result(
+                    storage.clone(),
+                    crate::sum::alloc_error(),
+                )),
+                None,
+            ),
+            "__allocator_block_release" => {
+                (code::ALLOCATOR_BLOCK_RELEASE, vec![exclusive], None, None)
+            }
+            "__allocator_block_len" => {
+                (code::ALLOCATOR_BLOCK_LEN, vec![shared], Some(Ty::I64), None)
+            }
+            "__allocator_block_alignment" => (
+                code::ALLOCATOR_BLOCK_ALIGNMENT,
+                vec![shared],
+                Some(Ty::I64),
+                None,
+            ),
+            "__allocator_block_get" => (
+                code::ALLOCATOR_BLOCK_GET,
+                vec![shared, Ty::I64],
+                Some(Ty::U8),
+                None,
+            ),
+            "__allocator_block_set" => (
+                code::ALLOCATOR_BLOCK_SET,
+                vec![exclusive, Ty::I64, Ty::U8],
+                None,
+                None,
+            ),
+            "__allocator_block_split" => (
+                code::ALLOCATOR_BLOCK_SPLIT,
+                vec![exclusive, Ty::I64],
+                Some(storage),
+                None,
+            ),
             "__allocator_list" => {
                 let [element] = types else {
                     return Err(at.error("allocator list requires one element type"));

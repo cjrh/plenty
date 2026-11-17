@@ -437,9 +437,12 @@ backlog. Async/await remains unadopted and unscheduled under B22's investigation
 
 The [retained system/arena experiment](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 is delivered as an experiment. The [first public binding](design/stdlib/alloc.md)
-begins the intended interface, but does not complete B13. The [allocator design
-record](proposals/allocator-experiments.md) records the agreed direction and
-evidence. The [stage-1 ownership gate](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
+now includes validated layout requests and affine safe byte blocks, alongside the
+explicit system allocator for builtin lists; see the [delivered subset](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments).
+The [allocator design record](proposals/allocator-experiments.md) records the
+agreed direction and evidence. Public retained custom-provider registration
+and compiled callback adapters remain outstanding. The
+[stage-1 ownership gate](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 is delivered: safe external block providers, a generic owned collection, typed
 slot relocation, returned inputs on failed growth, exactly-once destructors and
 provider retention through buffer release. Ordinary packages manage owned
@@ -448,9 +451,10 @@ The static provider parameter and private slot ABI are experimental, not final
 builtin representations. Implement the remaining work in staged PRs:
 
 2. **Extend allocator selection to more operations.** The [first public binding](design/stdlib/alloc.md)
-   covers builtin `list[T]` construction and growth with system-root selection.
-   Remaining scope: custom provider admission, boxed allocation, generator
-   collection, and full std-wide migration. Build on the [native retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
+   now includes safe byte blocks and validated layout requests alongside system-root
+   selection for builtin `list[T]` construction and growth. Remaining scope: custom
+   provider admission (callback ABI, registration, compiled-callback certification),
+   boxed allocation, generator collection, and full std-wide migration. Build on the [native retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
    Builtin handles must be thread-safe from the outset, without allocator type
    parameters on each collection. Complete the compiler-certified provider bridge:
    connect the private state/effect/destructor admission marker to checked ABI
@@ -464,7 +468,8 @@ builtin representations. Implement the remaining work in staged PRs:
    within the callback boundary before lock/scope ends (issue #991).
    Native box/list object allocation, list row growth and ordered destruction now
    retain selected providers; connect those paths to compiler lowering and the
-   public explicit-allocator interface beyond the delivered system/list subset.
+   public explicit-allocator interface beyond the delivered system/list/block subset.
+   Provider callbacks will receive the validated `Layout` request type.
    Add compiled-program tests for simultaneous
    allocators, owners outliving caller handles, worker-safe callbacks, destruction
    and failure without fallback or corruption. Native tests alone do not complete

@@ -44,8 +44,22 @@ impl Lowerer<'_, '_> {
         args.reverse();
         let value = match intrinsic {
             Intrinsic::Allocator { opcode, descriptor } => {
+                use crate::collection_opcodes::{ALLOCATOR_BLOCK, ALLOCATOR_BLOCK_SPLIT};
+                for (argument, (_, ty)) in args.iter_mut().zip(&sig.inputs) {
+                    if let Ty::Ref(inner, _) = ty {
+                        *argument = self.read_typed_reference(*argument, inner);
+                    }
+                }
+                if matches!(*opcode, ALLOCATOR_BLOCK | ALLOCATOR_BLOCK_SPLIT) {
+                    // Native results write into this frame, never a shared runtime
+                    // temporary. Relocate the result below using normal inline moves.
+                    args.push(self.inline_storage(sig.outputs[0].inline_bytes()));
+                }
                 let packed = self.collection_call(*opcode, &args, descriptor.as_ref())?;
-                sig.outputs.first().map(|ty| self.unpack(packed, ty))
+                sig.outputs.first().map(|ty| {
+                    let value = self.unpack(packed, ty);
+                    self.snapshot_inline(value, ty)
+                })
             }
             Intrinsic::SlotPut => {
                 let address = self.bcx.ins().iadd(args[0], args[1]);

@@ -13,6 +13,13 @@ pub(super) fn named(name: &str) -> bool {
             | "__allocator_share"
             | "__allocator_release"
             | "__allocator_list"
+            | "__allocator_block"
+            | "__allocator_block_release"
+            | "__allocator_block_len"
+            | "__allocator_block_alignment"
+            | "__allocator_block_get"
+            | "__allocator_block_set"
+            | "__allocator_block_split"
     )
 }
 

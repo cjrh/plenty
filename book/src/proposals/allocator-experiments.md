@@ -35,8 +35,8 @@ was an additional statically thread-confined builtin owner form.
 
 The [native storage substrate](../design/toolchain/02-architecture/allocator-storage.md)
 implements retained state and serialized Rust callbacks, with explicit bootstrap
-allocation. It does not yet expose a Plenty interface or certify compiled
-callbacks. Thread-confined providers remain useful with the experimental generic
+allocation. Public system/list/block bindings use this substrate; it does not
+yet expose custom-provider registration or certify compiled callbacks. Thread-confined providers remain useful with the experimental generic
 owner. Scoped reset is still a separate lifetime contract.
 
 Provider callback traps are process-fatal, even inside actors. Returning an
@@ -61,7 +61,7 @@ provenance tracking. Private `ThreadOp::AllocatorUse` and
 `ThreadOp::AllocatorProvider` markers cannot coexist with actor execution,
 abandonment or heap operations in one lowered program. This includes unused and
 unrelated bodies and heap observation helpers. System-only retained allocation
-participates too: every private intrinsic for the public `std.alloc` system/list
+participates too: every private intrinsic for the public `std.alloc` system/list/block
 binding emits `AllocatorUse`. The custom-provider marker remains private, without
 a frontend producer. Existing allocation syntax is unchanged.
 
@@ -75,11 +75,23 @@ contexts. Remaining implementation belongs to
 
 ## What was built
 
-[`std.experimental.alloc`](../design/stdlib/experimental-alloc.md) implements
-system handles, bounded bump arenas and `IntList` in Plenty. Private trusted
-raw access supplies scalar loads/stores and C `malloc`/`free`. Compiler changes
-only register this module as a trusted std interface; there are no new parser,
-collection-lowering or runtime allocation operations.
+A [public binding](../design/stdlib/alloc.md) for `std.alloc` now delivers:
+
+- `layout(size, alignment) -> Result[Layout, LayoutError]` — validated,
+  allocation-free layout requests with scalar alignment checking and capacity
+  validation.
+- `Allocator.block(layout) -> Result[ByteBlock, AllocError]` — zero-initialized
+  affine byte blocks with checked access, disjoint splitting and no copying.
+- Existing `system()` and `list[T]` operations.
+
+Public retained custom-provider registration and compiled callback adapters
+remain absent. Those callbacks will accept the validated `Layout` request type.
+The static-provider generic owner remains experimental. [`std.experimental.alloc`](../design/stdlib/experimental-alloc.md)
+implements system handles, bounded bump arenas and `IntList` in Plenty. Private
+trusted raw access supplies scalar loads/stores and C `malloc`/`free`. Compiler
+changes for that initial experimental system/arena/IntList increment only
+registered its trusted std interface; later increments added private typed-slot
+and retained allocator operations.
 
 The intentionally narrow list has inline ownership metadata and an allocated
 `i64` buffer. Each list retains its allocator; an arena retains its parent.

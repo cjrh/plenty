@@ -46,11 +46,12 @@ its arguments, cleaning up any owned argument rather than returning it.
 allocator rejected a request. `CapacityOverflow` means its size cannot be
 represented. Neither variant needs allocation.
 
-## Select list storage explicitly
+## Select list storage and backing blocks explicitly
 
 The initial [`std.alloc`](../../design/stdlib/alloc.md) API lets you select the
 system allocator for a list. The list keeps that selection for growth and
-cleanup, even after the handle is dropped:
+cleanup, even after the handle is dropped. The same allocator can also provide
+affine zero-initialized byte blocks:
 
 ```plenty
 import std.alloc as alloc
@@ -68,11 +69,39 @@ def main() -> Result[(), AllocError | IoError]:
 [21, 42]
 ```
 
-This API currently offers only the system allocator and builtin lists. It cannot
-coexist with actor operations, and does not redirect allocations made by element
-expressions, copies or other standard-library operations. The ordinary constructors
-above remain available during the explicit-allocation migration.
+## Allocate backing blocks
+
+For allocator backing storage, `layout` validates a byte size and alignment
+without allocating. `block` allocates zeroed bytes; even zero-size blocks allocate
+metadata. Use [`Bytes`](../../design/stdlib/bytes.md) for ordinary byte I/O.
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), alloc.LayoutError | AllocError | IoError]:
+    owner = alloc.system()
+    request = alloc.layout(10)?
+    mut block = owner.block(&request)?
+    mut tail = block.split_off(5)
+    drop(owner)
+    tail.set(0, 42u8)
+    print(block.len(), block.get(0), tail.get(0))?
+    Ok(())
+```
+```output
+5 0 42
+```
+
+Splitting transfers disjoint ranges without allocation or copying. Each range,
+including an empty one, retains the full backing until the last range is dropped.
+Blocks can be borrowed for reading, but cannot be copied into overlapping owners.
+This API currently offers only system-root allocation for blocks and builtin
+lists. It cannot coexist with actor operations, and does not redirect
+allocations made by element expressions, copies or other standard-library
+operations. The ordinary constructors above remain available during the
+explicit-allocation migration.
 
 Use [capacity and reservation](../../design/examples/collections/capacity.md)
 to obtain storage before inserting values you want to keep if reservation
-fails.
+fails. For byte-oriented allocator policies, see the safe-block section of
+[`std.alloc`](../../design/stdlib/alloc.md#safe-byte-blocks).
