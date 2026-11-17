@@ -129,10 +129,18 @@ thread-confined.
 ### Callback trap boundary
 
 Allocation, release and final provider destruction run inside an allocation-free,
-thread-local scope. Traps in that scope are **process-fatal**, including inside
-an actor. They report the original error and a callback-boundary note instead
-of recovering through held mutexes or partially moved ownership. Invalid returned
-blocks, recursive entry and poisoned-provider diagnostics follow the same rule.
+thread-local scope. When a callback is invoked, managed destructors from the
+runtime's iterative drop queue are suspended; the callback and any nested
+destructors it triggers complete synchronously within the fatal scope before the
+scope ends and outer pending drops resume. This nested-drop isolation ensures that
+transitive cleanup of managed values stays within the callback's lifetime while
+its provider remains alive, preventing callbacks from queuing managed cleanup
+after their scope/lock ends.
+
+Traps in that scope are **process-fatal**, including inside an actor. They report
+the original error and a callback-boundary note instead of recovering through
+held mutexes or partially moved ownership. Invalid returned blocks, recursive
+entry and poisoned-provider diagnostics follow the same rule.
 
 Arena allocation-failure recovery is also disabled for the scope, including
 arenas entered by a callback. The allocation-failure handler reports and aborts;
@@ -140,11 +148,11 @@ ordinary runtime traps report and exit with status 1. The boundary note uses
 allocation-free, lock-free stderr writes so it is safe on the failure path.
 
 This does not turn returned `AllocError` values into traps: they return normally.
-Nested callbacks preserve the boundary, other threads do not inherit it, and
-normal return or native Rust unwinding restores the prior scope. Rust panic
-unwinding is tested only with Rust providers; this is not an unwinding ABI for
-compiled Plenty callbacks. After the scope, ordinary actor/arena recovery works
-as before.
+Nested callbacks preserve the boundary and nested-drop isolation; outer pending
+drops are restored on success or native Rust unwinding. Other threads do not
+inherit the scope. Rust panic unwinding is tested only with Rust providers; this
+is not an unwinding ABI for compiled Plenty callbacks. After the scope, ordinary
+actor/arena recovery works as before.
 
 The scope does not change allocation routing, certify escaping state or prove
 callback effects safe. In particular, it does not make actor/arena-owned values
@@ -207,13 +215,16 @@ empty owners, take, final release on a worker and child-before-parent release.
 A 10,000-node selected box graph drops on a 128 KiB stack. The combined allocator
 checks pass Valgrind, including the new owner paths.
 
-Callback-boundary checks use real actor/arena recovery frames in eleven bounded
-subprocess cases: allocation, release and destruction traps; invalid extents;
-recursive entry; poisoned locks; the allocation-failure handler under outer,
-nested and actor-wrapped arenas; and successful/error returns followed by normal
-recovery. A separate test checks allocation-free nesting, thread isolation and
-scope restoration after native Rust panics. These are runtime probes, not
-compiled-provider tests.
+Callback-boundary checks use real actor/arena recovery frames in fourteen bounded
+subprocess cases: allocation, release and destruction traps, including transitive
+managed cleanup during an existing destruction pass; invalid extents; recursive
+entry; poisoned locks; the allocation-failure handler under outer, nested and
+actor-wrapped arenas; and successful/error returns followed by normal recovery.
+A separate scope test checks allocation-free nesting, thread isolation and native
+Rust panic restoration. Three managed-cleanup tests cover all callback kinds,
+child-before-parent ordering, outer queue isolation and native unwind restoration;
+cleanup before a recoverable allocation-error return; and 10,000 nodes on a
+128 KiB stack. These are runtime probes, not compiled-provider tests.
 
 Fourteen compiler admission tests cover provider state/receiver checks, transitive
 and indirect effects, destruction, actor restrictions, reachability and array
@@ -230,7 +241,7 @@ and an arena, with unchanged provider state and no bootstrap allocation. It also
 checks thread isolation and successful registration/destruction after leaving
 those contexts. This remains groundwork, not compiled-provider execution.
 
-The 31-test allocator/registration harness passes Valgrind; its exec'd probes
+The 34-test allocator/registration harness passes Valgrind; its exec'd probes
 are not child-traced. Directly tracing the registration probe fails during actor
 heap creation, whose native path reserves 64 GiB of address space, before the
 actor admission checks run. Those checks are validated natively, not under
