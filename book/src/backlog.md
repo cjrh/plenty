@@ -446,9 +446,11 @@ storage; raw pointer validity and typed cleanup stay inside the trusted boundary
 The static provider parameter and private slot ABI are experimental, not final
 builtin representations. Implement the remaining work in staged PRs:
 
-2. **Integrate builtin owners.** Settle the retained allocator-handle representation
-   for ordinary builtin types without requiring allocator type parameters on each
-   collection. Route builtin lists and boxes through explicit
+2. **Integrate builtin owners.** Build on the [native retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
+   Builtin handles must be thread-safe from the outset, without allocator type
+   parameters on each collection. Complete the compiler-certified provider bridge:
+   check provider state, callback effects and destruction, and prevent nonlocal
+   trap recovery through held callback locks. Route builtin lists and boxes through explicit
    allocators, retaining provenance for growth and destruction. Start with
    small tests showing simultaneous allocators, owners outliving caller handles,
    correct destruction and failure without fallback or corruption.
@@ -470,9 +472,10 @@ obtaining a system allocator remains allowed. This is a language/API contract,
 not a security boundary preventing foreign or third-party code from obtaining
 its own allocator.
 
-Scoped/resettable arenas and cross-thread allocator support remain separate
-follow-ups with explicit lifetime and thread-safety contracts; the ordinary
-retained-owner migration must not silently promise either.
+Scoped/resettable arenas remain a separate lifetime contract. Basic cross-thread
+allocator safety is now part of builtin integration, not a deferred promise:
+otherwise erased providers would bypass builtin owners' existing worker checks.
+Thread-confined providers remain supported by the experimental generic owner.
 
 ## B18 — macOS and Windows implementation sequence
 

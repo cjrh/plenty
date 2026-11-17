@@ -12,6 +12,15 @@
 mod accounting;
 mod actor_heap;
 mod aggregates;
+// B13 substrate: compiler/builtin bindings follow after the storage contract.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "retained allocator substrate is not exposed to compiled programs yet"
+    )
+)]
+mod allocator;
 mod channels;
 mod clist_layout;
 mod closures;
