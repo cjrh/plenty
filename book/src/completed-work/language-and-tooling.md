@@ -7,6 +7,16 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Private selected hash-table storage
+
+Hash-backed dictionaries and sets can retain an explicit allocator for their
+rows, order links and bucket tables in the native runtime. Previously, those
+links and buckets used ordinary vectors even though dense lists already
+supported selected rows. Native tests exercise growth with ambient allocation
+refused, sparse relocation, failed rehash and cross-provider cleanup. See
+[native hash-table storage](../design/toolchain/02-architecture/allocator-storage.md#native-hash-table-storage)
+for the failure contract. No Plenty constructor or public opcode changed.
+
 ### Public selected boxes and generator collection
 
 [`Allocator.box`](../design/stdlib/alloc.md#selected-boxes-and-collection) moves a

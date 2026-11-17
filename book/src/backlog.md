@@ -449,7 +449,7 @@ and private slot ABI remain experimental, not builtin representations.
 
 Implement the remaining work in staged PRs:
 
-3. **Complete the migration.** Cover dictionaries, sets, strings, formatting,
+3. **Complete the migration.** Bind the [native hash-table storage](design/toolchain/02-architecture/allocator-storage.md#native-hash-table-storage) to public dictionary/set construction, cover finite sets and independent results, and migrate strings, formatting,
    copying, owning slices, scratch buffers and allocating std APIs. Maintain an
    allocation-site inventory and verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable

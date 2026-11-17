@@ -201,7 +201,7 @@ struct Literal<const N: usize> {
     data: [u8; N],
 }
 
-fn literal<const N: usize>(data: &[u8; N]) -> Literal<N> {
+const fn literal<const N: usize>(data: &[u8; N]) -> Literal<N> {
     Literal {
         refs: u64::MAX,
         destroy: 0,
@@ -386,6 +386,21 @@ static COUNTS: Type = Type {
     ..INTEGER
 };
 
+fn check_count_tables(check: fn(OwnedValue<'static>)) {
+    for selected in [false, true] {
+        let table = if selected {
+            allocator_owners::try_hash_new_in(&crate::allocator::Allocator::system(), &COUNTS, 0)
+        } else {
+            try_collection_new(&COUNTS, 0)
+        }
+        .unwrap();
+        check(OwnedValue {
+            value: table as u128,
+            ty: &COUNTS,
+        });
+    }
+}
+
 // Issue #931: the narrow helper answers an inline key held as the same word
 // without a call, and hands every other outcome on with its hash and probed
 // bucket. Each outcome must match the general operation and hash once: a
@@ -393,10 +408,9 @@ static COUNTS: Type = Type {
 // hash bits, and a heap key.
 #[test]
 fn the_narrow_get_or_insert_agrees_with_the_general_one() {
-    let owner = OwnedValue {
-        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
-        ty: &COUNTS,
-    };
+    check_count_tables(check_narrow_get_or_insert);
+}
+fn check_narrow_get_or_insert(owner: OwnedValue<'static>) {
     let reference = &owner.value as *const u128;
     let hit = GET_OR_INSERT_HIT as u64;
     // SAFETY: the guard owns the dictionary; keys are inline, immortal
@@ -414,15 +428,15 @@ fn the_narrow_get_or_insert_agrees_with_the_general_one() {
         assert_eq!((*ggt as u64, flag), (1, 0));
         // A second bucket for "GGT" under "A"'s hash, as a full collision
         // would leave: "A" passes that candidate, here and on later hits.
-        let c = &mut *(owner.value as *mut Collection);
-        c.table.insert_unique(hash(inline(b"A"), &TEXT), 0);
+        let c = owner.value as *mut Collection;
+        (*c).table.insert_unique(hash(inline(b"A"), &TEXT), 0);
         // An inline key that misses is inserted at the probed bucket.
         let (a, flag) = narrow(inline(b"A"), 2);
         assert_eq!((*a as u64, flag), (2, 0));
         // A literal is stored in heap format; an inline key with its bytes
         // hits it by comparison.
-        let stored = literal(b"ACG");
-        let (acg, flag) = narrow(&stored as *const Literal<3> as u128, 3);
+        static STORED: Literal<3> = literal(b"ACG");
+        let (acg, flag) = narrow(&STORED as *const Literal<3> as u128, 3);
         assert_eq!((*acg as u64, flag), (3, 0));
         assert_eq!(narrow(inline(b"ACG"), 9), (acg, hit));
         // Hits by word leave the stored value and report the same slot.
@@ -434,12 +448,12 @@ fn the_narrow_get_or_insert_agrees_with_the_general_one() {
         let long = strings::new(b"GGTATTTTAATTTATAGT") as u128;
         let (slot, flag) = narrow(long, 4);
         assert_eq!((*slot as u64, flag), (4, 0));
-        assert_eq!(c.len(), 4);
+        assert_eq!((*c).len(), 4);
         for (row, contents) in [&b"GGT"[..], b"A", b"ACG", b"GGTATTTTAATTTATAGT"]
             .into_iter()
             .enumerate()
         {
-            let key = c.entries.key(row) as usize as *const Text;
+            let key = (*c).entries.key(row) as usize as *const Text;
             assert_eq!(strings::bytes(&key), contents);
         }
     }
@@ -534,10 +548,9 @@ fn key_bytes_hash_as_the_owned_text_does() {
 // a bucket with its hash bits already exists.
 #[test]
 fn get_or_insert_bytes_agrees_with_the_owned_key_at_every_length() {
-    let owner = OwnedValue {
-        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
-        ty: &COUNTS,
-    };
+    check_count_tables(check_get_or_insert_bytes);
+}
+fn check_get_or_insert_bytes(owner: OwnedValue<'static>) {
     let reference = &owner.value as *const u128;
     let hit = GET_OR_INSERT_HIT as u64;
     // SAFETY: the guard owns the dictionary; each owned key is adopted by a
@@ -566,7 +579,7 @@ fn get_or_insert_bytes_agrees_with_the_owned_key_at_every_length() {
         let contents = |length: usize, first: u8| -> Vec<u8> {
             (0..length).map(|i| first + (i % 26) as u8).collect()
         };
-        let c = &mut *(owner.value as *mut Collection);
+        let c = owner.value as *mut Collection;
         for length in 0..=40usize {
             // Inserted by bytes, found by bytes and by an owned key.
             let key = contents(length, b'a');
@@ -590,26 +603,27 @@ fn get_or_insert_bytes_agrees_with_the_owned_key_at_every_length() {
             assert_eq!(flag, 0, "{length}");
             assert_ne!(inserted, slot);
         }
-        assert_eq!(c.len(), 1 + 40 * 3);
+        assert_eq!((*c).len(), 1 + 40 * 3);
         // A stored literal is heap text at any length; short bytes hit it.
-        let stored = literal(b"ACG");
+        static STORED: Literal<3> = literal(b"ACG");
         let words =
-            plenty_dict_get_or_insert_text(reference, &stored as *const Literal<3> as u64, 5, 0);
+            plenty_dict_get_or_insert_text(reference, &STORED as *const Literal<3> as u64, 5, 0);
         assert_eq!(words.1, 0);
         assert_eq!(borrowed(b"ACG", 99), (words.0 as *mut u128, hit));
 
         // Invalid UTF-8 matches no key: an error, nothing stored. The second
         // probe meets a bucket carrying its own hash bits, as a full
         // collision would leave, and still compares bytes.
-        let length = c.len();
+        let length = (*c).len();
         for invalid in [&b"\xff"[..], b"ab\xc3", b"0123456789abcdef\xe2\x82"] {
             assert_eq!(borrowed(invalid, 9), (std::ptr::null_mut(), 1));
-            c.table.insert_unique(hashing::hash_text_bytes(invalid), 0);
+            (*c).table
+                .insert_unique(hashing::hash_text_bytes(invalid), 0);
             assert_eq!(borrowed(invalid, 9), (std::ptr::null_mut(), 1));
-            assert_eq!(c.len(), length);
+            assert_eq!((*c).len(), length);
         }
-        for (row, _) in (0..c.len()).enumerate() {
-            let key = c.entries.key(row) as usize as *const Text;
+        for (row, _) in (0..(*c).len()).enumerate() {
+            let key = (*c).entries.key(row) as usize as *const Text;
             assert!(std::str::from_utf8(strings::bytes(&key)).is_ok());
         }
     }
@@ -619,10 +633,9 @@ fn get_or_insert_bytes_agrees_with_the_owned_key_at_every_length() {
 // caller-owned and survives arbitrary runtime calls; growth reuses its hash.
 #[test]
 fn lazy_dictionary_probe_hashes_once_across_hits_and_growth() {
-    let owner = OwnedValue {
-        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
-        ty: &COUNTS,
-    };
+    check_count_tables(check_lazy_probe);
+}
+fn check_lazy_probe(owner: OwnedValue<'static>) {
     let reference = &owner.value as *const u128 as u128;
     unsafe {
         for i in 0..80 {

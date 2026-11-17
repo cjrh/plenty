@@ -609,3 +609,5 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
         }
     }
 }
+
+mod hash_storage;
