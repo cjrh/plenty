@@ -39,6 +39,15 @@ allocation. It does not yet expose a Plenty interface or certify compiled
 callbacks. Thread-confined providers remain useful with the experimental generic
 owner. Scoped reset is still a separate lifetime contract.
 
+Provider callback traps are process-fatal, even inside actors. Returning an
+allocation error remains recoverable; a trap is not an allocation-error return.
+The native boundary disables actor and arena nonlocal recovery during allocation,
+release and provider destruction, so neither can abandon held locks or partially
+moved ownership. Preserving actor-local callback trap recovery would require a
+separate isolation/cleanup design; requiring statically non-trapping callbacks
+would instead need a restrictive transitive effect contract. Neither alternative
+is selected.
+
 ## What was built
 
 [`std.experimental.alloc`](../design/stdlib/experimental-alloc.md) implements

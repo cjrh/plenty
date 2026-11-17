@@ -72,11 +72,35 @@ thread identifier detects same-thread recursion before locking, which traps
 rather than deadlocking. Poisoned provider locks also trap. Cyclic dependencies
 between different providers are not a deadlock-free contract.
 
-This is a Rust-internal interface, not a raw callback ABI for packages. In
-particular, `Send` does not prove that a compiled callback cannot perform
-nonlocal actor-trap recovery through a held Rust lock. No such callbacks are
-connected here. Actor containment and the existing experimental non-atomic
-backing blocks are not certified by these tests.
+This is a Rust-internal interface, not a raw callback ABI for packages. No
+compiled callbacks are connected yet; `Send` alone does not certify their
+state, effects or destruction. Experimental non-atomic backing blocks remain
+thread-confined.
+
+### Callback trap boundary
+
+Allocation, release and final provider destruction run inside an allocation-free,
+thread-local scope. Traps in that scope are **process-fatal**, including inside
+an actor. They report the original error and a callback-boundary note instead
+of recovering through held mutexes or partially moved ownership. Invalid returned
+blocks, recursive entry and poisoned-provider diagnostics follow the same rule.
+
+Arena allocation-failure recovery is also disabled for the scope, including
+arenas entered by a callback. The allocation-failure handler reports and aborts;
+ordinary runtime traps report and exit with status 1. The boundary note uses
+allocation-free, lock-free stderr writes so it is safe on the failure path.
+
+This does not turn returned `AllocError` values into traps: they return normally.
+Nested callbacks preserve the boundary, other threads do not inherit it, and
+normal return or native Rust unwinding restores the prior scope. Rust panic
+unwinding is tested only with Rust providers; this is not an unwinding ABI for
+compiled Plenty callbacks. After the scope, ordinary actor/arena recovery works
+as before.
+
+The scope does not change allocation routing, certify escaping state or prove
+callback effects safe. In particular, it does not make actor/arena-owned values
+safe to retain past their backing lifetime. Those checks still belong to the
+compiler bridge.
 
 ## Native builtin owner paths
 
@@ -133,6 +157,14 @@ ranges and owned child boxes, extracted-value cleanup, dense scalar ABI offsets,
 empty owners, take, final release on a worker and child-before-parent release.
 A 10,000-node selected box graph drops on a 128 KiB stack. The combined allocator
 checks pass Valgrind, including the new owner paths.
+
+Callback-boundary checks use real actor/arena recovery frames in eleven bounded
+subprocess cases: allocation, release and destruction traps; invalid extents;
+recursive entry; poisoned locks; the allocation-failure handler under outer,
+nested and actor-wrapped arenas; and successful/error returns followed by normal
+recovery. A separate test checks allocation-free nesting, thread isolation and
+scope restoration after native Rust panics. These are runtime probes, not
+compiled-provider tests.
 
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not

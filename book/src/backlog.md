@@ -449,8 +449,10 @@ builtin representations. Implement the remaining work in staged PRs:
 2. **Integrate builtin owners.** Build on the [native retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
    Builtin handles must be thread-safe from the outset, without allocator type
    parameters on each collection. Complete the compiler-certified provider bridge:
-   check provider state, callback effects and destruction, and prevent nonlocal
-   trap recovery through held callback locks. Native box/list object allocation,
+   check provider state, callback effects and destruction. Native callbacks now
+   prevent actor/arena recovery through their frames: callback traps are
+   process-fatal, while returned allocation errors remain recoverable.
+   Native box/list object allocation,
    list row growth and ordered destruction now retain selected providers; connect
    those paths to compiler lowering and the public explicit-allocator interface.
    Add compiled-program tests for simultaneous allocators, owners outliving caller

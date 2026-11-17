@@ -341,6 +341,39 @@ fn actual_system_failure_and_allocation_free_handle_operations() {
 }
 
 #[test]
+fn callback_scope_is_nested_thread_local_and_restored_on_unwind() {
+    assert!(!callback_active());
+    #[cfg(feature = "allocation-checks")]
+    crate::accounting::begin_no_allocations();
+    let value = callback(|| {
+        assert!(callback_active());
+        // Recovery refuses to jump; even its diagnostic must allocate nothing.
+        crate::actor_heap::recover(crate::actor_heap::TrapKind::Other);
+        let result = callback(|| {
+            assert!(callback_active());
+            17
+        });
+        assert!(callback_active());
+        result
+    });
+    #[cfg(feature = "allocation-checks")]
+    crate::accounting::end_no_allocations();
+    assert_eq!(value, 17);
+    assert!(!callback_active());
+    callback(|| {
+        thread::spawn(|| assert!(!callback_active()))
+            .join()
+            .unwrap();
+        let result = std::panic::catch_unwind(|| callback(|| panic!("scope probe")));
+        assert!(result.is_err());
+        assert!(callback_active());
+    });
+    assert!(!callback_active());
+    assert!(std::panic::catch_unwind(|| callback(|| panic!("outer scope probe"))).is_err());
+    assert!(!callback_active());
+}
+
+#[test]
 fn invalid_callbacks_trap_instead_of_exposing_storage_or_deadlocking() {
     for (case, message) in [
         ("short", "insufficient extent or alignment"),

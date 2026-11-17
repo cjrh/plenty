@@ -39,6 +39,11 @@ impl std::fmt::Write for Stderr {
     }
 }
 
+/// Also used by the allocation-failure path: do not initialize or lock stdio.
+pub(crate) fn allocator_callback_trap_note() {
+    let _ = Stderr.write_str("note: allocator callback traps are process-fatal\n");
+}
+
 /// Replaces std's `rust_begin_unwind`, with the same signature.
 #[unsafe(no_mangle)]
 extern "Rust" fn plenty_rust_panic(info: &core::panic::PanicInfo<'_>) -> ! {
