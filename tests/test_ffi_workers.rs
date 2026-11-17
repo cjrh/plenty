@@ -399,6 +399,53 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 }
 
 #[test]
+fn fixed_arrays_preserve_worker_element_contracts_and_destruction() {
+    for count in [0, 1, 2] {
+        let source = format!(
+            r#"import native
+
+def work(items: array[native.Block, {count}]) -> i64:
+    len(items)
+
+def main() -> Result[(), SpawnError[()]]:
+    items = array[native.Block, {count}].from_fn(def(index: i64) -> native.Block: native.block())
+    with spawn(work, items).drop_job()? as task:
+        drop(task.join())
+    Ok(())
+"#
+        );
+        rejected(&blocks(""), &source, &["native.Raw has no thread contract"]);
+        assert!(check_with(&blocks("@thread_movable"), &source).is_ok());
+        if count == 2 {
+            assert_eq!(
+                run_with(&blocks("@thread_movable"), &source),
+                "freed\nfreed\n"
+            );
+        }
+    }
+}
+
+#[test]
+fn fixed_arrays_do_not_hide_uncertified_destructors() {
+    let source = r#"import native
+
+def work(items: array[native.Fd, 1]) -> i64:
+    len(items)
+
+def main() -> Result[(), SpawnError[()]]:
+    items: array[native.Fd, 1] = [native.open_stdout()]
+    with spawn(work, items).drop_job()? as task:
+        drop(task.join())
+    Ok(())
+"#;
+    rejected(
+        &without("close"),
+        source,
+        &["close", "no worker-thread effect contract"],
+    );
+}
+
+#[test]
 fn opaque_values_need_a_contract_for_their_crossing() {
     let local = r#"import native
 def work() -> bool:

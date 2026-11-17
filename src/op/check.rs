@@ -419,7 +419,8 @@ fn step(
                     return Err("invalid forgotten value".into());
                 }
             }
-            crate::threading::ThreadOp::Rows(..) => {}
+            crate::threading::ThreadOp::Rows(..)
+            | crate::threading::ThreadOp::AllocatorProvider(_) => {}
         },
         Op::Try {
             source,

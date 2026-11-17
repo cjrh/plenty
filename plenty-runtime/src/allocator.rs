@@ -21,8 +21,14 @@ pub(crate) trait Provider: Send + 'static {
     fn release(&mut self, block: Block);
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CreateError {
+    Allocation(AllocError),
+    UnsupportedContext,
+}
+
 pub(crate) struct Rejected<P> {
-    pub error: AllocError,
+    pub error: CreateError,
     pub provider: P,
 }
 
@@ -178,9 +184,22 @@ impl Allocator {
         Self(None)
     }
     pub(crate) fn new<P: Provider>(bootstrap: &Self, provider: P) -> Result<Self, Rejected<P>> {
+        // Reject before bootstrap allocation or ownership transfer. Thread-safe
+        // state alone does not establish survival across heap abandonment.
+        if !crate::actor_heap::allocator_registration_allowed() {
+            return Err(Rejected {
+                error: CreateError::UnsupportedContext,
+                provider,
+            });
+        }
         let mut storage = match bootstrap.allocate(Layout::new::<State<P>>()) {
             Ok(block) => block,
-            Err(error) => return Err(Rejected { error, provider }),
+            Err(error) => {
+                return Err(Rejected {
+                    error: CreateError::Allocation(error),
+                    provider,
+                });
+            }
         };
         // SAFETY: allocate validated the complete State<P> layout. This state
         // owns storage until its final reference; no safe byte view escapes.

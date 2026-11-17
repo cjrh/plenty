@@ -59,9 +59,11 @@ pub(super) fn blocks(op: &Op) -> bool {
         // behind it.
         Op::Thread(op) => match op {
             ThreadOp::Join(_) | ThreadOp::Finish(..) => true,
-            ThreadOp::Start(..) | ThreadOp::Run(_) | ThreadOp::Forget(_) | ThreadOp::Rows(..) => {
-                false
-            }
+            ThreadOp::Start(..)
+            | ThreadOp::Run(_)
+            | ThreadOp::Forget(_)
+            | ThreadOp::Rows(..)
+            | ThreadOp::AllocatorProvider(_) => false,
         },
         Op::Collection(op) => collection_blocks(op),
         // A foreign function can do anything, and a call through a value has

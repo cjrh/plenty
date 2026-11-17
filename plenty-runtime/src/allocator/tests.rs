@@ -162,7 +162,10 @@ fn failed_bootstrap_returns_provider_and_never_falls_back() {
         Err(failure) => failure,
         Ok(_) => panic!("bootstrap silently fell back"),
     };
-    assert_eq!(failure.error, AllocError::OutOfMemory);
+    assert_eq!(
+        failure.error,
+        CreateError::Allocation(AllocError::OutOfMemory)
+    );
     assert_eq!(counts.drops.load(Ordering::Relaxed), 0);
     drop(failure.provider);
     assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
@@ -325,7 +328,10 @@ fn actual_system_failure_and_allocation_free_handle_operations() {
     let Err(failure) = failure else {
         panic!("system failure not propagated")
     };
-    assert_eq!(failure.error, AllocError::OutOfMemory);
+    assert_eq!(
+        failure.error,
+        CreateError::Allocation(AllocError::OutOfMemory)
+    );
     drop(failure.provider);
     assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
     let allocator = create(&system, policy(system.clone(), &counts));

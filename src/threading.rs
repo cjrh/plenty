@@ -4,6 +4,10 @@ use crate::hash::{HashMap, HashSet};
 use crate::op::{CompiledFn, Op, Ty};
 use std::sync::Arc;
 
+#[cfg(test)]
+#[path = "threading/allocator_tests.rs"]
+mod allocator_tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Task {
     pub adapter: String,
@@ -41,6 +45,15 @@ impl Task {
     }
 }
 
+/// Compiler-owned admission marker for a retained, mutex-serialized provider.
+/// This certifies worker eligibility, not ABI layout or abandonment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AllocatorProvider {
+    pub state: Ty,
+    pub allocate: String,
+    pub release: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ThreadOp {
     /// Start with a job-free error when the direct call uses `drop_job()`.
@@ -59,6 +72,9 @@ pub enum ThreadOp {
     /// as integers, so this marker is the items' root for `check`; it emits
     /// no code.
     Rows(Ty, bool),
+    /// Emits no code. No public frontend constructor is connected yet.
+    #[cfg_attr(not(test), allow(dead_code))]
+    AllocatorProvider(Arc<AllocatorProvider>),
 }
 
 impl Task {
@@ -142,6 +158,7 @@ fn check_with_exports(
     let mut definitions = Vec::with_capacity(ops.len());
     let mut addresses = Vec::new();
     let mut jobs = Vec::new();
+    let mut providers = Vec::new();
     walk(ops, &mut |op| {
         if let Op::DefineFn(name, function) = op {
             definitions.push((name.as_str(), function.as_ref()));
@@ -153,6 +170,14 @@ fn check_with_exports(
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
             roots.push(("worker", vec![task.worker.clone()], moved(types)));
+        }
+        if let Op::Thread(ThreadOp::AllocatorProvider(provider)) = op {
+            providers.push(provider);
+            roots.push((
+                "allocator provider",
+                vec![provider.allocate.clone(), provider.release.clone()],
+                moved(vec![provider.state.clone()]),
+            ));
         }
         if let Op::Thread(ThreadOp::Rows(item, borrowed)) = op {
             let reach = if *borrowed { Reach::Lent } else { Reach::Moved };
@@ -195,11 +220,26 @@ fn check_with_exports(
         return Ok(());
     }
     let functions: HashMap<_, _> = definitions.into_iter().collect();
+    for provider in providers {
+        if !provider.state.heap_storable() || crate::boxed::erasure_barrier(&provider.state) {
+            return Err(format!("allocator provider state `{}` cannot retain borrowed or hidden task/channel ownership", provider.state).into());
+        }
+        for name in [&provider.allocate, &provider.release] {
+            let function = functions
+                .get(name.as_str())
+                .ok_or_else(|| format!("allocator provider: unavailable callback `{name}`"))?;
+            if !matches!(function.sig.inputs.first(), Some((_, Ty::Ref(state, true))) if **state == provider.state)
+            {
+                return Err(format!("allocator provider callback `{name}` must take `&mut {}` as its first parameter", provider.state).into());
+            }
+        }
+    }
     let targets = CallableTargets::new(addresses);
     let mut checked = HashSet::default();
     let mut checked_receivers = HashSet::default();
     for (kind, mut queue, mut types) in roots {
         let host_context = allow_host_callbacks && kind == "thread-safe export";
+        let provider_context = kind == "allocator provider";
         let origin = match queue.first() {
             Some(worker) => format!("{kind} {}", describe(worker, &functions)),
             None => kind.to_owned(),
@@ -248,7 +288,7 @@ fn check_with_exports(
                 }
             }
             let Some(name) = queue.pop() else { break };
-            if !checked.insert((host_context, name.clone())) {
+            if !checked.insert((host_context, provider_context, name.clone())) {
                 continue;
             }
             let function = functions
@@ -256,6 +296,15 @@ fn check_with_exports(
                 .ok_or_else(|| format!("{origin}: unavailable function `{name}`"))?;
             let queued = queue.len();
             let mut local = Vec::new();
+            if provider_context {
+                let mut actor = false;
+                walk(&function.body, &mut |op| {
+                    actor |= matches!(op, Op::Thread(ThreadOp::Run(_) | ThreadOp::Forget(_)));
+                });
+                if actor {
+                    return Err(format!("{origin} reaches {}: actor execution and abandonment are unsupported in allocator providers", describe(&name, &functions)).into());
+                }
+            }
             let inspected = inspect_context(function, &mut local, &mut queue, host_context);
             types.extend(local.into_iter().map(|ty| (ty, Reach::Local)));
             inspected.map_err(|reason| {
@@ -451,7 +500,7 @@ fn check_type(
             (**t).clone(),
             if reach == Reach::Local { Reach::Local } else { Reach::Moved },
         )),
-        Ty::Clist(t) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Box(t) | Ty::Atomic(t) => {
+        Ty::Array(t, _) | Ty::Clist(t) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Box(t) | Ty::Atomic(t) => {
             types.push(((**t).clone(), within))
         }
         Ty::Dict(k, v) => types.extend([((**k).clone(), within), ((**v).clone(), within)]),
@@ -518,6 +567,7 @@ pub fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
         | Ty::Future(t)
         | Ty::List(t)
         | Ty::Set(t)
+        | Ty::Array(t, _)
         | Ty::Ref(t, _)
         | Ty::View(t, _)
         | Ty::Box(t)
@@ -874,6 +924,10 @@ pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
             if let Some(closure) = &task.closure {
                 require(&closure.name);
             }
+        }
+        Op::Thread(ThreadOp::AllocatorProvider(provider)) => {
+            require(&provider.allocate);
+            require(&provider.release);
         }
         Op::Executor(operation) => {
             if let Some(job) = operation.job() {
