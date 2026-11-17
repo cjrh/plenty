@@ -28,7 +28,7 @@ def main():
     parser.add_argument("--plenty", type=Path, default=PACKAGE.parents[2] / "target/release/plenty")
     args = parser.parse_args()
     compiler = args.plenty.resolve(strict=True)
-    runner = str(PACKAGE / "native/target/debug/plenty-gpui")
+    runner = str(PACKAGE / "target/optimized/plenty-gpui")
     counter = PACKAGE / "examples/counter.plenty"
     with tempfile.TemporaryDirectory(prefix="plenty-gpui-tests-") as directory:
         root = Path(directory)
@@ -39,6 +39,7 @@ def main():
         app.write_text(source)
         for fast in [False, True]:
             build(compiler, app, fast)
+            runner = str(PACKAGE / "target" / ("fast-compile" if fast else "optimized") / "plenty-gpui")
             result = run([runner, "--headless", "1", "1", "2"])
             assert [line for line in result.stdout.splitlines() if line.startswith("Count:")] == [
                 "Count: 0", "Count: 1", "Count: 2", "Count: 0"]
@@ -63,6 +64,18 @@ def main():
             build(compiler, app, fast)
             result = run([runner, "--headless"], success=False)
             assert "Plenty render failed: InvalidContext" in result.stderr
+            assert result.stdout.count("STATE_DESTROYED") == 1
+            # The process-main primitive cannot recursively enter GPUI from a callback.
+            app.write_text(source.replace("    frame = gpui.Frame", "    gpui.run()?\n    frame = gpui.Frame"))
+            build(compiler, app, fast)
+            result = run([runner, "--headless"], success=False)
+            assert "Plenty render failed: InvalidContext" in result.stderr
+            assert result.stdout.count("STATE_DESTROYED") == 1
+            # Completed UI entry is one-shot too; no second owner is created.
+            app.write_text(source.replace("    gpui.run()\n", "    gpui.run()?\n    gpui.run()\n"))
+            build(compiler, app, fast)
+            result = run([runner, "--headless"], success=False)
+            assert "InvalidContext" in result.stderr
             assert result.stdout.count("STATE_DESTROYED") == 1
             # A failed factory transfers no owner and has nothing to destroy.
             app.write_text(source.replace("Ok(State())", "Err(AllocError.CapacityOverflow)"))

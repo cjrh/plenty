@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 mod brotli_build;
 #[path = "plenty-runtime/native/cc_build.rs"]
 mod native_tools;
+#[path = "plenty-runtime/native/sqlite_build.rs"]
+mod sqlite_build;
 use std::process::Command;
 #[path = "plenty-runtime/native/vendor_cache.rs"]
 mod runtime_vendor_cache;
@@ -293,38 +295,10 @@ fn build_native_object(out: &Path, source: &str, object: &str) {
     );
 }
 
-/// The SQLite amalgamation behind `std.db.sqlite`, unmodified C from
-/// sqlite.org. Both runtime archives bundle it. Function and data sections
-/// let `--gc-sections` drop it from programs that never reach `std.db.sqlite`.
-/// See book/src/design/stdlib/sqlite.md for the options and update policy.
-const SQLITE: &str = "plenty-runtime/native/sqlite-3.54.0";
-const SQLITE_ARCHIVE: &str = "plenty_sqlite";
-const SQLITE_OPTIONS: &[&str] = &[
-    "-DSQLITE_THREADSAFE=1",
-    "-DSQLITE_DEFAULT_MEMSTATUS=0",
-    "-DSQLITE_DQS=0",
-    "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS",
-    "-DSQLITE_OMIT_DEPRECATED",
-    "-DSQLITE_ENABLE_FTS5",
-    "-DSQLITE_OMIT_SHARED_CACHE",
-];
+const SQLITE_ARCHIVE: &str = sqlite_build::ARCHIVE;
 
 fn build_sqlite(dir: &Path) {
-    println!("cargo:rerun-if-changed={SQLITE}");
-    println!("cargo:rerun-if-env-changed=CC");
-    println!("cargo:rerun-if-env-changed=AR");
-    let mut build = native_tools::build(dir);
-    build.file(format!("{SQLITE}/sqlite3.c"));
-    for option in SQLITE_OPTIONS {
-        let (name, value) = option
-            .trim_start_matches("-D")
-            .split_once('=')
-            .map_or((option.trim_start_matches("-D"), None), |(name, value)| {
-                (name, Some(value))
-            });
-        build.define(name, value);
-    }
-    build.compile(SQLITE_ARCHIVE);
+    sqlite_build::build(Path::new("plenty-runtime/native"), dir);
 }
 
 /// ring's C and ABI-specific pregenerated assembly, as its upstream build

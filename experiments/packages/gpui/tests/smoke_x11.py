@@ -66,7 +66,7 @@ def main():
 
     log = (args.out / "runner.log").open("w")
     env = {key: value for key, value in os.environ.items() if key != "WAYLAND_DISPLAY"}
-    process = subprocess.Popen([str(PACKAGE / "native/target/debug/plenty-gpui")], env=env, stdout=log, stderr=log)
+    process = subprocess.Popen([str(PACKAGE / "target/optimized/plenty-gpui")], env=env, stdout=log, stderr=log)
     try:
         window = None
         deadline = time.monotonic() + 40

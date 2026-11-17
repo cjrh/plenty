@@ -262,7 +262,23 @@ Cargo or rustc on `PATH`.
 
 Ordinary Plenty functions, including `pub` functions, use private symbols and
 calling conventions. Application object output does not expose a C library API
-or provide separate Plenty module compilation; use a library build for exports.
+or provide separate Plenty module compilation by default; use a library build
+for exports, or opt into [executable callbacks](../../facilities/04-interop/exports.md#executable-callbacks)
+with `--executable-exports NAME`. The latter also writes `NAME.h` beside the output.
+
+For native Rust support, do not combine independently bundled Rust staticlibs:
+Rust standard-library/global allocator definitions can collide. Build **one**
+Cargo staticlib depending on `plenty-runtime` with its `executable` feature and
+the selected native libraries in one graph; its C main forwards to
+`plenty_runtime::main(argc, argv)` (native symbol `plenty_runtime_start`). Link
+that archive and the Plenty object using `cc` and rustc's `--print native-static-libs`
+requirements, not the compiler's bundled runtime or panic-handler redirects.
+The Cargo runtime includes the same SQLite/Brotli configuration and embedded
+application allocator/startup selection. Its normal Rust panic behavior is kept;
+upstream OOM/panics are not made recoverable. Use the matching compiler/runtime
+source revision. This is source/toolchain integration, not an installed-runtime
+ABI or distribution guarantee. The isolated [GPUI helper](../../facilities/04-interop/gpui-binding.md)
+records an explicit, reproducible opt-in example; ordinary builds remain unchanged.
 
 The Rust API exposes `CompileOptions`, executable compilation with options,
 `compile_source_to_object`, `compile_file_to_object`, and `emit_runtime`. Runtime

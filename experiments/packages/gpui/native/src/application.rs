@@ -1,9 +1,9 @@
 //! Single-threaded GPUI host. All Plenty entry/destruction stays on this thread.
+use crate::{Error, Kind, Scene, build_scene};
 use gpui::{
-    App, Application, Bounds, Context, SharedString, TitlebarOptions, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, rgb, size,
+    App, Application, Bounds, Context, TitlebarOptions, Window, WindowBounds, WindowOptions, div,
+    prelude::*, px, rgb, size,
 };
-use plenty_gpui::{Error, Kind, Scene, build_scene};
 use std::{cell::Cell, marker::PhantomData, ptr::NonNull, rc::Rc};
 
 unsafe extern "C" {
@@ -20,6 +20,32 @@ unsafe extern "C" {
     fn plgp_app_destroy(state: *mut std::ffi::c_void);
 }
 
+#[derive(Debug)]
+enum AppError {
+    Factory(u32),
+    Render(Error),
+    Event(Error),
+    UnknownAction(u64),
+    BadAction,
+    BadArguments,
+    Unsupported,
+    Failed,
+}
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Factory(code) => write!(f, "Plenty create failed: AllocError code {code}"),
+            Self::Render(error) => write!(f, "Plenty render failed: {error:?}"),
+            Self::Event(error) => write!(f, "Plenty event failed: {error:?}"),
+            Self::UnknownAction(action) => write!(f, "unknown action ID: {action}"),
+            Self::BadAction => f.write_str("expected numeric action ID"),
+            Self::BadArguments => f.write_str("usage: plenty-gpui [--headless [ACTION...]]"),
+            Self::Unsupported => f.write_str("qualified only for Linux x86-64"),
+            Self::Failed => f.write_str("application failed"),
+        }
+    }
+}
+
 // A unique originating owner, intentionally !Send and !Sync. GPUI listeners hold
 // only weak entity references, never this pointer or an outstanding Plenty loan.
 struct StateOwner {
@@ -27,36 +53,35 @@ struct StateOwner {
     _thread_bound: PhantomData<Rc<()>>,
 }
 impl StateOwner {
-    fn create() -> Result<Self, String> {
+    fn create() -> Result<Self, AppError> {
         let mut error = 0;
         let pointer = unsafe { plgp_app_create(&mut error) };
         Ok(Self {
-            pointer: NonNull::new(pointer)
-                .ok_or_else(|| format!("Plenty create failed: AllocError code {error}"))?,
+            pointer: NonNull::new(pointer).ok_or(AppError::Factory(error))?,
             _thread_bound: PhantomData,
         })
     }
-    fn render(&self) -> Result<Scene, String> {
+    fn render(&self) -> Result<Scene, AppError> {
         build_scene(|token| {
             let mut error = 0;
             let status = unsafe {
                 plgp_app_render(
                     self.pointer.as_ptr(),
                     token,
-                    plenty_gpui::plgp_v1_begin as *const () as *mut std::ffi::c_void,
-                    plenty_gpui::plgp_v1_end as *const () as *mut std::ffi::c_void,
-                    plenty_gpui::plgp_v1_text as *const () as *mut std::ffi::c_void,
+                    crate::plgp_v1_begin as *const () as *mut std::ffi::c_void,
+                    crate::plgp_v1_end as *const () as *mut std::ffi::c_void,
+                    crate::plgp_v1_text as *const () as *mut std::ffi::c_void,
                     &mut error,
                 )
             };
             callback_status(status, error)
         })
-        .map_err(|error| format!("Plenty render failed: {error:?}"))
+        .map_err(AppError::Render)
     }
-    fn event(&mut self, action: u64) -> Result<(), String> {
+    fn event(&mut self, action: u64) -> Result<(), AppError> {
         let mut error = 0;
         let status = unsafe { plgp_app_event(self.pointer.as_ptr(), action, &mut error) };
-        callback_status(status, error).map_err(|error| format!("Plenty event failed: {error:?}"))
+        callback_status(status, error).map_err(AppError::Event)
     }
 }
 impl Drop for StateOwner {
@@ -90,16 +115,19 @@ fn request_quit(cx: &App) {
     .detach();
 }
 
+thread_local! {
+    static FAILED: Cell<bool> = const { Cell::new(false) };
+}
+
 struct View {
     state: StateOwner,
     scene: Scene,
-    failure: Rc<Cell<bool>>,
     stopped: bool,
 }
 impl View {
-    fn stop(&mut self, error: String, cx: &mut Context<Self>) {
+    fn stop(&mut self, error: AppError, cx: &mut Context<Self>) {
         self.stopped = true;
-        self.failure.set(true);
+        FAILED.set(true);
         eprintln!("plenty-gpui: {error}");
         request_quit(cx);
     }
@@ -135,7 +163,7 @@ impl View {
                 }
                 let action = *action;
                 element
-                    .id(SharedString::from(format!("action-{action}")))
+                    .id(("action", action))
                     .cursor_pointer()
                     .p(px(8.0))
                     .bg(rgb(0x404040))
@@ -172,7 +200,7 @@ impl Render for View {
     }
 }
 
-fn headless(mut state: StateOwner, actions: &[String]) -> Result<(), String> {
+fn headless(mut state: StateOwner, actions: impl Iterator<Item = String>) -> Result<(), AppError> {
     fn show(scene: &Scene) {
         for node in &scene.nodes {
             if let Kind::Text { text, .. } = &node.kind {
@@ -184,11 +212,9 @@ fn headless(mut state: StateOwner, actions: &[String]) -> Result<(), String> {
     let mut scene = state.render()?;
     show(&scene);
     for action in actions {
-        let action = action
-            .parse::<u64>()
-            .map_err(|_| "expected numeric action ID")?;
+        let action = action.parse::<u64>().map_err(|_| AppError::BadAction)?;
         if !scene.has_action(action) {
-            return Err(format!("unknown action ID: {action}"));
+            return Err(AppError::UnknownAction(action));
         }
         state.event(action)?;
         scene = state.render()?;
@@ -197,22 +223,20 @@ fn headless(mut state: StateOwner, actions: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn run() -> Result<(), String> {
+fn run() -> Result<(), AppError> {
     if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        return Err("qualified only for Linux x86-64".into());
+        return Err(AppError::Unsupported);
     }
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.first().is_some_and(|arg| arg == "--headless") {
-        return headless(StateOwner::create()?, &args[1..]);
-    }
-    if !args.is_empty() {
-        return Err("usage: plenty-gpui [--headless [ACTION...]]".into());
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("--headless") => return headless(StateOwner::create()?, args),
+        Some(_) => return Err(AppError::BadArguments),
+        None => {}
     }
     let state = StateOwner::create()?;
     // Fail before opening a native window on malformed initial render.
     let scene = state.render()?;
-    let failure = Rc::new(Cell::new(false));
-    let result = failure.clone();
+    FAILED.set(false);
     Application::new().run(move |cx: &mut App| {
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
@@ -237,30 +261,33 @@ fn run() -> Result<(), String> {
                 cx.new(|_| View {
                     state,
                     scene,
-                    failure: result.clone(),
                     stopped: false,
                 })
             },
         ) {
-            result.set(true);
+            FAILED.set(true);
             eprintln!("plenty-gpui: open window failed: {error}");
             request_quit(cx);
         }
         cx.activate(true);
     });
-    if failure.get() {
-        Err("application failed".into())
+    if FAILED.get() {
+        Err(AppError::Failed)
     } else {
         Ok(())
     }
 }
 
-fn main() -> std::process::ExitCode {
+#[unsafe(no_mangle)]
+extern "C" fn plgp_v1_run() -> u32 {
+    if let Err(error) = crate::begin_application() {
+        return error as u32;
+    }
     match run() {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(()) => 0,
         Err(error) => {
             eprintln!("plenty-gpui: {error}");
-            std::process::ExitCode::FAILURE
+            Error::NativeFailure as u32
         }
     }
 }

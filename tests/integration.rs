@@ -224,6 +224,8 @@ mod test_error_composition;
 mod test_error_context;
 #[path = "test_examples.rs"]
 mod test_examples;
+#[path = "test_executable_exports.rs"]
+mod test_executable_exports;
 #[path = "test_executable_size.rs"]
 mod test_executable_size;
 #[path = "test_executor_submitters.rs"]

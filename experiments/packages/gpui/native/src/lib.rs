@@ -272,3 +272,37 @@ pub unsafe extern "C" fn plgp_v1_text(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(feature = "application", not(test)))]
+mod application;
+
+#[cfg(feature = "application")]
+static MAIN_THREAD: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
+
+#[cfg(feature = "application")]
+fn begin_application() -> Result<(), Error> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if MAIN_THREAD.get() != Some(&std::thread::current().id())
+        || STARTED.swap(true, Ordering::AcqRel)
+    {
+        return Err(Error::InvalidContext);
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "application"))]
+#[test]
+fn application_rejects_entry_outside_process_main() {
+    assert_eq!(begin_application(), Err(Error::InvalidContext));
+}
+
+#[cfg(all(feature = "application", not(test)))]
+#[unsafe(no_mangle)]
+unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
+    MAIN_THREAD
+        .set(std::thread::current().id())
+        .expect("one process entry");
+    // SAFETY: the native process entry supplies valid process-lifetime argv.
+    unsafe { plenty_runtime::main(argc, argv) }
+}

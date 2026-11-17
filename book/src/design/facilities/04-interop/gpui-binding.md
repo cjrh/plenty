@@ -16,7 +16,7 @@ From the repository root:
 cargo build --locked --release --bin plenty
 cd experiments/packages/gpui
 CARGO_BUILD_JOBS=6 python3 -B build.py
-native/target/debug/plenty-gpui
+target/optimized/plenty-gpui
 ```
 
 `examples/counter.plenty` is the complete executable example. Increment changes
@@ -26,11 +26,15 @@ validation commands. Linux GNU x86-64 is the initial platform; a desktop,
 Vulkan driver, fontconfig/fonts and X11/Wayland development libraries are needed.
 X11/Xwayland is renderer-qualified; Wayland is compiled but not input-qualified.
 
-`build.py` stages one application source file and the binding, builds a resident
-Plenty shared library and generated header, then links an isolated Rust launcher
-with its independent Cargo lockfile and exact `gpui = "=0.2.2"` pin. A relative
-RUNPATH connects the outputs; preserve their package layout and do not replace
-the library while running. The package resolver has no native build hook.
+`build.py` stages one application source file and the binding, emits a Plenty
+application object with [executable C adapters](exports.md#executable-callbacks),
+then builds **one Rust native support archive** containing `plenty-runtime`, the
+bridge and exact `gpui = "=0.2.2"` in one isolated Cargo graph. The final `cc` link
+uses that archive, the application object and rustc-reported native dependencies.
+There is no shared app library or Rust host executable. Plenty owns main and
+calls `gpui.run()` on the process main thread; ordinary runtime startup is retained.
+The explicit helper still needs matching runtime sources/Cargo and native platform
+prerequisites; automatic package native build selection is not implemented.
 `--fast-compile` selects Plenty's other build mode.
 
 ## Boundary and ownership
@@ -39,8 +43,9 @@ The host uses [owned exported objects](owned-exports.md) for `State` and compile
 its C adapter against the generated header. `create` returns one owner;
 `render` borrows it shared and `event` borrows it exclusively. Main-thread calls
 are serialized, never nested. No GPUI/Rust layout crosses the boundary. After
-callbacks stop, the host calls the originating destructor exactly once. The
-library remains resident until process exit; no unload or hot reload is offered.
+callbacks stop, the host calls the originating destructor exactly once. Native code remains in the executable until process exit; no unload or hot reload
+is offered. `gpui.run()` rejects wrong-thread, repeated or reentrant entry before
+creating state.
 
 Every render receives a fresh numeric frame token and three opaque host function
 addresses. The `Frame` wrapper rejects null addresses and uses existing
@@ -63,23 +68,27 @@ GPUI/Rust allocations can still abort. Command entry contains Rust unwinds,
 but upstream panics outside it and Plenty traps remain fatal; do not promise
 recoverable OOM or actor/arena recovery. Clickable divs do not provide a complete
 keyboard or accessibility contract. This is deliberately an external experiment.
-A static-library feasibility probe failed because both Rust programs supply
-standard-library and allocator symbols; shared-library hiding solves that
-without symbol suppression or compiler changes.
+The original separate-staticlib probe failed on duplicate Rust standard-library
+and allocator symbols. The unified Cargo graph supplies exactly one runtime,
+without symbol suppression or archive surgery. CLI-only builds retain their
+existing graph and link no GUI platform support. No perfect per-widget stripping
+is promised: only explicit native entrypoints/adapters establish reachability;
+there is no universal widget registry or dispatch table in this proof.
 
 ## Qualification and distribution
 
-`make test` separates deterministic boundary tests and real Plenty shared-library
+`make test` separates deterministic boundary tests and real Plenty executable
 lifecycle/event tests from `make smoke`, which opens a real X11 window, injects
 clicks, compares rendered Count pixels, resets and closes normally. The native
 runner's `--headless` option exercises only the ABI/model, not a renderer.
 
-The dependency lock preserves the published crate's compatible libc rather
+The dependency lock preserves compatible libc 0.2.186 rather
 than resolving to libc 0.2.191, which breaks an old transitive xattr dependency.
 The release notice generator has an explicit `gpui` component; it fails closed
-because 31 upstream transitive crates omit license texts. No binary distribution
+when upstream transitive crates omit license texts. No binary distribution
 is qualified or included. Redistribution needs those reviewed texts and Plenty
-runtime notices. Broader qualification belongs in the [backlog](../../../backlog.md).
+runtime notices. A coordinated pinned GPUI + gpui-kit evaluation, widget catalog and std GUI API
+are separate follow-up work, not part of this infrastructure proof. Broader qualification belongs in the [backlog](../../../backlog.md).
 
 ## Acknowledgements
 

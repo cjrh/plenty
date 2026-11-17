@@ -3,7 +3,9 @@
 A real [GPUI 0.2.2](https://docs.rs/gpui/0.2.2/gpui/) window, row/column
 layout, UTF-8 labels and clickable labels. The counter's state and event logic
 are Plenty; Rust owns the window/event loop. This is **not `std.gpui`**, not
-an ordinary `plenty run` application, and not a stable widget API. GPUI is a
+an ordinary `plenty run` target, and not a stable widget API. It is one
+Plenty-compiled executable: Plenty main calls a synchronous main-thread UI
+primitive; no Rust host executable or shared application library is needed. GPUI is a
 large, evolving native GUI implementation, not functionality reasonably
 reimplemented in a small Plenty module. Neither compiler nor runtime workspace
 has acquired a GPUI dependency.
@@ -16,7 +18,7 @@ From this repository root:
 cargo build --locked --release --bin plenty
 cd experiments/packages/gpui
 CARGO_BUILD_JOBS=6 python3 -B build.py
-native/target/debug/plenty-gpui
+target/optimized/plenty-gpui
 ```
 
 Click **Increment** or **Reset**; close the window to shut down. The selected
@@ -37,30 +39,37 @@ other distributions. No system packages are installed by the helper.
 
 `--plenty /absolute/path/to/plenty` selects a matching compiler.
 `--fast-compile` changes Plenty compilation; `--release` also optimizes the
-Rust launcher (not qualified in the initial measurements). `build.py FILE`
+Rust native support archive. `build.py FILE`
 accepts a **single-file** application following `examples/counter.plenty`'s
 exports. Its only local imports may be `gpui` and `std`; application module-tree
 staging is not supported. Other Plenty projects can depend on this source
 package by path for checking, but native linking is always explicit.
 
 The helper stages `gpui.plenty`, its trusted declarations and the application
-under `target/optimized/` or `target/fast-compile/`. It builds a **resident Plenty
-shared library** with its generated header, then the independent Cargo workspace
-in `native/`. The Rust binary has a relative RUNPATH to that application profile;
-keep the package output layout when moving it. Do not replace/rebuild the app
-library while a runner is live. No `LD_LIBRARY_PATH` is required. There is no
-unloading, library discovery or hot reload. The generated header is compiled by
-`native/app.c`, so incompatible application exports fail the native build.
+under `target/optimized/` or `target/fast-compile/`. It uses
+`--emit-object --executable-exports gpui_app` to emit the application object and
+checked C header. An independent Cargo workspace builds **one native support
+static archive** containing the bridge, GPUI and `plenty-runtime` in one Rust
+dependency graph; `cc` final-links that archive and the application object with
+rustc's reported native dependencies. Its runtime entry captures args and installs
+normal Plenty stack/trap handling, then calls Plenty main. No second runtime,
+archive extraction/surgery, ignored linker errors or duplicate-symbol suppression
+is used. There is no `libgpui_app.so`, app RUNPATH or Rust host executable. System
+GUI libraries are still dynamic dependencies; this is not a fully static binary.
 
-A Plenty static library was tested first: its bundled Rust runtime collides
-with the host's Rust standard library and allocator. This implementation uses
-normal shared-library symbol hiding instead, **not** archive surgery or
-multiple-definition suppression. Rust passes three command function addresses
-as opaque arguments to each render; no global callback registry is needed.
+The default compiler/runtime graph and ordinary CLI programs do not acquire GPUI
+or its platform libraries. The explicit helper, Cargo/rustc sources and native
+prerequisites are needed **only for this opt-in build**; automatic package native
+build selection is not implemented. Build with the matching compiler and runtime
+source revision. The generated header is compiled by `native/app.c`, so incompatible
+application exports fail the native build. `native-build.log`, `link-command.txt`
+and `native-link-args.txt` beside the executable record the actual build/link.
+No runtime Rust compiler or package output layout is needed when running it.
 
 ## API and lifecycle
 
-The application must export these names under library name `gpui_app`:
+The application defines ordinary main calling `gpui.run()` and exports these
+names under executable callback namespace `gpui_app`:
 
 - `create() -> Result[State, AllocError] = "gpui_app_create"`.
 - `render(state: &State, token: u64, begin_function: gpui.Function,
@@ -70,9 +79,11 @@ The application must export these names under library name `gpui_app`:
   = "gpui_app_event"`.
 
 `State` is the owned exported Plenty class; Rust calls its generated originating
-destructor exactly once after callback cessation. The shared library stays
-loaded until process exit. There is no Rust/GPUI object-layout exposure.
-All entry, callbacks and destruction are serialized on the launch/main thread.
+destructor exactly once after callback cessation. All native code remains
+resident in the executable until process exit. There is no Rust/GPUI object-layout exposure.
+All entry, callbacks and destruction are serialized on the process main thread.
+`gpui.run()` is one-shot and rejects wrong-thread/reentrant/repeated entry with
+`InvalidContext`, before creating state or entering GPUI.
 Render has a shared loan, event an exclusive loan; neither reenters the other.
 A click uses an action ID from the last valid scene, ends its Plenty mutation,
 then calls `cx.notify()` to render again. Do not give callbacks thread-safety
@@ -106,7 +117,9 @@ avoid GPUI 0.2.2's X11 inline-close borrow panic.
 `GpuiError` distinguishes `OutOfMemory`, `CapacityOverflow`, `InvalidContext`,
 `LimitExceeded`, `InvalidLayout`, `InvalidArgument`, `NativeFailure`.
 `gpui.allocation` preserves the two `AllocError` causes for f-string failures.
-The command builder uses fallible reserve, but **GPUI/Rust upstream allocations
+The command builder uses fallible reserve; originating Plenty handle allocation
+is fallible, diagnostics do not allocate bridge-owned strings, and native failure
+flags use allocation-free thread-local cells. **GPUI/Rust upstream allocations
 can abort, native panics outside command entry and Plenty traps remain fatal**.
 No Rust unwind may cross Plenty frames; native command entry catches unwinds.
 Do not run this bridge under actor/arena abandonment or promise recoverable OOM.
@@ -118,7 +131,7 @@ provided by this slice. Outstanding candidates belong only in the book backlog.
 ## Validation
 
 ```sh
-make test           # six Rust boundary tests + real Plenty shared-library ABI tests
+make test           # Rust boundary tests + real Plenty executable ABI tests
 make fmt
 make clippy
 make smoke          # real X11/Xwayland desktop, libX11/libXtst, ImageMagick import
@@ -130,7 +143,7 @@ The deterministic suite checks copied UTF-8/NUL/empty text, limits and malformed
 input, thread/phase/stale tokens, callback errors, original Plenty destruction,
 null callback configuration, failed factories, package resolution and worker
 rejection. Both Plenty compilation modes are tested. It leaves the uninstrumented
-counter selected. `native/target/debug/plenty-gpui --headless 1 1 2` runs real
+counter selected. `target/optimized/plenty-gpui --headless 1 1 2` runs real
 Plenty/native ABI and model tests, **not** a GPUI window or test renderer.
 
 The X11 smoke uses XTest clicks and rendered Count-region pixels, restores the
@@ -144,10 +157,10 @@ native input/renderer path and other targets are not qualified.
 ## Dependencies and notices
 
 `native/Cargo.lock` is independent; GPUI is pinned to **`=0.2.2`**. The lock was
-seeded from that published crate's lock, then resolved for this host (681 total
-entries, including other targets/build tools, not the executed build count).
+seeded from that published crate's lock, then resolved for this host (the complete
+resolved graph, including other targets/build tools, not the executed build count).
 A fresh newest-version resolution failed: old `xattr 0.2.3` uses `libc::ENOATTR`,
-removed in libc 0.2.191. The retained compatible libc is 0.2.177. Do not casually
+removed in libc 0.2.191. The unified graph retains compatible libc 0.2.186 (required by the runtime). Do not casually
 update this graph. The published GPUI archive SHA-256 is
 `979b45cfa6ec723b6f42330915a1b3769b930d02b2d505f9697f8ca602bee707`;
 its recorded source revision has `dirty=true`, so the archive is authoritative.
@@ -160,11 +173,12 @@ python3 -B scripts/release/third_party_notices.py --repo . --component gpui --ou
 ```
 
 **Binary redistribution is not qualified.** This command deliberately fails
-closed: 31 transitive published crates omit license texts. Their exact names
+closed when transitive published crates omit license texts. Their exact names
 are reported instead of producing incomplete notices. No binaries or copied
 upstream source are distributed in this package. Collect/review those texts
-before redistribution; the Plenty application/runtime also needs compiler
-component notices. System-library licenses remain relevant to redistribution.
+before redistribution. The GPUI component includes Cargo runtime dependencies
+and vendored/embedded runtime notices; application-specific additions still
+need their own notices. System-library licenses remain relevant to redistribution.
 
 ## Acknowledgements
 

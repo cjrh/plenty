@@ -66,3 +66,7 @@ pub class Frame:
         if action == 0u64:
             return Err(GpuiError.InvalidArgument)
         checked(native.text_raw(self.text_function, self.token, text, color, size, action))
+
+# Main-thread, non-reentrant native event loop; returns after callbacks cease.
+pub def run() -> Result[(), GpuiError]:
+    checked(native.run())

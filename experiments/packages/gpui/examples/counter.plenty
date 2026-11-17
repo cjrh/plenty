@@ -35,3 +35,6 @@ export def event(state: &mut State, action: u64) -> Result[(), gpui.GpuiError] =
         case _:
             return Err(gpui.GpuiError.InvalidArgument)
     Ok(())
+
+def main() -> Result[(), gpui.GpuiError]:
+    gpui.run()

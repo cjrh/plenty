@@ -623,15 +623,24 @@ qualification also exercises the real target selection through JSON imports.
 
 ## Experimental GPUI host binding
 
-`experiments/packages/gpui/` supplies a pinned GPUI 0.2.2 Rust host and a
-resident Plenty shared application library, without adding GPUI to the compiler
-or runtime graph. One window, bounded row/column/text/click commands and the
-Plenty-owned counter are delivered. A static-archive link probe exposed duplicate
-Rust runtime/allocator symbols; the approved shared-library revision uses normal
-export hiding and passes opaque command addresses per render. No symbol
-suppression, archive surgery or compiler callback expansion was used.
+`experiments/packages/gpui/` initially supplied a pinned GPUI 0.2.2 Rust host
+and resident Plenty shared library after separate staticlibs collided on Rust
+std/allocator symbols (local PR #1303). The unified executable milestone replaces
+that workaround: Plenty application object + **one Cargo native support archive**
+containing runtime, bridge and GPUI, final-linked by cc. Plenty owns main and calls
+a serialized one-shot process-main-thread UI primitive. There is no shared app
+library, Rust host executable, archive surgery or duplicate-symbol suppression.
 
-Six deterministic Rust boundary tests and optimized/fast-compile Plenty lifecycle
+Explicit `--executable-exports NAME` reuses checked C adapters, Result/loan/owned
+handle machinery and originating destructors in application objects/executables,
+with a generated header and baseline CPU restriction. Default CLI compiler/runtime
+graphs and normal executable builds remain GUI-free. The isolated helper is still
+explicit and single-source, not automatic native package build integration.
+Command buffers/Plenty owners use fallible allocation; GPUI's upstream allocations
+may abort. Coordinated GPUI + gpui-kit upgrade/evaluation, widgets and std GUI API
+remain a separate follow-up under B38.
+
+Seven deterministic Rust boundary/entry tests and optimized/fast-compile Plenty lifecycle
 tests cover state transitions, error/configuration paths and exactly-once
 originating destruction. Real Fedora 44 X11/Xwayland XTest smoke checks rendered
 Count pixels, Increment/Reset and clean native close. A deferred quit avoids an
@@ -642,5 +651,5 @@ See the [binding reference](../design/facilities/04-interop/gpui-binding.md) and
 package README for bounds, dependencies and build commands. GPUI allocations
 and upstream panic paths can terminate the process. The UI is not a complete
 keyboard/accessibility API. Binary redistribution is not qualified: optional
-GPUI notice generation reports 31 transitive crates missing license texts rather
+GPUI notice generation fails on transitive crates missing license texts rather
 than emitting incomplete notices. Remaining scope stays under B38.

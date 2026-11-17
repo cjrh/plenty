@@ -59,8 +59,8 @@ class ThirdPartyNotices(unittest.TestCase):
         self.assertEqual(self.notices.COMPONENTS["gpui"], (
             "experiments/packages/gpui/native/Cargo.toml", ("plenty-gpui",)))
         output = self.notices.render([self.package], "gpui")
-        self.assertNotIn("SQLite 3.54.0", output)
-        self.assertNotIn("vendored reference C codec", output)
+        self.assertIn("SQLite 3.54.0", output)
+        self.assertIn("vendored reference C codec", output)
         self.package.update(name="missing-gpui-dependency", version="1.0.0", license="MIT")
         with self.assertRaisesRegex(SystemExit, "no license file in shipped packages"):
             self.notices.render([self.package], "gpui")

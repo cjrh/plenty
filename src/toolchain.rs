@@ -114,6 +114,8 @@ pub struct CompileOptions {
     pub verbose: bool,
     /// Additional driver arguments, each passed verbatim after the inputs.
     pub link_args: Vec<OsString>,
+    /// Opt-in C callbacks in an application, with a generated NAME.h companion.
+    pub executable_exports: Option<String>,
     /// Override the optional dataframe engine location. Consulted only when
     /// reachable native code uses std.dataframe; otherwise no engine is needed.
     pub dataframe_engine: Option<PathBuf>,
@@ -166,6 +168,7 @@ impl Default for CompileOptions {
             auto_linker: true,
             verbose: false,
             link_args: Vec::new(),
+            executable_exports: None,
             dataframe_engine: None,
             linalg_engine: None,
             optimize: true,

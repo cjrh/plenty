@@ -6,8 +6,8 @@ export CARGO_BUILD_JOBS = $(JOBS)
 build:
 	python3 -B build.py --plenty "$(PLENTY)"
 run: build
-	native/target/debug/plenty-gpui
-# This includes real Plenty shared application/runtime linkage, but does not open a window.
+	target/optimized/plenty-gpui
+# This includes real Plenty executable/native support linkage, but does not open a window.
 test:
 	cargo test --locked --manifest-path native/Cargo.toml
 	python3 -B tests/test_counter.py --plenty "$(PLENTY)"

@@ -349,17 +349,18 @@ def license_files(package, include_nested=False):
 
 
 def render(packages, component="compiler"):
+    contains_runtime = component in ("compiler", "gpui")
     out = [
         "# Third-party notices\n",
         "Plenty release archives contain the following third-party software.",
         "Each entry gives the package, its declared license, and the license",
         "and notice files from its source package or a reviewed upstream source.\n",
-        VENDORED if component == "compiler" else "",
+        VENDORED if contains_runtime else "",
         ("## Brotli 1.2.1 (vendored reference C codec)\n\nLicense: MIT\n\n"
          + (REPO / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text()
-         if component == "compiler" else ""),
-        vendored_source_notices() if component == "compiler" else "",
-        embedded_notices() if component == "compiler" else "",
+         if contains_runtime else ""),
+        vendored_source_notices() if contains_runtime else "",
+        embedded_notices() if contains_runtime else "",
         RUST_STD,
     ]
     missing = []
@@ -417,6 +418,7 @@ def main():
                 "cargo", "metadata", "--locked", "--format-version", "1",
                 "--filter-platform", args.target,
                 "--manifest-path", str(manifest),
+                *(["--features", "application"] if args.component == "gpui" else []),
             ],
             check=True,
             capture_output=True,

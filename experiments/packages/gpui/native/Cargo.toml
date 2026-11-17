@@ -7,15 +7,14 @@ publish = false
 
 [workspace]
 
-[features]
-application = []
+[lib]
+crate-type = ["rlib", "staticlib"]
 
-[[bin]]
-name = "plenty-gpui"
-path = "src/main.rs"
-required-features = ["application"]
+[features]
+application = ["dep:plenty-runtime", "plenty-runtime/executable"]
 
 [dependencies]
+plenty-runtime = { path = "../../../../plenty-runtime", optional = true }
 gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x11"] }
 
 [build-dependencies]

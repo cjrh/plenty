@@ -33,7 +33,13 @@ remain Plenty code, while numeric methods supply IEEE/platform primitives.
 See the [standard library](../../stdlib/index.md) and [the math contract](../../stdlib/math.md).
 
 The application archive supplies C `main`, calling `plenty_main`. A separate
-library archive omits both startup and that dependency; shared-library export
+library archive omits both startup and that dependency. For an opt-in unified
+Cargo native support archive, the runtime's `executable` feature selects the
+same embedded application configuration and exposes startup as
+`plenty_runtime_start`; the support crate's C main forwards to that routine.
+[External native builds](../01-building/linking.md#external-build-systems)
+use exactly one Cargo graph instead of combining separately bundled Rust
+staticlibs. Shared-library export
 maps hide runtime symbols. Both archives are built with the compiler.
 
 Native emission validates the native target triple,

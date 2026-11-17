@@ -50,6 +50,15 @@ cannot be exported directly. See [exported error contracts](export-result-contra
 
 `pub` makes the function accessible through source imports. `export` independently
 creates a C entry point in a library build. Libraries do not need `main`.
+For a Plenty-owned executable that receives native callbacks,
+[`--executable-exports NAME`](../../design/facilities/04-interop/exports.md#executable-callbacks)
+explicitly enables these same adapters alongside ordinary main and writes a C
+header. A trusted `address` declaration selects the adapter address, not the
+private Plenty function. Keep callbacks serialized and call the originating
+destructor only after callbacks stop; this is not a retained-closure API. The
+[GPUI executable proof](../../design/facilities/04-interop/gpui-binding.md) uses
+this path with a separate opt-in native support build. Ordinary `plenty run`
+does not automatically build GUI dependencies.
 
 Save the module as `calc.plenty`, create a `build` directory, and run:
 

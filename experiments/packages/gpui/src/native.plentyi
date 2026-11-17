@@ -4,3 +4,5 @@ pub opaque Function
 pub extern def begin_raw(function: Function, frame: u64, axis: u32, gap: f32, padding: f32, background: u32) -> u32 = function
 pub extern def end_raw(function: Function, frame: u64) -> u32 = function
 pub extern def text_raw(function: Function, frame: u64, text: &str as utf8, color: u32, size: f32, action: u64) -> u32 = function
+# Called synchronously by the application's main, on the process main thread.
+pub extern def run() -> u32 = "plgp_v1_run"

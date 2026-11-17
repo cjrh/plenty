@@ -21,6 +21,10 @@ Delivery history and retired backlog entries live here, separate from the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
 
+[Unified GPUI executable infrastructure](completed-work/libraries.md#experimental-gpui-host-binding)
+records opt-in executable C callbacks and one Cargo-built native support archive,
+not a std GUI API or GPUI + gpui-kit ecosystem qualification.
+
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and native
 selected-provider box/list storage, not completion of B13.
