@@ -420,7 +420,8 @@ fn step(
                 }
             }
             crate::threading::ThreadOp::Rows(..)
-            | crate::threading::ThreadOp::AllocatorProvider(_) => {}
+            | crate::threading::ThreadOp::AllocatorProvider(_)
+            | crate::threading::ThreadOp::AllocatorUse => {}
         },
         Op::Try {
             source,

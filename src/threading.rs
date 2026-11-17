@@ -75,6 +75,10 @@ pub enum ThreadOp {
     /// Emits no code. No public frontend constructor is connected yet.
     #[cfg_attr(not(test), allow(dead_code))]
     AllocatorProvider(Arc<AllocatorProvider>),
+    /// Marks any retained-allocator operation, including explicit system
+    /// storage without custom provider registration. No code or frontend yet.
+    #[cfg_attr(not(test), allow(dead_code))]
+    AllocatorUse,
 }
 
 impl Task {
@@ -159,7 +163,18 @@ fn check_with_exports(
     let mut addresses = Vec::new();
     let mut jobs = Vec::new();
     let mut providers = Vec::new();
+    let mut retained_allocator = false;
+    let mut actor = false;
     walk(ops, &mut |op| {
+        retained_allocator |= matches!(
+            op,
+            Op::Thread(ThreadOp::AllocatorUse | ThreadOp::AllocatorProvider(_))
+        );
+        actor |= matches!(
+            op,
+            Op::Thread(ThreadOp::Run(_) | ThreadOp::Forget(_))
+                | Op::Collection(crate::collection::CollectionOp::ActorHeap)
+        );
         if let Op::DefineFn(name, function) = op {
             definitions.push((name.as_str(), function.as_ref()));
         }
@@ -214,8 +229,14 @@ fn check_with_exports(
             ));
         }
     });
-    // Only a value crossing a thread boundary starts an inspection. A program
-    // without one needs no table of every function.
+    // This deliberately precedes the no-worker fast path and examines every
+    // lowered body, not just provider callbacks or reachable worker functions.
+    // Ordinary collection types erase allocator identity; until provenance is
+    // tracked, even apparently unrelated actor use must be excluded.
+    if retained_allocator && actor {
+        return Err("retained allocator use cannot be combined with actor execution, abandonment or heap operations in the same program; initial allocator integration excludes actor interoperability".into());
+    }
+    // Only certification roots need a table of every function.
     if roots.is_empty() {
         return Ok(());
     }
@@ -239,7 +260,6 @@ fn check_with_exports(
     let mut checked_receivers = HashSet::default();
     for (kind, mut queue, mut types) in roots {
         let host_context = allow_host_callbacks && kind == "thread-safe export";
-        let provider_context = kind == "allocator provider";
         let origin = match queue.first() {
             Some(worker) => format!("{kind} {}", describe(worker, &functions)),
             None => kind.to_owned(),
@@ -288,7 +308,7 @@ fn check_with_exports(
                 }
             }
             let Some(name) = queue.pop() else { break };
-            if !checked.insert((host_context, provider_context, name.clone())) {
+            if !checked.insert((host_context, name.clone())) {
                 continue;
             }
             let function = functions
@@ -296,15 +316,6 @@ fn check_with_exports(
                 .ok_or_else(|| format!("{origin}: unavailable function `{name}`"))?;
             let queued = queue.len();
             let mut local = Vec::new();
-            if provider_context {
-                let mut actor = false;
-                walk(&function.body, &mut |op| {
-                    actor |= matches!(op, Op::Thread(ThreadOp::Run(_) | ThreadOp::Forget(_)));
-                });
-                if actor {
-                    return Err(format!("{origin} reaches {}: actor execution and abandonment are unsupported in allocator providers", describe(&name, &functions)).into());
-                }
-            }
             let inspected = inspect_context(function, &mut local, &mut queue, host_context);
             types.extend(local.into_iter().map(|ty| (ty, Reach::Local)));
             inspected.map_err(|reason| {

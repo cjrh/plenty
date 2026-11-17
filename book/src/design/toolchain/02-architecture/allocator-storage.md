@@ -22,26 +22,45 @@ compiler verification. Thread-confined Plenty providers remain supported by the
 
 ## Compiler admission groundwork
 
-A private `ThreadOp::AllocatorProvider` marker names provider state and its
-allocation/release functions. It emits no code and has **no frontend producer**.
-It reuses worker certification without requiring a worker spawn: state must be
-heap-storable and contain no hidden task/channel/executor ownership; callbacks
-must borrow that exact state mutably. Transitive calls, indirect targets and
-state destructors need worker-safe effects. Movable opaque fields need an affine
-owner, not a sharing promise, because callbacks serialize access. Fixed-array
-elements participate in these checks, including at length zero.
+Two private `ThreadOp` markers track retained-allocator use and provider state:
 
-Provider-context traversal additionally rejects reachable actor execution and
-abandonment. Its cache is separate from ordinary worker certification, so a
-previous worker check cannot bypass that restriction. This is not a non-trapping
-contract: callback traps remain process-fatal.
+- **`ThreadOp::AllocatorUse`** marks any retained-allocator operation, including
+  explicit system-allocator storage without custom provider registration. It emits no code and has no frontend producer yet.
+- **`ThreadOp::AllocatorProvider`** names provider state and its allocation/release
+  functions. It emits no code and has **no frontend producer**. It reuses worker
+  certification without requiring a worker spawn: state must be heap-storable and
+  contain no hidden task/channel/executor ownership; callbacks must borrow that
+  exact state mutably. Transitive calls, indirect targets and state destructors
+  need worker-safe effects. Movable opaque fields need an affine owner, not a
+  sharing promise, because callbacks serialize access. Fixed-array elements
+  participate in these checks, including at length zero.
+
+**Whole-program scope.** `check_with_exports` scans the complete lowered program,
+including every unused and unrelated function body, before the no-worker/root
+early return. This conservative scope ensures that retained allocator markers
+combined with actor operations (`ThreadOp::Run`/`Forget` or
+`CollectionOp::ActorHeap`) are rejected uniformly, even if those operations are
+not immediately reachable from an entry point. The scan includes observation
+heap helpers and any allocator use, whether through provider registration or
+explicit system allocation. This is not a per-operation or per-context analysis:
+until allocator provenance is tracked separately, any retained allocator and any
+actor use in the same program are conservatively excluded.
+
+**Single unified diagnostic.** Programs combining either marker with actor
+execution, abandonment or heap operations fail with: "retained allocator use
+cannot be combined with actor execution, abandonment or heap operations in the
+same program; initial allocator integration excludes actor interoperability".
+This is not a security boundary, capability tracking or proof of where
+pre-existing state was allocated; those remain bridge gates during public
+bindings and host-entry contracts.
 
 These checks do not certify the callback ABI, returned block representation or
 escaping storage lifetimes. There is no compiled callback adapter or public
 retained handle yet. Initial language integration will exclude actor/arena
 interoperability rather than imply that worker-safe fields survive abandonment.
-Registration checks alone do not exclude later use of a handle in those contexts
-or prove where pre-existing state was allocated; those remain bridge gates.
+Native registration guards remain in place. Guards at future public bindings and
+foreign host-entry contracts are still required; the program-wide check does not
+certify separately compiled foreign code.
 
 ## Explicit selection and bootstrap
 
@@ -196,8 +215,13 @@ recovery. A separate test checks allocation-free nesting, thread isolation and
 scope restoration after native Rust panics. These are runtime probes, not
 compiled-provider tests.
 
-Nine compiler admission tests cover state/receiver checks, transitive and indirect
-effects, destruction, actor restrictions, reachability and array traversal.
+Fourteen compiler admission tests cover provider state/receiver checks, transitive
+and indirect effects, destruction, actor restrictions, reachability and array
+traversal. Five new tests validate the program-wide exclusion of combined retained-allocator
+and actor use: system-only use excludes actors without any certification
+roots; unrelated and unused function bodies are conservatively scanned; nested
+bodies cannot hide either exclusion half; feature-alone compatibility keeps
+existing checks; and thread-safe exports do not relax the program-wide exclusion.
 Two compiled-program regression tests cover fixed-array opaque contracts and
 uncertified destructors; a valid movable-owner array releases both elements on a
 worker. A bounded native subprocess verifies registration rejection under an

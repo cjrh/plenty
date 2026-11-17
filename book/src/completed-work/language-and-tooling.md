@@ -79,6 +79,15 @@ reject unqualified opaque elements and unsafe destructors; a valid movable-owner
 array destroys its elements on a worker. These checks do not change allocator
 selection in existing programs.
 
+Private admission now excludes retained allocator use and actor operations in
+the same lowered program. A new `ThreadOp::AllocatorUse` marker covers system-only
+use; provider registration also implies use. The check scans unused and unrelated
+bodies before the no-worker fast path, including actor heap observation helpers.
+Five new tests cover system-only use, unrelated/unused and nested bodies,
+feature-alone compatibility and thread-safe exports. Neither marker has a
+frontend producer, so existing programs are unchanged. This does not complete
+public bindings or certify foreign-host and ambient-arena boundaries.
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,

@@ -48,15 +48,29 @@ separate isolation/cleanup design; requiring statically non-trapping callbacks
 would instead need a restrictive transitive effect contract. Neither alternative
 is selected.
 
+## Temporary program-wide allocator/actor exclusion
+
 Initial public retained-provider integration will exclude actor/arena
 interoperability rather than implement abandonment cleanup now. Thread-safe
-fields alone do not prove their backing outlives recovery or reclamation. Native
-registration now rejects active actor/arena contexts without allocating or taking
-state. A private compiler admission marker checks worker-safe state, transitive
-callback effects and destruction, and rejects actor operations in callbacks.
-Neither has a public frontend binding; callback ABI adapters, source-state
-provenance and restrictions on subsequent handle use remain required before
-exposure. There is no silent system-allocation substitute for rejected contexts.
+fields alone do not prove their backing outlives recovery or reclamation.
+Registration checks also cannot detect a handle created earlier and later
+carried into an actor through an ordinary collection.
+
+The selected initial restriction is therefore program-wide, not targeted
+provenance tracking. Private `ThreadOp::AllocatorUse` and
+`ThreadOp::AllocatorProvider` markers cannot coexist with actor execution,
+abandonment or heap operations in one lowered program. This includes unused and
+unrelated bodies and heap observation helpers. System-only retained allocation
+must participate too. Neither marker has a frontend producer yet; existing
+programs retain their current behavior.
+
+Native registration rejects active actor/arena contexts without bootstrap
+allocation and returns the provider unchanged. The compiler gate does not replace
+runtime guards at future bindings or foreign host-entry contracts, certify
+callback ABI adapters, or prove pre-existing state provenance and escaping
+backing lifetimes. There is no silent system-allocation substitute for rejected
+contexts. Remaining implementation belongs to
+[B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
 
 ## What was built
 
