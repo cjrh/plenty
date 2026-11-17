@@ -2,8 +2,10 @@
 
 `plenty-runtime/src/allocator.rs` implements the native storage substrate for
 B13's builtin-owner integration. **It has no compiler binding or public Plenty
-API yet.** Existing builtin allocation and the experimental Plenty module are
-unchanged. This is not completion of builtin allocator support.
+API yet.** Compiled programs still select their existing allocation paths, and
+the experimental Plenty module is unchanged. Native constructors now exercise
+selected-provider storage for ordinary box/list representations; this is not
+completion of language-visible builtin allocator support.
 
 ## Thread contract decision
 
@@ -76,15 +78,61 @@ nonlocal actor-trap recovery through a held Rust lock. No such callbacks are
 connected here. Actor containment and the existing experimental non-atomic
 backing blocks are not certified by these tests.
 
+## Native builtin owner paths
+
+`aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
+using a selected allocator. Both the list object and its row buffer use that
+provider. Empty lists retain it too. These constructors are internal and are not
+called by compiler lowering yet.
+
+A private prefix before each selected object's ordinary header owns its backing
+block and type descriptor. Ordinary box content offsets and the compiler-visible
+list descriptor, rows, byte count and removal flag offsets remain unchanged.
+Legacy objects have no such prefix. `Entries` carries an optional pointer after
+its ABI prefix. Selected-buffer bookkeeping is allocated separately through the
+selected provider, never a global `Box`; it owns the row block and retained
+handle. This adds one pointer to legacy collection bookkeeping and an extra
+provider allocation to selected lists, including empty lists. These costs have
+not been benchmarked.
+
+Selected row growth allocates before moving bytes. Failure preserves live rows,
+capacity and their address. Success repairs nested inline payload addresses
+before returning the old buffer. Row widths remain the existing dense scalar or
+slot layouts. Raw bytes are not reconstructed as a `Vec` on this path; the
+selected block owner releases them. Partial list construction releases any
+reserved buffer if allocating the object fails.
+
+A selected box's allocation failure leaves its input with the native caller.
+Successful construction moves inline payloads into the box. Taking the content
+clears its slot and releases the object through its recorded provider.
+
+Selected owners use the ordinary iterative destruction queue, retaining their
+prefix and row buffers until children finish. In particular, selected boxes do
+not use the legacy fast child-release shortcut: even a child with no language
+`__del__` can have an observable allocator release callback. The parent's provider
+must not receive its storage ahead of those children. This is covered by a test
+whose descriptor explicitly offers the shortcut.
+
+Copying, slices, stable-sort scratch, adapted protocol/callable boxes and other
+allocation sites are not routed by these constructors. Their migration remains
+separate from storage growth and destruction.
+
 ## Evidence
 
-Thirteen native tests cover zero-sized and aligned storage, disjoint ranges,
+Thirteen native storage tests cover zero-sized and aligned storage, disjoint ranges,
 provider lifetime, nested bootstrap ownership, failed bootstrap with returned
 state, independent failure without fallback, overflow before callback entry,
 cache reuse, concurrent callbacks, final destruction on a worker, malformed
 providers, recursion traps and explicit system allocation inside an ambient
 arena. Trap subprocesses have deadlines. Successful paths pass Valgrind checks
 for invalid access and definite, indirect and possible leaks.
+
+Eleven additional native owner tests cover object/buffer routing, failed growth
+and partial construction, instrumented system failures, nested records with
+ranges and owned child boxes, extracted-value cleanup, dense scalar ABI offsets,
+empty owners, take, final release on a worker and child-before-parent release.
+A 10,000-node selected box graph drops on a 128 KiB stack. The combined allocator
+checks pass Valgrind, including the new owner paths.
 
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not
