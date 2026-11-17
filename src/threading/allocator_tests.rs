@@ -186,10 +186,10 @@ fn indirect_targets_cannot_hide_unsafe_effects() {
 }
 
 #[test]
-fn actor_restriction_is_not_bypassed_by_worker_check_cache() {
+fn provider_and_worker_roots_still_obey_program_wide_actor_exclusion() {
     let mut ops = program(Ty::I64, vec![Op::Thread(ThreadOp::Forget(Ty::I64))], vec![]);
-    // The ordinary worker traversal currently admits this raw IR operation.
-    // Provider admission must still run its stricter check on the same body.
+    // Ordinary worker certification alone admits this raw IR operation.
+    // Whole-program exclusion must reject the combination before that traversal.
     ops.insert(
         0,
         Op::Thread(ThreadOp::Start(
@@ -204,7 +204,12 @@ fn actor_restriction_is_not_bypassed_by_worker_check_cache() {
             false,
         )),
     );
-    denied(&ops, "actor execution and abandonment");
+    assert!(
+        check(&ops)
+            .unwrap_err()
+            .to_string()
+            .contains("same program")
+    );
 }
 
 #[test]
@@ -233,6 +238,126 @@ fn fixed_array_elements_are_checked_for_existing_workers_and_providers() {
             .unwrap_err()
             .to_string()
             .contains("provider_effect")
+    );
+}
+
+fn actor_heap_body() -> Vec<Op> {
+    vec![
+        Op::PushInt(crate::value::Value::I64(0)),
+        Op::PushInt(crate::value::Value::I64(4096)),
+        Op::Collection(crate::collection::CollectionOp::ActorHeap),
+        Op::Drop,
+    ]
+}
+
+fn context_denied(ops: &[Op]) {
+    let message = check(ops).unwrap_err().to_string();
+    assert!(message.contains("retained allocator use"), "{message}");
+    assert!(message.contains("same program"), "{message}");
+}
+
+#[test]
+fn system_only_use_excludes_actors_without_any_certification_roots() {
+    let task = Arc::new(Task {
+        adapter: "unused".into(),
+        worker: "actor".into(),
+        closure: None,
+        inputs: vec![],
+        output: Ty::Unit,
+    });
+    for operation in [
+        Op::Thread(ThreadOp::Run(task)),
+        Op::Thread(ThreadOp::Forget(Ty::I64)),
+        Op::Collection(crate::collection::CollectionOp::ActorHeap),
+    ] {
+        let mut ops = vec![operation, Op::Thread(ThreadOp::AllocatorUse)];
+        context_denied(&ops);
+        ops.reverse();
+        context_denied(&ops);
+    }
+}
+
+#[test]
+fn unrelated_and_unused_bodies_are_conservatively_excluded() {
+    let mut ops = vec![
+        function("unused_actor", None, actor_heap_body()),
+        function(
+            "independent_allocator",
+            None,
+            vec![Op::Thread(ThreadOp::AllocatorUse)],
+        ),
+    ];
+    // The independent IR checker reaches the same gate with well-typed bodies.
+    assert!(
+        crate::op::check(&ops)
+            .unwrap_err()
+            .to_string()
+            .contains("same program")
+    );
+    context_denied(&ops);
+    ops.reverse();
+    context_denied(&ops);
+    // Custom registration implies use; it cannot avoid the gate by omitting
+    // the system/use-only marker.
+    let mut ops = program(Ty::I64, vec![], vec![]);
+    ops.push(function("unused_actor", None, actor_heap_body()));
+    context_denied(&ops);
+}
+
+#[test]
+fn nested_bodies_cannot_hide_either_half_of_the_exclusion() {
+    let actor = function("unused_actor", None, actor_heap_body());
+    let retained = Op::Thread(ThreadOp::AllocatorUse);
+    let nested = |body: Vec<Op>| Op::Loop {
+        condition: Arc::new([]),
+        body: body.into(),
+    };
+    for ops in [
+        vec![actor.clone(), nested(vec![retained.clone()])],
+        vec![retained, nested(vec![actor])],
+    ] {
+        context_denied(&ops);
+    }
+}
+
+#[test]
+fn either_feature_alone_keeps_its_existing_checks() {
+    crate::op::check(&[function("actor", None, actor_heap_body())]).unwrap();
+    crate::op::check(&[Op::Thread(ThreadOp::AllocatorUse)]).unwrap();
+    let mut ops = program(Ty::I64, vec![], vec![]);
+    ops.push(Op::Thread(ThreadOp::AllocatorUse));
+    crate::op::check(&ops).unwrap();
+    let mut names = Vec::new();
+    function_references(&Op::Thread(ThreadOp::AllocatorUse), &mut |name| {
+        names.push(name.to_owned())
+    });
+    assert!(names.is_empty());
+}
+
+#[test]
+fn thread_safe_exports_do_not_relax_program_wide_exclusion() {
+    let mut exports = [crate::exports::Export {
+        function: "entry".into(),
+        name: "entry".into(),
+        symbol: "entry".into(),
+        signature: Arc::new(FnSig {
+            inputs: vec![],
+            outputs: vec![],
+        }),
+        documentation: String::new(),
+        thread_safe: true,
+        host_context: false,
+        exact: false,
+    }];
+    let ops = vec![
+        function("entry", None, vec![Op::Thread(ThreadOp::AllocatorUse)]),
+        function("unused_actor", None, actor_heap_body()),
+    ];
+    assert!(
+        check_exports(&ops, &mut exports)
+            .unwrap_err()
+            .to_string()
+            .contains("same program")
     );
 }
 

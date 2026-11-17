@@ -450,18 +450,20 @@ builtin representations. Implement the remaining work in staged PRs:
    Builtin handles must be thread-safe from the outset, without allocator type
    parameters on each collection. Complete the compiler-certified provider bridge:
    connect the private state/effect/destructor admission marker to checked ABI
-   adapters and safe retained state/backing. Native registration now rejects
-   active actor/arena contexts before allocation; initial public integration must
-   also exclude later handle use and unsafe state provenance in those contexts.
-   Admission groundwork alone does not prove escaping lifetimes. Native callbacks now
-   prevent actor/arena recovery through their frames: callback traps are
-   process-fatal, while returned allocation errors remain recoverable.
-   Native box/list object allocation,
-   list row growth and ordered destruction now retain selected providers; connect
-   those paths to compiler lowering and the public explicit-allocator interface.
-   Add compiled-program tests for simultaneous allocators, owners outliving caller
-   handles, worker-safe callbacks, destruction and failure without fallback or
-   corruption. Native tests alone do not complete this stage.
+   adapters and safe retained state/backing. Wire every public retained-allocator
+   operation into the temporary program-wide actor exclusion, including system-only
+   owners. Keep binding/runtime guards for ambient arenas and foreign host-entry
+   contexts; the compiler gate alone does not prove escaping lifetimes or
+   pre-existing state provenance. Native callbacks prevent actor/arena recovery
+   through their frames: callback traps are process-fatal, while returned
+   allocation errors remain recoverable.
+   Native box/list object allocation, list row growth and ordered destruction now
+   retain selected providers; connect those paths to compiler lowering and the
+   public explicit-allocator interface. Add compiled-program tests for simultaneous
+   allocators, owners outliving caller handles, worker-safe callbacks, destruction
+   and failure without fallback or corruption. Native tests alone do not complete
+   this stage. Relaxing the temporary exclusion requires a separate provenance
+   and abandonment contract; it is not part of initial integration.
 3. **Complete the migration.** Cover dictionaries, sets, strings, formatting,
    copying, owning slices, scratch buffers and allocating std APIs. Maintain an
    allocation-site inventory and verify routing, ownership and failure behavior

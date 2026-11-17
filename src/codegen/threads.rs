@@ -243,7 +243,7 @@ impl Lowerer<'_, '_> {
             ThreadOp::Forget(ty) => {
                 self.pop_typed(ty.clone())?;
             }
-            ThreadOp::Rows(..) | ThreadOp::AllocatorProvider(_) => {}
+            ThreadOp::Rows(..) | ThreadOp::AllocatorProvider(_) | ThreadOp::AllocatorUse => {}
         }
         Ok(())
     }
