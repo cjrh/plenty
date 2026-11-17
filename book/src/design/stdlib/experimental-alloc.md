@@ -2,7 +2,8 @@
 
 **Experimental B13 probe, not a general allocator API.** This module tests explicit
 allocator selection, retained ownership, bounded arena storage and safe external
-byte-storage policies. Its collection remains integer-only. Builtin `list`, strings, boxes and other std modules
+byte-storage policies. It also supplies a [generic owned collection](experimental-owned-list.md)
+with retained providers and exactly-once element destruction. Builtin `list`, strings, boxes and other std modules
 still use their existing allocation paths. See the
 [allocator design and evidence](../../proposals/allocator-experiments.md).
 
@@ -132,15 +133,19 @@ def main() -> Result[(), AllocError | IoError]:
 
 ### External allocation policies
 
-`BlockProvider` is a statically dispatched protocol with
-`allocate(self: &mut BlockProvider, size: i64) -> Result[ByteBlock, AllocError]`.
-A provider should return exactly the requested extent, reject negative/impossible
-sizes with `CapacityOverflow`, and report budget exhaustion as `OutOfMemory`.
+`BlockProvider` declares
+`allocate(self: &mut BlockProvider, size: i64) -> Result[ByteBlock, AllocError]`
+and `release(self: &mut BlockProvider, block: ByteBlock) -> ()`.
+A provider supplies at least the requested extent, rejects negative/impossible
+sizes with `CapacityOverflow`, and reports budget exhaustion as `OutOfMemory`.
+`release` takes back an emptied block and may cache or drop it; it cannot fail.
+`Allocator` implements both methods, delegating allocation to `block` and release
+to ordinary block destruction. These callbacks add no implicit fallback.
 Its methods can split genuine blocks, but cannot manufacture a pointer or lie
 about a block's stored extent. Provider conformance alone does not prove it
 returned the requested size. The byte methods enforce bounds even for a
-misbehaving provider; any future trusted typed consumer must validate extent
-and alignment before raw access. This protocol
+misbehaving provider; the trusted `OwnedList` consumer validates extent
+and alignment before typed access. This protocol
 makes no alignment promise beyond the returned block's `alignment()`.
 
 `examples/allocators/block_provider.plenty` implements an eight-byte-aligned bump
@@ -153,11 +158,11 @@ independent providers, exhaustion, disjoint mutation and allocations surviving
 both provider objects and the caller's system handle. Suballocation has no
 additional allocation cost.
 
-This is a safe byte-storage policy probe, **not** a generic typed allocator ABI.
-Blocks retain backing storage, not arbitrary provider objects or custom release
-callbacks. They cannot yet contain typed values, invoke element destructors,
-serve `IntList` storage, or promise alignment above eight. See
-[B13's remaining sequence](../../backlog.md#b13-explicit-allocator-implementation-sequence).
+Directly held blocks retain backing storage, not arbitrary provider objects or
+custom release callbacks. [OwnedList](experimental-owned-list.md) adds generic
+typed storage, retains its provider, and returns emptied buffers through `release`.
+The original `IntList` remains separate. Neither owner promises alignment above
+eight or a stable allocator ABI.
 
 ## Boundary and limitations
 
@@ -165,14 +170,16 @@ Both policies are implemented in Plenty. Private trusted C declarations are a
 prototype exception to the std-intrinsic convention: ordinary Plenty currently
 cannot allocate or address allocator-selected raw storage. `malloc`/`free` are
 the only foreign calls; scalar access and pointer offsets use the existing
-trusted interface instructions. No raw storage operation is public.
+trusted interface instructions. Generic owned slots use private std-only compiler
+operations for layout and ownership-preserving moves. No raw storage operation
+is public.
 
 The private pointer type has no thread contract, so allocators and lists cannot
 cross workers. Reference counts and bump state are deliberately non-atomic.
 The implementation assumes the compiler's current 64-bit pointer targets and
-supports byte storage with up to eight-byte alignment and the integer-only list.
-External safe block policies are supported, but arbitrary raw allocator
-implementations, generic elements/destructors, resettable arenas, shared workers,
+supports byte storage and compiler-layout typed slots with eight-byte alignment.
+External safe block policies and generic owned payloads are supported, but
+arbitrary raw allocator implementations, resettable arenas, shared workers,
 actor containment, and integration with builtin allocation-failure accounting
 remain unsupported. The C system backend is not the runtime's small-block pool. Tests inject failures
 into its actual `malloc` calls and additionally run under Valgrind.

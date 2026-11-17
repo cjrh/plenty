@@ -124,11 +124,20 @@ allocator, freeing needs no record of which one created an object. A plain box i
 binary-trees node is a 48-byte box in a 48-byte pool block (C: a 32-byte
 malloc chunk); with glibc malloc and a descriptor and padding word per box it
 was an 80-byte chunk.
-Public allocator selection and scoped allocator lifetimes are unsupported. Adding
-them (backlog B13) must record provenance again without enlarging objects of the
-global allocator; a 16-byte prefix made each binary-trees node a 112-byte malloc
-chunk rather than 96 (issue #814), before the record's value word was also
-dropped.
+Builtin allocator selection and scoped allocator lifetimes are unsupported.
+The B13 migration needs retained provenance; header overhead must be measured:
+a 16-byte prefix made each binary-trees node a 112-byte malloc chunk rather than
+96 (issue #814), before the record's value word was also dropped.
+
+The separate [experimental generic owner](../../stdlib/experimental-owned-list.md)
+retains a safe block provider and validates its byte extent/alignment before
+access. Private std-only operations use `Ty::slot_bytes`: a 16-byte value word
+plus inline payload. Slot writes relocate inline payloads into the destination;
+takes snapshot them into caller-owned storage, then clear the source. These are
+ownership moves, not deep copies or retains. The std owner tracks initialized
+length and runs ordinary typed destruction before returning buffers to the
+retained provider. Neither these operations nor typed block bytes are public.
+This leaves builtin runtime object layout and allocation unchanged.
 
 ### Small-block pool
 

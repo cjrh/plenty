@@ -1,0 +1,42 @@
+import std.experimental.alloc as memory
+import block_provider
+
+class Item:
+    id: i64
+    bytes: memory.ByteBlock
+
+    def __del__(self: &mut Item) -> ():
+        print("drop", self.id, self.bytes.get(0)).unwrap()
+
+pub class Provider:
+    inner: block_provider.Bump
+
+    pub def allocate(self: &mut Provider, size: i64) -> Result[memory.ByteBlock, AllocError]:
+        self.inner.allocate(size)
+
+    pub def release(self: &mut Provider, block: memory.ByteBlock) -> ():
+        print("release").unwrap()
+        self.inner.release(block)
+
+    def __del__(self: &mut Provider) -> ():
+        print("provider dropped").unwrap()
+
+def item(system: &memory.Allocator, id: i64) -> Result[Item, AllocError]:
+    mut bytes = system.block(1)?
+    bytes.set(0, u8(id))
+    Ok(Item(id, bytes))
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    provider = Provider(block_provider.bump(&system, 8192)?)
+    mut values = memory.owned_list[Item, Provider](provider)
+    for id in range(6):
+        # This example terminates on insertion failure; the error owns the item.
+        values.append(item(&system, id)?).unwrap()
+    print(values.len(), values.capacity())?
+    last = values.pop().unwrap()
+    print(last.id, last.bytes.get(0))?
+    drop(last)
+    drop(values)
+    print(system.live_blocks())?
+    Ok(())

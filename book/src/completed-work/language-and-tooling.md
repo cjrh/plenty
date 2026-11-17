@@ -27,8 +27,18 @@ alignment after splits, failure cleanup, private construction, prohibited copyin
 and thread confinement have executable checks. The expanded allocator suite
 passes with optimization off/on and its successful cases under Valgrind,
 including injected metadata/backing allocation failures; complete docs checks
-also pass. This establishes byte-storage policies, not generic typed owners,
-arbitrary provider-state retention, release callbacks or builtin allocation.
+also pass.
+
+The [generic owner](../design/stdlib/experimental-owned-list.md) completes the
+bounded stage-1 gate. `OwnedList[T, P]` retains the provider by value, moves owned
+elements through checked backing storage with private compiler slot operations,
+and returns emptied buffers through the provider's `release` callback before
+destroying it. Failed growth preserves existing values and returns the rejected
+input; partial construction cleans up exactly once. Tests cover nested records,
+arrays, enums, strings and collections, custom destructors, zero/unit payloads,
+provider cache reuse, malformed providers and actual allocation failures, in both
+compilation modes with Valgrind. Builtin owner integration, a permanent allocator
+handle representation and the comprehensive migration remain B13 work.
 
 ## Shared integration fixture compilation (2026-11-14)
 

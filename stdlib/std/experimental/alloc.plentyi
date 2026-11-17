@@ -143,6 +143,13 @@ pub class Allocator:
             result.append(value)?
         Ok(result)
 
+    # An Allocator is also a safe block provider for generic owned storage.
+    pub def allocate(self: &mut Allocator, size: i64) -> Result[ByteBlock, AllocError]:
+        self.block(size)
+
+    pub def release(self: &mut Allocator, block: ByteBlock) -> ():
+        drop(block)
+
 # A separate system handle has independent counters; no implicit current allocator.
 # Its 64-byte control block is bootstrap storage, not counted in live_blocks.
 pub def system() -> Result[Allocator, AllocError]:
@@ -174,6 +181,8 @@ pub def arena(owner: &Allocator, max_bytes: NonNegative[i64]) -> Result[Allocato
 # can only return genuine owned byte ranges, never forged pointers or extents.
 pub protocol BlockProvider:
     def allocate(self: &mut BlockProvider, size: i64) -> Result[ByteBlock, AllocError]:
+        pass
+    def release(self: &mut BlockProvider, block: ByteBlock) -> ():
         pass
 
 # Shared backing lifetime, exclusive byte-range ownership. The private arena
@@ -224,6 +233,112 @@ pub class ByteBlock:
             ByteBlock(self._owner.share(), self._offset + at, self._len - at)
         self._len = at
         result
+
+# A zero-length field keeps the element type visible to type/ownership facts
+# without storing a second element. Its factory is never called.
+def marker_value[T](index: i64) -> T:
+    __trap("OwnedList: zero-length type marker factory was called")
+
+# Private typed-slot primitives preserve the compiler's own inline layout and
+# relocate nested payloads. Raw bytes never escape while typed slots are live.
+def slot[T](block: &ByteBlock, index: i64) -> Pointer:
+    unchecked:
+        offset = block._offset + index * __allocator_slot_size[T]()
+        advance(load_pointer(block._owner._state, backing), u64(offset))
+
+pub class AppendFailure[T]:
+    pub error: AllocError
+    pub value: T
+
+pub class OwnedList[T, P]:
+    _provider: P
+    _storage: Option[ByteBlock]
+    _len: i64
+    _capacity: i64
+    _element: array[T, 0]
+
+    def __del__(self: &mut OwnedList[T, P]) -> ():
+        while self._len > 0:
+            drop(self.pop())
+        # Return emptied storage while the selected provider is still alive.
+        match replace(self._storage, Nothing):
+            case Some(block):
+                self._provider.release(block)
+            case Nothing:
+                pass
+
+    pub def len(self) -> i64:
+        self._len
+
+    pub def is_empty(self) -> bool:
+        self._len == 0
+
+    pub def capacity(self) -> i64:
+        self._capacity
+
+    pub def reserve(self: &mut OwnedList[T, P], capacity: i64) -> Result[(), AllocError]:
+        stride = __allocator_slot_size[T]()
+        maximum = unchecked:
+            i64.MAX // stride
+        if capacity < 0 or capacity > maximum:
+            return Err(AllocError.CapacityOverflow)
+        if capacity <= self._capacity:
+            return Ok(())
+        size = unchecked:
+            capacity * stride
+        block = self._provider.allocate(size)?
+        if block.len() < size or block.alignment() < 8:
+            __trap("OwnedList.reserve: provider returned insufficient extent or alignment")
+        match &self._storage:
+            case Some(old):
+                for index in range(self._len):
+                    value = __allocator_slot_take[T](slot[T](old, index), 0u64)
+                    __allocator_slot_put[T](slot[T](&block, index), 0u64, value)
+            case Nothing:
+                pass
+        old = replace(self._storage, Some(block))
+        self._capacity = capacity
+        match old:
+            case Some(block):
+                self._provider.release(block)
+            case Nothing:
+                pass
+        Ok(())
+
+    pub def append(self: &mut OwnedList[T, P], value: T) -> Result[(), AppendFailure[T]]:
+        if self._len == self._capacity:
+            if self._capacity > i64.MAX // 2:
+                return Err(AppendFailure(AllocError.CapacityOverflow, value))
+            capacity = unchecked:
+                4 if self._capacity == 0 else self._capacity * 2
+            match self.reserve(capacity):
+                case Err(error):
+                    return Err(AppendFailure(error, value))
+                case Ok(_):
+                    pass
+        match &self._storage:
+            case Some(block):
+                __allocator_slot_put[T](slot[T](block, self._len), 0u64, value)
+            case Nothing:
+                __trap("OwnedList.append: missing reserved storage")
+        unchecked:
+            self._len += 1
+        Ok(())
+
+    pub def pop(self: &mut OwnedList[T, P]) -> Option[T]:
+        if self._len == 0:
+            return Nothing
+        index = unchecked:
+            self._len - 1
+        self._len = index
+        match &self._storage:
+            case Some(block):
+                Some(__allocator_slot_take[T](slot[T](block, index), 0u64))
+            case Nothing:
+                __trap("OwnedList.pop: missing initialized storage")
+
+pub def owned_list[T, P: BlockProvider](provider: P) -> OwnedList[T, P]:
+    OwnedList(provider, Nothing, 0, 0, array[T, 0].from_fn(marker_value[T]))
 
 # The inline owner retains the allocator; only its element buffer is allocated.
 # Kept scalar-only to avoid assuming a generic raw layout or element drop ABI.

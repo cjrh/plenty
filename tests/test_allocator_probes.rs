@@ -70,6 +70,234 @@ fn short_programs_use_system_arena_and_both() {
 }
 
 #[test]
+fn generic_owned_values_move_and_drop_exactly_once() {
+    assert_eq!(
+        run_file_stdout(include_str!("../examples/allocators/owned_values.plenty")),
+        "release\n6 8\n5 5\ndrop 5 5\ndrop 4 4\ndrop 3 3\ndrop 2 2\ndrop 1 1\ndrop 0 0\nrelease\nprovider dropped\n0"
+    );
+}
+
+#[test]
+fn generic_storage_relocates_nested_inline_payloads() {
+    assert_eq!(
+        run_file_stdout(
+            r#"import std.experimental.alloc as memory
+
+class Record:
+    name: str
+    rows: array[i64, 32]
+    values: list[i64]
+
+enum Entry:
+    Empty
+    Full(Record, str)
+
+def round_trip[T](owner: &memory.Allocator, value: T) -> T:
+    mut values = memory.owned_list[T, memory.Allocator](owner.share())
+    values.append(value).unwrap()
+    values.reserve(9).unwrap()
+    result = values.pop().unwrap()
+    drop(values)
+    result
+
+def main() -> Result[(), AllocError | IoError]:
+    owner = memory.system()?
+    # Numeric, unit, sum tags, and nested inline records use the same slot ABI.
+    print(round_trip(&owner, True), round_trip(&owner, 255u8), round_trip(&owner, 1.5))?
+    drop(round_trip(&owner, ()))
+    mut values = memory.owned_list[Entry, memory.Allocator](owner.share())
+    for id in range(6):
+        label = ("item" + "!")?
+        record = Record(label, array[i64, 32].filled(id), [id, 99]?)
+        values.append(Entry.Full(record, ("tail" + "!")?)).unwrap()
+    values.append(Entry.Empty).unwrap()
+    print(values.len(), values.capacity())?
+    match values.pop().unwrap():
+        case Entry.Empty:
+            print("empty")?
+        case Entry.Full(_, _):
+            print("wrong")?
+    entry = values.pop().unwrap()
+    drop(values)
+    # Read only after the source buffer has been released.
+    match entry:
+        case Entry.Full(record, tail):
+            print(record.name, record.rows[31], record.values[0], tail)?
+        case Entry.Empty:
+            print("wrong")?
+    pair = round_trip(&owner, (("a" + "b")?, [8, 9]?))
+    print(pair[0], pair[1][1], owner.live_blocks())?
+    Ok(())
+"#,
+        ),
+        "True 255 1.5\n7 8\nempty\nitem! 5 5 tail!\nab 9 0"
+    );
+}
+
+#[test]
+fn generic_failed_growth_returns_input_and_preserves_existing_owners() {
+    assert_eq!(
+        run_file_stdout(
+            r#"import std.experimental.alloc as memory
+
+class Item:
+    id: i64
+    def __del__(self: &mut Item) -> ():
+        print("drop", self.id).unwrap()
+
+pub class Once:
+    owner: memory.Allocator
+    used: bool
+    pub def allocate(self: &mut Once, size: i64) -> Result[memory.ByteBlock, AllocError]:
+        if self.used:
+            return Err(AllocError.OutOfMemory)
+        block = self.owner.block(size)?
+        self.used = True
+        Ok(block)
+    pub def release(self: &mut Once, block: memory.ByteBlock) -> ():
+        drop(block)
+
+def partial(owner: &memory.Allocator) -> Result[(), memory.AppendFailure[Item]]:
+    mut values = memory.owned_list[Item, Once](Once(owner.share(), False))
+    for id in range(5):
+        values.append(Item(id))?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    mut values = memory.owned_list[Item, Once](Once(system.share(), False))
+    for id in range(4):
+        values.append(Item(id)).unwrap()
+    match values.append(Item(4)):
+        case Err(failure):
+            print("rejected", failure.value.id, values.len(), values.capacity())?
+            mut retry = memory.owned_list[Item, memory.Allocator](system.share())
+            retry.append(failure.value).unwrap()
+        case Ok(_):
+            print("wrong")?
+    last = values.pop().unwrap()
+    print("last", last.id)?
+    drop(last)
+    drop(values)
+    print("partial")?
+    match partial(&system):
+        case Err(failure):
+            print("returned", failure.value.id)?
+        case Ok(_):
+            print("wrong")?
+    print(system.live_blocks())?
+    Ok(())
+"#,
+        ),
+        "rejected 4 4 4\ndrop 4\nlast 3\ndrop 3\ndrop 2\ndrop 1\ndrop 0\npartial\ndrop 3\ndrop 2\ndrop 1\ndrop 0\nreturned 4\ndrop 4\n0"
+    );
+}
+
+#[test]
+fn provider_reclaims_only_emptied_storage_and_can_reuse_it() {
+    assert_eq!(
+        run_file_stdout(
+            r#"import std.experimental.alloc as memory
+
+pub class Pool:
+    owner: memory.Allocator
+    cached: Option[memory.ByteBlock]
+    fresh: i64
+    released: i64
+    clean: bool
+    pub def allocate(self: &mut Pool, size: i64) -> Result[memory.ByteBlock, AllocError]:
+        if size > 512:
+            return Err(AllocError.OutOfMemory)
+        match replace(self.cached, Nothing):
+            case Some(block):
+                Ok(block)
+            case Nothing:
+                block = self.owner.block(512)?
+                unchecked:
+                    self.fresh += 1
+                Ok(block)
+    pub def release(self: &mut Pool, block: memory.ByteBlock) -> ():
+        for index in range(block.len()):
+            self.clean = self.clean and block.get(index) == 0u8
+        unchecked:
+            self.released += 1
+        self.cached = Some(block)
+    def __del__(self: &mut Pool) -> ():
+        print(self.fresh, self.released, self.clean).unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    mut values = memory.owned_list[i64, Pool](Pool(system.share(), Nothing, 0, 0, True))
+    values.append(123).unwrap()
+    values.reserve(8)?
+    values.reserve(9)?
+    print(values.pop().unwrap())?
+    values.append(456).unwrap()
+    drop(values)
+    print(system.live_blocks())?
+    Ok(())
+"#,
+        ),
+        "123\n2 3 True\n0"
+    );
+}
+
+#[test]
+fn generic_storage_validates_provider_extent_and_alignment() {
+    for body in [
+        "self.owner.block(0)",
+        "mut block = self.owner.block(size + 1)?\n            Ok(block.split_off(1))",
+    ] {
+        support::assert_file_traps(
+            &format!(
+                "import std.experimental.alloc as memory\npub class Bad:\n    owner: memory.Allocator\n    pub def allocate(self: &mut Bad, size: i64) -> Result[memory.ByteBlock, AllocError]:\n        unchecked:\n            {body}\n    pub def release(self: &mut Bad, block: memory.ByteBlock) -> ():\n        drop(block)\ndef main() -> ():\n    mut values = memory.owned_list[i64, Bad](Bad(memory.system().unwrap()))\n    values.append(42).unwrap()\n"
+            ),
+            "OwnedList.reserve: provider returned insufficient extent or alignment",
+        );
+    }
+}
+
+#[test]
+fn typed_slot_intrinsics_are_private() {
+    for call in [
+        "__allocator_slot_size[i64]()",
+        "__allocator_slot_take[i64](0, 0u64)",
+        "__allocator_slot_put[i64](0, 0u64, 1)",
+    ] {
+        let error = support::check_error(&format!("def main() -> ():\n    drop({call})\n"));
+        assert!(
+            error.contains("reserved for the standard library"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn generic_storage_does_not_hide_restricted_ownership() {
+    let error = support::check_error(
+        "import std.experimental.alloc as memory\ndef main() -> ():\n    values = memory.owned_list[Sender[i64], memory.Allocator](memory.system().unwrap())\n    drop(values)\n",
+    );
+    assert!(error.contains("allocator slots cannot store"), "{error}");
+    let error = support::check_error(
+        "import std.experimental.alloc as memory\ndef main() -> ():\n    values = memory.owned_list[i64, memory.Allocator](memory.system().unwrap())\n    drop(copy(values))\n",
+    );
+    assert!(error.contains("cannot be copied"), "{error}");
+    let error = support::check_error(
+        r#"import std.experimental.alloc as memory
+
+def worker(values: memory.OwnedList[i64, memory.Allocator]) -> i64:
+    values.len()
+
+def main() -> ():
+    values = memory.owned_list[i64, memory.Allocator](memory.system().unwrap())
+    with spawn(worker, values).drop_job().unwrap() as task:
+        drop(task.join())
+"#,
+    );
+    assert!(error.contains("Pointer has no thread contract"), "{error}");
+}
+
+#[test]
 fn external_safe_block_provider() {
     assert_eq!(
         run_file_stdout(include_str!("../examples/allocators/owned_blocks.plenty")),
@@ -202,6 +430,8 @@ class Short:
     owner: memory.Allocator
     def allocate(self: &mut Short, size: i64) -> Result[memory.ByteBlock, AllocError]:
         self.owner.block(0)
+    def release(self: &mut Short, block: memory.ByteBlock) -> ():
+        drop(block)
 
 def use[P: memory.BlockProvider](provider: &mut P) -> ():
     mut block = provider.allocate(8).unwrap()
@@ -409,6 +639,22 @@ def main() -> Result[(), AllocError | IoError]:
     values.append(9)?
     drop(values)
     print(system.live_blocks())?
+    mut generic = memory.owned_list[str, memory.Allocator](system.share())
+    generic.append(("kept" + "!")?).unwrap()
+    for successful_allocations in range(2):
+        fault.after(successful_allocations)
+        growth_failed = generic.reserve(9)
+        fault.after(-1)
+        print(growth_failed.is_err(), generic.len(), generic.capacity(), system.live_blocks())?
+    # Existing capacity needs no allocation in the typed move operations.
+    text = ("second" + "!")?
+    fault.after(0)
+    generic.append(text).unwrap()
+    moved = generic.pop().unwrap()
+    fault.after(-1)
+    print(moved, generic.pop().unwrap())?
+    drop(generic)
+    print(system.live_blocks())?
     Ok(())
 "#,
     )
@@ -427,7 +673,7 @@ def main() -> Result[(), AllocError | IoError]:
         let output = execute(&executable);
         assert_eq!(
             String::from_utf8(output.stdout).unwrap(),
-            "True\nTrue 0\nTrue 0\nTrue 0\nTrue 0\nTrue 0\nTrue 4 4 3\n0\n"
+            "True\nTrue 0\nTrue 0\nTrue 0\nTrue 0\nTrue 0\nTrue 4 4 3\n0\nTrue 1 4 2\nTrue 1 4 2\nsecond! kept!\n0\n"
         );
     }
 }

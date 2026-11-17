@@ -21,6 +21,10 @@ pub class Bump:
         drop(result.split_off(size))
         Ok(result)
 
+    pub def release(self: &mut Bump, block: memory.ByteBlock) -> ():
+        # A bump policy does not reclaim individual ranges.
+        drop(block)
+
 pub def bump(owner: &memory.Allocator, max_bytes: NonNegative[i64]) -> Result[Bump, AllocError]:
     # Round the budget down to keep all allocation starts eight-byte aligned.
     size = max_bytes.get() - max_bytes.get() % 8

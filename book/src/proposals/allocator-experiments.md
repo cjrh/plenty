@@ -108,18 +108,35 @@ Tests cover independent budgets, retained backing after provider destruction,
 split alignment, failure without budget mutation, invalid-access traps,
 unforgeable/private ownership and prohibited copying/thread transfer. Actual
 malloc injection covers metadata and backing failure. Successful programs run
-in both compilation modes and under Valgrind. The expanded suite has thirteen
-tests. This is a partial stage-1 result; its outstanding work remains in
+in both compilation modes and under Valgrind. The byte-only increment was a
+partial stage-1 result; its extension and remaining migration are recorded in
 [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+
+## Generic owned-payload gate
+
+[`OwnedList[T, P]`](../design/stdlib/experimental-owned-list.md) now stores generic
+owned values in provider-selected blocks. Private compiler operations use the
+existing slot layout and relocate nested inline payloads rather than copying
+pointers into expired stack frames. Extent and alignment are validated before
+access; initialized slots are moved out and cleared before releasing storage.
+The provider is retained by value, receives emptied blocks through `release`,
+and is destroyed only after element and buffer cleanup.
+
+The allocator suite now has twenty tests. It covers nested records, arrays,
+enums, strings, collections, custom destructors and unit; strong growth failure
+with returned inputs; cleanup during error propagation; caching of released
+blocks; rejected malformed providers, private raw access and hidden task/channel
+ownership. Successful fixtures run optimized and unoptimized under Valgrind,
+including injected actual-malloc failures. This satisfies the bounded stage-1
+ownership gate without migrating builtin owners.
 
 ## What this does not establish
 
-The original allocator remains a two-policy class. `BlockProvider` supports
-external safe byte-storage policies, not a generic typed allocator or vtable.
-The raw interface supports only scalar slots, not a generic layout/drop ABI.
-It does not prove generic collections, nested owned payload cleanup, strings,
-formatting, boxed protocols, thread eligibility, resettable arena lifetimes,
-actor integration or the complete std migration. Its C allocator bypasses the
+The original allocator remains a two-policy class; the generic owner uses static
+provider dispatch, not a final uniform allocator handle or stable ABI. Builtin
+list/box/string allocation, formatting, boxed-protocol allocation, thread
+eligibility, resettable arenas, actor integration and the complete std migration
+remain unchanged. Its C allocator bypasses the
 runtime's small-block pool and ordinary allocation-failure accounting.
 
 These are prototype boundaries, not arguments for retaining implicit allocation

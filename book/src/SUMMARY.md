@@ -444,6 +444,7 @@
             - [Choosing key-value storage](design/stdlib/kv-engine.md)
         - [`std.deque`](design/stdlib/deque.md)
         - [`std.experimental.alloc`](design/stdlib/experimental-alloc.md)
+          - [Allocator-backed owned lists](design/stdlib/experimental-owned-list.md)
         - [`std.diff`](design/stdlib/diff.md)
         - [`std.encoding`](design/stdlib/encoding.md)
             - [Base32, MIME, PEM and custom alphabets](design/stdlib/encoding-codecs.md)

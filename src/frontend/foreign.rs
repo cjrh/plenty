@@ -83,6 +83,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
         let pointer = |ty: &Ty| matches!(ty, Ty::ForeignPtr(..));
         let scalar = |ty: &Ty| ty.is_numeric() || *ty == Ty::Bool || pointer(ty);
         let valid = match intrinsic.as_ref() {
+            Intrinsic::SlotPut | Intrinsic::SlotTake => false,
             Intrinsic::Load => {
                 inputs.len() == 2
                     && pointer(&inputs[0].1)

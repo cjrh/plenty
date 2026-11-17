@@ -43,6 +43,25 @@ impl Lowerer<'_, '_> {
         }
         args.reverse();
         let value = match intrinsic {
+            Intrinsic::SlotPut => {
+                let address = self.bcx.ins().iadd(args[0], args[1]);
+                self.store_slot(address, args[2], &sig.inputs[2].1);
+                None
+            }
+            Intrinsic::SlotTake => {
+                let ty = &sig.outputs[0];
+                let address = self.bcx.ins().iadd(args[0], args[1]);
+                let packed = self
+                    .bcx
+                    .ins()
+                    .load(types::I128, MemFlagsData::trusted(), address, 0);
+                let value = self.unpack(packed, ty);
+                // Relocate inline payloads before the original storage can be
+                // freed or reused. This is a move: no retain or destructor.
+                let value = self.snapshot_inline(value, ty);
+                self.zero_bytes(address, ty.slot_bytes() as u64);
+                Some(value)
+            }
             Intrinsic::Load => {
                 let address = self.bcx.ins().iadd(args[0], args[1]);
                 Some(self.bcx.ins().load(
