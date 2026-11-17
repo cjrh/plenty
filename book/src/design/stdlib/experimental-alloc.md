@@ -1,8 +1,8 @@
 # `std.experimental.alloc` — allocator experiments
 
 **Experimental B13 probe, not a general allocator API.** This module tests explicit
-allocator selection, retained ownership and bounded arena storage with an
-integer-only collection. Builtin `list`, strings, boxes and other std modules
+allocator selection, retained ownership, bounded arena storage and safe external
+byte-storage policies. Its collection remains integer-only. Builtin `list`, strings, boxes and other std modules
 still use their existing allocation paths. See the
 [allocator design and evidence](../../proposals/allocator-experiments.md).
 
@@ -87,6 +87,78 @@ input cap on `list`: an arena supplies its storage bound; a system-backed list
 is limited by representable capacity and allocation failure. This is an explicit
 exception to the bounded-input std convention, not guidance for parser APIs.
 
+## Safe backing blocks
+
+`Allocator.block(size: i64) -> Result[ByteBlock, AllocError]` returns an affine,
+zero-initialized owner of exactly `size` bytes. Negative sizes and sizes greater
+than `i64.MAX - 7` return `CapacityOverflow`; backing exhaustion returns
+`OutOfMemory`. A private retained arena supplies the backing lifetime: creation
+requests 64 bytes of metadata and `size` rounded **up** to eight bytes from the
+selected allocator. Zero size still requests metadata. Failed construction
+releases partial allocations, but cannot reclaim bump-parent space.
+
+| `ByteBlock` API | Behavior |
+| --- | --- |
+| `len() -> i64`, `is_empty() -> bool` | Byte extent; no allocation. |
+| `alignment() -> i64` | Guaranteed start alignment: 8, 4, 2 or 1 bytes, depending on split offset. An unsplit block guarantees eight. Empty ranges report the same offset-based guarantee without permitting access. |
+| `get(index: i64) -> u8` | Copies one initialized byte. Invalid positions trap, naming `ByteBlock.get` and `index`. |
+| `set(index: i64, value: u8) -> ()` | Requires `&mut ByteBlock`; writes one byte. Invalid positions trap, naming `ByteBlock.set` and `index`. |
+| `split_off(at: i64) -> ByteBlock` | Requires `&mut ByteBlock`; keeps `[0, at)` and returns `[at, len())`, without copying bytes or allocating. Invalid positions trap, naming `ByteBlock.split_off` and `at`. |
+
+Splits are disjoint owners, not overlapping borrowed views. Neither `copy` nor
+public construction/field access can duplicate or forge an extent. Every split,
+even an empty one, retains the backing. Dropping the caller's allocator and all
+but one split cannot invalidate the survivor. Final release frees the backing
+and metadata through their retained provider. Individual dropped ranges do not
+reclaim space; no reset, merging or raw-address access is exposed. Reference-count
+overflow traps as for `Allocator.share`.
+
+```plenty
+import std.experimental.alloc as memory
+
+def main() -> Result[(), AllocError | IoError]:
+    system = memory.system()?
+    mut left = system.block(8)?
+    mut right = left.split_off(4)
+    left.set(0, 12u8)
+    right.set(0, 34u8)
+    drop(system)
+    print(left.len(), right.len(), left.get(0), right.get(0), right.alignment())?
+    Ok(())
+```
+```output
+4 4 12 34 4
+```
+
+### External allocation policies
+
+`BlockProvider` is a statically dispatched protocol with
+`allocate(self: &mut BlockProvider, size: i64) -> Result[ByteBlock, AllocError]`.
+A provider should return exactly the requested extent, reject negative/impossible
+sizes with `CapacityOverflow`, and report budget exhaustion as `OutOfMemory`.
+Its methods can split genuine blocks, but cannot manufacture a pointer or lie
+about a block's stored extent. Provider conformance alone does not prove it
+returned the requested size. The byte methods enforce bounds even for a
+misbehaving provider; any future trusted typed consumer must validate extent
+and alignment before raw access. This protocol
+makes no alignment promise beyond the returned block's `alignment()`.
+
+`examples/allocators/block_provider.plenty` implements an eight-byte-aligned bump
+provider in an ordinary module, without trusted declarations. It rounds its
+explicit budget down to eight and each request up to eight, discarding request
+padding. Its `remaining_bytes` excludes allocated and discarded bytes. Failed
+requests leave it unchanged; dropping an allocation does not restore the budget.
+The generic consumer in `examples/allocators/owned_blocks.plenty` demonstrates
+independent providers, exhaustion, disjoint mutation and allocations surviving
+both provider objects and the caller's system handle. Suballocation has no
+additional allocation cost.
+
+This is a safe byte-storage policy probe, **not** a generic typed allocator ABI.
+Blocks retain backing storage, not arbitrary provider objects or custom release
+callbacks. They cannot yet contain typed values, invoke element destructors,
+serve `IntList` storage, or promise alignment above eight. See
+[B13's remaining sequence](../../backlog.md#b13-explicit-allocator-implementation-sequence).
+
 ## Boundary and limitations
 
 Both policies are implemented in Plenty. Private trusted C declarations are a
@@ -98,10 +170,11 @@ trusted interface instructions. No raw storage operation is public.
 The private pointer type has no thread contract, so allocators and lists cannot
 cross workers. Reference counts and bump state are deliberately non-atomic.
 The implementation assumes the compiler's current 64-bit pointer targets and
-supports only eight-byte layouts. It does not support arbitrary allocator
+supports byte storage with up to eight-byte alignment and the integer-only list.
+External safe block policies are supported, but arbitrary raw allocator
 implementations, generic elements/destructors, resettable arenas, shared workers,
-actor containment, or integration with builtin allocation-failure accounting.
-The C system backend is not the runtime's small-block pool. Tests inject failures
+actor containment, and integration with builtin allocation-failure accounting
+remain unsupported. The C system backend is not the runtime's small-block pool. Tests inject failures
 into its actual `malloc` calls and additionally run under Valgrind.
 
 ## Acknowledgements

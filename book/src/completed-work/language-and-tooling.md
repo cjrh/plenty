@@ -19,6 +19,17 @@ not builtin allocator support or completion of B13. The
 [evidence](../proposals/allocator-experiments.md) records its boundaries;
 remaining scope stays in [B13](../backlog.md).
 
+The safe backing-block increment adds checked `ByteBlock` ownership, disjoint
+splitting and a `BlockProvider` protocol. An ordinary external bump allocator
+manages those blocks without raw pointers; returned storage survives the policy
+object and original allocator handle. Byte extents, zero initialization,
+alignment after splits, failure cleanup, private construction, prohibited copying
+and thread confinement have executable checks. The expanded allocator suite
+passes with optimization off/on and its successful cases under Valgrind,
+including injected metadata/backing allocation failures; complete docs checks
+also pass. This establishes byte-storage policies, not generic typed owners,
+arbitrary provider-state retention, release callbacks or builtin allocation.
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,

@@ -18,6 +18,9 @@ It does not migrate existing allocation sites. Outstanding work remains in
   adding allocator-specific comprehension syntax.
 - The eventual migration must cover strings, boxes, formatting, copying, owning
   slices, scratch buffers and std APIs, not just collection construction.
+- User-defined allocation policies should first use safe owned backing blocks,
+  with raw pointer validity and typed-value cleanup inside the trusted boundary.
+  This does not make arbitrary raw allocator callbacks a safe public interface.
 - Retained allocator state and scoped/resettable arenas are separate designs.
   This experiment implements retained state with no arena reset.
 
@@ -93,9 +96,26 @@ The useful conclusions are limited but concrete:
    `?` and destruction work for this library owner, but builtin buffers still
    need explicit routing changes.
 
+## Safe external block-policy increment
+
+The [safe backing-block API](../design/stdlib/experimental-alloc.md#safe-backing-blocks)
+adds affine zero-initialized byte blocks, checked access and disjoint splitting.
+`examples/allocators/block_provider.plenty` is an ordinary external bump provider;
+`owned_blocks.plenty` consumes it through the generic `BlockProvider` protocol.
+No new compiler operations were needed for this byte-only increment.
+
+Tests cover independent budgets, retained backing after provider destruction,
+split alignment, failure without budget mutation, invalid-access traps,
+unforgeable/private ownership and prohibited copying/thread transfer. Actual
+malloc injection covers metadata and backing failure. Successful programs run
+in both compilation modes and under Valgrind. The expanded suite has thirteen
+tests. This is a partial stage-1 result; its outstanding work remains in
+[B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+
 ## What this does not establish
 
-This is a two-policy class, not a user-implementable allocator protocol or vtable.
+The original allocator remains a two-policy class. `BlockProvider` supports
+external safe byte-storage policies, not a generic typed allocator or vtable.
 The raw interface supports only scalar slots, not a generic layout/drop ABI.
 It does not prove generic collections, nested owned payload cleanup, strings,
 formatting, boxed protocols, thread eligibility, resettable arena lifetimes,

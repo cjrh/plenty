@@ -440,11 +440,17 @@ is delivered; it is not the permanent allocator interface or completion of B13.
 The [allocator design record](proposals/allocator-experiments.md) records the
 agreed direction and evidence. Implement the remaining work in staged PRs:
 
-1. **Prove extensibility and owned payloads.** Define the allocator interface,
-   implement an allocator outside `std`, and exercise a generic collection of
-   values with destructors. Verify alignment, growth failure, allocator-state
+1. **Prove extensibility and owned payloads.** The [safe byte-block probe](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
+   delivers an external bump policy over checked, disjoint backing blocks, not
+   a generic typed allocator. Build on this safe interface direction: ordinary
+   packages manage owned storage; raw pointer validity and typed cleanup remain
+   inside the trusted boundary. Define typed initialization/movement/destruction
+   and the allocator interface, then exercise a generic collection of values
+   with destructors. Verify payload alignment, growth failure, allocator-state
    lifetime and cleanup, including nested ownership and partial construction.
-   Establish these contracts before integrating builtin owners.
+   Settle provider-state retention/release behavior beyond backing ownership;
+   byte-block survival alone does not prove that contract. Establish these
+   contracts before integrating builtin owners.
 2. **Integrate builtin owners.** Route builtin lists and boxes through explicit
    allocators, retaining provenance for growth and destruction. Start with
    small tests showing simultaneous allocators, owners outliving caller handles,

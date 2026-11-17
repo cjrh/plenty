@@ -1,0 +1,27 @@
+# An ordinary package module: no trusted declarations or raw pointers.
+import std.experimental.alloc as memory
+
+pub class Bump:
+    _remaining: memory.ByteBlock
+
+    pub def remaining_bytes(self) -> i64:
+        self._remaining.len()
+
+    pub def allocate(self: &mut Bump, size: i64) -> Result[memory.ByteBlock, AllocError]:
+        if size < 0 or size > i64.MAX - 7:
+            return Err(AllocError.CapacityOverflow)
+        padded = unchecked:
+            (size + 7) // 8 * 8
+        if padded > self._remaining.len():
+            return Err(AllocError.OutOfMemory)
+        start = unchecked:
+            self._remaining.len() - padded
+        mut result = self._remaining.split_off(start)
+        # Leave the next allocation aligned; discard this request's padding.
+        drop(result.split_off(size))
+        Ok(result)
+
+pub def bump(owner: &memory.Allocator, max_bytes: NonNegative[i64]) -> Result[Bump, AllocError]:
+    # Round the budget down to keep all allocation starts eight-byte aligned.
+    size = max_bytes.get() - max_bytes.get() % 8
+    Ok(Bump(owner.block(size)?))
