@@ -1,5 +1,5 @@
-//! Compiler admission tests inject the private marker into typed IR. There is
-//! deliberately no public frontend provider constructor or ABI adapter yet.
+//! Focused admission tests inject the private marker directly into typed IR.
+//! Compiled frontend/ABI coverage lives in test_std_alloc_provider.rs.
 use super::*;
 use crate::op::{CallableSig, FnSig};
 

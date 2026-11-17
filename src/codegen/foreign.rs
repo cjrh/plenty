@@ -61,6 +61,36 @@ impl Lowerer<'_, '_> {
                     self.snapshot_inline(value, ty)
                 })
             }
+            Intrinsic::AllocatorRegister(provider) => {
+                let value = self.read_typed_reference(args[1], &provider.state);
+                let value = self.unpack(value, &provider.state);
+                args[1] = self.pack(value, &provider.state);
+                for allocate in [true, false] {
+                    let name = allocator_providers::name(provider, allocate);
+                    let id = self
+                        .module
+                        .declared_function(&name)
+                        .ok_or("missing allocator adapter")?;
+                    let reference = self.module.declare_func_in_func(id, self.bcx.func);
+                    args.push(self.bcx.ins().func_addr(PTR_TY, reference));
+                }
+                let descriptor = Ty::Box(Arc::new(provider.state.clone()));
+                let value = self.collection_call(
+                    crate::collection_opcodes::ALLOCATOR_REGISTER,
+                    &args,
+                    Some(&descriptor),
+                )?;
+                Some(self.unpack(value, &sig.outputs[0]))
+            }
+            Intrinsic::AllocatorCommit => None,
+            Intrinsic::AllocatorBlockTake => {
+                let Ty::Class(block) = &sig.inputs[0].1 else {
+                    unreachable!("checked ByteBlock")
+                };
+                // Snapshot the private words, but neither retain nor release the
+                // consumed owner. Zero is never exposed as a live ByteBlock.
+                Some(self.class_field(args[0], block.get().field_offset(0) as i64, &sig.outputs[0]))
+            }
             Intrinsic::SlotPut => {
                 let address = self.bcx.ins().iadd(args[0], args[1]);
                 self.store_slot(address, args[2], &sig.inputs[2].1);

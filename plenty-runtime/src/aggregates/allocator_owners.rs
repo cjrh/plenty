@@ -1,5 +1,5 @@
 //! Native builtin owners whose object and row storage use a selected allocator.
-//! std.alloc binds system-root lists; boxes and custom providers remain native-only.
+//! Selected boxes also hold compiler-certified custom allocator provider state.
 use super::*;
 use crate::allocator::{Allocator, Block};
 use std::alloc::Layout;
@@ -76,6 +76,20 @@ unsafe fn try_box_new_in(
     }
     Ok(boxed)
 }
+/// Transactional compiler registration keeps the original value live until commit.
+pub(crate) unsafe fn provider_box_new(
+    allocator: &Allocator,
+    ty: &'static Type,
+    value: u128,
+) -> Result<*mut Header, AllocError> {
+    unsafe { try_box_new_in(allocator, ty, value).map(|boxed| boxed.cast()) }
+}
+
+/// Rollback must not destroy the relocated provisional copy of the provider.
+pub(crate) unsafe fn provider_box_rollback(header: *mut Header, ty: &Type) {
+    unsafe { box_take(header.cast(), ty) };
+}
+
 unsafe extern "C" fn box_destroy(header: *mut Header) {
     unsafe {
         let ty = (*owner(header)).ty;

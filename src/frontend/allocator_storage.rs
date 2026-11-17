@@ -1,6 +1,6 @@
-//! Private typed-slot operations for the explicit allocator experiment.
-//! The std owner checks extent/alignment and tracks initialized slots. These
-//! operations move ownership; they are never public raw-pointer facilities.
+//! Private allocator operations, including experimental typed slots and
+//! retained provider registration. Ownership transfers stay compiler/std-only;
+//! these are never public raw-pointer or general-purpose forget facilities.
 use super::*;
 
 pub(super) fn named(name: &str) -> bool {
@@ -9,6 +9,9 @@ pub(super) fn named(name: &str) -> bool {
         "__allocator_slot_size"
             | "__allocator_slot_put"
             | "__allocator_slot_take"
+            | "__allocator_register"
+            | "__allocator_commit"
+            | "__allocator_block_take"
             | "__allocator_system"
             | "__allocator_share"
             | "__allocator_release"
@@ -38,6 +41,12 @@ impl Lower<'_> {
             .is_some_and(|source| self.generics.source_facts(source).1)
         {
             return Err(at.error(format!("`{name}` is reserved for the standard library")));
+        }
+        if matches!(
+            name,
+            "__allocator_register" | "__allocator_commit" | "__allocator_block_take"
+        ) {
+            return self.allocator_provider(name, types, args, at, ops);
         }
         if !name.starts_with("__allocator_slot_") {
             return self.retained_allocator(name, types, args, at, ops);
@@ -87,6 +96,94 @@ impl Lower<'_> {
                 })),
                 arguments: vec![crate::foreign::Argument::Direct; count],
                 thread_safe: false,
+                host_callback: false,
+            },
+            sig: Arc::new(FnSig {
+                inputs,
+                outputs: output.iter().cloned().collect(),
+            }),
+        });
+        Ok(output)
+    }
+}
+
+impl Lower<'_> {
+    fn allocator_provider(
+        &mut self,
+        name: &str,
+        types: &[TypeRef],
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        use crate::foreign::{Argument as Mode, Declaration, Intrinsic, Target};
+        let mut inputs = Vec::new();
+        let count = if name == "__allocator_register" { 2 } else { 1 };
+        if args.len() != count {
+            return Err(at.error(format!("`{name}` requires {count} arguments")));
+        }
+        for (i, arg) in args.iter().enumerate() {
+            inputs.push((format!("arg{i}"), self.value(arg, ops)?));
+        }
+        let (intrinsic, output) = if name == "__allocator_block_take" {
+            if !types.is_empty()
+                || !matches!(&inputs[0].1, Ty::Class(t) if t.name.as_ref() == "std.alloc.ByteBlock")
+            {
+                return Err(at.error("allocator block transfer requires owned std.alloc.ByteBlock"));
+            }
+            (
+                Intrinsic::AllocatorBlockTake,
+                Some(Ty::Array(Arc::new(Ty::U64), 3)),
+            )
+        } else {
+            let [state] = types else {
+                return Err(at.error("allocator registration requires one provider type"));
+            };
+            let state = state.resolve(self.aliases)?.unwrap_or(Ty::Unit);
+            if name == "__allocator_commit" {
+                self.same(Some(inputs[0].1.clone()), Some(state), at)?;
+                (Intrinsic::AllocatorCommit, None)
+            } else {
+                let handle = Ty::ForeignPtr(
+                    "std.alloc.Handle".into(),
+                    crate::foreign::Threads::Shareable,
+                );
+                self.same(Some(inputs[0].1.clone()), Some(handle.clone()), at)?;
+                self.same(
+                    Some(inputs[1].1.clone()),
+                    Some(Ty::Ref(Arc::new(state.clone()), true)),
+                    at,
+                )?;
+                let allocate = self.specialize(
+                    "std.alloc._provider_allocate",
+                    vec![Argument::Type(state.clone())],
+                    at,
+                )?;
+                let release = self.specialize(
+                    "std.alloc._provider_release",
+                    vec![Argument::Type(state.clone())],
+                    at,
+                )?;
+                let provider = Arc::new(crate::threading::AllocatorProvider {
+                    state,
+                    allocate,
+                    release,
+                });
+                ops.push(Op::Thread(crate::threading::ThreadOp::AllocatorProvider(
+                    provider.clone(),
+                )));
+                (
+                    Intrinsic::AllocatorRegister(provider),
+                    Some(crate::sum::result(handle, Ty::I64)),
+                )
+            }
+        };
+        ops.push(Op::Thread(crate::threading::ThreadOp::AllocatorUse));
+        ops.push(Op::ForeignCall {
+            declaration: Declaration {
+                target: Target::Intrinsic(Arc::new(intrinsic)),
+                arguments: vec![Mode::Direct; inputs.len()],
+                thread_safe: true,
                 host_callback: false,
             },
             sig: Arc::new(FnSig {

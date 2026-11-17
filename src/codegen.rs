@@ -108,6 +108,7 @@ mod references;
 mod relax;
 pub(crate) use output::describe_error;
 pub(crate) use relax::relax_local_addresses;
+mod allocator_providers;
 mod fixed_state;
 mod inline_calls;
 mod leaf_calls;
@@ -862,6 +863,7 @@ fn object_module(
         out.root_traps(hook);
     }
     runtime.standard_calls = user_fns.values().any(|f| f.standard_library);
+    let providers = allocator_providers::declare_adapters(&ops, workers, &mut out.module)?;
     let threads =
         threads::declare_adapters(&ops, workers, &mut out.module, &mut runtime.thread_adapters)?;
     let executors =
@@ -954,6 +956,11 @@ fn object_module(
                 .into_iter()
                 .map(|(job, id)| Job::Executor(job, id)),
         )
+        .chain(
+            providers
+                .into_iter()
+                .map(|(p, allocate, id)| Job::AllocatorProvider(p, allocate, id)),
+        )
         .chain(sorts.into_iter().map(|(sort, id)| Job::Sort(sort, id)))
         .chain(formats.into_iter().map(|(hook, id)| Job::Format(hook, id)))
         .chain(
@@ -974,6 +981,9 @@ fn object_module(
     let build_job = |job, worker: &mut Worker| {
         let runtime = &runtime;
         match job {
+            Job::AllocatorProvider(p, allocate, id) => {
+                allocator_providers::build_adapter(&p, allocate, id, fns, str_data, runtime, worker)
+            }
             Job::Thread(task, id) => {
                 threads::build_adapter(&task, id, fns, str_data, runtime, worker)
             }
@@ -1038,6 +1048,7 @@ fn define_cpu_entry(out: &mut Output, body: FuncId, cpu: crate::CpuLevel) -> Res
 /// Functions built together on one thread, in the order they are placed in
 /// the object.
 enum Job {
+    AllocatorProvider(Arc<crate::threading::AllocatorProvider>, bool, FuncId),
     Thread(Arc<crate::threading::Task>, FuncId),
     Executor(Arc<crate::executor::Job>, FuncId),
     Sort(Arc<crate::collection::KeySort>, FuncId),

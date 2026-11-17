@@ -1,6 +1,6 @@
 # Explicit allocators: narrow experiments
 
-**Status: experimental implementation and measured correctness evidence for B13.**
+**Status: experiment history and delivered public custom-provider bridge for B13.**
 This revises the default-allocator direction in the
 [earlier memory proposal](memory-parallelism-and-simd.md#custom-allocators-without-multiplying-everyday-types).
 It does not migrate existing allocation sites. Outstanding work remains in
@@ -35,9 +35,11 @@ was an additional statically thread-confined builtin owner form.
 
 The [native storage substrate](../design/toolchain/02-architecture/allocator-storage.md)
 implements retained state and serialized Rust callbacks, with explicit bootstrap
-allocation. Public system/list/block bindings use this substrate; it does not
-yet expose custom-provider registration or certify compiled callbacks. Thread-confined providers remain useful with the experimental generic
-owner. Scoped reset is still a separate lifetime contract.
+allocation. Public `std.alloc` now also registers compiled providers with
+worker-certified state, callback effects and destructors. This preserves ordinary
+builtin owner types without erasing a thread-confined policy into them.
+Thread-confined providers remain useful with the experimental generic owner.
+Scoped reset is still a separate lifetime contract.
 
 Provider callback traps are process-fatal, even inside actors. Returning an
 allocation error remains recoverable; a trap is not an allocation-error return.
@@ -50,7 +52,7 @@ is selected.
 
 ## Temporary program-wide allocator/actor exclusion
 
-Initial public retained-provider integration will exclude actor/arena
+Initial public retained-provider integration excludes actor/arena
 interoperability rather than implement abandonment cleanup now. Thread-safe
 fields alone do not prove their backing outlives recovery or reclamation.
 Registration checks also cannot detect a handle created earlier and later
@@ -62,15 +64,15 @@ provenance tracking. Private `ThreadOp::AllocatorUse` and
 abandonment or heap operations in one lowered program. This includes unused and
 unrelated bodies and heap observation helpers. System-only retained allocation
 participates too: every private intrinsic for the public `std.alloc` system/list/block
-binding emits `AllocatorUse`. The custom-provider marker remains private, without
-a frontend producer. Existing allocation syntax is unchanged.
+binding emits `AllocatorUse`. Registration lowering emits the private
+custom-provider marker. Unused imports and layout-only use do not bypass this
+gate. Existing allocation syntax is unchanged.
 
 Native registration rejects active actor/arena contexts without bootstrap
 allocation and returns the provider unchanged. The compiler gate does not replace
-runtime guards at future bindings or foreign host-entry contracts, certify
-callback ABI adapters, or prove pre-existing state provenance and escaping
-backing lifetimes. There is no silent system-allocation substitute for rejected
-contexts. Remaining implementation belongs to
+runtime guards at bindings or foreign host-entry contracts, or prove arbitrary
+pre-existing state provenance and escaping backing lifetimes. There is no silent
+system-allocation substitute for rejected contexts. Remaining implementation belongs to
 [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
 
 ## What was built
@@ -82,10 +84,26 @@ A [public binding](../design/stdlib/alloc.md) for `std.alloc` now delivers:
   validation.
 - `Allocator.block(layout) -> Result[ByteBlock, AllocError]` — zero-initialized
   affine byte blocks with checked access, disjoint splitting and no copying.
-- Existing `system()` and `list[T]` operations.
+- `system()` and selected builtin `list[T]` operations.
+- `allocator(bootstrap, provider)` — compiled custom-provider registration with
+  an explicit bootstrap and `RegistrationError[P]` returning `P` on failure.
+  `Provider.allocate` borrows a validated `Layout`; `release` consumes the full
+  original backing, zeroed before safe byte access.
 
-Public retained custom-provider registration and compiled callback adapters
-remain absent. Those callbacks will accept the validated `Layout` request type.
+The bridge makes two bootstrap allocations (selected state box and control),
+with no hidden fallback or migration of allocations already nested in `P`.
+Either allocation failure returns `P` unchanged; success retains state and
+bootstrap storage through owner cleanup. Private scalar/pointer C adapters
+connect certified callbacks, and runtime validation checks returned extent and
+alignment before typed writes. Traps, including transitive cleanup and final
+state destruction, are process-fatal; returned `AllocError` remains recoverable.
+This is a public compiled-provider milestone, not the language/std migration.
+The [reference](../design/stdlib/alloc.md#custom-providers) owns its contract and
+[architecture](../design/toolchain/02-architecture/allocator-storage.md#compiled-provider-coverage)
+names its test coverage.
+
+### Separate experimental owners
+
 The static-provider generic owner remains experimental. [`std.experimental.alloc`](../design/stdlib/experimental-alloc.md)
 implements system handles, bounded bump arenas and `IntList` in Plenty. Private
 trusted raw access supplies scalar loads/stores and C `malloc`/`free`. Compiler
@@ -193,11 +211,13 @@ ownership gate without migrating builtin owners.
 
 ## What this does not establish
 
-The original allocator remains a two-policy class; the generic owner uses static
-provider dispatch, not a final uniform allocator handle or stable ABI. Builtin
-list/box/string allocation, formatting, boxed-protocol allocation, thread
-eligibility, resettable arenas, actor integration and the complete std migration
-remain unchanged. Its C allocator bypasses the
+The original experimental allocator remains a two-policy class; its generic
+owner uses static provider dispatch, not the public retained-handle bridge.
+Those experiments do not migrate builtin allocation or establish worker safety.
+The separate public bridge supports selected lists and blocks, but not public
+selected boxes, generator collection, full language/std allocation routing,
+removal of implicit defaults, resettable arenas or actor integration. The
+experimental C allocator bypasses the
 runtime's small-block pool and ordinary allocation-failure accounting.
 
 These are prototype boundaries, not arguments for retaining implicit allocation

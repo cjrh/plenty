@@ -2,7 +2,7 @@
 //!
 //! Policies receive checked owned blocks, never arbitrary pointers. All provider
 //! state comes from an explicit bootstrap allocator. The system root is static;
-//! it bypasses ambient actor heaps. No public ABI or compiler binding yet.
+//! it bypasses ambient actor heaps. The compiler bridge is private.
 use crate::memory::AllocError;
 use std::alloc::Layout;
 #[cfg(not(feature = "allocation-checks"))]
@@ -13,7 +13,7 @@ use std::ptr::{self, NonNull};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-/// The future compiler bridge must additionally certify state, callback effects
+/// The compiler bridge must additionally certify state, callback effects
 /// and destruction. Native callback scopes prohibit nonlocal trap recovery;
 /// Send alone still cannot certify arbitrary compiled callbacks.
 pub(crate) trait Provider: Send + 'static {
@@ -361,6 +361,7 @@ impl Drop for Block {
 }
 
 pub(crate) mod bindings;
+pub(crate) mod compiled;
 
 #[cfg(test)]
 mod managed_tests;
