@@ -40,6 +40,14 @@ provider cache reuse, malformed providers and actual allocation failures, in bot
 compilation modes with Valgrind. Builtin owner integration, a permanent allocator
 handle representation and the comprehensive migration remain B13 work.
 
+The [native retained-handle substrate](../design/toolchain/02-architecture/allocator-storage.md)
+adds explicit bootstrap allocation, checked owned backing, atomic retention and
+serialized Rust provider callbacks. Thirteen native tests cover failures,
+alignment, lifetime, cache reuse and worker cleanup, with Valgrind checks.
+The system root bypasses ambient actor/arena routing while preserving allocation
+instrumentation. This is native infrastructure only: compiler-certified Plenty
+callbacks, builtin list/box lowering and the migration are not implemented by it.
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,

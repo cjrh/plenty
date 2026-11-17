@@ -106,6 +106,26 @@ unsafe impl GlobalAlloc for Accounting {
         q
     }
 }
+/// Explicit system-root allocation: retain instrumentation but never select an
+/// ambient actor heap or arena through the global allocator's Router.
+pub(crate) unsafe fn system_alloc_zeroed(layout: Layout) -> *mut u8 {
+    if injected_failure() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: caller supplies a valid nonzero layout.
+    let pointer = unsafe { std::alloc::System.alloc_zeroed(layout) };
+    if !pointer.is_null() {
+        record_allocation();
+        LIVE.fetch_add(layout.size(), Relaxed);
+    }
+    pointer
+}
+pub(crate) unsafe fn system_dealloc(pointer: *mut u8, layout: Layout) {
+    LIVE.fetch_sub(layout.size(), Relaxed);
+    // SAFETY: pointer/layout match an explicit system_alloc_zeroed call.
+    unsafe { std::alloc::System.dealloc(pointer, layout) };
+}
+
 pub(crate) fn begin_no_allocations() {
     REGION_START.with(|start| start.set(ALLOCATIONS.with(Cell::get)));
 }

@@ -24,6 +24,21 @@ It does not migrate existing allocation sites. Outstanding work remains in
 - Retained allocator state and scoped/resettable arenas are separate designs.
   This experiment implements retained state with no arena reset.
 
+## Builtin thread-contract decision
+
+Builtin handles will be thread-safe from the outset, keeping ordinary
+`list[T]` and `Box[T]` types without allocator type parameters. Existing worker
+checks inspect their elements, so simply erasing a thread-confined provider
+would be unsound. The selected approach serializes provider callbacks and
+requires worker-safe state, effects and destruction; the rejected alternative
+was an additional statically thread-confined builtin owner form.
+
+The [native storage substrate](../design/toolchain/02-architecture/allocator-storage.md)
+implements retained state and serialized Rust callbacks, with explicit bootstrap
+allocation. It does not yet expose a Plenty interface or certify compiled
+callbacks. Thread-confined providers remain useful with the experimental generic
+owner. Scoped reset is still a separate lifetime contract.
+
 ## What was built
 
 [`std.experimental.alloc`](../design/stdlib/experimental-alloc.md) implements

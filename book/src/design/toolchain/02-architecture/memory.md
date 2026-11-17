@@ -137,7 +137,10 @@ takes snapshot them into caller-owned storage, then clear the source. These are
 ownership moves, not deep copies or retains. The std owner tracks initialized
 length and runs ordinary typed destruction before returning buffers to the
 retained provider. Neither these operations nor typed block bytes are public.
-This leaves builtin runtime object layout and allocation unchanged.
+This leaves builtin runtime object layout and allocation unchanged. A separate
+[native retained-handle substrate](allocator-storage.md) supplies thread-safe
+storage ownership and serialized Rust provider callbacks; it is not yet connected
+to compiler lowering or builtin owners.
 
 ### Small-block pool
 
