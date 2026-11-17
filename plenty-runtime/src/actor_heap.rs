@@ -32,6 +32,14 @@
 #[path = "actor_heap/allocator_tests.rs"]
 mod allocator_tests;
 
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[path = "actor_heap/registration_tests.rs"]
+mod registration_tests;
+
 /// `plenty_actor_heap` operations; `stdlib/std/actor.plenty` mirrors them.
 const CREATE: i64 = 0;
 const DISCARD: i64 = 1;
@@ -76,7 +84,10 @@ const UNSUPPORTED: i64 = -4;
 pub(crate) use native::Router;
 #[cfg(feature = "allocation-checks")]
 pub(crate) use native::in_heap;
-pub(crate) use native::{Arena, foreign, outside, running, track_file, untrack_file, within};
+pub(crate) use native::{
+    Arena, allocator_registration_allowed, foreign, outside, running, track_file, untrack_file,
+    within,
+};
 
 /// A provider callback may hold a mutex and partially moved owned state.
 /// Report its trap normally, but never abandon those frames and resume an actor.
@@ -1019,6 +1030,10 @@ mod native {
         !RECOVERY.with(Cell::get).is_null()
     }
 
+    pub(crate) fn allocator_registration_allowed() -> bool {
+        CURRENT.with(Cell::get) == 0 && !running() && ARENA.with(Cell::get).is_null()
+    }
+
     // ---------------------------------------------------------- operations
 
     /// Reserves the heap range once. Runtime globals that std initializes on
@@ -1420,6 +1435,9 @@ mod native {
         f()
     }
     pub(crate) fn recover(_: TrapKind) {}
+    pub(crate) fn allocator_registration_allowed() -> bool {
+        true
+    }
     #[cfg(feature = "allocation-checks")]
     pub(crate) fn in_heap(_: *const u8) -> bool {
         false

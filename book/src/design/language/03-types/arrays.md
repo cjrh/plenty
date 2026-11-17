@@ -65,7 +65,10 @@ into an iteration or collection conversion is currently unsupported.
 
 References, views, generators, and other types rejected by ordinary aggregate
 storage cannot be array elements, even at length zero. An array preserves
-its element type's copy and ownership restrictions at length zero. Arrays do
+its element type's copy and ownership restrictions at length zero. Worker
+eligibility also checks element types and their destructors, including nested
+and zero-length arrays; an array cannot hide an uncertified opaque pointer or
+channel/executor ownership from storage checks. Arrays do
 not provide arithmetic, slicing, resizing, or SIMD operations.
 
 Primitive elements use their native byte widths. Nested arrays use their

@@ -20,6 +20,29 @@ for compiled Plenty callbacks: their state, effects and destruction also need
 compiler verification. Thread-confined Plenty providers remain supported by the
 [experimental generic owner](../../stdlib/experimental-owned-list.md).
 
+## Compiler admission groundwork
+
+A private `ThreadOp::AllocatorProvider` marker names provider state and its
+allocation/release functions. It emits no code and has **no frontend producer**.
+It reuses worker certification without requiring a worker spawn: state must be
+heap-storable and contain no hidden task/channel/executor ownership; callbacks
+must borrow that exact state mutably. Transitive calls, indirect targets and
+state destructors need worker-safe effects. Movable opaque fields need an affine
+owner, not a sharing promise, because callbacks serialize access. Fixed-array
+elements participate in these checks, including at length zero.
+
+Provider-context traversal additionally rejects reachable actor execution and
+abandonment. Its cache is separate from ordinary worker certification, so a
+previous worker check cannot bypass that restriction. This is not a non-trapping
+contract: callback traps remain process-fatal.
+
+These checks do not certify the callback ABI, returned block representation or
+escaping storage lifetimes. There is no compiled callback adapter or public
+retained handle yet. Initial language integration will exclude actor/arena
+interoperability rather than imply that worker-safe fields survive abandonment.
+Registration checks alone do not exclude later use of a handle in those contexts
+or prove where pre-existing state was allocated; those remain bridge gates.
+
 ## Explicit selection and bootstrap
 
 An `Allocator` handle contains either a retained provider-state pointer or the
@@ -32,6 +55,13 @@ the complete, aligned state allocation, including the reference count, callback
 table, mutex and provider payload. A failed bootstrap returns both the allocation
 error and the original provider. The state retains its backing until after the
 provider is destroyed; no `Arc` or hidden system allocation supplies that state.
+
+Registration rejects an active actor allocation target, actor recovery frame or
+ambient arena with `CreateError::UnsupportedContext`. Rejection happens before
+bootstrap allocation or taking ownership of state, and returns the original
+provider. Bootstrap failures instead return `CreateError::Allocation`. Temporarily
+routing an actor helper to System does not remove its recovery-frame restriction.
+Neither rejection silently substitutes another allocator.
 
 The system root calls the system allocation primitive directly, not Rust's
 ambient global allocator router. Consequently, an active actor heap or scoped
@@ -165,6 +195,22 @@ nested and actor-wrapped arenas; and successful/error returns followed by normal
 recovery. A separate test checks allocation-free nesting, thread isolation and
 scope restoration after native Rust panics. These are runtime probes, not
 compiled-provider tests.
+
+Nine compiler admission tests cover state/receiver checks, transitive and indirect
+effects, destruction, actor restrictions, reachability and array traversal.
+Two compiled-program regression tests cover fixed-array opaque contracts and
+uncertified destructors; a valid movable-owner array releases both elements on a
+worker. A bounded native subprocess verifies registration rejection under an
+actor allocation target, actor recovery (including temporary System routing),
+and an arena, with unchanged provider state and no bootstrap allocation. It also
+checks thread isolation and successful registration/destruction after leaving
+those contexts. This remains groundwork, not compiled-provider execution.
+
+The 31-test allocator/registration harness passes Valgrind; its exec'd probes
+are not child-traced. Directly tracing the registration probe fails during actor
+heap creation, whose native path reserves 64 GiB of address space, before the
+actor admission checks run. Those checks are validated natively, not under
+Valgrind.
 
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not

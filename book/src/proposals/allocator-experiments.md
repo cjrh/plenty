@@ -48,6 +48,16 @@ separate isolation/cleanup design; requiring statically non-trapping callbacks
 would instead need a restrictive transitive effect contract. Neither alternative
 is selected.
 
+Initial public retained-provider integration will exclude actor/arena
+interoperability rather than implement abandonment cleanup now. Thread-safe
+fields alone do not prove their backing outlives recovery or reclamation. Native
+registration now rejects active actor/arena contexts without allocating or taking
+state. A private compiler admission marker checks worker-safe state, transitive
+callback effects and destruction, and rejects actor operations in callbacks.
+Neither has a public frontend binding; callback ABI adapters, source-state
+provenance and restrictions on subsequent handle use remain required before
+exposure. There is no silent system-allocation substitute for rejected contexts.
+
 ## What was built
 
 [`std.experimental.alloc`](../design/stdlib/experimental-alloc.md) implements

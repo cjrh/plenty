@@ -449,7 +449,11 @@ builtin representations. Implement the remaining work in staged PRs:
 2. **Integrate builtin owners.** Build on the [native retained-handle substrate](design/toolchain/02-architecture/allocator-storage.md).
    Builtin handles must be thread-safe from the outset, without allocator type
    parameters on each collection. Complete the compiler-certified provider bridge:
-   check provider state, callback effects and destruction. Native callbacks now
+   connect the private state/effect/destructor admission marker to checked ABI
+   adapters and safe retained state/backing. Native registration now rejects
+   active actor/arena contexts before allocation; initial public integration must
+   also exclude later handle use and unsafe state provenance in those contexts.
+   Admission groundwork alone does not prove escaping lifetimes. Native callbacks now
    prevent actor/arena recovery through their frames: callback traps are
    process-fatal, while returned allocation errors remain recoverable.
    Native box/list object allocation,

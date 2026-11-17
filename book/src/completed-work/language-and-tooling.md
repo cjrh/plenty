@@ -63,6 +63,22 @@ subprocess cases exercise real recovery frames, while scope tests cover nesting,
 thread isolation, allocation-free entry/reporting and native Rust unwinding.
 This is not compiler certification of provider state or effects.
 
+Private compiler admission groundwork now checks provider state, callback
+receivers, transitive/indirect effects and destructors without a worker spawn.
+It rejects actor operations reachable from callbacks. Native registration rejects
+active actor/arena contexts before allocating or taking state, returning the
+provider unchanged. Nine compiler tests and a bounded native probe cover these
+checks. There is still no frontend constructor, compiled callback ABI or proof of
+escaping storage lifetimes; initial integration will exclude actor/arena
+interoperability rather than silently reroute allocations.
+
+This work also fixes issue #990: worker and hidden-ownership traversal skipped
+fixed-array elements. Arrays, including zero-length type witnesses, now preserve
+element thread contracts and destructor checks. Two compiled-program regressions
+reject unqualified opaque elements and unsafe destructors; a valid movable-owner
+array destroys its elements on a worker. These checks do not change allocator
+selection in existing programs.
+
 ## Shared integration fixture compilation (2026-11-14)
 
 Integration tests now compile their existing shared fixture helpers once,
