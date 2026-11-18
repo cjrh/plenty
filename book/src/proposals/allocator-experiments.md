@@ -64,7 +64,7 @@ provenance tracking. Private `ThreadOp::AllocatorUse` and
 abandonment or heap operations in one lowered program. This includes unused and
 unrelated bodies and heap observation helpers. System-only retained allocation
 participates too: private `std.alloc` storage intrinsics, including dictionary
-and set construction, emit `AllocatorUse`. Registration lowering emits the private
+and set construction and selected set algebra, emit `AllocatorUse`. Registration lowering emits the private
 custom-provider marker. Unused imports and layout-only use do not bypass this
 gate. Existing allocation syntax is unchanged.
 
@@ -87,6 +87,8 @@ A [public binding](../design/stdlib/alloc.md) for `std.alloc` now delivers:
 - `system()` and selected builtin boxes and lists, including generator collection.
 - [Empty and capacity constructors for dictionaries and sets](../design/stdlib/alloc.md#dictionaries-and-sets),
   with retained hash storage or the ordinary inline finite-domain bitset.
+- [Set algebra on two borrowed sets](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator),
+  with an explicit output allocator rather than a choice inferred from either input.
 - `allocator(bootstrap, provider)` — compiled custom-provider registration with
   an explicit bootstrap and `RegistrationError[P]` returning `P` on failure.
   `Provider.allocate` borrows a validated `Layout`; `release` consumes the full

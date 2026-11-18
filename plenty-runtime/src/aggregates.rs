@@ -3430,7 +3430,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3716,6 +3716,22 @@ pub(crate) unsafe fn collection_at(
     unsafe {
         // Reject unsupported allocator contexts before even inspecting the type
         // descriptor: it may belong to storage the context cannot safely use.
+        let algebra = match op {
+            ALLOCATOR_SET_UNION => Some(SET_UNION),
+            ALLOCATOR_SET_INTERSECTION => Some(SET_INTERSECTION),
+            ALLOCATOR_SET_DIFFERENCE => Some(SET_DIFFERENCE),
+            ALLOCATOR_SET_SYMMETRIC_DIFFERENCE => Some(SET_SYMMETRIC_DIFFERENCE),
+            _ => None,
+        };
+        if let Some(algebra) = algebra {
+            let allocator = crate::allocator::bindings::borrow_handle(a);
+            return fallible(allocator_owners::try_set_algebra_in(
+                &allocator,
+                &*(b as *const Collection),
+                &*(value as *const Collection),
+                algebra,
+            ));
+        }
         if matches!(
             op,
             ALLOCATOR_SYSTEM..=ALLOCATOR_LIST | ALLOCATOR_BOX | ALLOCATOR_DICT_SET

@@ -96,6 +96,34 @@ storage, not the storage used to build a string key. See the
 [dictionary and set allocation contract](../../design/stdlib/alloc.md#dictionaries-and-sets)
 for capacity errors and the fixed-size bitset case.
 
+## Choose storage for a set result
+
+To find invitees who haven't replied, use `difference`: it keeps members of
+its first set that aren't in its second. Call it on the allocator that should
+pay for the result, not on either input:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    invited = {"Ada", "Lin"}?
+    replied = {"Lin"}?
+    out = alloc.system()
+    pending = out.difference(&invited, &replied)?
+    print("Ada" in pending, "Lin" in pending)?
+    print(len(invited), len(replied))?
+    Ok(())
+```
+```output
+True False
+2 1
+```
+
+Both inputs are borrowed and stay unchanged even if allocation fails. The
+same form works for `union`, `intersection` and `symmetric_difference`. See
+[set algebra with an output allocator](../../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
+for key-copy requirements.
+
 ## Box a value and collect a generator
 
 `owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the
@@ -221,8 +249,8 @@ callback traps, including cleanup traps, terminate the process.
 
 Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
-does not redirect allocations made by element expressions, independent copies
-or set-algebra results. The ordinary rules for storing, borrowing and moving
+does not redirect element expressions, `copy` or ordinary `set` methods to an
+input's allocator. The ordinary rules for storing, borrowing and moving
 values to workers still apply. Ordinary constructors remain available during the explicit-allocation
 migration; selection does not remove implicit defaults or provide resettable
 arenas.

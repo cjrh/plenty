@@ -117,15 +117,15 @@ content slot without the type; it is laid out as described under
 
 ## Allocator provenance
 
-Compiler-selected runtime objects and container buffers still come from the
+Ordinary constructors obtain runtime objects and container buffers through the
 global allocator. Those legacy allocations carry no prefix before their header,
 since their deallocation route is fixed. A plain box is a
 16-byte header followed by its content: a flat class record, or a slot. A
 binary-trees node is a 48-byte box in a 48-byte pool block (C: a 32-byte
 malloc chunk); with glibc malloc and a descriptor and padding word per box it
 was an 80-byte chunk.
-Builtin allocator selection and scoped allocator lifetimes are unsupported.
-The B13 migration needs retained provenance; header overhead must be measured:
+Explicit selection through [`std.alloc`](../../stdlib/alloc.md) uses retained
+provenance, not scoped allocator lifetimes. Header overhead matters:
 a 16-byte prefix made each binary-trees node a 112-byte malloc chunk rather than
 96 (issue #814), before the record's value word was also dropped.
 
@@ -137,12 +137,12 @@ takes snapshot them into caller-owned storage, then clear the source. These are
 ownership moves, not deep copies or retains. The std owner tracks initialized
 length and runs ordinary typed destruction before returning buffers to the
 retained provider. Neither these operations nor typed block bytes are public.
-A separate [native retained-handle substrate](allocator-storage.md) supplies
-thread-safe storage ownership and serialized Rust provider callbacks. Internal
-box/list constructors now use it for object and row-buffer storage, with retained
-prefixes and ordered destruction. Dense-list ABI offsets are preserved, although
-runtime collection bookkeeping has grown. Compiler lowering still selects the
-legacy path; no public Plenty allocator binding connects these constructors.
+The public `std.alloc` constructors for boxes, lists, dictionaries and sets use
+[native retained handles](allocator-storage.md) for object and buffer storage,
+with retained prefixes and ordered destruction. Dense-list ABI offsets are
+preserved. The same storage path backs [set results with an explicit output
+allocator](allocator-storage.md#independent-set-results); ordinary set methods
+do not infer that choice from either operand.
 
 ### Small-block pool
 

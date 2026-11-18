@@ -23,7 +23,9 @@ Delivery history and retired backlog entries live here, separate from the
 
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and public
-allocator selection for boxes, lists, dictionaries and sets. B13 remains open.
+allocator selection for boxes, lists, dictionaries and sets, including
+[set algebra with an output allocator](completed-work/language-and-tooling.md#public-selected-set-algebra).
+B13 remains open.
 
 [Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)
 records the shared-cursor lowering and retained instruction evidence for issue #888.

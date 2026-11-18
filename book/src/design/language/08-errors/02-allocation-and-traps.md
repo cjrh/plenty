@@ -30,7 +30,9 @@ and what has already been consumed. Allocation-free wrapper transport,
 borrowing, inline environments, generator frames, and cleanup bookkeeping do
 not make allocations performed by user expressions or destructors disappear.
 Cleanup on an allocation-error path must still handle its own fallible work.
-Builtin allocation still has no public allocator selection. The separate
+[`std.alloc`](../../stdlib/alloc.md) offers an explicit allocator for builtin
+boxes, lists, dictionaries, sets and independent set-algebra results. Ordinary
+constructors and set methods do not implicitly select that allocator. The separate
 [`std.experimental.alloc`](../../stdlib/experimental-alloc.md) probe supplies
 retained system/arena handles for its integer-only collection; it does not
 change allocation by builtin values or other std modules.
