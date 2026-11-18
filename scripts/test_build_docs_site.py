@@ -45,11 +45,15 @@ class DocsSiteTests(unittest.TestCase):
                     assemble(repo, output, prefix, manifest)
                 homepage = (output / "index.html").read_text()
                 self.assertIn("Native executables.", homepage)
+                self.assertIn(f'src="{prefix}assets/plenty_heptagon.svg"', homepage)
                 self.assertIn(f'href="{prefix}docs/"', homepage)
                 self.assertNotIn("@SITE_PREFIX@", homepage)
                 self.assertTrue((output / "assets/site.css").is_file())
                 self.assertEqual((output / "assets/plenty.svg").read_bytes(), (repo / "logos/plenty.svg").read_bytes())
                 self.assertEqual((output / "assets/plenty.png").read_bytes(), (repo / "logos/plenty.png").read_bytes())
+                for extension in ("svg", "png"):
+                    name = f"plenty_heptagon.{extension}"
+                    self.assertEqual((output / "assets" / name).read_bytes(), (repo / "logos" / name).read_bytes())
                 self.assertIn(f'href="{prefix}">Plenty home</a>', (output / "docs/index.html").read_text())
                 versions = json.loads((output / "docs/versions.json").read_text())
                 self.assertEqual([v["url"] for v in versions], [prefix + "docs/", prefix + "docs/0.1.0/", prefix + "docs/dev/"])
@@ -61,11 +65,12 @@ class DocsSiteTests(unittest.TestCase):
                               (output / "docs/development-only.html").read_text())
                 fallback = (output / "404.html").read_text()
                 self.assertIn(prefix + "docs/dev/404.html", fallback)
+                self.assertIn(f'href="{prefix}assets/plenty_heptagon.svg"', fallback)
                 self.assertIn('location.replace(destination + location.search + location.hash)', fallback)
                 self.assertNotIn("@DOCS_ROUTES@", fallback)
-                (output / "assets/plenty.svg").unlink()
+                (output / "assets/plenty_heptagon.svg").unlink()
                 _, errors = check(output, prefix, required=SITE_ASSETS)
-                self.assertTrue(any("assets/plenty.svg" in error for error in errors))
+                self.assertTrue(any("assets/plenty_heptagon.svg" in error for error in errors))
 
     def test_selector_preserves_chapter_or_falls_back_without_script(self):
         for prefix in ("/", "/plenty/"):

@@ -23,8 +23,25 @@ commit, explicitly marking local changes. Each version's
 `docs-version.json` records the full revision and Cargo package version;
 the package version alone does not identify a development build. Labels are
 static HTML. Raw `mdbook serve` previews content without deployment metadata.
-To preview the complete site, mount `book/site` at `/` on a static HTTP
-server; configure unknown paths to serve its root `404.html` as GitHub does.
+To preview the complete site with Live Server, run these commands from the
+repository root and open `http://127.0.0.1:8081/`.
+
+```sh
+python3 -B scripts/build_docs_site.py
+live-server --host 127.0.0.1 --port 8081 --poll book/site
+```
+
+Run the build command again after edits. To rebuild automatically while editing
+the landing page or its artwork, run this in another terminal.
+
+```sh
+watchexec --postpone --watch website --watch logos -- \
+  python3 -B scripts/build_docs_site.py
+```
+
+Live Server reloads when the output changes. To test missing routes as GitHub
+serves them, use a static HTTP server configured to serve the root `404.html`
+for unknown paths.
 
 The build needs no Plenty compiler. Do not use `mdbook test` for Plenty fences;
 the [tutorial integration tests](workflow.md#runnable-documentation) execute those examples. The output checker
@@ -50,9 +67,11 @@ prefix; repeat those checks on the public site after deployment.
 ## Homepage and documentation paths
 
 `website/index.html` and `website/assets/site.css` provide the homepage at `/`.
-The official artwork lives in `logos/`; the builder publishes its SVG and PNG
-under `assets/`. These sources ship in the same Pages artifact as the books,
-with no separate hosting service or frontend build dependencies.
+The rounded-square artwork lives in `logos/`. The builder publishes its SVG and PNG
+under `assets/`. The book uses the same mark and a matching dark-blue palette
+for its default Plenty theme. Readers can select any bundled mdBook theme
+from the theme menu. When updating the logo, keep the mdBook favicon copies
+in `book/theme/` in sync with the source artwork.
 
 Documentation lives at `/docs/`, development documentation at `/docs/dev/`, and
 admitted releases at `/docs/VERSION/`. Every book's version banner includes a

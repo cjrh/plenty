@@ -1,0 +1,71 @@
+@media screen {
+    html.plenty {
+        --bg: #080f20;
+        --fg: #edf4ff;
+        --links: #93c5ff;
+        --inline-code-color: #ffd43b;
+
+        --sidebar-bg: #0e192e;
+        --sidebar-fg: #c8d7ee;
+        --sidebar-non-existant: #92a7c5;
+        --sidebar-active: #ffd43b;
+        --sidebar-spacer: #2b4060;
+        --sidebar-header-border-color: #5b9be6;
+        --scrollbar: var(--sidebar-fg);
+
+        --icons: #a5b8d4;
+        --icons-hover: #edf4ff;
+        --theme-popup-bg: #0e192e;
+        --theme-popup-border: #425c82;
+        --theme-hover: #172944;
+
+        --quote-bg: #111f37;
+        --quote-border: #365279;
+        --warning-border: #ffd43b;
+
+        --table-border-color: #2b4060;
+        --table-header-bg: #182b49;
+        --table-alternate-bg: #0e192e;
+
+        --searchbar-bg: #111f37;
+        --searchbar-fg: #edf4ff;
+        --searchbar-border-color: #5b7295;
+        --searchbar-shadow-color: #5b9be6;
+        --searchresults-header-fg: #b5c5df;
+        --searchresults-border-color: #2b4060;
+        --searchresults-li-bg: #172944;
+        --search-mark-bg: #ffd43b;
+
+        --color-scheme: dark;
+        --copy-button-filter: brightness(0) saturate(100%) invert(83%) sepia(11%) saturate(624%) hue-rotate(179deg);
+        --copy-button-filter-hover: brightness(0) saturate(100%) invert(86%) sepia(73%) saturate(648%) hue-rotate(342deg);
+        --footnote-highlight: #365279;
+        --overlay-bg: rgb(8 15 32 / 65%);
+
+        --blockquote-note-color: #93c5ff;
+        --blockquote-tip-color: #95e6cb;
+        --blockquote-important-color: #d3abff;
+        --blockquote-warning-color: #ffd43b;
+        --blockquote-caution-color: #ffa387;
+    }
+
+    .menu-title {
+        color: var(--fg);
+        font-weight: 600;
+    }
+
+    .menu-title::before {
+        content: "";
+        display: inline-block;
+        width: 1.35em;
+        height: 1.35em;
+        margin-inline-end: 0.25em;
+        vertical-align: middle;
+        background: url('{{ resource "favicon.svg" }}') center / contain no-repeat;
+    }
+
+    html.plenty :focus-visible {
+        outline: 2px solid #ffd43b;
+        outline-offset: 2px;
+    }
+}
