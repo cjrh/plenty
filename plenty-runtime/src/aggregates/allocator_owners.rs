@@ -154,11 +154,56 @@ fn try_dict_set_new_in(
     }
 }
 
-/// Both borrows must be ordinary sets of the same legal, copyable key type.
-/// Key views need a separate result descriptor. Affine keys are excluded:
-/// `try_push_members` calls `try_copy_into` for those, and recursive box and
-/// collection copies still allocate implicitly. Retaining a shared key does
-/// not relocate its existing backing storage to the result allocator.
+/// Ordinary copies keep their existing heap/actor semantics. A selected copy
+/// is local (never an actor transfer), and its allocator is passed down the
+/// entire copy walk, not recovered from any source object.
+#[derive(Clone, Copy)]
+pub(super) enum CopyDestination<'a> {
+    Ordinary,
+    Selected(&'a Allocator),
+}
+impl CopyDestination<'_> {
+    pub(super) fn collection(
+        self,
+        ty: &'static Type,
+        capacity: usize,
+    ) -> Result<*mut Collection, AllocError> {
+        match self {
+            Self::Ordinary => try_collection_new(ty, capacity),
+            Self::Selected(a) if ty.kind == b'L' => try_list_new_in(a, ty, capacity),
+            Self::Selected(a) => try_dict_set_new_in(a, ty, capacity),
+        }
+    }
+
+    pub(super) unsafe fn boxed(
+        self,
+        ty: &'static Type,
+        value: u128,
+    ) -> Result<*mut Boxed, AllocError> {
+        unsafe {
+            match self {
+                Self::Ordinary => try_box_new(ty, value),
+                Self::Selected(a) => try_box_new_in(a, ty, value),
+            }
+        }
+    }
+
+    pub(super) unsafe fn copy_shared(self, value: &mut u128, ty: &Type) -> Result<(), AllocError> {
+        unsafe {
+            match self {
+                Self::Ordinary => try_copy_shared(value, ty),
+                Self::Selected(_) => {
+                    retain(*value, ty);
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+/// As for the selected constructors, the caller must be outside actor/arena
+/// contexts. Both borrows must be local sets of the same legal, copyable key
+/// type. Key views need a separate result descriptor.
 unsafe fn try_set_algebra_in(
     allocator: &Allocator,
     left: &Collection,
@@ -167,16 +212,8 @@ unsafe fn try_set_algebra_in(
 ) -> Result<u128, AllocError> {
     let ty = unsafe { &*left.ty };
     assert!(ty.kind == b'S' && right.ty().kind == b'S');
-    assert!(
-        !ty.key().affine,
-        "selected algebra requires non-affine keys"
-    );
     assert!(matches!(op, SET_UNION..=SET_SYMMETRIC_DIFFERENCE));
-    unsafe {
-        try_set_algebra_with(left, right, op, ty, |ty, count| {
-            try_dict_set_new_in(allocator, ty, count)
-        })
-    }
+    unsafe { try_set_algebra_with(left, right, op, ty, CopyDestination::Selected(allocator)) }
 }
 
 pub(super) fn try_hash_new_in(
@@ -194,7 +231,7 @@ pub(super) fn try_hash_new_in(
     try_collection_with_entries_in(allocator, ty, capacity, entries)
 }
 
-fn try_collection_with_entries_in(
+pub(super) fn try_collection_with_entries_in(
     allocator: &Allocator,
     ty: &'static Type,
     capacity: usize,

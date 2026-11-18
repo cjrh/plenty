@@ -255,11 +255,12 @@ ordinary membership algorithm, but builds the result and its hash index through
 the output allocator. Neither input supplies scratch storage. Compact finite sets
 keep their inline masks. Allocation failure leaves both inputs unchanged.
 
-This path accepts only non-affine keys. Retaining an immutable text key shares
-its existing backing; it does not allocate a new string. Copying an affine key
-can recursively allocate boxes or collections, so the native entry point rules
-out that path before constructing the result. Public set algebra and key-view
-operations have not changed.
+The copy routine passes the result allocator down to every new box or collection
+it constructs. Immutable text and `Shared` values retain their existing backing;
+they are not deep-copied. If a nested allocation fails, cleanup drops only the
+copies already made, not the source values. This removes the private path's
+blanket exclusion of affine keys without changing which types are legal keys.
+Public set algebra, ordinary `copy`, actor transfer and key views are unchanged.
 
 ## Native builtin owner paths
 

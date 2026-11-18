@@ -408,9 +408,14 @@ fn enum_set_width_is_selected_by_domain_and_survives_copying_and_emptying() {
                     }
                     let _restore = Restore;
                     crate::accounting::fail_after(Some(0));
-                    assert!(try_copy_collection(pointer as u128, &TY).is_err());
+                    assert!(
+                        try_copy_collection(pointer as u128, &TY, CopyDestination::Ordinary)
+                            .is_err()
+                    );
                     crate::accounting::fail_after(Some(1));
-                    let copied = try_copy_collection(pointer as u128, &TY).unwrap();
+                    let copied =
+                        try_copy_collection(pointer as u128, &TY, CopyDestination::Ordinary)
+                            .unwrap();
                     let _copy_owner = OwnedValue {
                         value: copied,
                         ty: &TY,

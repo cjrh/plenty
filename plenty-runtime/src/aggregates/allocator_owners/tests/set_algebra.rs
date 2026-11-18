@@ -166,16 +166,44 @@ fn selected_union_retains_existing_heap_text_without_reallocating_it() {
 }
 
 #[test]
-#[should_panic(expected = "selected algebra requires non-affine keys")]
-fn selected_algebra_rejects_affine_keys_before_member_copy() {
-    static TY: Type = Type {
-        key: Some(&RECORD),
-        ..HASH
-    };
-    let c = try_collection_new(&TY, 0).unwrap();
-    let _owner = OwnedValue {
-        value: c as u128,
-        ty: &TY,
-    };
-    unsafe { try_set_algebra_in(&Allocator::system(), &*c, &*c, SET_UNION) }.unwrap();
+fn selected_union_copies_affine_record_keys_into_private_rows() {
+    use super::recursive_copy::{KEY_SET, key};
+    let input = counts();
+    let a = allocator(&input, "input");
+    let out = counts();
+    let b = allocator(&out, "result");
+    unsafe {
+        let left = try_dict_set_new_in(&a, &KEY_SET, 1).unwrap();
+        let right = try_dict_set_new_in(&a, &KEY_SET, 1).unwrap();
+        let text = strings::try_new("shared immutable leaf").unwrap();
+        (*left).insert(key(1, text).as_ptr() as u128, 0);
+        plenty_retain(text.cast());
+        (*right).insert(key(2, text).as_ptr() as u128, 0);
+        let before = input.calls.load(Relaxed);
+        input.budget.store(0, Relaxed);
+        #[cfg(feature = "allocation-checks")]
+        crate::accounting::fail_after(Some(5));
+        let result = try_set_algebra_in(&b, &*left, &*right, SET_UNION);
+        #[cfg(feature = "allocation-checks")]
+        crate::accounting::fail_after(None);
+        let result = result.unwrap() as *mut Collection;
+        assert_eq!(input.calls.load(Relaxed), before);
+        assert_eq!(out.calls.load(Relaxed), 5);
+        for (i, source) in [left, right].into_iter().enumerate() {
+            let orig = (*source).entries.key(0);
+            assert_eq!((*result).find(orig), Some(i));
+            let stored = (*result).entries.key(i);
+            assert_ne!(stored, orig);
+            assert_eq!(*(stored as *const [u128; 2]), key(i as u128 + 1, text));
+            plenty_release(source.cast());
+        }
+        assert_eq!(input.releases.load(Relaxed), before);
+        assert_eq!((*text.cast::<Header>()).refs.load(Relaxed), 2);
+        assert_eq!(
+            strings::utf8(&(text as *const Text)),
+            "shared immutable leaf"
+        );
+        plenty_release(result.cast());
+        assert_eq!(out.releases.load(Relaxed), 5);
+    }
 }

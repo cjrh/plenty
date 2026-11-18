@@ -6,6 +6,7 @@ use crate::generators::{Generator, plenty_generator_resume};
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
+use allocator_owners::CopyDestination;
 use buckets::{Buckets, KeyHash};
 use std::cmp::Ordering;
 use std::io::Write;
@@ -220,7 +221,7 @@ impl Type {
             .filter(|plan| plan.only_strings)
             .map(|plan| plan.strings)
     }
-    fn key(&self) -> &Type {
+    fn key(&self) -> &'static Type {
         self.key.expect("collection key type")
     }
     fn value(&self) -> &Type {
@@ -231,7 +232,7 @@ impl Type {
         (value >> 64) as usize & mask
     }
     /// The single field stored directly in an inline sum's payload word.
-    pub(crate) fn payload(&self, value: u128) -> Option<&Type> {
+    pub(crate) fn payload(&self, value: u128) -> Option<&'static Type> {
         match self.variants[self.tag(value)].fields {
             [field] => Some(field),
             _ => None,
@@ -1224,6 +1225,7 @@ impl Collection {
     unsafe fn try_push_members(
         &mut self,
         source: &Collection,
+        destination: CopyDestination<'_>,
         record: bool,
         mut keep: impl FnMut(u128, &mut KeyHash) -> bool,
     ) -> Result<(), AllocError> {
@@ -1256,7 +1258,7 @@ impl Collection {
                     self.entries.push(Entry { key, value: 0 });
                     let slot = self.entries.slot(row, false);
                     let mut copy = slot.read();
-                    let copied = try_copy_into(&mut copy, key_ty);
+                    let copied = try_copy_into(&mut copy, key_ty, destination);
                     slot.write(copy);
                     if let Err(error) = copied {
                         // The scratch table holds `source`'s references;
@@ -2233,14 +2235,14 @@ impl FlatTuple {
 
 /// Copy `value` into an independent owner. A value with inline storage first
 /// moves its bytes to `storage`, which reserves `ty.payload_bytes()`.
-unsafe fn try_copy(value: u128, ty: &Type, storage: *mut u128) -> Result<u128, AllocError> {
+unsafe fn try_copy(value: u128, ty: &'static Type, storage: *mut u128) -> Result<u128, AllocError> {
     unsafe {
         let mut value = if ty.payload_bytes() != 0 {
             ranges::copy_payload(value, ty, storage.cast())
         } else {
             value
         };
-        try_copy_into(&mut value, ty)?;
+        try_copy_into(&mut value, ty, CopyDestination::Ordinary)?;
         Ok(value)
     }
 }
@@ -2374,7 +2376,7 @@ unsafe fn try_set_algebra(
     op: i64,
     ty: &'static Type,
 ) -> Result<u128, AllocError> {
-    unsafe { try_set_algebra_with(left, right, op, ty, try_collection_new) }
+    unsafe { try_set_algebra_with(left, right, op, ty, CopyDestination::Ordinary) }
 }
 
 /// Union, intersection, difference or symmetric difference of two borrowed
@@ -2390,11 +2392,11 @@ unsafe fn try_set_algebra_with(
     right: &Collection,
     op: i64,
     ty: &'static Type,
-    new_set: impl FnOnce(&'static Type, usize) -> Result<*mut Collection, AllocError>,
+    destination: CopyDestination<'_>,
 ) -> Result<u128, AllocError> {
     unsafe {
         if let (Some(l), Some(r)) = (left.entries.bits(), right.entries.bits()) {
-            let output = new_set(ty, 0)?;
+            let output = destination.collection(ty, 0)?;
             (*output).entries.set_bits(match op {
                 SET_UNION => l | r,
                 SET_INTERSECTION => l & r,
@@ -2411,18 +2413,18 @@ unsafe fn try_set_algebra_with(
             SET_DIFFERENCE => l - common,
             _ => l + r - 2 * common,
         };
-        let output = new_set(ty, count)?;
+        let output = destination.collection(ty, count)?;
         let guard = OwnedValue {
             value: output as u128,
             ty,
         };
-        (*output).try_push_members(left, true, |key, known| match op {
+        (*output).try_push_members(left, destination, true, |key, known| match op {
             SET_UNION => true,
             SET_INTERSECTION => right.find_known(key, known).is_some(),
             _ => right.find_known(key, known).is_none(),
         })?;
         if matches!(op, SET_UNION | SET_SYMMETRIC_DIFFERENCE) {
-            (*output).try_push_members(right, true, |key, known| {
+            (*output).try_push_members(right, destination, true, |key, known| {
                 left.find_known(key, known).is_none()
             })?;
         }
@@ -2445,9 +2447,13 @@ fn sequential(source: &Collection) -> bool {
 /// `source`, a set or dictionary. When the copy's slots and table length
 /// match the source's, it copies the bucket array; otherwise stored hash bits
 /// index it where they suffice (issue #817).
-unsafe fn try_members_copy(source: &Collection, ty: &'static Type) -> Result<u128, AllocError> {
+unsafe fn try_members_copy(
+    source: &Collection,
+    ty: &'static Type,
+    destination: CopyDestination<'_>,
+) -> Result<u128, AllocError> {
     unsafe {
-        let output = try_collection_new(ty, source.len())?;
+        let output = destination.collection(ty, source.len())?;
         let guard = OwnedValue {
             value: output as u128,
             ty,
@@ -2457,7 +2463,7 @@ unsafe fn try_members_copy(source: &Collection, ty: &'static Type) -> Result<u12
             && source.entries.bits().is_none()
             && o.table.len() == source.table.len()
             && sequential(source);
-        o.try_push_members(source, !verbatim, |_, _| true)?;
+        o.try_push_members(source, destination, !verbatim, |_, _| true)?;
         if verbatim {
             o.table.copy_from(&source.table);
         } else {
@@ -2606,7 +2612,7 @@ unsafe fn try_list_slice_stepped(
             entries.push(source.entries.get(slice_position(first, step, k)));
             let key = entries.slot(entries.len() - 1, false);
             let mut copy = key.read();
-            if let Err(error) = try_copy_into(&mut copy, element) {
+            if let Err(error) = try_copy_into(&mut copy, element, CopyDestination::Ordinary) {
                 key.write(0);
                 return Err(error);
             }
@@ -2618,10 +2624,14 @@ unsafe fn try_list_slice_stepped(
 
 /// Replace the owned children of a byte-copied value with independent copies.
 /// Its inline storage must already be private. On failure it owns nothing.
-unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
+unsafe fn try_copy_into(
+    value: &mut u128,
+    ty: &'static Type,
+    destination: CopyDestination<'_>,
+) -> Result<(), AllocError> {
     unsafe {
         if !ty.affine {
-            return try_copy_shared(value, ty);
+            return destination.copy_shared(value, ty);
         }
         if let Some(record) = ty.record(*value) {
             if record.state().is_some() {
@@ -2629,7 +2639,7 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             }
             for (i, (slot, ty)) in record.slots().enumerate() {
                 let mut field = slot.read();
-                if let Err(error) = try_copy_into(&mut field, ty) {
+                if let Err(error) = try_copy_into(&mut field, ty, destination) {
                     abandon_copy(record, i);
                     *value = 0;
                     return Err(error);
@@ -2642,14 +2652,15 @@ unsafe fn try_copy_into(value: &mut u128, ty: &Type) -> Result<(), AllocError> {
             b'B' => match ty.payload(*value) {
                 Some(t) => {
                     let mut inner = ty.unpack(*value);
-                    try_copy_into(&mut inner, t).map(|()| ty.pack(inner, ty.tag(*value)))
+                    try_copy_into(&mut inner, t, destination)
+                        .map(|()| ty.pack(inner, ty.tag(*value)))
                 }
                 None => return Ok(()),
             },
-            b'L' | b'S' | b'D' => try_copy_collection(*value, ty),
-            b'O' => try_copy_box(*value as *const Boxed, ty),
+            b'L' | b'S' | b'D' => try_copy_collection(*value, ty, destination),
+            b'O' => try_copy_box(*value as *const Boxed, ty, destination),
             // A `Shared` owner (`W`) gains another owner, as `share()` would.
-            _ => return try_copy_shared(value, ty),
+            _ => return destination.copy_shared(value, ty),
         };
         match copied {
             Ok(copy) => {
@@ -2727,14 +2738,18 @@ unsafe fn try_copy_shared(value: &mut u128, ty: &Type) -> Result<(), AllocError>
     }
 }
 
-unsafe fn try_copy_box(source: *const Boxed, ty: &Type) -> Result<u128, AllocError> {
+unsafe fn try_copy_box(
+    source: *const Boxed,
+    ty: &'static Type,
+    destination: CopyDestination<'_>,
+) -> Result<u128, AllocError> {
     unsafe {
         let content = ty.key();
         let source = Boxed::content(source, content).read();
-        let boxed = try_box_new(ty, source)?;
+        let boxed = destination.boxed(ty, source)?;
         let field = Boxed::content(boxed, content);
         let mut inner = field.read();
-        let copied = try_copy_into(&mut inner, content);
+        let copied = try_copy_into(&mut inner, content, destination);
         field.write(inner, content);
         match copied {
             Ok(()) => Ok(boxed as u128),
@@ -2746,10 +2761,23 @@ unsafe fn try_copy_box(source: *const Boxed, ty: &Type) -> Result<u128, AllocErr
     }
 }
 
-unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError> {
+unsafe fn try_copy_collection(
+    value: u128,
+    ty: &'static Type,
+    destination: CopyDestination<'_>,
+) -> Result<u128, AllocError> {
     unsafe {
         let source = &*(value as *const Collection);
         if let Some(entries) = source.entries.copy_bitset() {
+            if let CopyDestination::Selected(allocator) = destination {
+                return allocator_owners::try_collection_with_entries_in(
+                    allocator,
+                    &*source.ty,
+                    0,
+                    entries,
+                )
+                .map(|set| set as u128);
+            }
             let result = memory::try_allocate::<Collection, u8>(0)?;
             result.write(Collection {
                 header: Header::new(collection_destroy),
@@ -2761,9 +2789,9 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
             return Ok(result as u128);
         }
         if ty.kind == b'S' {
-            return try_members_copy(source, &*source.ty);
+            return try_members_copy(source, &*source.ty, destination);
         }
-        let result = try_collection_new(&*source.ty, source.entries.len())?;
+        let result = destination.collection(&*source.ty, source.entries.len())?;
         let owner = OwnedValue {
             value: result as u128,
             ty,
@@ -2786,7 +2814,7 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
             let row = (*result).entries.len() - 1;
             let key = (*result).entries.slot(row, false);
             let mut copy = key.read();
-            if let Err(error) = try_copy_into(&mut copy, ty.key()) {
+            if let Err(error) = try_copy_into(&mut copy, ty.key(), destination) {
                 key.write(0);
                 if ty.value.is_some() {
                     (*result).entries.slot(row, true).write(0);
@@ -2797,7 +2825,7 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
             if let Some(t) = ty.value {
                 let value = (*result).entries.slot(row, true);
                 let mut copy = value.read();
-                let copied = try_copy_into(&mut copy, t);
+                let copied = try_copy_into(&mut copy, t, destination);
                 value.write(copy);
                 copied?;
             }
@@ -4103,7 +4131,7 @@ pub(crate) unsafe fn collection_at(
             }
             KEY_VIEW_TO_SET => {
                 let source = &*(a as *const Collection);
-                match try_members_copy(source, &*descriptor) {
+                match try_members_copy(source, &*descriptor, CopyDestination::Ordinary) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }

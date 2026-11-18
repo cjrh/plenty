@@ -614,4 +614,5 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
 
 mod finite_sets;
 mod hash_storage;
+mod recursive_copy;
 mod set_algebra;

@@ -171,7 +171,8 @@ fn copies_reuse_bucket_arrays_and_stored_bits() {
         let set = build(&SET, &all, holes);
         let before = hashes();
         // SAFETY: an integer set.
-        let copy = unsafe { try_copy_collection(set.value, &SET) }.unwrap();
+        let copy =
+            unsafe { try_copy_collection(set.value, &SET, CopyDestination::Ordinary) }.unwrap();
         // Slots with holes still map through stored bits: the copy's table
         // is no longer than the source's.
         assert_eq!(hashes() - before, 0);
@@ -183,7 +184,8 @@ fn copies_reuse_bucket_arrays_and_stored_bits() {
 
         let map = build(&MAP, &all, holes);
         let before = hashes();
-        let copy = unsafe { try_copy_collection(map.value, &MAP) }.unwrap();
+        let copy =
+            unsafe { try_copy_collection(map.value, &MAP, CopyDestination::Ordinary) }.unwrap();
         let expected = if holes.is_empty() { 0 } else { all.len() };
         assert_eq!(hashes() - before, expected, "dictionary copy");
         let copy = OwnedValue {

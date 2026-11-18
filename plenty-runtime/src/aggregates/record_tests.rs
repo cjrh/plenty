@@ -79,7 +79,7 @@ fn copy_failure_clears_mixed_width_fields_without_consuming_source() {
             let result = {
                 let _restore = Restore;
                 crate::accounting::fail_after(Some(budget));
-                try_copy_into(&mut value, &TUPLE)
+                try_copy_into(&mut value, &TUPLE, CopyDestination::Ordinary)
             };
             assert_eq!(result, Err(AllocError::OutOfMemory));
             assert_eq!(value, 0);
