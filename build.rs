@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 mod brotli_build;
 #[path = "plenty-runtime/native/cc_build.rs"]
 mod native_tools;
+#[path = "plenty-runtime/native/sqlite_build.rs"]
+mod sqlite_build;
 use std::process::Command;
 #[path = "plenty-runtime/native/vendor_cache.rs"]
 mod runtime_vendor_cache;
@@ -241,7 +243,9 @@ fn main() {
         )
     );
     let vendor = build_vendored(&out);
-    timed("SQLite", || build_sqlite(&vendor));
+    timed("SQLite", || {
+        sqlite_build::build(Path::new("plenty-runtime/native"), &vendor)
+    });
     timed("Brotli", || {
         brotli_build::build(Path::new("plenty-runtime/native"), &vendor)
     });
@@ -291,40 +295,6 @@ fn build_native_object(out: &Path, source: &str, object: &str) {
         "compiling {source} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-/// The SQLite amalgamation behind `std.db.sqlite`, unmodified C from
-/// sqlite.org. Both runtime archives bundle it. Function and data sections
-/// let `--gc-sections` drop it from programs that never reach `std.db.sqlite`.
-/// See book/src/design/stdlib/sqlite.md for the options and update policy.
-const SQLITE: &str = "plenty-runtime/native/sqlite-3.54.0";
-const SQLITE_ARCHIVE: &str = "plenty_sqlite";
-const SQLITE_OPTIONS: &[&str] = &[
-    "-DSQLITE_THREADSAFE=1",
-    "-DSQLITE_DEFAULT_MEMSTATUS=0",
-    "-DSQLITE_DQS=0",
-    "-DSQLITE_LIKE_DOESNT_MATCH_BLOBS",
-    "-DSQLITE_OMIT_DEPRECATED",
-    "-DSQLITE_ENABLE_FTS5",
-    "-DSQLITE_OMIT_SHARED_CACHE",
-];
-
-fn build_sqlite(dir: &Path) {
-    println!("cargo:rerun-if-changed={SQLITE}");
-    println!("cargo:rerun-if-env-changed=CC");
-    println!("cargo:rerun-if-env-changed=AR");
-    let mut build = native_tools::build(dir);
-    build.file(format!("{SQLITE}/sqlite3.c"));
-    for option in SQLITE_OPTIONS {
-        let (name, value) = option
-            .trim_start_matches("-D")
-            .split_once('=')
-            .map_or((option.trim_start_matches("-D"), None), |(name, value)| {
-                (name, Some(value))
-            });
-        build.define(name, value);
-    }
-    build.compile(SQLITE_ARCHIVE);
 }
 
 /// ring's C and ABI-specific pregenerated assembly, as its upstream build
@@ -723,7 +693,7 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         "--check-cfg",
         "cfg(plenty_runtime_embedded)",
         "--check-cfg",
-        "cfg(feature, values(\"allocation-checks\"))",
+        "cfg(feature, values(\"allocation-checks\", \"executable\"))",
         "--check-cfg",
         "cfg(plenty_runtime_sqlite)",
         "--cfg",
@@ -733,7 +703,7 @@ fn build_runtime(out: &Path, vendor: &Path, application: bool) {
         "-o",
     ]);
     rustc.arg(&archive);
-    rustc.arg(format!("-lstatic={SQLITE_ARCHIVE}"));
+    rustc.arg(format!("-lstatic={}", sqlite_build::ARCHIVE));
     rustc.arg(format!("-lstatic={RING_ARCHIVE}"));
     rustc.arg(format!("-Ldependency={}", vendor.display()));
     rustc.arg(format!("-Lnative={}", vendor.display()));

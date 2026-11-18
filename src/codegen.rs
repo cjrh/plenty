@@ -84,6 +84,7 @@ mod coverage;
 mod dump;
 mod empty_slots;
 mod enums;
+mod executable_exports;
 mod executors;
 mod exits;
 mod export_objects;
@@ -342,6 +343,9 @@ fn compile_sources_to_executable(
     options: &crate::CompileOptions,
     test_hooks: bool,
 ) -> Result<crate::frontend::Inputs> {
+    if options.executable_exports.is_some() {
+        return executable_exports::compile(sources, output, options, test_hooks, true);
+    }
     let test_hooks = test_hooks || options.test_hooks;
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
@@ -650,6 +654,9 @@ pub fn compile_file_to_object_with_options(
 ) -> Result<()> {
     crate::validate_target(None)?;
     let sources = Sources::file(path, root)?;
+    if options.executable_exports.is_some() {
+        return executable_exports::compile(&sources, output, options, false, false).map(drop);
+    }
     let build = Build::new(options, false);
     let cache = build.cache.clone();
     program_object(&sources, output, build)?;
@@ -812,7 +819,10 @@ fn object_module(
     out.coverage = build.coverage;
 
     let mut runtime = declare_runtime(&mut out.module, build.test_hooks)?;
-    if entry.is_some() && !build.coverage {
+    // Executable C callbacks are native-linker roots, not unconditional roots.
+    // Reuse library helper checks: a startup check table would retain private
+    // callback/destructor bodies even after their unused adapters are collected.
+    if entry.is_some() && interface.is_none() && !build.coverage {
         let table = out.declare_traps()?;
         let register = out
             .module

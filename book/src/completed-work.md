@@ -21,6 +21,9 @@ Delivery history and retired backlog entries live here, separate from the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
 
+The [iced counter experiment](completed-work/libraries.md#iced-counter-experiment)
+uses checked executable callbacks and a separately selected native archive.
+
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and public
 allocator selection for boxes, lists, dictionaries and sets, including
@@ -40,6 +43,10 @@ optional and fallible view results.
 
 The [Rust-source backend decision](completed-work/language-and-tooling.md#rust-source-backend-proposal-rejected)
 records the proposal's rejection on 2026-11-14; its experiments remain historical.
+
+[Native executable callbacks](completed-work/language-and-tooling.md#native-executable-callbacks)
+reuse the library ownership contract in an opt-in application build. The
+[egui counter](completed-work/libraries.md#experimental-egui-counter) exercises it with immediate-mode input.
 
 [Multiple transitive dependency versions](completed-work/language-and-tooling.md#b17-tooling-and-packaging)
 record source identity, edge-specific locks and updates, provenance inspection,

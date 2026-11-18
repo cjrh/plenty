@@ -9,6 +9,8 @@ publish = false
 crate-type = ["rlib", "staticlib"]
 
 [features]
+# For one Cargo-built native support archive linked to a Plenty application object.
+executable = []
 allocation-checks = []
 
 [lints.rust]

@@ -1,0 +1,57 @@
+# Experimental iced 0.14.0 binding (iced contributors, MIT; https://iced.rs/).
+import native
+
+pub enum IcedError:
+    OutOfMemory
+    CapacityOverflow
+    InvalidContext
+    LimitExceeded
+    InvalidLayout
+    InvalidArgument
+    NativeFailure
+
+
+def checked(status: u32) -> Result[(), IcedError]:
+    match status:
+        case 0u32:
+            Ok(())
+        case 1u32:
+            Err(IcedError.OutOfMemory)
+        case 2u32:
+            Err(IcedError.CapacityOverflow)
+        case 3u32:
+            Err(IcedError.InvalidContext)
+        case 4u32:
+            Err(IcedError.LimitExceeded)
+        case 5u32:
+            Err(IcedError.InvalidLayout)
+        case 6u32:
+            Err(IcedError.InvalidArgument)
+        case _:
+            Err(IcedError.NativeFailure)
+
+pub def allocation(error: AllocError) -> IcedError:
+    match error:
+        case AllocError.OutOfMemory:
+            IcedError.OutOfMemory
+        case AllocError.CapacityOverflow:
+            IcedError.CapacityOverflow
+
+# A frame is only usable during the render that supplied its token.
+pub class Frame:
+    token: u64
+    pub def __init__(self, token: u64) -> ():
+        self.token = token
+    pub def row(self) -> Result[(), IcedError]:
+        checked(native.row(self.token))
+    pub def column(self) -> Result[(), IcedError]:
+        checked(native.column(self.token))
+    pub def end(self) -> Result[(), IcedError]:
+        checked(native.end(self.token))
+    pub def text(self, text: &str) -> Result[(), IcedError]:
+        checked(native.text(self.token, text))
+    pub def button(self, text: &str, action: u64) -> Result[(), IcedError]:
+        checked(native.button(self.token, text, action))
+
+pub def run() -> Result[(), IcedError]:
+    checked(native.run())

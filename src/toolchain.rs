@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod distribution;
+mod engine_roots;
+use engine_roots::EngineRoots;
 #[cfg(any(windows, target_os = "macos", test))]
 mod engine_install;
 #[cfg(any(target_os = "macos", test))]
@@ -114,6 +116,8 @@ pub struct CompileOptions {
     pub verbose: bool,
     /// Additional driver arguments, each passed verbatim after the inputs.
     pub link_args: Vec<OsString>,
+    /// Opt-in C callbacks in an application, with a generated NAME.h companion.
+    pub executable_exports: Option<String>,
     /// Override the optional dataframe engine location. Consulted only when
     /// reachable native code uses std.dataframe; otherwise no engine is needed.
     pub dataframe_engine: Option<PathBuf>,
@@ -166,6 +170,7 @@ impl Default for CompileOptions {
             auto_linker: true,
             verbose: false,
             link_args: Vec::new(),
+            executable_exports: None,
             dataframe_engine: None,
             linalg_engine: None,
             optimize: true,
@@ -578,11 +583,11 @@ impl Engine {
 /// unused local helpers and destructors, requiring an engine even for a bare
 /// unused import.
 fn reached_engines<'a>(
-    bytes: &[u8],
+    object: &object::File<'_>,
     engines: &'a [Engine],
+    roots: &EngineRoots,
 ) -> Result<Vec<&'a Engine>, Box<dyn std::error::Error>> {
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget, SectionFlags};
-    let object = object::File::parse(bytes)?;
     let engine_of = |name: &str| {
         let name = if object.format() == object::BinaryFormat::MachO {
             name.strip_prefix('_').unwrap_or(name)
@@ -593,9 +598,11 @@ fn reached_engines<'a>(
             .iter()
             .position(|e| name.starts_with(e.symbol_prefix))
     };
-    if !object.symbols().any(|symbol| {
-        symbol.is_undefined() && symbol.name().is_ok_and(|name| engine_of(name).is_some())
-    }) {
+    if roots.native_imports.is_empty()
+        && !object.symbols().any(|symbol| {
+            symbol.is_undefined() && symbol.name().is_ok_and(|name| engine_of(name).is_some())
+        })
+    {
         return Ok(Vec::new());
     }
     let atom = |symbol: object::Symbol<'_, '_>| {
@@ -619,7 +626,7 @@ fn reached_engines<'a>(
     let mut pending: Vec<_> = object
         .symbols()
         .filter(|symbol| {
-            (symbol.is_global() && !symbol.is_undefined())
+            (symbol.is_global() && !symbol.is_undefined() && roots.includes_global(symbol.name()))
                 || matches!(symbol.flags(), object::SymbolFlags::MachO { n_desc, .. }
                     if n_desc.contains(object::macho::N_NO_DEAD_STRIP))
         })
@@ -636,6 +643,11 @@ fn reached_engines<'a>(
             .map(|section| (section.index(), 0, section.size())),
     );
     let mut reached = vec![false; engines.len()];
+    for name in &roots.native_imports {
+        if let Some(engine) = engine_of(name) {
+            reached[engine] = true;
+        }
+    }
     let mut seen = std::collections::HashSet::new();
     while let Some((index, start, end)) = pending.pop() {
         if !seen.insert((index, start, end)) {
@@ -684,9 +696,22 @@ fn engine_link_args(
     let _ = output;
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_mut))]
     let mut installs = Vec::new();
-    let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
+    let bytes = std::fs::read(object)?;
+    let file = object::File::parse(bytes.as_slice())?;
+    let roots = EngineRoots::for_link(options, file.format());
+    let reached = reached_engines(&file, ENGINES, &roots)?;
     if reached.is_empty() {
         return Ok((Vec::new(), installs));
+    }
+    if options.executable_exports.is_some()
+        && matches!(
+            file.format(),
+            object::BinaryFormat::MachO | object::BinaryFormat::Coff
+        )
+    {
+        // Paired publication moves just the executable and header, not any
+        // engine installed beside the staged executable in its tempdir.
+        return Err(format!("--compile --executable-exports with a {} engine sidecar is not supported on macOS or Windows; use --emit-object and manage the native link and sidecar together", reached[0].module).into());
     }
     let mut libraries = Vec::new();
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -1131,13 +1156,18 @@ mod tests {
             fake_engine("std.b", "plfb_v1_"),
         ];
         let bytes = std::fs::read(&object).unwrap();
-        let reached: Vec<_> = reached_engines(&bytes, &engines)
+        let file = object::File::parse(bytes.as_slice()).unwrap();
+        let reached: Vec<_> = reached_engines(&file, &engines, &EngineRoots::default())
             .unwrap()
             .into_iter()
             .map(|engine| engine.module)
             .collect();
         assert_eq!(reached, ["std.a"]);
-        assert!(reached_engines(&bytes, ENGINES).unwrap().is_empty());
+        assert!(
+            reached_engines(&file, ENGINES, &EngineRoots::default())
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1200,10 +1230,10 @@ mod tests {
             let mut signature = module.make_signature();
             signature.returns.push(AbiParam::new(types::I64));
             let used = module
-                .declare_function("plfa_v1_used", Linkage::Import, &signature)
+                .declare_function("pldf_v1_used", Linkage::Import, &signature)
                 .unwrap();
             let unused = module
-                .declare_function("plfb_v1_unused", Linkage::Import, &signature)
+                .declare_function("plla_v1_unused", Linkage::Import, &signature)
                 .unwrap();
             let first = module
                 .declare_function("first", Linkage::Local, &signature)
@@ -1231,15 +1261,39 @@ mod tests {
             }
             let bytes = module.finish().emit().unwrap();
             let engines = [
-                fake_engine("std.a", "plfa_v1_"),
-                fake_engine("std.b", "plfb_v1_"),
+                fake_engine("std.a", "pldf_v1_"),
+                fake_engine("std.b", "plla_v1_"),
             ];
-            let reached: Vec<_> = reached_engines(&bytes, &engines)
+            let file = object::File::parse(bytes.as_slice()).unwrap();
+            let reached: Vec<_> = reached_engines(&file, &engines, &EngineRoots::default())
                 .unwrap()
                 .into_iter()
                 .map(|engine| engine.module)
                 .collect();
             assert_eq!(reached, ["std.a"], "{}", target.triple);
+
+            // Exercise the production pre-link boundary with emitted objects,
+            // without executing foreign tools or installing a fake engine.
+            let temp = tempfile::tempdir().unwrap();
+            let input = temp.path().join("app.o");
+            let output = temp.path().join("app");
+            std::fs::write(&input, &bytes).unwrap();
+            let options = CompileOptions {
+                executable_exports: Some("app".into()),
+                dataframe_engine: Some(temp.path().join("missing")),
+                ..Default::default()
+            };
+            let error = engine_link_args(&input, &options, None, &output)
+                .err()
+                .unwrap()
+                .to_string();
+            if target.triple.ends_with("-windows-msvc") || target.triple.ends_with("-apple-darwin")
+            {
+                assert!(error.contains("std.dataframe engine sidecar"), "{error}");
+            } else {
+                assert!(error.contains("std.dataframe requires"), "{error}");
+            }
+            assert!(!output.exists());
         }
     }
 

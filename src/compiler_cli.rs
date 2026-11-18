@@ -43,6 +43,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
   reached native engines and their packaged notices. Uses application-local engine lookup.
   Requires --compile; excludes -o and --link-arg. Not a static build.
 --emit-object: emit an application object without linking (requires main).
+--executable-exports NAME: opt-in C callback adapters and NAME.h beside an
+  application object/executable (--emit-object or --compile; baseline CPU only).
 --dump: write each function's compiler output as text to DIR (`-o -` prints
   it): index.txt, then one file per stage. STAGES is `all` or a comma list of
   ops, clif, clif-opt, asm. Bypasses both caches; links nothing.
@@ -147,6 +149,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                 | "--link-arg"
                 | "--target"
                 | "--library-name"
+                | "--executable-exports"
                 | "--archiver"
                 | "--libfuzzer"
                 | "--dist"
@@ -164,6 +167,12 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
                     return Err(
                         "--dist requires one nonempty directory, specified only once".into(),
                     );
+                }
+                continue;
+            }
+            if flag == "--executable-exports" {
+                if options.executable_exports.replace(value).is_some() {
+                    return Err("--executable-exports may be specified only once".into());
                 }
                 continue;
             }
@@ -356,6 +365,15 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     }
     if options.target.is_some() {
         plenty::validate_target(options.target.as_deref())?;
+    }
+    if options.executable_exports.is_some()
+        && (!args
+            .first()
+            .is_some_and(|a| matches!(a.as_str(), "--emit-object" | "--compile"))
+            || dist.is_some()
+            || graph.is_some())
+    {
+        return Err("--executable-exports requires --emit-object or --compile, without --dist or --package-graph".into());
     }
     let library = args
         .first()

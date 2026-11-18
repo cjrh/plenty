@@ -2121,3 +2121,12 @@ qualification. The accepted download contract uses the fixed compiler repository
 on GitHub Releases over verified system TLS; no separate signing service is
 required. The [manager proposal](../proposals/plenty-manager.md) remains active
 until its distribution gates are met.
+
+## Native executable callbacks
+
+An application object or executable can publish [explicit checked callbacks](../design/facilities/04-interop/exports.md#executable-callbacks)
+with the generated C ownership contract. Unused checked bodies do not root
+native dependencies through startup metadata. A native support crate can link
+one [Cargo executable runtime](../design/toolchain/01-building/linking.md#external-build-systems)
+and require the expected whole-interface guard. This is explicit build-system
+integration, not a change to ordinary applications or packages.

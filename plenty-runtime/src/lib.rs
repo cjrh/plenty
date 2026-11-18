@@ -239,7 +239,8 @@ unsafe extern "C" {
 }
 
 #[cfg(plenty_runtime_embedded)]
-#[unsafe(no_mangle)]
+#[cfg_attr(not(feature = "executable"), unsafe(no_mangle))]
+#[cfg_attr(feature = "executable", unsafe(export_name = "plenty_runtime_start"))]
 /// Native entry point for a compiled Plenty executable.
 ///
 /// # Safety

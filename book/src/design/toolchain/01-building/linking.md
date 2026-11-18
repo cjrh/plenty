@@ -246,7 +246,7 @@ target support. Failures report its identity, status, and diagnostics.
 
 ## External build systems
 
-`--emit-object` requires no linker and exports `plenty_main`. Link exactly one
+`--emit-object` requires no linker and exports `plenty_main`. Normally link one
 application object, followed by the runtime archive extracted from the same
 compiler build and its native arguments, one per line in `link-args.txt`. The
 first argument is `-Wl,--gc-sections`. The object puts each function and data
@@ -262,7 +262,52 @@ Cargo or rustc on `PATH`.
 
 Ordinary Plenty functions, including `pub` functions, use private symbols and
 calling conventions. Application object output does not expose a C library API
-or provide separate Plenty module compilation; use a library build for exports.
+or provide separate Plenty module compilation by default; use a library build
+for exports, or opt into [executable callbacks](../../facilities/04-interop/exports.md#executable-callbacks)
+with `--executable-exports NAME`. The latter also writes `NAME.h` beside the output.
+
+For compiler-linked callback executables on Linux, an unused adapter does not by
+itself require an optional [engine](engines.md). With the default `cc` driver,
+the compiler follows relocations from `plenty_main`, retained metadata and symbols
+referenced by explicit ELF relocatable `.o` inputs. It counts even references in
+unused native object sections, including direct engine imports. With a custom
+driver, archives, linker flags, scripts or other opaque inputs it conservatively
+counts **all** application globals as possible roots. These cases can require an
+engine the final binary would otherwise omit. Native dependencies hidden inside
+opaque inputs remain the native caller’s responsibility.
+
+For native Rust support, do not combine independently bundled Rust staticlibs:
+Rust standard-library/global allocator definitions can collide. Build **one**
+Cargo staticlib depending on `plenty-runtime` with its `executable` feature and
+the selected native libraries in one graph; its C main forwards to
+`plenty_runtime::main(argc, argv)` (native symbol `plenty_runtime_start`). Link
+that archive and the Plenty object using `cc` and rustc's `--print native-static-libs`
+requirements, not the compiler's bundled runtime or panic-handler redirects.
+The Cargo runtime includes the same SQLite/Brotli configuration and embedded
+application allocator/startup selection. Its normal Rust panic behavior is kept;
+upstream OOM/panics are not made recoverable. Use the matching compiler/runtime
+source revision. This is source/toolchain integration, not an installed-runtime
+ABI or distribution guarantee.
+
+On Linux GNU x86-64, `scripts/link_native_executable.py` builds the support
+crate using `cargo rustc --locked` and links the reported archive and ordered
+native arguments. It matches the manifest and library target in Cargo’s JSON
+output, including for cached builds and non-default target directories. Set
+`EXPECTED_GUARD` from the native caller’s reviewed ownership contract, **not**
+from the header just built. The optional `--require-contract` uses the GNU
+linker’s `--require-defined` so even a callback whose C prototype has not
+changed cannot run with a different contract.
+
+```sh
+plenty --emit-object app.plenty --executable-exports app -o build/app.o
+python3 scripts/link_native_executable.py --manifest-path support/Cargo.toml \
+    --lib-name native_support --require-contract "$EXPECTED_GUARD" \
+    build/app.o -o build/app
+```
+
+`--features`, `--release` and `--target-dir` apply to the support build;
+additional native objects can follow `build/app.o`. This is an explicit final
+link, not automatic support-crate discovery from imports.
 
 The Rust API exposes `CompileOptions`, executable compilation with options,
 `compile_source_to_object`, `compile_file_to_object`, and `emit_runtime`. Runtime
