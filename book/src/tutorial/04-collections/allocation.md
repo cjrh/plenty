@@ -238,6 +238,23 @@ def main() -> Result[(), AllocError | IoError]:
 [85, 90] [70, 100, 90, 75]
 ```
 
+When the elements are `Shared` handles, use `out.share_view` instead. The new list can outlive its source without copying the shared values:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    handles = [Shared(12)?, Shared(34)?]?
+    saved = alloc.system().share_view(&handles[1:])?
+    drop(handles)
+    print(len(&saved))?
+    Ok(())
+```
+
+```output
+1
+```
+
 `&scores[1:3]` borrows without allocating. Only `copy_view` makes a new list,
 so the saved scores stay the same when the caller updates the original. For a
 helper that just reads the scores, use the view directly and skip the copy.

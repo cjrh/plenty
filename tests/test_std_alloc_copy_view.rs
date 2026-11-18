@@ -143,6 +143,35 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 }
 
 #[test]
+fn share_view_retains_existing_payloads_and_selected_list_storage() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+from std.atomic import Atomic, Ordering
+
+def main() -> Result[(), AllocError | IoError]:
+    counter = Shared(Atomic[u64](0))?
+    xs = [Shared(Atomic[u64](19))?, counter.share(), counter.share()]?
+    refused = budget("failed", 0)
+    print(refused.share_view(&xs[1:]).is_err())?
+    drop(refused)
+    out = budget("result", 3)
+    mut result = out.share_view(&xs[1:])?
+    drop(out)
+    drop(xs)
+    drop(result[0].fetch_add(5, Ordering.Relaxed))
+    print(result[1].load(Ordering.Relaxed), counter.load(Ordering.Relaxed), result.reserve(100).is_err())?
+    drop(result)
+    empty = alloc.system().share_view(&[counter.share()]?[:0])?
+    print(len(&empty))?
+    Ok(())
+"#
+        ),
+        "refused failed\nTrue\nfailed 0 0\nrefused result\n5 5 True\nresult 0 3\n0\n",
+    );
+}
+
+#[test]
 fn copy_view_rejects_noncopyable_elements_and_loans() {
     for (decl, element, expected) in [
         ("", "Shared[i64]", "handle.share()"),

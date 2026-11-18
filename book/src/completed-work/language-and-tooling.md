@@ -11,6 +11,9 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Materialize a view of shared handles
+
+[`Allocator.share_view`](../design/stdlib/alloc.md#share-a-view-of-handles-into-a-list) returns an independent selected list and shares the existing payload at every input position. Empty ranges, repeated handles, provider refusal and retained growth are covered by compiled tests. General `copy_view` still rejects direct `Shared` elements.
 ### Public selected text slices
 
 [`Allocator.slice_text`](../design/stdlib/alloc.md#copy-a-text-slice-with-an-output-allocator)
