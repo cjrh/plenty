@@ -1,0 +1,25 @@
+import std.gui.retained.iced as iced
+
+class State:
+    enabled: bool
+    def __init__(self) -> ():
+        self.enabled = False
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.radio(&"Enable notifications", state.enabled, 1u64)?
+    if state.enabled:
+        frame.text(&"Enabled")?
+    frame.end()
+
+def update(state: &mut State, action: u64) -> Result[(), iced.IcedError]:
+    if action != 1u64:
+        return Err(iced.IcedError.InvalidArgument)
+    state.enabled = True
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view, update=update)

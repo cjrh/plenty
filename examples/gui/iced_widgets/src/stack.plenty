@@ -1,0 +1,18 @@
+import std.gui.retained.iced as iced
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "70%"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.stack()?
+    frame.progress_bar(0.7f32)?
+    frame.text(&state.title)?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)

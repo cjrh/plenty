@@ -113,6 +113,24 @@ fn view(session: &Session) -> Element<'_, Pressed> {
         let node = &scene.nodes[i];
         let children = node.children.iter().map(|&i| element(scene, i));
         match &node.kind {
+            Kind::Stack => iced::widget::stack(children).into(),
+            Kind::Rule => iced::widget::rule::horizontal(1).into(),
+            Kind::Space(w, h) => iced::widget::Space::new()
+                .width(u32::from(*w))
+                .height(u32::from(*h))
+                .into(),
+            Kind::ProgressBar(f) => iced::widget::progress_bar(0.0..=1.0, *f).into(),
+            Kind::Checkbox(s, on, id) => iced::widget::checkbox(*on)
+                .label(s.as_str())
+                .on_toggle(move |_| Pressed(*id))
+                .into(),
+            Kind::Toggler(s, on, id) => iced::widget::toggler(*on)
+                .label(s.as_str())
+                .on_toggle(move |_| Pressed(*id))
+                .into(),
+            Kind::Radio(s, on, id) => {
+                iced::widget::radio(s.as_str(), true, Some(*on), |_| Pressed(*id)).into()
+            }
             Kind::Row => row(children).spacing(8).into(),
             Kind::Column => column(children).spacing(12).into(),
             Kind::Text(s) => text(s.as_str()).into(),
@@ -124,7 +142,12 @@ fn view(session: &Session) -> Element<'_, Pressed> {
 
 fn show(scene: &Scene) {
     for node in &scene.nodes {
-        if let Kind::Text(s) | Kind::Button(s, _) = &node.kind {
+        if let Kind::Text(s)
+        | Kind::Button(s, _)
+        | Kind::Checkbox(s, _, _)
+        | Kind::Toggler(s, _, _)
+        | Kind::Radio(s, _, _) = &node.kind
+        {
             println!("{s}");
         }
     }

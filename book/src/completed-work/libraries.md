@@ -677,6 +677,10 @@ GNU x86-64. Selection follows resolved imports; CLI packages build neither
 archive. The reviewed whole-interface guards and distinct programming models
 remain intact. No release/distribution support or changes to GPUI.
 
+The iced catalog adds Checkbox, Toggler, Radio, ProgressBar, Rule, Space and Stack.
+Selection controls deliver action IDs through the validated snapshot; only the update
+callback changes the model.
+
 The egui catalog adds Checkbox, RadioButton, Link, Separator, Spinner, ProgressBar,
 Slider and DragValue, each with a linked executable. Numeric controls reject
 invalid ranges rather than publishing a partial edit.

@@ -11,6 +11,14 @@ plenty run --bin text
 
 Use the binary name shown for each example. Append `-- --headless` to inspect its initial snapshot without opening a window.
 
+- [Checkbox](gui-iced-widgets/checkbox.md)
+- [Toggler](gui-iced-widgets/toggler.md)
+- [Radio](gui-iced-widgets/radio.md)
+- [ProgressBar](gui-iced-widgets/progress_bar.md)
+- [Space](gui-iced-widgets/space.md)
+- [Rule](gui-iced-widgets/rule.md)
+- [Stack](gui-iced-widgets/stack.md)
+
 ## Text
 
 [Text example](gui-iced-widgets/text.md) · `text`

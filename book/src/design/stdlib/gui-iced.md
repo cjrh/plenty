@@ -14,6 +14,8 @@ handling, event loop and software renderer. See the [signatures](signatures.md#s
 | [Row](gui-iced-widgets/row.md) | `frame.row()` … `frame.end()` | Arranges children from left to right. |
 | [Column](gui-iced-widgets/column.md) | `frame.column()` … `frame.end()` | Stacks children from top to bottom. |
 
+The [widget catalog](gui-iced-widgets.md) also covers selection controls, progress, spacing and layered layout.
+
 ## Example: a counter
 
 Click **Increment** and the button sends action `1` to `update`. The next read-only `view` displays the new count; **Reset** sends action `2`.

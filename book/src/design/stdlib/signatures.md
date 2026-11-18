@@ -54,64 +54,64 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fs.watch`](#stdfswatch): 1645-1680
 - [`std.graph`](#stdgraph): 1682-1770
 - [`std.gui.immediate.egui`](#stdguiimmediateegui): 1772-1794
-- [`std.gui.retained.iced`](#stdguiretainediced): 1796-1812
-- [`std.http`](#stdhttp): 1814-1885
-- [`std.http.decoder`](#stdhttpdecoder): 1887-1904
-- [`std.http.body`](#stdhttpbody): 1906-1941
-- [`std.http.client`](#stdhttpclient): 1943-2053
-- [`std.http.cookie`](#stdhttpcookie): 2055-2087
-- [`std.http.files`](#stdhttpfiles): 2089-2102
-- [`std.http.https`](#stdhttphttps): 2104-2118
-- [`std.http.proxy`](#stdhttpproxy): 2120-2141
-- [`std.http.server`](#stdhttpserver): 2143-2244
-- [`std.http.sse`](#stdhttpsse): 2246-2265
-- [`std.http.tls`](#stdhttptls): 2267-2284
-- [`std.http.typed`](#stdhttptyped): 2286-2319
-- [`std.http.websocket`](#stdhttpwebsocket): 2321-2356
-- [`std.http.wss`](#stdhttpwss): 2358-2364
-- [`std.image`](#stdimage): 2366-2412
-- [`std.io`](#stdio): 2414-2520
-- [`std.io.typed`](#stdiotyped): 2522-2560
-- [`std.serial`](#stdserial): 2562-2628
-- [`std.json`](#stdjson): 2630-2782
-- [`std.jwt`](#stdjwt): 2784-2831
-- [`std.log`](#stdlog): 2833-2900
-- [`std.markdown`](#stdmarkdown): 2902-2936
-- [`std.template`](#stdtemplate): 2938-2975
-- [`std.math`](#stdmath): 2977-3048
-- [`std.mime`](#stdmime): 3050-3076
-- [`std.net`](#stdnet): 3078-3160
-- [`std.path`](#stdpath): 3162-3179
-- [`std.process`](#stdprocess): 3181-3240
-- [`std.random`](#stdrandom): 3242-3263
-- [`std.ready`](#stdready): 3265-3296
-- [`std.regex`](#stdregex): 3298-3351
-- [`std.report`](#stdreport): 3353-3364
-- [`std.secrets`](#stdsecrets): 3366-3392
-- [`std.shlex`](#stdshlex): 3394-3403
-- [`std.sketch`](#stdsketch): 3405-3443
-- [`std.sketch.xor`](#stdsketchxor): 3445-3456
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3458-3473
-- [`std.signal`](#stdsignal): 3475-3492
-- [`std.simd`](#stdsimd): 3494-3653
-- [`std.stat`](#stdstat): 3655-3688
-- [`std.plot`](#stdplot): 3690-3779
-- [`std.linalg`](#stdlinalg): 3781-3822
-- [`std.sync`](#stdsync): 3824-3856
-- [`std.system`](#stdsystem): 3858-3917
-- [`std.tempfile`](#stdtempfile): 3919-3951
-- [`std.test`](#stdtest): 3953-3995
-- [`std.text`](#stdtext): 3997-4040
-- [`std.thread`](#stdthread): 4042-4046
-- [`std.time`](#stdtime): 4048-4092
-- [`std.tls`](#stdtls): 4094-4176
-- [`std.toml`](#stdtoml): 4178-4277
-- [`std.unicode`](#stdunicode): 4279-4291
-- [`std.units`](#stdunits): 4293-4530
-- [`std.units.catalogue`](#stdunitscatalogue): 4532-5310
-- [`std.url`](#stdurl): 5312-5340
-- [`std.uuid`](#stduuid): 5342-5365
-- [`std.xml`](#stdxml): 5367-5400
+- [`std.gui.retained.iced`](#stdguiretainediced): 1796-1819
+- [`std.http`](#stdhttp): 1821-1892
+- [`std.http.decoder`](#stdhttpdecoder): 1894-1911
+- [`std.http.body`](#stdhttpbody): 1913-1948
+- [`std.http.client`](#stdhttpclient): 1950-2060
+- [`std.http.cookie`](#stdhttpcookie): 2062-2094
+- [`std.http.files`](#stdhttpfiles): 2096-2109
+- [`std.http.https`](#stdhttphttps): 2111-2125
+- [`std.http.proxy`](#stdhttpproxy): 2127-2148
+- [`std.http.server`](#stdhttpserver): 2150-2251
+- [`std.http.sse`](#stdhttpsse): 2253-2272
+- [`std.http.tls`](#stdhttptls): 2274-2291
+- [`std.http.typed`](#stdhttptyped): 2293-2326
+- [`std.http.websocket`](#stdhttpwebsocket): 2328-2363
+- [`std.http.wss`](#stdhttpwss): 2365-2371
+- [`std.image`](#stdimage): 2373-2419
+- [`std.io`](#stdio): 2421-2527
+- [`std.io.typed`](#stdiotyped): 2529-2567
+- [`std.serial`](#stdserial): 2569-2635
+- [`std.json`](#stdjson): 2637-2789
+- [`std.jwt`](#stdjwt): 2791-2838
+- [`std.log`](#stdlog): 2840-2907
+- [`std.markdown`](#stdmarkdown): 2909-2943
+- [`std.template`](#stdtemplate): 2945-2982
+- [`std.math`](#stdmath): 2984-3055
+- [`std.mime`](#stdmime): 3057-3083
+- [`std.net`](#stdnet): 3085-3167
+- [`std.path`](#stdpath): 3169-3186
+- [`std.process`](#stdprocess): 3188-3247
+- [`std.random`](#stdrandom): 3249-3270
+- [`std.ready`](#stdready): 3272-3303
+- [`std.regex`](#stdregex): 3305-3358
+- [`std.report`](#stdreport): 3360-3371
+- [`std.secrets`](#stdsecrets): 3373-3399
+- [`std.shlex`](#stdshlex): 3401-3410
+- [`std.sketch`](#stdsketch): 3412-3450
+- [`std.sketch.xor`](#stdsketchxor): 3452-3463
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3465-3480
+- [`std.signal`](#stdsignal): 3482-3499
+- [`std.simd`](#stdsimd): 3501-3660
+- [`std.stat`](#stdstat): 3662-3695
+- [`std.plot`](#stdplot): 3697-3786
+- [`std.linalg`](#stdlinalg): 3788-3829
+- [`std.sync`](#stdsync): 3831-3863
+- [`std.system`](#stdsystem): 3865-3924
+- [`std.tempfile`](#stdtempfile): 3926-3958
+- [`std.test`](#stdtest): 3960-4002
+- [`std.text`](#stdtext): 4004-4047
+- [`std.thread`](#stdthread): 4049-4053
+- [`std.time`](#stdtime): 4055-4099
+- [`std.tls`](#stdtls): 4101-4183
+- [`std.toml`](#stdtoml): 4185-4284
+- [`std.unicode`](#stdunicode): 4286-4298
+- [`std.units`](#stdunits): 4300-4537
+- [`std.units.catalogue`](#stdunitscatalogue): 4539-5317
+- [`std.url`](#stdurl): 5319-5347
+- [`std.uuid`](#stduuid): 5349-5372
+- [`std.xml`](#stdxml): 5374-5407
 
 ## `std.actor`
 
@@ -1803,6 +1803,13 @@ enum IcedError
 def allocation(error: AllocError) -> IcedError
 class Frame
     def __init__(self, token: u64) -> ()
+    def checkbox(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]
+    def toggler(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]
+    def radio(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]
+    def progress_bar(self, fraction: f32) -> Result[(), IcedError]
+    def rule(self) -> Result[(), IcedError]
+    def space(self, width: u16, height: u16) -> Result[(), IcedError]
+    def stack(self) -> Result[(), IcedError]
     def row(self) -> Result[(), IcedError]
     def column(self) -> Result[(), IcedError]
     def end(self) -> Result[(), IcedError]

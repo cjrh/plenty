@@ -8,6 +8,14 @@ extern def native_end(token: u64) -> u32 = "plic_v1_end"
 extern def native_text(token: u64, text: &str as utf8) -> u32 = "plic_v1_text"
 extern def native_button(token: u64, text: &str as utf8, action: u64) -> u32 = "plic_v1_button"
 
+extern def native_checkbox(token: u64, caption: &str as utf8, selected: bool, action: u64) -> u32 = "plic_v1_checkbox"
+extern def native_toggler(token: u64, caption: &str as utf8, selected: bool, action: u64) -> u32 = "plic_v1_toggler"
+extern def native_radio(token: u64, caption: &str as utf8, selected: bool, action: u64) -> u32 = "plic_v1_radio"
+extern def native_progress_bar(token: u64, fraction: f32) -> u32 = "plic_v1_progress_bar"
+extern def native_rule(token: u64) -> u32 = "plic_v1_rule"
+extern def native_space(token: u64, width: u16, height: u16) -> u32 = "plic_v1_space"
+extern def native_stack(token: u64) -> u32 = "plic_v1_stack"
+
 pub enum IcedError:
     OutOfMemory
     CapacityOverflow
@@ -49,6 +57,20 @@ pub class Frame:
     token: u64
     pub def __init__(self, token: u64) -> ():
         self.token = token
+    pub def checkbox(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]:
+        checked(native_checkbox(self.token, caption, selected, action))
+    pub def toggler(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]:
+        checked(native_toggler(self.token, caption, selected, action))
+    pub def radio(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]:
+        checked(native_radio(self.token, caption, selected, action))
+    pub def progress_bar(self, fraction: f32) -> Result[(), IcedError]:
+        checked(native_progress_bar(self.token, fraction))
+    pub def rule(self) -> Result[(), IcedError]:
+        checked(native_rule(self.token))
+    pub def space(self, width: u16, height: u16) -> Result[(), IcedError]:
+        checked(native_space(self.token, width, height))
+    pub def stack(self) -> Result[(), IcedError]:
+        checked(native_stack(self.token))
     pub def row(self) -> Result[(), IcedError]:
         checked(native_row(self.token))
     pub def column(self) -> Result[(), IcedError]:
