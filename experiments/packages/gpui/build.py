@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build one Plenty source file into the single Plenty executable with opt-in GPUI support (Linux x86-64)."""
 import argparse
+import json
 import os
 from pathlib import Path
 import platform
@@ -10,6 +11,31 @@ import subprocess
 
 PACKAGE = Path(__file__).resolve().parent
 REPO = PACKAGE.parents[2]
+
+
+def native_link_inputs(stdout: str, manifest: Path, target_name: str) -> tuple[Path, list[str]]:
+    """Use this invocation's matching Cargo records, including cached artifacts."""
+    messages = []
+    for line in stdout.splitlines():
+        message = json.loads(line)
+        target = message.get("target", {})
+        if (message.get("manifest_path") == str(manifest.resolve())
+                and target.get("name") == target_name
+                and "staticlib" in target.get("crate_types", [])):
+            messages.append(message)
+    artifacts = [message for message in messages if message["reason"] == "compiler-artifact"]
+    reports = [message["message"]["message"].removeprefix("native-static-libs: ")
+               for message in messages if message["reason"] == "compiler-message"
+               and message["message"]["message"].startswith("native-static-libs: ")]
+    if len(artifacts) != 1 or len(reports) != 1:
+        raise ValueError(f"Cargo must report one staticlib and native-static-libs list for {target_name}")
+    archives = [Path(filename) for filename in artifacts[0]["filenames"]
+                if Path(filename).suffix == ".a"]
+    if len(archives) != 1 or not archives[0].is_file():
+        raise ValueError(f"Cargo must report one existing staticlib archive for {target_name}")
+    # The structured message is uncolored; rendered diagnostics and stderr may
+    # contain ANSI even when the artifact and its diagnostics are cached.
+    return archives[0], shlex.split(reports[0])
 
 
 def main():
@@ -36,8 +62,10 @@ def main():
         command.append("--fast-compile")
     subprocess.run(command, check=True)
     env = {**os.environ, "PLENTY_GPUI_APP_DIR": str(out)}
-    command = ["cargo", "rustc", "--locked", "--manifest-path", str(PACKAGE / "native/Cargo.toml"),
-               "--target-dir", str(PACKAGE / "native/target"), "--lib", "--features", "application"]
+    manifest = PACKAGE / "native/Cargo.toml"
+    command = ["cargo", "rustc", "--locked", "--manifest-path", str(manifest),
+               "--target-dir", str(PACKAGE / "native/target"), "--lib", "--features", "application",
+               "--message-format=json"]
     if args.release:
         command.append("--release")
     command += ["--", "--print", "native-static-libs"]
@@ -45,14 +73,11 @@ def main():
     (out / "native-build.log").write_text(result.stdout + result.stderr)
     if result.returncode:
         raise SystemExit(f"native support build failed; see {out / 'native-build.log'}")
-    reports = [line.removeprefix("note: native-static-libs: ") for line in result.stderr.splitlines()
-               if line.startswith("note: native-static-libs: ")]
-    if len(reports) != 1:
-        raise SystemExit("rustc did not report exactly one native-static-libs list; see native-build.log")
-    native_args = shlex.split(reports[0])
+    try:
+        archive, native_args = native_link_inputs(result.stdout, manifest, "plenty_gpui")
+    except (ValueError, KeyError) as error:
+        raise SystemExit(f"{error}; see {out / 'native-build.log'}") from error
     (out / "native-link-args.txt").write_text("\n".join(native_args) + "\n")
-    native_profile = "release" if args.release else "debug"
-    archive = PACKAGE / "native/target" / native_profile / "libplenty_gpui.a"
     executable = out / "plenty-gpui"
     # Exactly one Rust-built archive: never link the compiler's bundled runtime.
     command = ["cc", str(out / "application.o"), str(archive), "-Wl,--gc-sections",

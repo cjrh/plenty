@@ -508,56 +508,135 @@ unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
             .args(args)
             .arg("--manifest-path")
             .arg(root.join("Cargo.toml"))
-            .env("CARGO_TARGET_DIR", root.join("cargo-target"));
+            .env("CARGO_TARGET_DIR", root.join("cargo-target"))
+            .env_remove("CARGO_BUILD_TARGET");
         command
     };
     success(cargo(&["generate-lockfile", "--offline"]).output().unwrap());
     let tree = success(
-        cargo(&["tree", "--locked", "--offline", "--edges", "normal"])
-            .output()
-            .unwrap(),
+        cargo(&[
+            "tree",
+            "--locked",
+            "--offline",
+            "--color",
+            "never",
+            "--edges",
+            "normal",
+        ])
+        .output()
+        .unwrap(),
     );
     let tree = String::from_utf8(tree.stdout).unwrap();
     assert!(
         !tree.contains("gpui v") && !tree.contains("xkbcommon"),
         "{tree}"
     );
-    let mut command = cargo(&["rustc", "--locked", "--offline", "--lib"]);
-    command.args(["--", "--print", "native-static-libs"]);
-    let output = success(command.output().unwrap());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    let args = stderr
+    let version = success(Command::new("rustc").arg("-vV").output().unwrap());
+    let version = String::from_utf8(version.stdout).unwrap();
+    let host = version
         .lines()
-        .find_map(|line| line.strip_prefix("note: native-static-libs: "))
-        .expect("rustc reports native dependencies");
-    let executable = root.join("unified");
-    success(
-        Command::new("cc")
-            .arg(&object)
-            .arg(root.join("drive.o"))
-            .arg(root.join("cargo-target/debug/libnative_support_proof.a"))
-            .arg("-Wl,--gc-sections")
-            .args(args.split_whitespace())
-            .arg("-o")
-            .arg(&executable)
-            .output()
-            .unwrap(),
-    );
-    let output = success(Command::new(&executable).output().unwrap());
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap(),
-        "DESTROYED\nDESTROYED\n"
-    );
-    let needed = success(
-        Command::new("readelf")
-            .args(["-d"])
-            .arg(&executable)
-            .output()
-            .unwrap(),
-    );
-    let needed = String::from_utf8(needed.stdout).unwrap();
-    assert!(
-        !needed.contains("gpui") && !needed.contains("xcb"),
-        "{needed}"
-    );
+        .find_map(|line| line.strip_prefix("host: "))
+        .unwrap();
+    let manifest = root.join("Cargo.toml");
+    // The host-target build must not fall back to an existing default artifact.
+    let stale = root.join("cargo-target/debug/libnative_support_proof.a");
+    std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+    std::fs::write(&stale, b"stale default-path archive; must not be linked").unwrap();
+    for target in [Some(host), None] {
+        if target.is_none() {
+            std::fs::remove_file(&stale).unwrap();
+        }
+        for cached in [false, true] {
+            let mut command = cargo(&[
+                "rustc",
+                "--locked",
+                "--offline",
+                "--lib",
+                "--message-format=json",
+            ]);
+            command.env("CARGO_TERM_COLOR", "always");
+            if let Some(target) = target {
+                command.env("CARGO_BUILD_TARGET", target);
+            }
+            command.args(["--", "--print", "native-static-libs"]);
+            let output = success(command.output().unwrap());
+            let messages: Vec<serde_json::Value> = String::from_utf8(output.stdout)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .filter(|message: &serde_json::Value| {
+                    message["manifest_path"].as_str() == manifest.to_str()
+                        && message["target"]["name"] == "native_support_proof"
+                        && message["target"]["crate_types"]
+                            .as_array()
+                            .is_some_and(|types| types.iter().any(|ty| ty == "staticlib"))
+                })
+                .collect();
+            let artifacts: Vec<_> = messages
+                .iter()
+                .filter(|message| message["reason"] == "compiler-artifact")
+                .collect();
+            assert_eq!(artifacts.len(), 1, "{messages:?}");
+            assert_eq!(artifacts[0]["fresh"], cached);
+            let archives: Vec<_> = artifacts[0]["filenames"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|filename| filename.as_str())
+                .filter(|filename| {
+                    Path::new(filename)
+                        .extension()
+                        .is_some_and(|ext| ext == "a")
+                })
+                .collect();
+            assert_eq!(archives.len(), 1, "{artifacts:?}");
+            let archive = Path::new(archives[0]);
+            assert!(archive.is_file());
+            if target.is_some() {
+                assert_ne!(archive, stale);
+                assert_eq!(
+                    std::fs::read(&stale).unwrap(),
+                    b"stale default-path archive; must not be linked"
+                );
+            }
+            let reports: Vec<_> = messages
+                .iter()
+                .filter(|message| message["reason"] == "compiler-message")
+                .filter_map(|message| message["message"]["message"].as_str())
+                .filter_map(|message| message.strip_prefix("native-static-libs: "))
+                .collect();
+            assert_eq!(reports.len(), 1, "{messages:?}");
+            assert!(!reports[0].contains('\x1b'));
+            let executable = root.join("unified");
+            success(
+                Command::new("cc")
+                    .arg(&object)
+                    .arg(root.join("drive.o"))
+                    .arg(archive)
+                    .arg("-Wl,--gc-sections")
+                    .args(reports[0].split_whitespace())
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            let output = success(Command::new(&executable).output().unwrap());
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                "DESTROYED\nDESTROYED\n"
+            );
+            let needed = success(
+                Command::new("readelf")
+                    .args(["-d"])
+                    .arg(&executable)
+                    .output()
+                    .unwrap(),
+            );
+            let needed = String::from_utf8(needed.stdout).unwrap();
+            assert!(
+                !needed.contains("gpui") && !needed.contains("xcb"),
+                "{needed}"
+            );
+        }
+    }
 }

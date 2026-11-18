@@ -7,6 +7,65 @@ AMD Radeon 780M Graphics / RADV PHOENIX / Mesa 26.2.6,
 `is_software_emulated: false`. No test renderer or virtual desktop substituted.
 Artifacts and detailed logs stay in ignored `target/` and `/tmp/gpui-*`.
 
+## Cargo artifact and diagnostic correction (issue #995, 2026-11-18)
+
+Review of `a3a7637c` found that the helper and nested Cargo-runtime proof guessed
+`target/debug` archive paths and parsed an exact, potentially colored stderr
+prefix. With `CARGO_BUILD_TARGET` set to the host triple, the current archive is
+in a target-specific directory; using the default path could link a stale file.
+
+Both now request Cargo JSON. They match the current invocation's manifest,
+library target and staticlib crate type, take the actual `compiler-artifact`
+filename, and read the semantic `native-static-libs` diagnostic rather than its
+ANSI-rendered text. Fresh and cached records are supported; missing or ambiguous
+inputs fail rather than falling back to a guessed path. Native argument order
+and duplicate libraries are preserved. GPUI remains 0.2.2; no dependency changed.
+
+Actual post-fix evidence:
+
+- Four new Python tests passed (`scripts/test_gpui_build.py`). The end-to-end
+  regression runs production `build.py` main with real Cargo/cc, stubbing only
+  Plenty emission into a small standalone no-GUI staticlib fixture. It links
+  and runs fresh/cached outputs with the host target plus forced color, an
+  invalid stale default archive, and normal layout. Selector tests cover
+  wrong-target/manifest distractions, argument order/duplicates, and missing,
+  ambiguous or nonexistent inputs. The original helper fails this regression.
+  Logs: `/tmp/gpui-995-{python-focused-final,before-control}.log`.
+- The five executable-callback tests passed. The real nested Cargo-runtime proof
+  exercises host-target and normal builds, fresh/cached records, forced color,
+  a poisoned default archive, actual link/run, originating destruction and
+  production actor allocation/trap containment on each of the four links.
+  `/tmp/gpui-995-callback-tests.log`.
+- Actual GPUI helper/link/headless runs passed with
+  `CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu` and `CARGO_TERM_COLOR=always`,
+  then with normal target selection. The pre-existing default archive remained
+  byte-identical during the host-target build; the selected host archive came
+  from that invocation's JSON. Cached Cargo builds were independently linked
+  using the production selector and ran successfully for both layouts.
+  `/tmp/gpui-995-native-evidence/{host-built,host-cached,default-built,default-cached}/`
+  retains JSON/build logs, actual link commands and Count 0→1→2→0 output.
+- Full deterministic counter tests passed in optimized and fast-compile modes,
+  including lifecycle/error/destruction/package/worker rejection checks:
+  `/tmp/gpui-995-counter-headless.log`. All GUI test/build processes had
+  `DISPLAY` and `WAYLAND_DISPLAY` unset. No desktop input or smoke was performed.
+- Ordinary CLI proof prints `CLI_ONLY`; root all-features normal dependency
+  graph has no GPUI/Blade/xkbcommon. `/tmp/gpui-995-cli-proof/` and
+  `/tmp/gpui-995-cli-tree.txt`.
+- Root fmt and strict workspace/all-target/all-feature Clippy passed;
+  Python script suite 393 tests passed, four skipped.
+  `/tmp/gpui-995-{fmt,clippy,python-all}.log`.
+- Full timed `CARGO_BUILD_JOBS=6 just test` passed: compiler 332, CLI two,
+  integration 6964/four ignored, benchmark-generator nine, runtime 339/five
+  ignored, both doc-test targets zero passed. Elapsed 336.4s (compile 52.1s,
+  run 284.2s, including lock/cache effects). `/tmp/gpui-995-full-suite.log` and
+  `target/check-timings/suite-20261118T014644-119095/timings.{md,json}`.
+  HEAD is labelled `a3a7637c` because the fixing diff was uncommitted during
+  validation. No compiler production code or book content changed in this fix.
+
+The original hardware smoke and earlier validation below remain historical
+candidate-specific evidence. This correction adds no cross-target/platform,
+Rust-release-profile or redistribution qualification; existing limits remain.
+
 ## Post-review checked-callback correction (issue #993)
 
 Independent review rejected candidate `672bccdb` because the retained startup
