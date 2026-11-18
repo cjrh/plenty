@@ -15,7 +15,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 
 Binary: `text`. A text node can be the whole view. This one shows **Ready**. With no buttons there are no valid actions, but the application still supplies its event callback.
 
-```plenty fragment
+```plenty build
 {{#include ../../../../examples/gui/iced_widgets/src/text.plenty}}
 ```
 
@@ -23,7 +23,7 @@ Binary: `text`. A text node can be the whole view. This one shows **Ready**. Wit
 
 Binary: `button`. Click **Approve** to change **Waiting** to **Approved**. The button declares an action; `event`, not `render`, changes the model. Try `plenty run --bin button -- --headless 1` to dispatch that action without a window.
 
-```plenty fragment
+```plenty build
 {{#include ../../../../examples/gui/iced_widgets/src/button.plenty}}
 ```
 
@@ -31,7 +31,7 @@ Binary: `button`. Click **Approve** to change **Waiting** to **Approved**. The b
 
 Binary: `row`. **Mass:** and **kg** are siblings on the same line. Start the row before either child and close it after both.
 
-```plenty fragment
+```plenty build
 {{#include ../../../../examples/gui/iced_widgets/src/row.plenty}}
 ```
 
@@ -39,6 +39,6 @@ Binary: `row`. **Mass:** and **kg** are siblings on the same line. Start the row
 
 Binary: `column`. **Weather station** appears above **Harbor**. `end()` closes the most recently opened container; it is not a visible widget. The counter nests a row inside a column using the same rule.
 
-```plenty fragment
+```plenty build
 {{#include ../../../../examples/gui/iced_widgets/src/column.plenty}}
 ```

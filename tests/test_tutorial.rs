@@ -220,7 +220,8 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
         }
         // An explanatory excerpt, such as a signature shape, that is not a
         // complete program. It keeps Plenty highlighting and is not run.
-        if source.language == "plenty fragment" {
+        // Build-only listings have a separate native-link CI job; never run them here.
+        if matches!(source.language.as_str(), "plenty fragment" | "plenty build") {
             index += 1;
             continue;
         }

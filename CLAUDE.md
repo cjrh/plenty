@@ -217,6 +217,7 @@ A learner-visible language change updates, in the same change:
 Tutorial and `design/` code fences are executable tests, so stale lessons and
 reference examples fail the suite. Tag an explanatory excerpt that is not a
 complete program `plenty fragment`; it keeps highlighting and is not run.
+Use `plenty build` for complete executables that should link but not run (for example GUI apps); see the runnable documentation workflow.
 Proposal fences are not executed; use `text` for proposed syntax and verify
 claims about implemented behavior separately.
 Before handing off changes to book content, navigation, assets, configuration,

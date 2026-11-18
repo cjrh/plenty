@@ -195,13 +195,13 @@
             ? hljs.highlight(language, code, true)
             : hljs.highlight(code, { language, ignoreIllegals: true });
     // Keep the label outside <pre><code>, so copying still yields only source.
-    for (const code of document.querySelectorAll("code.language-plenty.fragment")) {
+    for (const code of document.querySelectorAll("code.language-plenty.fragment, code.language-plenty.build")) {
         const pre = code.closest("pre");
         if (!pre || pre.previousElementSibling?.classList.contains("plenty-fragment-label")) continue;
         const label = document.createElement("div");
         label.className = "plenty-fragment-label";
         const badge = document.createElement("span");
-        badge.textContent = "Fragment · not executed";
+        badge.textContent = code.classList.contains("build") ? "Build only · linked, not run" : "Fragment · not executed";
         label.appendChild(badge);
         pre.before(label);
     }
