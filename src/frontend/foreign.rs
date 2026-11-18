@@ -155,6 +155,11 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
             Argument::CStrings => {
                 matches!(ty, Ty::Ref(t, false) if matches!(t.as_ref(), Ty::List(element) if **element == Ty::Str))
             }
+            Argument::ScopedBox => {
+                matches!(ty, Ty::Ref(inner, true) if matches!(inner.as_ref(), Ty::Box(item) if matches!(item.as_ref(), Ty::Class(_))))
+                    && !declaration.thread_safe
+                    && !declaration.host_callback
+            }
             Argument::Strided => {
                 matches!(ty, Ty::Ref(t, _) if matches!(t.as_ref(), Ty::List(element) if element.is_numeric()))
                     || matches!(ty, Ty::View(element, false) if **element == Ty::U8)
@@ -248,9 +253,9 @@ pub(super) fn check_symbols<'a>(
                     crate::foreign::Argument::Utf8 => {
                         inputs.extend(["pointer".into(), "u64".into()])
                     }
-                    crate::foreign::Argument::CString | crate::foreign::Argument::CStrings => {
-                        inputs.push("pointer".into())
-                    }
+                    crate::foreign::Argument::ScopedBox
+                    | crate::foreign::Argument::CString
+                    | crate::foreign::Argument::CStrings => inputs.push("pointer".into()),
                     crate::foreign::Argument::Errno => {}
                     crate::foreign::Argument::Strided => {
                         inputs.extend(["pointer".into(), "u64".into(), "u64".into()])

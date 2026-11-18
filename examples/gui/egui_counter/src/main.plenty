@@ -12,11 +12,10 @@ class State:
 def count_limit(error: OverflowError[i64]) -> egui.EguiError:
     egui.EguiError.LimitExceeded
 
-export def create() -> Result[State, AllocError] = "egui_app_create":
+def create() -> Result[State, AllocError]:
     Ok(State())
 
-export def draw(state: &mut State, token: u64) -> Result[(), egui.EguiError] = "egui_app_draw":
-    ui = egui.Ui(token)
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
     if ui.button(&"Increment")?:
         state.increment().map_error(count_limit)?
     if ui.button(&"Reset")?:
@@ -25,4 +24,4 @@ export def draw(state: &mut State, token: u64) -> Result[(), egui.EguiError] = "
     ui.label(&label)
 
 def main() -> Result[(), egui.EguiError]:
-    egui.run()
+    egui.run(create=create, draw=draw)

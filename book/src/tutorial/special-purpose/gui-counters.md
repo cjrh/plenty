@@ -3,9 +3,10 @@
 Which part of a click changes the model? Try the two complete source packages
 `examples/gui/iced_counter` and `examples/gui/egui_counter` with the
 [GUI build instructions](../../design/stdlib/gui-build.md). Each defines a
-Plenty `State` with an integer field, exports a factory, and propagates the
-result of `run()` from `main`. The native renderer owns a handle, not a copy
-of the count. Keep the callback signatures when experimenting with the model.
+Plenty `State` with an integer field, provides a factory, and propagates the
+result of `run` from `main`. The iced example exports its callbacks. The egui
+example passes ordinary functions to `run(create=create, draw=draw)`; the
+toolkit borrows the driver while Plenty owns the state.
 
 **Retained:** read `iced_counter/src/main.plenty`. The shared `render` loan
 submits a label and two buttons with distinct action IDs. A click calls

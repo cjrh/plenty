@@ -51,10 +51,11 @@ def qualify(compiler, toolkit, package):
         failure = run([exe], package, expected=1)
         assert 'NativeFailure' in failure.stderr and failure.stdout.splitlines().count('DROP 0') == 1
         error = f'{toolkit}.{toolkit.capitalize()}Error'
+        registration = 'create=create, draw=draw' if egui else ''
         path.write_text(base.split('def main()')[0] + f'''def main() -> i32:
-    match {toolkit}.run():
+    match {toolkit}.run({registration}):
         case Err({error}.InvalidArgument):
-            match {toolkit}.run():
+            match {toolkit}.run({registration}):
                 case Err({error}.InvalidContext):
                     42i32
                 case _:
@@ -69,7 +70,7 @@ def qualify(compiler, toolkit, package):
         limit = 2**63-1 if egui else 1000000
         source = base.replace('self.count = 0', f'self.count = {limit}').split('def main()')[0]
         path.write_text(source + f'''def main() -> i32:
-    match {toolkit}.run():
+    match {toolkit}.run({registration}):
         case Err({toolkit}.{toolkit.capitalize()}Error.LimitExceeded):
             42i32
         case _:
@@ -81,7 +82,28 @@ def qualify(compiler, toolkit, package):
         assert [s for s in failure.stdout.splitlines() if s.startswith('DROP ')] == [f'DROP {limit}']
         # This is valid Plenty with the same C prototype but different ownership.
         # A failed staged link must not replace the last good executable.
-        callback = 'draw' if egui else 'event'
+        if egui:
+            # One executable, two dispatch targets chosen from runtime argv.
+            path.write_text(base.split('def main()')[0] + '''def alternate(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    ui.label(&"Alternate")
+
+def main() -> Result[(), egui.EguiError]:
+    arguments = args_bytes().map_error(def(error: IoError) -> egui.EguiError: egui.EguiError.NativeFailure)?
+    chosen = alternate if len(arguments) == 2 else draw
+    egui.run(draw=chosen, create=create)
+''')
+            run(build, package)
+            for argv, label in [([], 'Alternate'), (clicks[:1], 'Count: 1')]:
+                lines = run([exe, '--headless', *argv], package).stdout.splitlines()
+                assert label in lines and sum(s.startswith('DROP ') for s in lines) == 1, lines
+            # Additional exports change the independently pinned interface.
+            path.write_text(base + '\nexport def extra() -> i32 = "egui_app_extra":\n    0i32\n')
+            good = exe.read_bytes()
+            failed = run(build, package, expected=1)
+            assert guard in failed.stderr and exe.read_bytes() == good, failed.stderr
+            print(f'egui {profile}: runtime callback choice, checked errors, drops, and interface guard')
+            continue
+        callback = 'event'
         prefix, rest = base.split(f'export def {callback}(', 1)
         signature = rest.split('\n', 1)[0].replace('&mut State', 'State')
         path.write_text(prefix + f'export def {callback}(' + signature + '\n    Ok(())\n\ndef main()' + rest.split('def main()', 1)[1])

@@ -73,7 +73,7 @@ with the bridge, renderer and executable runtime, never a second runtime.
 
 ## Compatibility and limits
 
-Use the callbacks, names and signatures in the [counter lesson](../../tutorial/special-purpose/gui-counters.md).
+For egui, pass ordinary `create` and `draw` function values to `run`; the checked adapter belongs to the std module. For iced, export the callbacks using the names and signatures in the [counter lesson](../../tutorial/special-purpose/gui-counters.md).
 The bridge compiles against a fixed C header from the reviewed interface. The
 app object supplies checked adapters, a type-specific destructor, and its
 [ownership contract guard](../facilities/04-interop/contracts.md#compatibility-fingerprints).

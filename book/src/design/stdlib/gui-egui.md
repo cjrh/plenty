@@ -30,7 +30,7 @@ run from the checkout root:
 
 ## Running the application
 
-`egui.run()` enters once on the process main thread and reads the original
+`egui.run(create=create, draw=draw)` enters once on the process main thread and reads the original
 process arguments after the executable name. No arguments opens a window;
 `--headless [X,Y ...]` accepts up to 64 pointer clicks, each a pair of decimal
 `u16` coordinates in logical points. Bad coordinates return `InvalidArgument`;
@@ -39,10 +39,7 @@ returns `InvalidArgument` **before** creating state, even if Plenty already
 parsed it as an application option or filename. This consumes the one
 main-thread entry: a second call returns `InvalidContext`.
 
-A successful `create()`
-transfers one opaque state owner, held until close or error. Each synchronous
-`draw(&mut State, token)` wraps its `u64` token with `Ui(token)` (no
-allocation). `button(&caption)` evaluates a real egui button **now**: its
+Pass ordinary function values or capture-free closures. A callback variable may select a different function at runtime; there is no application `export def` or raw frame token. Put persistent data in the state returned by `create`. After admission, `run` calls that factory once, then performs two checked setup allocations to own the draw environment and its driver. Plenty drops the state on exit, including checked setup or draw failure. Each draw receives `&mut State` and `&Ui` for that pass. `button(&caption)` evaluates a real egui button **now**: its
 checked `bool` is the clicked response, not the press or a redraw. `label(&text)`
 paints text in this pass, so a label placed after the buttons sees the updated
 count. The UI limits egui to one pass per frame; idle redraws do not replay a

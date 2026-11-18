@@ -10,11 +10,10 @@ class State:
         self.selected = "None"
         Ok(())
 
-export def create() -> Result[State, AllocError] = "egui_app_create":
+def create() -> Result[State, AllocError]:
     State()
 
-export def draw(state: &mut State, token: u64) -> Result[(), egui.EguiError] = "egui_app_draw":
-    ui = egui.Ui(token)
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
     ui.label(&"Filter commands (Enter selects the first match)")?
     mut select = ui.text_edit(1u64, &mut state.query)?
     for command in &state.commands:
@@ -27,4 +26,4 @@ export def draw(state: &mut State, token: u64) -> Result[(), egui.EguiError] = "
     ui.label(&label)
 
 def main() -> Result[(), egui.EguiError]:
-    egui.run()
+    egui.run(create=create, draw=draw)

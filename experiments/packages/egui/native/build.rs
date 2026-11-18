@@ -13,11 +13,16 @@ fn main() {
         "cargo:rerun-if-changed={}",
         path.join("egui_app.h").display()
     );
+    let adapter = if env::var_os("CARGO_FEATURE_LEGACY_APPLICATION").is_some() {
+        "legacy/app.c"
+    } else {
+        "app.c"
+    };
     cc::Build::new()
-        .file("app.c")
+        .file(adapter)
         .include(&path)
         .warnings_into_errors(true)
         .flag("-std=c11")
         .compile("egui_app_adapter");
-    println!("cargo:rerun-if-changed=app.c");
+    println!("cargo:rerun-if-changed={adapter}");
 }

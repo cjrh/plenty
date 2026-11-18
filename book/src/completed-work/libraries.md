@@ -680,4 +680,7 @@ remain intact. No release/distribution support or changes to GPUI.
 The [egui command picker](../tutorial/special-purpose/gui-counters.md#filtering-commands-as-you-type)
 adds one bounded single-line field with stable identity. Plenty owns its query,
 filters commands and displays the first match on Enter; checked edit failure
-preserves the old text. The callback contract and backend selection are unchanged.
+preserves the old text. Backend selection is unchanged. The egui std package now accepts runtime-selected
+`create` and `draw` function values in `main`; the application supplies no C exports.
+The native loop borrows one private driver for the duration of `run` and never
+owns the application model. The original external-binding experiment retains its own ABI.
