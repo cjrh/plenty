@@ -214,6 +214,35 @@ exclusive stop, so nothing is copied. Omitting `stop` lets the reverse walk
 include the first score. If you just need to read adjacent scores in place,
 borrow `&scores[a:b]` instead. See the [list slice allocation contract](../../design/stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator).
 
+## Keep scores from a borrowed view
+
+A helper that saves a run of scores doesn't need the whole list or the
+caller's indices. Take a view of just those scores and use `copy_view` to
+keep them in storage the caller chooses:
+
+```plenty
+import std.alloc as alloc
+
+def save_scores(out: &alloc.Allocator, scores: &[i64]) -> Result[list[i64], AllocError]:
+    out.copy_view(scores)
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    mut scores = [70, 85, 90, 75]?
+    saved = save_scores(&out, &scores[1:3])?
+    scores[1] = 100
+    print(saved, scores)?
+    Ok(())
+```
+```output
+[85, 90] [70, 100, 90, 75]
+```
+
+`&scores[1:3]` borrows without allocating. Only `copy_view` makes a new list,
+so the saved scores stay the same when the caller updates the original. For a
+helper that just reads the scores, use the view directly and skip the copy.
+See [copy a slice view into a list](../../design/stdlib/alloc.md#copy-a-slice-view-into-a-list).
+
 ## Box a value and collect a generator
 
 `owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the

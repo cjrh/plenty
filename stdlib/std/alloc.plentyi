@@ -112,6 +112,12 @@ pub class Allocator:
     pub def slice[T](self, source: &list[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[list[T], AllocError]:
         __allocator_list_slice[T](self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]:
+        mut output = self.list_with_capacity[T](len(source))?
+        for element in source:
+            output.append(self.copy(element)?)?
+        Ok(output)
+
     pub def empty_list[T](self) -> Result[list[T], AllocError]:
         __allocator_list[T](self._handle, 0)
 

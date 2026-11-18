@@ -7,6 +7,17 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected view-to-list copies
+
+[`Allocator.copy_view`](../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)
+lets a helper with only a `&[T]` return an owned `list[T]` in caller-selected
+storage. It copies just the viewed elements, using the selected provider for
+new nested owners too. The [scores example](../tutorial/04-collections/allocation.md#keep-scores-from-a-borrowed-view)
+shows the result surviving an edit to the source. `tests/test_std_alloc_copy_view.rs`
+covers list and packed-byte inputs, refusal partway through a nested copy,
+retained growth, and loan and element restrictions. The [allocation-site inventory](../design/toolchain/02-architecture/allocation-sites.md#owning-slices-and-their-non-owning-lookalikes)
+distinguishes this method from ordinary view copy/share.
+
 ### Public selected list slices
 
 [`Allocator.slice`](../design/stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator)

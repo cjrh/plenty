@@ -104,16 +104,17 @@ failure and growth after the source and allocator handle are dropped.
 ## Owning slices and their non-owning lookalikes
 
 `src/frontend/slices.rs` dispatches on the receiver, not just the syntax.
-Only `out.slice(&xs, ...)` takes an output allocator. It and runtime bracket paths
-compute `(first, step, count)` with `slice_positions`, not a heap list of
-positions. The following distinctions matter even when the step is one.
+`out.slice(&xs, ...)` and runtime bracket paths compute `(first, step, count)`
+with `slice_positions`, not a heap list of positions. `out.copy_view(v)`
+instead reads a contiguous range whose bounds are already part of the view.
 
 | Surface | Destination, nested data and failure |
 | --- | --- |
 | List brackets `xs[a:b:k]` | `ListSlice` → `try_list_slice_stepped`: ordinary list reserved for the selected count. Only adjacent rows whose elements own nothing and have no inline payload copy in bulk. Typed insertion gathers other rows and gives inline payloads destination-local addresses. Managed elements use `try_copy_into(..., Ordinary)` in their final rows. On failure the current slot is cleared and the guard drops the initialized prefix. Source is only read. |
 | `out.slice(&xs, start, stop, step)` | `__allocator_list_slice` → `ALLOCATOR_LIST_SLICE` → `try_list_slice_stepped(..., Selected)`. Reserves for the selected count; even an empty list gets selected bookkeeping and object storage. Managed rows use the same destination recursively for new boxes and collections; text and `Shared` leaves can retain their backing. Provider refusal unwinds partial rows and storage without changing `xs` or trying another provider. |
 | List method `xs.slice(a, b)` | Opcode 45 → `try_list_slice`: clamp and reserve an ordinary result list before any transfer. Retain non-affine elements; for affine elements the receiver must be a unique temporary. Move the selected elements **with their existing backing** and let temporary cleanup drop the rest (all on failed reserve). Not bracket deep-copy semantics. |
-| List-view materialization | `view_slice` constructs an adjacent subview; `view_copy` / `view_share` in `src/frontend/view_methods.plenty` create an ordinary empty list, reserve and append `copy(element)?` or `element.share()`. Partial lists drop on error, the view is only read. No explicit step here; for a byte view choose `list(&v[a:b])?` or extend a `Bytes`. |
+| `out.copy_view(v)` | `Allocator.copy_view` in `stdlib/std/alloc.plentyi` constructs a selected `list_with_capacity[T](len(v))`, then appends `out.copy(element)?` for each borrowed element. The view iterator reads both packed-byte and list-backed `&[u8]`; neither requires a temporary input list. New nested owners use the selected provider. A refusal drops the initialized prefix and list storage without modifying the source or retrying elsewhere. |
+| Ordinary list-view materialization | `view_slice` constructs an adjacent subview; `view_copy` / `view_share` in `src/frontend/view_methods.plenty` create an ordinary empty list, reserve and append `copy(element)?` or `element.share()`. Partial lists drop on error, the view is only read. No explicit step here; for a byte view choose `list(&v[a:b])?` or extend a `Bytes`. |
 | `str.slice(a, b)`, text brackets and text-view copies | In `plenty-runtime/src/strings.rs`, the method uses `try_slice` / `scalar_range`; brackets use `try_stepped_slice`. For adjacent scalars copy the UTF-8 interval; for strided ASCII gather bytes, otherwise count encoded bytes and fill the final output in forward or reverse order. Short results can be inline; no gathered-character buffer. A view's `[:]` uses `TEXT_VIEW_COPY` in `aggregates/text_views.rs`; bounded/stepped copies use `try_stepped_slice_range` via `aggregates/text_ranges.rs` (both under `plenty-runtime/src/`). Only the owned text can require allocation; failure preserves the input. |
 | `bytes` literal / `Bytes` brackets | `BytesOp::SliceLiteral` / `Slice` → `BYTES_SLICE` in `src/bytes.rs`. `plenty-runtime/src/aggregates/byte_storage.rs`: `create(count)` reserves ordinary vector storage before allocating the header; if the header fails the vector drops. Copy or gather directly into that buffer and wrap it as `Bytes`. Source is only read. |
 | `Bytes.slice(start, stop)` | `stdlib/std/bytes.plenty`: check `0 <= start <= stop <= len` (trap, not a clamped slice), `__bytes_new(width)?`, then `__bytes_append` from a borrowed byte range. Allocation errors do not change the source. |
@@ -132,6 +133,9 @@ Evidence by path:
 - `tests/test_slice_views.rs`: `views_add_no_allocations` versus
   `view_copies_recover_from_failure_mid_copy`;
   `tests/test_str_views.rs`: `as_bytes_allocates_nothing_and_direct_view_copy_reports_failure`.
+- `tests/test_std_alloc_copy_view.rs`: public method on empty and nonempty ranges,
+  packed bytes and list-backed bytes; partial nested-copy refusal on a worker,
+  retained growth after source and handle drop, and compile-time rejections.
 - `tests/test_std_bytes.rs`: `ranges_follow_one_rule_without_clamping_or_negative_offsets`
   and `second_allocation_failure_releases_the_first`.
 
