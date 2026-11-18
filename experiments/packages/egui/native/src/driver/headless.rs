@@ -1,6 +1,6 @@
 //! Display-free driver for the *same* egui pass and Plenty owner. Arguments
 //! are logical pointer coordinates, not widget names, ordinals or actions.
-use super::{Error, Owner, context};
+use super::{Draw, Error, context};
 use egui::{Event, Modifiers, PointerButton, RawInput, Rect, Shape, pos2, vec2};
 use std::{
     ffi::OsString,
@@ -15,7 +15,10 @@ fn painted_text(shape: &Shape, out: &mut impl Write) -> io::Result<()> {
     }
 }
 
-pub(super) fn run(mut state: Owner, clicks: impl Iterator<Item = OsString>) -> Result<(), Error> {
+pub(super) fn run(
+    mut state: impl Draw,
+    clicks: impl Iterator<Item = OsString>,
+) -> Result<(), Error> {
     let ctx = context();
     let mut frame = |events| {
         let input = RawInput {

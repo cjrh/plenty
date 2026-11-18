@@ -148,6 +148,8 @@ unsafe extern "C" fn pleg_v1_button(token: u64, text: *const u8, len: usize) -> 
 #[cfg(all(feature = "application", not(test)))]
 mod application;
 #[cfg(feature = "application")]
+mod driver;
+#[cfg(feature = "application")]
 static MAIN_THREAD: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 
 #[cfg(feature = "application")]
