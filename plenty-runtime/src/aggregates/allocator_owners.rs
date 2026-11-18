@@ -128,21 +128,46 @@ fn try_list_new_in(
         .checked_mul(stride)
         .ok_or(AllocError::CapacityOverflow)?;
     Layout::array::<u128>(bytes.div_ceil(16)).map_err(|_| AllocError::CapacityOverflow)?;
-    let mut list = Collection {
-        header: Header::new(list_destroy),
+    let entries = Entries::new_in(ty.key(), allocator.clone())?;
+    try_collection_with_entries_in(allocator, ty, capacity, entries)
+}
+
+pub(super) fn try_hash_new_in(
+    allocator: &Allocator,
+    ty: &'static Type,
+    capacity: usize,
+) -> Result<*mut Collection, AllocError> {
+    assert!(
+        ty.kind == b'D' || (ty.kind == b'S' && !crate::entries::enum_bits::eligible(ty.key())),
+        "selected hash descriptor"
+    );
+    memory::checked_capacity::<Entry>(capacity)?;
+    Buckets::check_selected_capacity(capacity)?;
+    let entries = Entries::ordered_in(ty.key(), ty.value, capacity, allocator)?;
+    try_collection_with_entries_in(allocator, ty, capacity, entries)
+}
+
+fn try_collection_with_entries_in(
+    allocator: &Allocator,
+    ty: &'static Type,
+    capacity: usize,
+    entries: Entries,
+) -> Result<*mut Collection, AllocError> {
+    let mut collection = Collection {
+        header: Header::new(collection_destroy_in),
         ty,
-        entries: Entries::new_in(ty.key(), allocator.clone())?,
+        entries,
         table: Buckets::new(),
         drop_entry: None,
     };
     // As on the legacy path, partial construction holds no initialized elements.
     // A failed object allocation drops the reserved buffer through its provider.
-    unsafe { list.try_reserve(capacity)? };
+    unsafe { collection.try_reserve(capacity)? };
     let pointer = allocate::<Collection, u8>(allocator, ty, 0)?;
-    unsafe { pointer.write(list) };
+    unsafe { pointer.write(collection) };
     Ok(pointer)
 }
-unsafe extern "C" fn list_destroy(header: *mut Header) {
+unsafe extern "C" fn collection_destroy_in(header: *mut Header) {
     unsafe {
         if release_collection_content(header) {
             free(header);

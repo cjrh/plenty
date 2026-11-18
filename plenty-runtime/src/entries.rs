@@ -10,6 +10,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 pub(crate) mod enum_bits;
+pub(crate) mod hash_buffer;
 pub(crate) mod sort;
 
 #[cfg(test)]
@@ -322,6 +323,7 @@ impl RowOrder {
 }
 
 const _: () = {
+    assert!(size_of::<RowOrder>() == size_of::<Order>());
     assert!(std::mem::size_of::<enum_bits::Bits>() <= std::mem::size_of::<Order>());
     assert!(std::mem::offset_of!(Entries, data) == 0);
     assert!(std::mem::offset_of!(Words, ptr) == 0);
@@ -359,11 +361,32 @@ impl Entries {
     }
     pub fn ordered(key: &'static Type, value: Option<&'static Type>) -> Self {
         let mut entries = Self::new(key, value);
-        entries.order = RowOrder::Linked(Order::new());
+        entries.order = RowOrder::Linked(Order::new(false));
         // Hash rows retain canonical slots, including an unused value slot
         // for sets; their references and ownership traversal share this ABI.
         entries.stride = (key.slot_words() + value.map_or(1, Type::slot_words)) * 16;
         entries
+    }
+    pub fn ordered_in(
+        key: &'static Type,
+        value: Option<&'static Type>,
+        capacity: usize,
+        allocator: &allocator::Allocator,
+    ) -> Result<Self, memory::AllocError> {
+        let mut entries = Self::ordered(key, value);
+        Order::check_selected_capacity(capacity)?;
+        let words = capacity
+            .checked_mul(entries.stride / 16)
+            .ok_or(memory::AllocError::CapacityOverflow)?;
+        allocator::Allocator::backing_layout(
+            Layout::array::<u128>(words).map_err(|_| memory::AllocError::CapacityOverflow)?,
+        )?;
+        entries.selected = Some(Selected::new(allocator.clone())?);
+        entries.order = RowOrder::Linked(Order::new(true));
+        Ok(entries)
+    }
+    pub fn allocator(&self) -> Option<&allocator::Allocator> {
+        self.selected.as_ref().map(|s| &s.allocator)
     }
     pub fn enum_set(key: &'static Type) -> Self {
         debug_assert!(enum_bits::eligible(key));
@@ -685,28 +708,20 @@ impl Entries {
         if self.bits().is_some() {
             return Ok(());
         }
-        if let Some(order) = self.order.linked_mut() {
+        let additional_rows = if let Some(order) = self.order.linked_mut() {
             let needed = order
                 .len()
                 .checked_add(additional)
                 .ok_or(memory::AllocError::CapacityOverflow)?;
-            order.try_reserve(additional)?;
-            let bytes = needed
-                .saturating_sub(self.data.len() / self.stride)
-                .checked_mul(self.stride)
-                .ok_or(memory::AllocError::CapacityOverflow)?;
-            let previous = self.data.as_ptr();
-            self.data.try_reserve(bytes)?;
-            if previous != self.data.as_ptr() {
-                self.relocate(0);
-            }
-            return Ok(());
-        }
-        // Extraction scratch is dead at the next mutation. Discard it before
-        // computing capacity so pop followed by append can reuse the freed row.
-        self.data.truncate(self.len() * self.stride);
-        self.removed = false;
-        let bytes = additional
+            order.try_reserve_for(needed, self.selected.as_ref().map(|s| &s.allocator))?;
+            needed.saturating_sub(self.data.len() / self.stride)
+        } else {
+            // Extraction scratch is dead at the next mutation; reuse its row.
+            self.data.truncate(self.len() * self.stride);
+            self.removed = false;
+            additional
+        };
+        let bytes = additional_rows
             .checked_mul(self.stride)
             .ok_or(memory::AllocError::CapacityOverflow)?;
         let previous = self.data.as_ptr();

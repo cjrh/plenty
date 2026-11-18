@@ -223,11 +223,15 @@ impl Allocator {
             Ok(Self(Some(NonNull::new_unchecked(state.cast()))))
         }
     }
-    pub(crate) fn allocate(&self, layout: Layout) -> Result<Block, AllocError> {
+    /// Validate the provider request, including the retained backing header.
+    pub(crate) fn backing_layout(layout: Layout) -> Result<(Layout, usize), AllocError> {
         let (whole, offset) = Layout::new::<Backing>()
             .extend(layout)
             .map_err(|_| AllocError::CapacityOverflow)?;
-        let whole = whole.pad_to_align();
+        Ok((whole.pad_to_align(), offset))
+    }
+    pub(crate) fn allocate(&self, layout: Layout) -> Result<Block, AllocError> {
+        let (whole, offset) = Self::backing_layout(layout)?;
         let (base, source) = match self.0 {
             None => {
                 // Explicit system selection, not Rust's ambient global router.

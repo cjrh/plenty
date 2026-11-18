@@ -1,5 +1,7 @@
 //! Stable hash-entry slots, insertion order, and an allocation-free free list.
-use crate::memory::{self, AllocError};
+use crate::allocator::Allocator;
+use crate::entries::hash_buffer::HashBuffer;
+use crate::memory::AllocError;
 
 const END: usize = usize::MAX;
 const DEAD: usize = usize::MAX - 1;
@@ -11,7 +13,7 @@ struct Link {
 }
 
 pub(crate) struct Order {
-    links: Vec<Link>,
+    links: HashBuffer<Link>,
     first: usize,
     last: usize,
     free: usize,
@@ -19,9 +21,13 @@ pub(crate) struct Order {
 }
 
 impl Order {
-    pub fn new() -> Self {
+    pub fn new(selected: bool) -> Self {
         Self {
-            links: Vec::new(),
+            links: if selected {
+                HashBuffer::selected()
+            } else {
+                HashBuffer::new()
+            },
             first: END,
             last: END,
             free: END,
@@ -39,13 +45,16 @@ impl Order {
             .get(index)
             .is_some_and(|link| link.previous != DEAD)
     }
-    pub fn try_reserve(&mut self, additional: usize) -> Result<(), AllocError> {
-        let needed = self
-            .len
-            .checked_add(additional)
-            .ok_or(AllocError::CapacityOverflow)?;
+    pub fn check_selected_capacity(count: usize) -> Result<(), AllocError> {
+        HashBuffer::<Link>::check_selected_capacity(count)
+    }
+    pub fn try_reserve_for(
+        &mut self,
+        needed: usize,
+        allocator: Option<&Allocator>,
+    ) -> Result<(), AllocError> {
         let additional = needed.saturating_sub(self.links.len());
-        memory::try_reserve(&mut self.links, additional)
+        self.links.try_reserve(additional, allocator)
     }
     pub fn vacant(&self) -> usize {
         if self.free == END {
@@ -61,8 +70,7 @@ impl Order {
             next: END,
         };
         if index == self.links.len() {
-            assert!(index < self.links.capacity());
-            self.links.push(link);
+            self.links.resize_reserved(index + 1, link);
         } else {
             self.free = self.links[index].next;
             self.links[index] = link;

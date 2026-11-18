@@ -1361,18 +1361,13 @@ impl Collection {
             return Ok(());
         }
         let table_size = if self.ty().kind != b'L' && needed > self.table.len() / 2 {
-            let count = needed
-                .checked_mul(2)
-                .and_then(|n| n.max(16).checked_next_power_of_two())
-                .ok_or(AllocError::CapacityOverflow)?;
-            memory::checked_capacity::<u64>(count)?;
-            count
+            Buckets::size_for(needed)?
         } else {
             0
         };
         let mut table = Buckets::new();
         if table_size != 0 {
-            table = Buckets::try_with_len(table_size)?;
+            table = Buckets::try_with_len(table_size, self.entries.allocator())?;
         }
         self.entries.try_reserve(additional)?;
         if table_size != 0 {

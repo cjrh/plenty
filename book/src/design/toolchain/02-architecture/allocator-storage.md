@@ -222,6 +222,24 @@ Private fields prevent direct construction, extraction or mutation of either
 representation. `Allocator.block()` obtains fresh backing; `split_off()` creates
 a disjoint owner of existing backing.
 
+## Native hash-table storage
+
+A private runtime constructor builds hash-backed dictionaries and sets whose
+object, bookkeeping, rows, insertion-order links and bucket table use the
+selected allocator. Empty owners retain the allocator before the first insert.
+Rehashing builds the replacement table through the same provider. If growth
+fails, lookups, contents, order and live slot IDs survive; a successful link
+reservation need not surrender its capacity if a later row reservation fails.
+
+Row relocation repairs inline values in live slots, skipping holes. Destruction
+finishes key and value cleanup before releasing the object's backing. Selecting
+the table does not redirect allocations inside its keys or values, including a
+new text key built from bytes. Copies and set algebra produce independent owners
+and are outside this construction path.
+
+There is no public dictionary or set allocator binding yet. Compact finite sets
+keep their bitset representation, and ordinary constructors are unchanged.
+
 ## Native builtin owner paths
 
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists

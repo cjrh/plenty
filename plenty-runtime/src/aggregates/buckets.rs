@@ -18,7 +18,9 @@
 //!
 //! Larger tables fall back to hashing keys, the only cost before this
 //! encoding.
-use crate::memory::{self, AllocError};
+use crate::allocator::Allocator;
+use crate::entries::hash_buffer::HashBuffer;
+use crate::memory::AllocError;
 
 /// Whether a bucket of a table with `shift` holds the `home_bits` low hash
 /// bits that a table of `2^home_bits` buckets needs to place it.
@@ -88,19 +90,35 @@ impl KeyHash {
 }
 
 pub(super) struct Buckets {
-    slots: Vec<u64>,
+    slots: HashBuffer<u64>,
 }
 
 impl Buckets {
     pub const fn new() -> Self {
-        Self { slots: Vec::new() }
+        Self {
+            slots: HashBuffer::new(),
+        }
+    }
+    pub fn size_for(needed: usize) -> Result<usize, AllocError> {
+        let count = needed
+            .checked_mul(2)
+            .and_then(|n| n.max(16).checked_next_power_of_two())
+            .ok_or(AllocError::CapacityOverflow)?;
+        crate::memory::checked_capacity::<u64>(count)
+    }
+    pub fn check_selected_capacity(needed: usize) -> Result<(), AllocError> {
+        HashBuffer::<u64>::check_selected_capacity(Self::size_for(needed)?)
     }
     /// An empty table of `len` buckets, a power of two.
-    pub fn try_with_len(len: usize) -> Result<Self, AllocError> {
+    pub fn try_with_len(len: usize, allocator: Option<&Allocator>) -> Result<Self, AllocError> {
         debug_assert!(len.is_power_of_two());
-        let mut slots = Vec::new();
-        memory::try_reserve(&mut slots, len)?;
-        slots.resize(len, 0);
+        let mut slots = if allocator.is_some() {
+            HashBuffer::selected()
+        } else {
+            HashBuffer::new()
+        };
+        slots.try_reserve(len, allocator)?;
+        slots.resize_reserved(len, 0);
         Ok(Self { slots })
     }
     pub fn len(&self) -> usize {
@@ -197,7 +215,7 @@ impl Buckets {
         }
         let (mask, shift) = (self.mask(), self.shift());
         let (target_mask, target_shift) = (target.mask(), target.shift());
-        for &slot in &self.slots {
+        for &slot in self.slots.iter() {
             if slot != 0 {
                 let stored = slot >> shift;
                 let mut bucket = stored as usize & target_mask;
@@ -296,7 +314,7 @@ impl Buckets {
             return false;
         }
         let mask = source.mask();
-        for &slot in &source.slots {
+        for &slot in source.slots.iter() {
             if slot != 0 {
                 self.slots[(slot as usize & mask) - 1] = slot;
             }
@@ -370,7 +388,7 @@ mod tests {
 
     #[test]
     fn probe_skips_mismatched_stored_hashes() {
-        let mut table = Buckets::try_with_len(16).unwrap();
+        let mut table = Buckets::try_with_len(16, None).unwrap();
         // Same home bucket, different stored bits: only the second matches.
         table.insert_unique(0x10_0003, 0);
         table.insert_unique(0x20_0003, 1);
@@ -388,14 +406,14 @@ mod tests {
 
     #[test]
     fn rehash_preserves_references_and_stops_at_missing_bits() {
-        let mut table = Buckets::try_with_len(1 << 4).unwrap();
+        let mut table = Buckets::try_with_len(1 << 4, None).unwrap();
         let hashes: Vec<u64> = (0..8u64)
             .map(|i| i.wrapping_mul(0x9e37_79b9_7f4a_7c15))
             .collect();
         for (entry, &hash) in hashes.iter().enumerate() {
             table.insert_unique(hash, entry);
         }
-        let mut grown = Buckets::try_with_len(1 << 10).unwrap();
+        let mut grown = Buckets::try_with_len(1 << 10, None).unwrap();
         assert!(table.rehash_into(&mut grown));
         for (entry, &hash) in hashes.iter().enumerate() {
             let bucket = grown.probe(hash, |found| found == entry);
@@ -420,7 +438,7 @@ mod tests {
                 .map(|(entry, &home)| home as u64 | (entry as u64 + 1) << 8)
                 .collect();
             for keep_mask in 0u32..1 << hashes.len() {
-                let mut table = Buckets::try_with_len(16).unwrap();
+                let mut table = Buckets::try_with_len(16, None).unwrap();
                 for (entry, &hash) in hashes.iter().enumerate() {
                     table.insert_unique(hash, entry);
                 }
