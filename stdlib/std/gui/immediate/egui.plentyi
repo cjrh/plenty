@@ -19,6 +19,7 @@ extern def native_link(token: u64, text: &str as utf8) -> u32 = "pleg_v1_link"
 extern def native_separator(token: u64) -> u32 = "pleg_v1_separator"
 extern def native_spinner(token: u64) -> u32 = "pleg_v1_spinner"
 extern def native_progress_bar(token: u64, fraction: f32) -> u32 = "pleg_v1_progress_bar"
+extern def native_range_slider(token: u64, low: &mut f32, high: &mut f32, minimum: f32, maximum: f32) -> u32 = "pleg_v1_range_slider"
 extern def native_slider(token: u64, value: &mut f32, minimum: f32, maximum: f32) -> u32 = "pleg_v1_slider"
 extern def native_drag_value(token: u64, value: &mut f32, minimum: f32, maximum: f32) -> u32 = "pleg_v1_drag_value"
 
@@ -89,6 +90,8 @@ pub class Ui:
         checked(native_spinner(self.token))
     pub def progress_bar(self, fraction: f32) -> Result[(), EguiError]:
         checked(native_progress_bar(self.token, fraction))
+    pub def range_slider(self, low: &mut f32, high: &mut f32, minimum: f32, maximum: f32) -> Result[bool, EguiError]:
+        response(native_range_slider(self.token, low, high, minimum, maximum))
     pub def slider(self, value: &mut f32, minimum: f32, maximum: f32) -> Result[bool, EguiError]:
         response(native_slider(self.token, value, minimum, maximum))
     pub def drag_value(self, value: &mut f32, minimum: f32, maximum: f32) -> Result[bool, EguiError]:

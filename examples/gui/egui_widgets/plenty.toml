@@ -45,5 +45,9 @@ name = "slider"
 path = "src/slider.plenty"
 
 [[bin]]
+name = "range_slider"
+path = "src/range_slider.plenty"
+
+[[bin]]
 name = "drag_value"
 path = "src/drag_value.plenty"

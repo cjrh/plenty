@@ -682,7 +682,7 @@ Selection controls deliver action IDs through the validated snapshot; only the u
 callback changes the model.
 
 The egui catalog adds Checkbox, RadioButton, Link, Separator, Spinner, ProgressBar,
-Slider and DragValue, each with a linked executable. Numeric controls reject
+Slider, RangeSlider and DragValue, each with a linked executable. Numeric controls reject
 invalid ranges rather than publishing a partial edit.
 
 The [egui command picker](../tutorial/special-purpose/gui-counters.md#filtering-commands-as-you-type)

@@ -1,5 +1,38 @@
 use super::*;
 
+#[unsafe(no_mangle)]
+unsafe extern "C" fn pleg_v1_range_slider(
+    token: u64,
+    low: *mut f32,
+    high: *mut f32,
+    min: f32,
+    max: f32,
+) -> u32 {
+    control(token, |ui| {
+        // The Plenty facade supplies two exclusive call-scoped loans.
+        if low.is_null() || high.is_null() || low == high {
+            return Err(Error::InvalidArgument);
+        }
+        let (mut l, mut h) = unsafe { (*low, *high) };
+        let valid =
+            |l: f32, h: f32| min.is_finite() && max.is_finite() && min <= l && l <= h && h <= max;
+        if !valid(l, h) {
+            return Err(Error::InvalidArgument);
+        }
+        let changed = ui
+            .add(egui::RangeSlider::new(&mut l, &mut h, min..=max))
+            .changed();
+        if !valid(l, h) {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe {
+            *low = l;
+            *high = h;
+        }
+        Ok(changed)
+    })
+}
+
 // Keep scalar drafts local: no change reaches the model on a checked error.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn pleg_v1_checkbox(
@@ -102,4 +135,24 @@ unsafe extern "C" fn pleg_v1_drag_value(token: u64, value: *mut f32, min: f32, m
         *slot = draft;
         Ok(changed)
     })
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+    #[test]
+    fn invalid_endpoints_latch_without_changing_either_value() {
+        egui::__run_test_ui(|ui| {
+            let (mut low, mut high) = (0.8, 0.2);
+            let result = with_ui(ui, |t| {
+                assert_eq!(
+                    unsafe { pleg_v1_range_slider(t, &mut low, &mut high, 0.0, 1.0) },
+                    Error::InvalidArgument as u32
+                );
+                Ok(())
+            });
+            assert_eq!(result, Err(Error::InvalidArgument));
+            assert_eq!((low, high), (0.8, 0.2));
+        });
+    }
 }
