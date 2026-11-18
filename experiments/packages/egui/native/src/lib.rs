@@ -102,6 +102,7 @@ fn widget(token: u64, add: impl FnOnce(&mut Pass) -> Result<bool, Error>) -> u32
 }
 
 mod controls;
+mod image;
 mod text_edit;
 
 // SAFETY: non-null input points to `len` readable bytes for this call.

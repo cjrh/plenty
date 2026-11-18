@@ -13,6 +13,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 
 - [Checkbox](gui-egui-widgets/checkbox.md)
 - [RadioButton](gui-egui-widgets/radio.md)
+- [Image](gui-egui-widgets/image.md)
 - [Link](gui-egui-widgets/link.md)
 - [Separator](gui-egui-widgets/separator.md)
 - [Spinner](gui-egui-widgets/spinner.md)
