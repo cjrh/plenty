@@ -696,7 +696,6 @@ fn engine_link_args(
     let _ = output;
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_mut))]
     let mut installs = Vec::new();
-    use object::Object;
     let bytes = std::fs::read(object)?;
     let file = object::File::parse(bytes.as_slice())?;
     let roots = EngineRoots::for_link(options, file.format());

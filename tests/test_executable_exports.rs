@@ -734,6 +734,16 @@ fn executable_exports_engine_roots_include_native_objects_and_preserve_opaque_in
             assert!(needs_engine());
             assert_eq!(Command::new(&output).status().unwrap().code(), Some(21));
         }
+        // No engine symbols in the Plenty object at all. The native object
+        // alone must still select its engine (also with an opaque driver flag).
+        std::fs::write(&source, "import raw\nexport def check(x: i32) -> i32 = \"proof_check\":\n    x\ndef main() -> i32:\n    raw.drive()\n").unwrap();
+        compile(
+            &engine,
+            &[object_arg[0].clone(), "-Wl,--gc-sections".into()],
+        )
+        .unwrap();
+        assert!(needs_engine());
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(21));
         app("check(2i32)");
         assert!(
             compile(&missing, &[])
