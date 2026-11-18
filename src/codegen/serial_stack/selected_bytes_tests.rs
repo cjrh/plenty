@@ -1,7 +1,7 @@
 //! Inspect the actual caller-side budget word without executing a codec or provider.
 use super::*;
 
-const ADAPTER: &str = r#"
+pub(super) const ADAPTER: &str = r#"
 import std.serial
 import std.alloc as alloc
 import std.bytes as binary
@@ -78,10 +78,10 @@ fn budget(selected: bool, registered: bool, checked: &str, reject: &str) -> Resu
                 "binary.from_bytes(b\"x\")"
             },
         );
-    emitted_budget(&source)
+    compiled_budget(&source)
 }
 
-fn emitted_budget(source: &str) -> Result<u64> {
+pub(super) fn compiled_budget(source: &str) -> Result<u64> {
     let mut heap = Heap::default();
     let program = crate::frontend::compile(source, &mut heap)?;
     let out = object_module(
@@ -142,7 +142,7 @@ fn reference_operations_distinguish_owned_temporaries_from_loans() {
                 &targets,
                 ProviderEffects {
                     bytes: mixed,
-                    text: false,
+                    ..Default::default()
                 },
             );
             graph.body(&[operation(ty.clone())]);
@@ -229,7 +229,7 @@ fn text_producer_and_compiled_provider_make_even_identity_fault_rejection_unboun
                 .replace("REJECT_BODY", "pass")
                 .replace("BUFFER", "binary.from_bytes(b\"x\")")
                 .replace("PROVIDER", &setup);
-            let result = emitted_budget(&source);
+            let result = compiled_budget(&source);
             if selected && registered {
                 let error = result.unwrap_err().to_string();
                 assert!(

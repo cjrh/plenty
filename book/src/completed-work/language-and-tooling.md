@@ -17,6 +17,15 @@ inline; longer results retain the output provider, including when dropped on
 a worker. See the [slice inventory](../design/toolchain/02-architecture/allocation-sites.md#owning-slices-and-their-non-owning-lookalikes)
 for routing and regression tests. Other allocating text operations remain B13 work.
 
+### Public selected columnar list slices
+
+[`Allocator.slice_clist`](../design/stdlib/alloc.md#copy-a-columnar-list-slice)
+copies primitive row fields into their final columns without heap scratch.
+The result keeps the output allocator for growth and release, even for an
+empty selection. Bracket slicing remains ordinary. The [sampled readings
+example](../tutorial/04-collections/allocation.md#keep-a-sample-of-columnar-rows)
+shows source independence. This selects owning slices, not all clist constructors.
+
 ### Public selected packed byte slices
 
 [`Allocator.slice_bytes`](../design/stdlib/alloc.md#copy-a-byte-slice-into-packed-storage)

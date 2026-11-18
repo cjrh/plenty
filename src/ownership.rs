@@ -16,6 +16,7 @@ mod calls;
 mod cancel;
 mod futures;
 mod paths;
+mod providers;
 pub use calls::{Program, future_results};
 pub use paths::{ANY_ELEMENT, Bound, ELEMENT_LIMIT, range_step};
 
@@ -1709,13 +1710,13 @@ impl Checker<'_, '_> {
     /// Reject a join while this function retains the opposite endpoint of a
     /// queue type the worker can hold, unless the worker cannot wait.
     fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
-        let waits = std::cell::OnceCell::new();
+        let worker = self.program.task_effects(task);
         let blocked = |worker_sends| {
             // A worker that cannot wait for anything, using only operations
             // such as `send_nowait`, finishes without the opposite endpoint's
             // drop. Any other wait counts: it can be on a thread that is
             // blocked on this queue.
-            let messages: Vec<Ty> = if *waits.get_or_init(|| self.program.task_waits(task)) {
+            let messages: Vec<Ty> = if worker.waits {
                 endpoints(task.inputs.iter().cloned(), worker_sends, true)
             } else {
                 Vec::new()
@@ -1740,7 +1741,7 @@ impl Checker<'_, '_> {
             self.blocked_endpoints(&messages, worker_sends, state, site, kind, advice)
         };
         let Some(mut error) = blocked(true).or_else(|| blocked(false)).or_else(|| {
-            let reachable = crate::threading::mutexes(task.inputs.iter().cloned());
+            let reachable = self.program.worker_mutexes(&task.inputs, worker);
             let advice = if automatic {
                 "end the lock's `with` block before this one, or start the task outside it"
             } else {

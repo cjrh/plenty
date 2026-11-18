@@ -445,6 +445,7 @@ safe byte blocks, selected boxes and lists (including generator collection),
 [key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion),
 [owning list slices](completed-work/language-and-tooling.md#public-selected-list-slices),
 [view-to-list copies](completed-work/language-and-tooling.md#public-selected-view-to-list-copies),
+[columnar list slices](completed-work/language-and-tooling.md#public-selected-columnar-list-slices),
 [packed byte slices](completed-work/language-and-tooling.md#public-selected-packed-byte-slices) and
 [text slices](completed-work/language-and-tooling.md#public-selected-text-slices) with an output allocator.
 The [design record](proposals/allocator-experiments.md) preserves the direction
@@ -456,7 +457,7 @@ and private slot ABI remain experimental, not builtin representations.
 Implement the remaining work in staged PRs:
 
 3. **Complete the migration.** Migrate remaining independent collection results,
-   other string operations, formatting, other owning slice paths (including columnar lists and
+   other string operations, formatting, other owning slice paths (including
    materializing views of `Shared` handles), scratch buffers
    and allocating std APIs. Extend the [allocation-site inventory](design/toolchain/02-architecture/allocation-sites.md)
    beyond the audited copy, key-view result and slice paths. Verify routing, ownership and failure behavior

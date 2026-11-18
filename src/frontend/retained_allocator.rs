@@ -152,7 +152,7 @@ impl Lower<'_> {
                     None,
                 )
             }
-            "__allocator_list_slice" => {
+            "__allocator_clist_slice" | "__allocator_list_slice" => {
                 let [element] = types else {
                     return Err(at.error("allocator slice requires one element type"));
                 };
@@ -162,11 +162,18 @@ impl Lower<'_> {
                         "Allocator.slice result cannot carry a loan: `{element}`"
                     )));
                 }
-                let list = Ty::List(Arc::new(element.clone()));
-                self.check_slice_element(&list, &element, at)?;
+                let (opcode, list) = if name == "__allocator_clist_slice" {
+                    // Access to every field was checked at the public caller.
+                    clists::check_row(&element, at)?;
+                    (code::ALLOCATOR_CLIST_SLICE, Ty::Clist(Arc::new(element)))
+                } else {
+                    let list = Ty::List(Arc::new(element.clone()));
+                    self.check_slice_element(&list, &element, at)?;
+                    (code::ALLOCATOR_LIST_SLICE, list)
+                };
                 let bound = crate::sum::option(Ty::I64);
                 (
-                    code::ALLOCATOR_LIST_SLICE,
+                    opcode,
                     vec![
                         handle,
                         Ty::Ref(Arc::new(list.clone()), false),

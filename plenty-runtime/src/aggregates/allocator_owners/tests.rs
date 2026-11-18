@@ -599,8 +599,8 @@ fn selected_box_binding_preserves_failure_input_and_encodes_success() {
 #[test]
 fn allocator_dispatch_rejects_arena_before_operand_access() {
     use crate::collection_opcodes::{
-        ALLOCATOR_BOX, ALLOCATOR_BYTES_SLICE, ALLOCATOR_COPY, ALLOCATOR_DICT_SET,
-        ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_LIST, ALLOCATOR_LIST_SLICE,
+        ALLOCATOR_BOX, ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE, ALLOCATOR_COPY,
+        ALLOCATOR_DICT_SET, ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_LIST, ALLOCATOR_LIST_SLICE,
         ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
         ALLOCATOR_TEXT_SLICE,
     };
@@ -621,6 +621,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
                         | ALLOCATOR_LIST_SLICE
                         | ALLOCATOR_BYTES_SLICE
                         | ALLOCATOR_TEXT_SLICE
+                        | ALLOCATOR_CLIST_SLICE
                 ) {
                     // Reject before loading even the allocator handle.
                     ptr::dangling()
@@ -643,6 +644,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
             ALLOCATOR_LIST_SLICE,
             ALLOCATOR_BYTES_SLICE,
             ALLOCATOR_TEXT_SLICE,
+            ALLOCATOR_CLIST_SLICE,
         ])
         .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
     {
@@ -692,3 +694,48 @@ mod key_view_to_set;
 mod list_slice;
 mod recursive_copy;
 mod set_algebra;
+
+#[test]
+fn selected_clist_retains_one_block_and_checks_growth_before_provider_calls() {
+    static ROW: Type = Type {
+        wrapper: Some(&Variant {
+            name: "n",
+            fields: &[&INTEGER],
+        }),
+        ..INTEGER
+    };
+    static COLUMNS: Type = Type {
+        kind: b'Q',
+        key: Some(&ROW),
+        ..INTEGER
+    };
+    let counts = counts();
+    let allocator = allocator(&counts, "columns");
+    unsafe {
+        // A selected empty has a real owner, unlike an ordinary empty slice.
+        let mut owner = clist::slice(0, [0, 0, -1, 0], &COLUMNS, Some(&allocator)).unwrap();
+        assert_ne!(owner, 0);
+        drop(allocator);
+        let slot = ptr::from_mut(&mut owner) as u128;
+        let reserve = |n: i64| clist::call(521, [slot, n as u128, 0, 0], &COLUMNS, ptr::null());
+        assert_eq!(
+            reserve(i64::MAX),
+            wrap(wrap(0, AllocError::CapacityOverflow as u64), 1)
+        );
+        assert_eq!(counts.calls.load(Ordering::Relaxed), 1);
+        assert_eq!(reserve(8), 0);
+        assert_eq!(counts.releases.load(Ordering::Relaxed), 1);
+        let before = owner;
+        counts.budget.store(0, Ordering::Relaxed);
+        assert_eq!(reserve(9), wrap(wrap(0, AllocError::OutOfMemory as u64), 1));
+        assert_eq!(owner, before);
+        assert_eq!(counts.releases.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            clist::slice(owner, [0, 0, 1, 0], &COLUMNS, None).unwrap(),
+            0
+        );
+        plenty_release(owner as *mut Header);
+    }
+    assert_eq!(counts.releases.load(Ordering::Relaxed), 2);
+    assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
+}

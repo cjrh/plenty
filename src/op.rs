@@ -188,11 +188,13 @@ impl StorageBarrier {
     }
 }
 
-/// Whole-program facts about erased provider callbacks behind builtin leaves.
+/// Owner kinds whose allocator may call compiled code in this program.
+/// Provenance is erased in each public owner type.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ProviderEffects {
     pub bytes: bool,
     pub text: bool,
+    pub clists: bool,
 }
 
 impl Ty {
@@ -715,6 +717,7 @@ impl Ty {
                 _ if !ty.managed() => {}
                 Self::Str if !providers.text => {}
                 Self::ByteStorage if !providers.bytes => {}
+                Self::Clist(_) if !providers.clists => {}
                 Self::List(t)
                 | Self::Array(t, _)
                 | Self::Set(t)
@@ -1637,6 +1640,7 @@ pub struct CompiledFn {
 }
 
 mod check;
+pub(crate) mod reachability;
 
 pub use check::check;
 

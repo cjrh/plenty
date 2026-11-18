@@ -44,10 +44,14 @@ pub(super) fn field_access(op: ClistOp, view: Option<[u8; 2]>, ops: &mut Vec<Op>
 
 impl Lower<'_> {
     pub(super) fn check_clist_access(&self, ty: &Ty, at: &Token) -> Result<()> {
-        let Ty::Class(class) = crate::clist::row(ty) else {
+        self.check_clist_row_access(crate::clist::row(ty), at)
+    }
+
+    pub(super) fn check_clist_row_access(&self, row: &Ty, at: &Token) -> Result<()> {
+        check_row(row, at)?;
+        let Ty::Class(class) = row else {
             unreachable!()
         };
-        check_row(crate::clist::row(ty), at)?;
         for (name, _) in &class.get().fields {
             modules::check_member(self.access, &class.name, name, at)?;
         }

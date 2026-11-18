@@ -33,6 +33,7 @@ mod test_std_alloc_key_view;
 mod test_std_alloc_set_algebra;
 mod test_std_alloc_slice;
 mod test_std_alloc_slice_bytes;
+mod test_std_alloc_slice_clist;
 mod test_std_alloc_slice_text;
 
 #[path = "test_pipelines.rs"]

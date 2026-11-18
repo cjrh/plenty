@@ -347,7 +347,7 @@ impl<'a> Graph<'a> {
                 // These operations materialize an owned temporary, or release the
                 // old value of a borrowed place without storing it in a local.
                 Op::ReadRef(ty) | Op::WriteRef(ty) | Op::ReplaceRef(ty)
-                    if may_own_provider_leaf(ty, self.providers) =>
+                    if may_own_selected_storage(ty, self.providers) =>
                 {
                     self.unknown = true;
                 }
@@ -359,7 +359,14 @@ impl<'a> Graph<'a> {
                             collection,
                             CollectionOp::Net(crate::net::NetOp::ReceiveFrom)
                         );
-                    if self.providers.bytes && grows_bytes
+                    let grows_columns = matches!(
+                        collection,
+                        CollectionOp::Clist(
+                            crate::clist::ClistOp::Reserve(_) | crate::clist::ClistOp::Append(_)
+                        )
+                    );
+                    if self.providers.clists && grows_columns
+                        || self.providers.bytes && grows_bytes
                         || matches!(
                             collection,
                             CollectionOp::ListSortBy(_) | CollectionOp::Formatted(_)
@@ -449,6 +456,7 @@ impl<'a> Graph<'a> {
                 }
                 self.release(content);
             }
+            Ty::Clist(_) if self.providers.clists => self.unknown = true,
             Ty::List(content) | Ty::Set(content) | Ty::Shared(content) | Ty::Clist(content) => {
                 self.release(content)
             }
@@ -472,8 +480,8 @@ impl<'a> Graph<'a> {
     clippy::mutable_key_type,
     reason = "type identity excludes definition cells"
 )]
-fn may_own_provider_leaf(ty: &Ty, providers: ProviderEffects) -> bool {
-    if !(providers.text || providers.bytes) || !ty.managed() {
+fn may_own_selected_storage(ty: &Ty, providers: ProviderEffects) -> bool {
+    if !(providers.bytes || providers.clists || providers.text) || !ty.managed() {
         return false;
     }
     let mut pending = vec![ty.clone()];
@@ -483,6 +491,7 @@ fn may_own_provider_leaf(ty: &Ty, providers: ProviderEffects) -> bool {
             // An erased owning payload can hide the buffer from a type walk.
             Ty::ByteStorage if providers.bytes => return true,
             Ty::Str if providers.text => return true,
+            Ty::Clist(_) if providers.clists => return true,
             Ty::BoxedCallable(..) | Ty::BoxedProtocol(_) => return true,
             Ty::Class(t) if t.try_get().is_none() => return true,
             Ty::Enum(t) if t.try_get().is_none() => return true,
@@ -497,6 +506,8 @@ fn may_own_provider_leaf(ty: &Ty, providers: ProviderEffects) -> bool {
 
 #[cfg(test)]
 mod selected_bytes_tests;
+#[cfg(test)]
+mod selected_clist_tests;
 
 #[cfg(test)]
 mod tests {

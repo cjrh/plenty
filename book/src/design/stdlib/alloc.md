@@ -1,7 +1,7 @@
 # `std.alloc` — explicit retained allocators and safe byte blocks
 
 `std.alloc` exposes an explicit system allocator and compiled custom providers.
-It constructs ordinary `Box[T]`, `list[T]`, `dict[K, V]`, `set[T]` and packed [`Bytes`](bytes.md) owners.
+It constructs ordinary `Box[T]`, `list[T]`, `dict[K, V]`, `set[T]`, `clist[T]` and packed [`Bytes`](bytes.md) owners.
 Each retains the selected allocator for its own storage, so growth and cleanup
 do not require the caller to keep the allocator handle. This is not comprehensive allocation control; see the
 [remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
@@ -121,6 +121,41 @@ Use `&xs[a:b]` to borrow a contiguous range without allocating. The two-bound
 [list method](../facilities/01-builtins/lists.md#slices) `temporary.slice(a, b)` can
 transfer affine elements with their existing storage instead of copying them.
 
+### Copy a columnar list slice
+
+`Allocator.slice_clist[T](self, source: &clist[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[clist[T], AllocError]`
+
+`out.slice_clist(&rows, step=-1)?` makes an independent columnar list with
+its rows in reverse order. Bounds and steps follow the [list slice rules](#copy-a-list-slice-with-an-output-allocator).
+Like `rows[a:b:k]?`, the call requires access to every field of the
+[primitive row class](../facilities/01-builtins/clists.md); `@copy` is not required.
+It copies the selected values column by column without running initializers or
+materializing temporary row objects. The result carries no loan from either input.
+
+A single selected block holds the owner and the columns for at most
+`len(source)` copied rows, with capacity rounded up for alignment. An empty
+result still requests an owner so future growth uses `out`. An unrepresentable
+layout returns `CapacityOverflow`; provider refusal returns its `AllocError`.
+Neither changes the source or retries elsewhere. After the handle is dropped,
+`reserve` and growing `append` still use its provider, as does final release.
+A bracket slice of the result does **not** inherit its provider.
+
+[Checked serialization](serial.md) accounts for callbacks even when a clist's
+provider is not visible at the call site. When the program emits this method
+and registers a compiled provider, checked segments that may grow or release
+a clist have no finite stack budget. Reading the count or a scalar field
+does not itself invoke a callback.
+
+For [task joins and pool waits](../facilities/03-concurrency/channels.md#which-workers-can-wait),
+constructing a selected clist can wait. When both the slice method and a
+compiled provider are present, growing or dropping a clist can wait too,
+including cleanup of a field, local, or queued message. The owner type does
+not distinguish ordinary from selected storage. If a worker can construct the
+slice through an allocator it receives, or grow or release a clist reachable
+from its inputs, the [join-under-lock check](../facilities/03-concurrency/mutex.md#waits-the-compiler-rejects)
+includes the mutex types held by compiled provider state. A shared borrow used
+only to inspect a count or a scalar field does not call the provider.
+
 ### Copy a slice view into a list
 
 `Allocator.copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]`
@@ -210,6 +245,14 @@ unknown stack use. The checked rejection bridge takes a `Fault` that may itself
 own a string, so even an adapter that simply returns its fault cannot prove
 that rejection is safe. See [checked codec stack budgets](serial.md). Text
 selection with no compiled provider does not impose that restriction.
+
+**Worker waits:** with both a `slice_text` producer and a compiled provider,
+constructing a slice or releasing an owning `str` can call code that waits.
+This includes implicit cleanup of string fields. If the worker receives the
+allocator used to construct the slice, or can release text from its inputs,
+[join and pool checks](../facilities/03-concurrency/channels.md#which-workers-can-wait)
+account for mutex types reachable through the provider, even though `str` does
+not name the provider. Reading a length through a shared loan does not call it.
 
 ### Dictionaries and sets
 
@@ -472,7 +515,7 @@ stored or discarded without allocation.
 ## Workers
 
 Allocator handles and byte blocks may be moved to workers or shared through
-checked borrows. Builtin boxes, lists, dictionaries and sets keep their ordinary
+checked borrows. Builtin boxes, lists, columnar lists, dictionaries and sets keep their ordinary
 content-dependent worker and borrow rules. For example, a dictionary with
 worker-local values cannot be moved to a worker just because its allocator can.
 Selection neither adds an allocator type parameter nor permits concurrent mutation.

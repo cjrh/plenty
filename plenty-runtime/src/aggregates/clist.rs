@@ -1,14 +1,18 @@
 //! One allocation containing a header and dense native-width scalar columns.
 //! Capacity growth allocates/copies before publishing the new owner pointer.
 use super::{Type, Variant, wrap};
+use crate::allocator::{Allocator, Block};
 use crate::memory::{self, AllocError, Header};
+use std::alloc::Layout;
 
 #[repr(C)]
 struct Columns {
     header: Header,
     len: usize,
     capacity: usize,
-    bytes: usize,
+    // Ordinary allocations need their byte count for deallocation. A selected
+    // block owns its own layout; its sentinel cannot be a valid Layout size.
+    ordinary_bytes: usize,
 }
 
 const _: () = {
@@ -48,11 +52,51 @@ fn width(kind: u8) -> usize {
 fn row_bytes(ty: &Type) -> usize {
     schema(ty).iter().map(|f| width(f.fields[0].kind)).sum()
 }
+const SELECTED: usize = usize::MAX;
+
+/// Private prefix immediately before Columns, in the same selected block.
+/// The generated column addresses and row count do not depend on provenance.
+#[repr(C)]
+struct Selected {
+    block: Block,
+    allocator: Allocator,
+}
+const _: () = assert!(align_of::<Selected>() >= align_of::<Columns>());
+
+unsafe fn allocate(
+    bytes: usize,
+    allocator: Option<&Allocator>,
+) -> Result<*mut Columns, AllocError> {
+    let Some(allocator) = allocator else {
+        return memory::try_allocate::<Columns, u8>(bytes);
+    };
+    let columns = memory::object_layout::<Columns, u8>(bytes)?;
+    let (whole, offset) = Layout::new::<Selected>()
+        .extend(columns)
+        .map_err(|_| AllocError::CapacityOverflow)?;
+    debug_assert_eq!(offset, size_of::<Selected>());
+    let mut block = allocator.allocate(whole.pad_to_align())?;
+    // SAFETY: one validated aligned block contains the prefix and columns.
+    unsafe {
+        let prefix = block.as_mut_ptr().cast::<Selected>();
+        prefix.write(Selected {
+            block,
+            allocator: allocator.clone(),
+        });
+        Ok(prefix.add(1).cast())
+    }
+}
+
 unsafe extern "C" fn destroy(header: *mut Header) {
     // SAFETY: final release owns this exact flexible allocation.
     unsafe {
         let owner = header.cast::<Columns>();
-        memory::free::<Columns, u8>(owner, (*owner).bytes);
+        if (*owner).ordinary_bytes == SELECTED {
+            // Move both handles out before release clears the block containing them.
+            drop(owner.cast::<Selected>().sub(1).read());
+        } else {
+            memory::free::<Columns, u8>(owner, (*owner).ordinary_bytes);
+        }
     }
 }
 unsafe fn column(owner: *mut Columns, ty: &Type, field: usize) -> *mut u8 {
@@ -66,7 +110,12 @@ unsafe fn column(owner: *mut Columns, ty: &Type, field: usize) -> *mut u8 {
         owner.add(1).cast::<u8>().add(prefix * (*owner).capacity)
     }
 }
-unsafe fn reserve(slot: *mut u128, ty: &Type, additional: i64) -> Result<(), AllocError> {
+unsafe fn reserve(
+    slot: *mut u128,
+    ty: &Type,
+    additional: i64,
+    initial: Option<&Allocator>,
+) -> Result<(), AllocError> {
     unsafe {
         let old = slot.read() as *mut Columns;
         let (len, cap) = if old.is_null() {
@@ -76,7 +125,7 @@ unsafe fn reserve(slot: *mut u128, ty: &Type, additional: i64) -> Result<(), All
         };
         let extra = usize::try_from(additional).map_err(|_| AllocError::CapacityOverflow)?;
         let needed = len.checked_add(extra).ok_or(AllocError::CapacityOverflow)?;
-        if needed <= cap {
+        if needed <= cap && initial.is_none() {
             return Ok(());
         }
         let capacity = needed
@@ -90,12 +139,17 @@ unsafe fn reserve(slot: *mut u128, ty: &Type, additional: i64) -> Result<(), All
         if bytes > isize::MAX as usize {
             return Err(AllocError::CapacityOverflow);
         }
-        let new = memory::try_allocate::<Columns, u8>(bytes)?;
+        let selected = if !old.is_null() && (*old).ordinary_bytes == SELECTED {
+            Some(&(*old.cast::<Selected>().sub(1)).allocator)
+        } else {
+            initial
+        };
+        let new = allocate(bytes, selected)?;
         new.write(Columns {
             header: Header::new(destroy),
             len,
             capacity,
-            bytes,
+            ordinary_bytes: if selected.is_some() { SELECTED } else { bytes },
         });
         if !old.is_null() {
             for (field, schema) in schema(ty).iter().enumerate() {
@@ -162,7 +216,7 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
         let [a, b, c, d] = args;
         if op == 529 {
             let mut owner = 0;
-            return match reserve(&mut owner, ty, a as i64) {
+            return match reserve(&mut owner, ty, a as i64, None) {
                 Ok(()) => wrap(owner, 0),
                 Err(error) => wrap((error as u128) << 64, 1),
             };
@@ -170,12 +224,12 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
         let slot = a as *mut u128;
         let owner = slot.read() as *mut Columns;
         match op {
-            521 => match reserve(slot, ty, b as i64) {
+            521 => match reserve(slot, ty, b as i64, None) {
                 Ok(()) => wrap(0, 0),
                 Err(error) => wrap((error as u128) << 64, 1),
             },
             522 => {
-                if let Err(error) = reserve(slot, ty, 1) {
+                if let Err(error) = reserve(slot, ty, 1, None) {
                     return wrap(wrap(b, error as u64), 1);
                 }
                 let owner = slot.read() as *mut Columns;
@@ -263,19 +317,22 @@ pub(super) unsafe fn call(op: i64, args: [u128; 4], ty: &Type, site: *const crat
     }
 }
 
-/// `source[start:stop:step]` for the clist in `slot`: a new clist holding the
+/// `source[start:stop:step]` for the borrowed clist owner: a new clist holding the
 /// selected rows, one column copy each when the step is 1. Rows are
 /// primitives, so byte copies are complete copies.
-pub(super) unsafe fn slice(slot: *const u128, bounds: [u128; 4], ty: &Type) -> u128 {
+pub(super) unsafe fn slice(
+    source: u128,
+    bounds: [i64; 4],
+    ty: &Type,
+    allocator: Option<&Allocator>,
+) -> Result<u128, AllocError> {
     unsafe {
-        let owner = slot.read() as *mut Columns;
+        let owner = source as *mut Columns;
         let len = if owner.is_null() { 0 } else { (*owner).len };
-        let [start, stop, step, flags] = bounds.map(|word| word as i64);
+        let [start, stop, step, flags] = bounds;
         let (first, step, count) = super::slice_positions(len, start, stop, step, flags);
         let mut result = 0;
-        if let Err(error) = reserve(&mut result, ty, count as i64) {
-            return wrap((error as u128) << 64, 1);
-        }
+        reserve(&mut result, ty, count as i64, allocator)?;
         if count != 0 {
             let copy = result as *mut Columns;
             for (field, schema) in schema(ty).iter().enumerate() {
@@ -296,7 +353,7 @@ pub(super) unsafe fn slice(slot: *const u128, bounds: [u128; 4], ty: &Type) -> u
             }
             (*copy).len = count;
         }
-        wrap(result, 0)
+        Ok(result)
     }
 }
 

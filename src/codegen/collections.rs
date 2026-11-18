@@ -818,6 +818,8 @@ impl Lowerer<'_, '_> {
         // A release that runs no compiled code needs no site (issue #750).
         let tracked = match opcode {
             24 => true,
+            // Growing a clist may allocate and release through a compiled provider.
+            521 | 522 => self.runtime.provider_effects.clists,
             27 => ty.is_none_or(|ty| ty.release_runs_code(self.runtime.provider_effects)),
             _ => false,
         };

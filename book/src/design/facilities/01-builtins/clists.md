@@ -27,6 +27,7 @@ removing a row requires access to every field; field selection respects module p
 | `items[i].field += value` | Numeric augmented assignment; evaluates the index once |
 | `items.copy_row(i)` | Allocation-free `Option[T]`, independent of subsequent writes |
 | `items[a:b:c]` | `Result[clist[T], AllocError]`; a [slice](../../language/04-expressions/slices.md) copying the selected rows; `items[:]?` duplicates the owner |
+| [`out.slice_clist(&items, start, stop, step)`](../../stdlib/alloc.md#copy-a-columnar-list-slice) | `Result[clist[T], AllocError]`; copies the selected rows into the output allocator, even for an empty result |
 | `items.column(T.field)` | Local, one-shot `Iter[FieldType]` borrowing the owner |
 
 Capacity growth allocates replacement storage, copies each column, and publishes

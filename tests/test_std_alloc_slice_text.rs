@@ -1,5 +1,6 @@
 use super::test_std_alloc::assert_stdout;
 use super::test_std_alloc_set_algebra::POLICY;
+use super::test_std_alloc_slice_clist::check_provider_join;
 use crate::test_support::check_error;
 
 #[test]
@@ -204,5 +205,100 @@ def main() -> ():
 "#
         ),
         "first 0 1\nsecond 0 1\nclosed\nfirst 0 1\nsecond 0 1\ndone\n",
+    );
+}
+
+// Compile only: neither the policy lock nor its FIFO may be waited on in a test.
+const TEXT: &str = r#"out.slice_text("selected text").unwrap()"#;
+const ORDINARY: &str = r#""ordinary text""#;
+const JOIN: &str = "with spawn(work, ARG).drop_job().unwrap() as task:\n        with guard.lock():\n            task.join()";
+const ENDPOINT: &str = "sender, receiver = channel[i64](1).unwrap()\n    with spawn(work, sender, ARG).drop_job().unwrap():\n        pass";
+const LOCK: &str = "worker can lock a `Mutex[i64]`";
+const WAITS: &str = "could block the worker's send";
+
+#[test]
+fn selected_text_worker_callbacks_include_construction_and_implicit_release() {
+    let factory = r#"def build(out: &alloc.Allocator) -> ():
+    drop(out.slice_text("selected text"))"#;
+    for (caller, params, diagnostic) in
+        [(JOIN, "", LOCK), (ENDPOINT, "sender: Sender[i64], ", WAITS)]
+    {
+        let worker =
+            format!("{factory}\ndef work({params}out: &alloc.Allocator) -> ():\n    build(out)");
+        check_provider_join(
+            &worker,
+            &caller.replace("ARG", "&out"),
+            ORDINARY,
+            true,
+            Some(diagnostic),
+        );
+    }
+
+    for (caller, params, diagnostic) in
+        [(JOIN, "", LOCK), (ENDPOINT, "sender: Sender[i64], ", WAITS)]
+    {
+        let worker = format!(
+            "class Message:\n    text: Option[Box[str]]\ndef work({params}message: Message) -> ():\n    pass"
+        );
+        let caller = caller.replace("ARG", "Message(Some(Box(picked).unwrap()))");
+        for (owner, registered, expected) in [
+            (TEXT, true, Some(diagnostic)),
+            (TEXT, false, None),
+            (ORDINARY, true, None),
+        ] {
+            check_provider_join(&worker, &caller, owner, registered, expected);
+        }
+    }
+}
+
+#[test]
+fn selected_text_worker_reads_and_other_owner_kinds_do_not_call_policy() {
+    let columns = "out.slice_clist(&rows).unwrap()";
+    for (ty, arg, code, owner) in [
+        ("&str", "&picked", "drop(len(value))", TEXT),
+        ("&strview", "&picked", "drop(value.byte_len())", TEXT),
+        ("str", ORDINARY, "drop(value)", columns),
+        ("clist[Row]", "rows", "drop(value)", TEXT),
+    ] {
+        for (caller, params) in [(JOIN, ""), (ENDPOINT, "sender: Sender[i64], ")] {
+            let worker = format!("def work({params}value: {ty}) -> ():\n    {code}");
+            check_provider_join(&worker, &caller.replace("ARG", arg), owner, true, None);
+        }
+    }
+}
+
+#[test]
+fn mixed_workers_do_not_attribute_local_cleanup_to_an_unrelated_borrow() {
+    // Both producers are emitted. A local owner can wait on release, but
+    // it did not bring a mutex from the caller across the task boundary.
+    for (owner, other_producer, ty, body) in [
+        (
+            TEXT,
+            "drop(out.slice_clist(&rows))",
+            "&str",
+            "drop(clist[Row]())\n    drop(len(value))",
+        ),
+        (
+            "out.slice_clist(&rows).unwrap()",
+            r#"drop(out.slice_text("selected text"))"#,
+            "&clist[Row]",
+            "text = \"ordinary\"\n    drop(text)\n    drop(value.len())",
+        ),
+    ] {
+        let worker = format!("def work(value: {ty}) -> ():\n    {body}");
+        let caller = format!("{other_producer}\n    {}", JOIN.replace("ARG", "&picked"));
+        check_provider_join(&worker, &caller, owner, true, None);
+    }
+}
+
+#[test]
+fn selected_text_pool_result_under_provider_lock_is_rejected() {
+    let caller = "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        future = pool.submit(work, picked).unwrap()\n        with guard.lock():\n            drop(future.result())";
+    check_provider_join(
+        "def work(value: str) -> ():\n    pass",
+        caller,
+        TEXT,
+        true,
+        Some("this result() waits for a job that can lock a `Mutex[i64]`"),
     );
 }

@@ -121,6 +121,7 @@ instead reads a contiguous range whose bounds are already part of the view.
 | `out.slice_bytes(view, start, stop, step)` | `__allocator_bytes_slice` → `ALLOCATOR_BYTES_SLICE` → `byte_storage::slice` with the output allocator. Normalize against the view length; copy the adjacent range or gather directly into the final packed rows, without a temporary list or index buffer. `byte_storage/buffer.rs::create_in` requests payload for the selected count (none if empty), then the owner, both through the provider. Object refusal releases provisional backing. The owner retains the provider for growth and release; a refused growth leaves the old bytes intact. No fallback. |
 | `Bytes.slice(start, stop)` | `stdlib/std/bytes.plenty`: check `0 <= start <= stop <= len` (trap, not a clamped slice), `__bytes_new(width)?`, then `__bytes_append` from a borrowed byte range. Allocation errors do not change the source. |
 | Named `clist` brackets | `ClistOp::Slice` → `slice` / `reserve` in `plenty-runtime/src/aggregates/clist.rs`. Reserve one `Columns` allocation for a nonempty result; copy one contiguous interval or gather strided primitive rows **per column**. Empty result can be null. Failed reserve leaves the source unchanged. |
+| `out.slice_clist(&rows, start, stop, step)` | `ALLOCATOR_CLIST_SLICE` → `clist::slice` normalizes bounds and copies or gathers directly into the final typed columns. One selected block contains the provenance prefix, header and all columns. Even an empty result requests a header; no heap scratch. Growth requests a replacement from the same provider, copies live columns and publishes before releasing the old block. Refusal preserves length, capacity and data, without fallback. |
 | Adjacent borrowed ranges | `&xs[a:b]`, allowed exclusive ranges and subviews lend existing storage; `&s[a:b]` lends UTF-8 by scalar bounds. No new owner, nested duplication or allocation-error result for the loan. |
 | Tuple brackets | `tuple_slice` computes literal positions in the frontend and projects non-affine components to an inline tuple (or unit). No runtime position buffer, allocator or `Result`. |
 
@@ -142,6 +143,7 @@ Evidence by path:
   scratch and refusal at the inline boundary. `selected_text_slices_keep_one_block_until_last_worker_release`
   checks cached text remains usable after source/handle drop and that final
   release on another thread returns the selected block exactly once.
+- `tests/test_std_alloc_slice_clist.rs`: mixed widths, caller privacy, selected empty growth on a worker, refusal and direct strided gathering under ordinary allocation failure.
 - `tests/test_std_alloc_slice_bytes.rs`: view-relative bounds on packed and
   list-backed inputs, loan end, provider refusal, and no ordinary scratch.
   `plenty-runtime/src/aggregates/byte_storage/tests/selected.rs` checks retained
