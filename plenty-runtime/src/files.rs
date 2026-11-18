@@ -575,7 +575,7 @@ mod tests {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     #[test]
     fn wait_ready_reports_timeout_input_hangup_and_closed_owners() {
-        use std::io::Write;
+        use std::io::{Read, Write};
         let (reader, mut writer) = std::io::pipe().unwrap();
         let mut owner = File {
             header: Header::new(destroy),
@@ -593,8 +593,11 @@ mod tests {
             assert_eq!(wait_ready(&owner, 1, 1_000_000).ok(), Some(0));
             writer.write_all(b"x").unwrap();
             assert_eq!(wait_ready(&owner, 1, 1_000_000).ok(), Some(1));
+            // Drain the byte so readable input cannot end the hangup wait early.
+            owner.file.as_ref().unwrap().read_exact(&mut [0]).unwrap();
             drop(writer);
-            assert_eq!(wait_ready(&owner, 1, 0).ok().map(|bits| bits & 4), Some(4));
+            // A concurrent fork can inherit the writer until exec closes it.
+            assert_eq!(wait_ready(&owner, 1, 1_000_000_000).ok(), Some(4));
             assert!(wait_ready(&owner, 0, 0).is_err_and(invalid));
             owner.file = None;
             assert!(wait_ready(&owner, 1, 0).is_err_and(closed));
