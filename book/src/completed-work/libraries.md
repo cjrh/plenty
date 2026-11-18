@@ -644,3 +644,13 @@ and upstream panic paths can terminate the process. The UI is not a complete
 keyboard/accessibility API. Binary redistribution is not qualified: optional
 GPUI notice generation reports 31 transitive crates missing license texts rather
 than emitting incomplete notices. Remaining scope stays under B38.
+
+## iced counter experiment
+
+`experiments/packages/iced/` links one Plenty executable against an isolated
+iced 0.14.0 support archive. Plenty renders the column, row, count label and
+buttons and handles checked updates. The iced view borrows a native snapshot,
+not Plenty state. Headless callback tests and native clicks on a private X11
+display exercise the same counter. The package README describes building,
+bounds, ownership and validation. Only this Linux x86-64 software-rendered
+slice is qualified; it does not select a framework or change `std` or the CLI.
