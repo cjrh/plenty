@@ -3,7 +3,8 @@
 `plenty-runtime/src/allocator.rs` implements B13's native storage substrate.
 The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
 compiled custom-provider registration, safe byte blocks and selected builtin
-boxes, lists (including generator collection), dictionaries and sets. Providers receive validated `Layout` requests
+boxes, lists (including generator collection), dictionaries and sets, including
+[independent set results](#independent-set-results). Providers receive validated `Layout` requests
 and return affine `ByteBlock` owners, without raw-pointer escape.
 `Allocator.box` calls the private intrinsic `__allocator_box` (opcode 658) with a
 borrowed source value. The std wrapper then commits that source with
@@ -249,18 +250,21 @@ ordinary bitset. Only the owner block needs release.
 
 ## Independent set results
 
-A private native entry point accepts two borrowed sets and a separate allocator
-for their union, intersection, difference or symmetric difference. It uses the
-ordinary membership algorithm, but builds the result and its hash index through
-the output allocator. Neither input supplies scratch storage. Compact finite sets
-keep their inline masks. Allocation failure leaves both inputs unchanged.
+The four public [`Allocator` algebra methods](../../stdlib/alloc.md#set-algebra-with-an-output-allocator)
+call std-only intrinsics (opcodes 660–663). The runtime checks the actor/arena
+guard before accessing either borrowed set, then passes both sets and the
+receiver's allocator to `try_set_algebra_in`. The ordinary membership algorithm
+counts and reserves the hash result before copying keys; the result, its index
+and any scratch allocations use the output provider. Compact finite sets combine
+their masks directly in one selected result owner.
 
-The copy routine passes the result allocator down to every new box or collection
-it constructs. Immutable text and `Shared` values retain their existing backing;
-they are not deep-copied. If a nested allocation fails, cleanup drops only the
-copies already made, not the source values. This removes the private path's
-blanket exclusion of affine keys without changing which types are legal keys.
-Public set algebra, ordinary `copy`, actor transfer and key views are unchanged.
+The recursive copy routine uses the selected allocator whenever it allocates a
+new copy. Existing shared leaves, such as immutable text, retain their backing.
+This does not widen `KeyType`: legal affine keys that can be explicitly copied
+work, but a key with custom cleanup anywhere in its type cannot be duplicated.
+If allocation fails, cleanup releases only partial output and the caller gets
+the allocation error with both inputs unchanged. Ordinary set methods, `copy`
+and key-view operations still use their ordinary allocation paths.
 
 ## Native builtin owner paths
 
@@ -382,6 +386,9 @@ returned values, take and worker rules, collector failure cleanup and capture
 loans, and selected-list result inference. `tests/test_std_alloc_dict_set.rs`
 covers structural keys, selected hash growth and cleanup on a worker, capacity
 and provider errors (including finite sets), and ordinary admission restrictions.
+`tests/test_std_alloc_set_algebra.rs` exercises the public wrappers on hash sets
+and bitsets, borrowed inputs on provider failure, result lifetime and growth on
+return from a worker, and rejection of custom cleanup, key views and actor use.
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not
 optimized. Implementation priorities remain in

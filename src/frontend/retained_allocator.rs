@@ -122,7 +122,30 @@ impl Lower<'_> {
                     Some(list),
                 )
             }
-            _ => unreachable!("checked allocator intrinsic"),
+            _ => {
+                let opcode = allocator_storage::set_algebra_opcode(name)
+                    .expect("checked allocator intrinsic");
+                let [set] = types else {
+                    return Err(at.error("allocator set algebra requires a set type"));
+                };
+                let Some(set @ Ty::Set(_)) = set.resolve(self.aliases)? else {
+                    return Err(at.error("allocator set algebra requires a set type"));
+                };
+                if crate::boxed::erasure_barrier(&set) {
+                    return Err(at.error(format!("allocator cannot construct `{set}`: hidden task/channel ownership is unsupported")));
+                }
+                let key = set.element().unwrap();
+                if !key.copy_facts().copyable {
+                    return Err(at.error(format!("set algebra requires copying keys, but {key} contains custom cleanup (__del__)")));
+                }
+                let source = Ty::Ref(Arc::new(set.clone()), false);
+                (
+                    opcode,
+                    vec![handle, source.clone(), source],
+                    Some(crate::sum::result(set.clone(), crate::sum::alloc_error())),
+                    Some(set),
+                )
+            }
         };
         if descriptor.is_none() && !types.is_empty() {
             return Err(at.error("allocator handle operations take no type arguments"));

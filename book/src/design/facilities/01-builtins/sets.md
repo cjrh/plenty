@@ -47,11 +47,16 @@ and returns `Result[set[T], AllocError]`:
 | `set.symmetric_difference(other)` | Present in exactly one input |
 
 Inputs may be the same set and remain unchanged on failure. Output is independent,
-though immutable strings can share storage. All storage for the actual result is
+though immutable strings can share storage. For these ordinary set methods, all storage for the actual result is
 reserved before copying members, including move-only class records. Hash-backed
 results use four allocations when nonempty, one for an empty owner. Small enum
 bitsets use one owner allocation regardless of membership. Arithmetic operator overloads and iterable conversions
 are not implied.
+
+To choose the result's allocator, call the corresponding
+[`std.alloc` method](../../stdlib/alloc.md#set-algebra-with-an-output-allocator),
+for example `out.union(&left, &right)?`. This form borrows two sets, not key
+views. Calling `left.union(&right)?` does not select `left`'s allocator.
 
 Keys containing `__del__` cannot be duplicated, so all four non-mutating
 algebra methods reject them, even for empty sets or a currently cleanup-free

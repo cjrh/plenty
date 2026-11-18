@@ -438,8 +438,9 @@ backlog. Async/await remains unadopted and unscheduled under B22's investigation
 The [retained system/arena experiment](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 is delivered as a separate experiment. Public [`std.alloc`](design/stdlib/alloc.md)
 now includes system and compiled custom-provider handles, validated layouts,
-safe byte blocks, selected boxes and lists (including generator collection), and
-[selected dictionary and set constructors](completed-work/language-and-tooling.md#public-selected-dictionaries-and-sets).
+safe byte blocks, selected boxes and lists (including generator collection),
+[selected dictionary and set constructors](completed-work/language-and-tooling.md#public-selected-dictionaries-and-sets),
+and [set algebra with an explicit output allocator](completed-work/language-and-tooling.md#public-selected-set-algebra).
 The [design record](proposals/allocator-experiments.md) preserves the direction
 and experimental evidence. The bounded stage-1 ownership gate delivered safe
 external block providers, a generic owned collection, typed relocation, returned
@@ -448,7 +449,8 @@ and private slot ABI remain experimental, not builtin representations.
 
 Implement the remaining work in staged PRs:
 
-3. **Complete the migration.** Extend [native selected set results](design/toolchain/02-architecture/allocator-storage.md#independent-set-results) to public set algebra using the delivered recursive copy path. Migrate other independent collection results, strings, formatting, owning slices, scratch buffers
+3. **Complete the migration.** Migrate remaining independent collection results
+   (including key-view results), strings, formatting, owning slices, scratch buffers
    and allocating std APIs. Maintain an
    allocation-site inventory and verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable

@@ -3,6 +3,17 @@
 //! these are never public raw-pointer or general-purpose forget facilities.
 use super::*;
 
+pub(super) fn set_algebra_opcode(name: &str) -> Option<i64> {
+    use crate::collection_opcodes as code;
+    Some(match name {
+        "__allocator_set_union" => code::ALLOCATOR_SET_UNION,
+        "__allocator_set_intersection" => code::ALLOCATOR_SET_INTERSECTION,
+        "__allocator_set_difference" => code::ALLOCATOR_SET_DIFFERENCE,
+        "__allocator_set_symmetric_difference" => code::ALLOCATOR_SET_SYMMETRIC_DIFFERENCE,
+        _ => return None,
+    })
+}
+
 pub(super) fn named(name: &str) -> bool {
     matches!(
         name,
@@ -25,7 +36,7 @@ pub(super) fn named(name: &str) -> bool {
             | "__allocator_block_get"
             | "__allocator_block_set"
             | "__allocator_block_split"
-    )
+    ) || set_algebra_opcode(name).is_some()
 }
 
 impl Lower<'_> {

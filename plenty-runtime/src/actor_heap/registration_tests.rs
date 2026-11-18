@@ -49,13 +49,15 @@ unsafe extern "C" fn entry(storage: *mut u8) -> *mut u8 {
     *state = Some(outside(|| reject(state.take().unwrap())));
     storage
 }
-unsafe extern "C" fn binding_entry(_: *mut u8) -> *mut u8 {
+unsafe extern "C" fn binding_entry(storage: *mut u8) -> *mut u8 {
     // Temporary system routing must not bypass a live actor recovery frame.
     outside(|| unsafe {
-        crate::allocator::bindings::operation(
-            crate::collection_opcodes::ALLOCATOR_SYSTEM,
-            0,
-            0,
+        crate::aggregates::collection_at(
+            *storage.cast::<i64>(),
+            1,
+            1,
+            1,
+            std::ptr::dangling(),
             std::ptr::null(),
         );
     });
@@ -103,12 +105,22 @@ fn probe() {
     assert_eq!(drops.load(Ordering::Relaxed), 0);
     drop(accepted);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
-    let heap = native::create(65536);
-    assert!(heap >= 0);
-    let status = unsafe { native::plenty_actor_run(heap, std::ptr::null_mut(), binding_entry) };
-    assert_ne!(status, 0, "binding admitted an active actor recovery frame");
-    assert_eq!(native::discard(heap), 0);
-    assert!(allocator_registration_allowed());
+    use crate::collection_opcodes::{
+        ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
+    };
+    for mut op in [ALLOCATOR_SYSTEM]
+        .into_iter()
+        .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
+    {
+        let heap = native::create(65536);
+        assert!(heap >= 0);
+        let status = unsafe {
+            native::plenty_actor_run(heap, std::ptr::from_mut(&mut op).cast(), binding_entry)
+        };
+        assert_ne!(status, 0, "allocator opcode {op} admitted actor recovery");
+        assert_eq!(native::discard(heap), 0);
+        assert!(allocator_registration_allowed());
+    }
     for mut op in crate::collection_opcodes::ALLOCATOR_BLOCK
         ..=crate::collection_opcodes::ALLOCATOR_BLOCK_SPLIT
     {

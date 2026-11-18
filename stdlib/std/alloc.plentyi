@@ -113,6 +113,18 @@ pub class Allocator:
     pub def set_with_capacity[T: KeyType](self, capacity: i64) -> Result[set[T], AllocError]:
         __allocator_dict_set[set[T]](self._handle, capacity)
 
+    pub def union[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]:
+        __allocator_set_union[set[K]](self._handle, left, right)
+
+    pub def intersection[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]:
+        __allocator_set_intersection[set[K]](self._handle, left, right)
+
+    pub def difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]:
+        __allocator_set_difference[set[K]](self._handle, left, right)
+
+    pub def symmetric_difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]:
+        __allocator_set_symmetric_difference[set[K]](self._handle, left, right)
+
 pub def system() -> Allocator:
     Allocator(__allocator_system())
 

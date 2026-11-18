@@ -7,6 +7,21 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected set algebra
+
+[`Allocator.union`, `intersection`, `difference` and `symmetric_difference`](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
+let callers choose the provider for an independent result rather than relying on
+ordinary set allocation. Both sets stay borrowed and unchanged on error. The
+result, scratch storage and newly allocated key copies use the chosen provider;
+existing shared leaves retain their backing. Legal affine keys need not be
+`@copy`; keys with custom cleanup and dictionary key views are not accepted.
+
+`tests/test_std_alloc_set_algebra.rs` covers the four public calls on hash sets
+and bitsets, partial provider failure, worker borrows, result lifetime and type
+restrictions. The [allocation lesson](../tutorial/04-collections/allocation.md#choose-storage-for-a-set-result)
+shows how to select an allocator for a difference. Other independent collection
+results and implicit allocation paths remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+
 ### Private selected set algebra
 
 The native runtime can build an independent result with a provider distinct
@@ -15,7 +30,7 @@ result lifetime after input destruction, and compact finite sets. This covers
 four operations on borrowed ordinary sets. Recursive copying now uses the
 result allocator for new boxes and collections while retaining shared leaves.
 Native tests cover a legal affine record key and, separately, all 21 allocation
-failure points in a nested dictionary copy. No public binding has changed. See [independent set results](../design/toolchain/02-architecture/allocator-storage.md#independent-set-results).
+failure points in a nested dictionary copy. This initial increment changed no public binding. See [independent set results](../design/toolchain/02-architecture/allocator-storage.md#independent-set-results).
 
 ### Public selected dictionaries and sets
 

@@ -24,6 +24,8 @@ mod test_std_alloc;
 mod test_std_alloc_consumers;
 #[path = "test_std_alloc_dict_set.rs"]
 mod test_std_alloc_dict_set;
+#[path = "test_std_alloc_set_algebra.rs"]
+mod test_std_alloc_set_algebra;
 
 #[path = "test_pipelines.rs"]
 mod test_pipelines;

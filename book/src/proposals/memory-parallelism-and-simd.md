@@ -48,8 +48,9 @@ are not packed numeric arrays, and ordinary loops remain serial.
 
 Public selected owners retain allocator provenance for their own backing; see
 [retained allocator storage](../design/toolchain/02-architecture/allocator-storage.md).
-Independent copies, set-algebra results and nested allocations do not inherit
-the selection. Scoped/resettable arenas are a separate lifetime question.
+Independent copies and ordinary set-algebra results do not inherit an input's
+allocator. The [algebra methods on `Allocator`](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
+explicitly select a provider for the result and any new key-copy storage. Scoped/resettable arenas are a separate lifetime question.
 Bounded containers can build on [fixed inline arrays](../design/language/03-types/arrays.md). These remaining contracts keep this proposal partly
 implemented. Scope and priorities belong in [B13/B23/B24/B83](../backlog.md).
 

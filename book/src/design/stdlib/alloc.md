@@ -114,8 +114,35 @@ The [ordinary collection rules](../facilities/01-builtins/collections.md) apply:
 keys and members must satisfy `KeyType`; dictionary values must be heap-storable.
 For example, a reference or generator cannot be a stored value, and hidden task
 or channel ownership is rejected. Selecting a table does not select storage for
-nested values, even a string key constructed from bytes. Independent copies and
-set-algebra results do not inherit this selection.
+nested values, even a string key constructed from bytes. Neither `copy` nor
+ordinary set methods inherit an input's allocator for their result.
+
+### Set algebra with an output allocator
+
+| Signature | Members of the result |
+| --- | --- |
+| `Allocator.union[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]` | In either set |
+| `Allocator.intersection[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]` | In both sets |
+| `Allocator.difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]` | In `left` but not `right` |
+| `Allocator.symmetric_difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]` | In exactly one set |
+
+For `out.union(&a, &b)`, `out` chooses the provider. The two borrowed sets may
+use different providers; neither is chosen implicitly. Both must have the same
+key type. Unlike the [ordinary set methods](../facilities/01-builtins/sets.md#set-algebra),
+these methods do not accept dictionary key views.
+
+`K: KeyType` alone does not guarantee that a key can be duplicated. A legal
+affine record key that supports explicit copying works without `@copy`. A key
+with custom cleanup (`__del__`), even in a nested field or variant payload, is
+rejected at compile time, even if the input sets are empty.
+
+The result is an independent `set[K]` that retains `out`'s provider for growth
+and cleanup. Result storage, any scratch storage and any new allocations needed
+to copy keys use that provider. Already shared leaves such as immutable strings
+retain their existing backing. A finite-domain bitset needs just the result
+owner allocation. If allocation fails, the operation releases partial output
+and returns the `AllocError` without fallback. Both inputs remain unchanged on
+success and failure.
 
 ### Selected boxes and collection
 

@@ -22,94 +22,94 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.actor.net`](#stdactornet): 193-256
 - [`std.actor.tls`](#stdactortls): 258-287
 - [`std.actor.http.server`](#stdactorhttpserver): 289-352
-- [`std.alloc`](#stdalloc): 354-392
-- [`std.archive`](#stdarchive): 394-460
-- [`std.atomic`](#stdatomic): 462-471
-- [`std.bigint`](#stdbigint): 473-507
-- [`std.bytes`](#stdbytes): 509-581
-- [`std.cache.lru`](#stdcachelru): 583-605
-- [`std.channel`](#stdchannel): 607-611
-- [`std.cli`](#stdcli): 613-643
-- [`std.cli.fileinput`](#stdclifileinput): 645-654
-- [`std.cli.progress`](#stdcliprogress): 656-680
-- [`std.collections`](#stdcollections): 682-709
-- [`std.complex`](#stdcomplex): 711-737
-- [`std.compress`](#stdcompress): 739-769
-- [`std.concurrent`](#stdconcurrent): 771-775
-- [`std.crypto`](#stdcrypto): 777-858
-- [`std.csv`](#stdcsv): 860-923
-- [`std.dataframe`](#stddataframe): 925-1124
-- [`std.db.kv`](#stddbkv): 1126-1158
-- [`std.db.sqlite`](#stddbsqlite): 1160-1224
-- [`std.deque`](#stddeque): 1226-1240
-- [`std.experimental.alloc`](#stdexperimentalalloc): 1242-1288
-- [`std.diff`](#stddiff): 1290-1319
-- [`std.encoding`](#stdencoding): 1321-1388
-- [`std.env`](#stdenv): 1390-1404
-- [`std.error`](#stderror): 1406-1427
-- [`std.fmt`](#stdfmt): 1429-1496
-- [`std.fs`](#stdfs): 1498-1599
-- [`std.fs.dirs`](#stdfsdirs): 1601-1611
-- [`std.fs.lock`](#stdfslock): 1613-1628
-- [`std.fs.watch`](#stdfswatch): 1630-1665
-- [`std.graph`](#stdgraph): 1667-1755
-- [`std.http`](#stdhttp): 1757-1828
-- [`std.http.decoder`](#stdhttpdecoder): 1830-1847
-- [`std.http.body`](#stdhttpbody): 1849-1884
-- [`std.http.client`](#stdhttpclient): 1886-1996
-- [`std.http.cookie`](#stdhttpcookie): 1998-2030
-- [`std.http.files`](#stdhttpfiles): 2032-2045
-- [`std.http.https`](#stdhttphttps): 2047-2061
-- [`std.http.proxy`](#stdhttpproxy): 2063-2084
-- [`std.http.server`](#stdhttpserver): 2086-2187
-- [`std.http.sse`](#stdhttpsse): 2189-2208
-- [`std.http.tls`](#stdhttptls): 2210-2227
-- [`std.http.typed`](#stdhttptyped): 2229-2262
-- [`std.http.websocket`](#stdhttpwebsocket): 2264-2299
-- [`std.http.wss`](#stdhttpwss): 2301-2307
-- [`std.image`](#stdimage): 2309-2355
-- [`std.io`](#stdio): 2357-2463
-- [`std.io.typed`](#stdiotyped): 2465-2503
-- [`std.serial`](#stdserial): 2505-2571
-- [`std.json`](#stdjson): 2573-2725
-- [`std.jwt`](#stdjwt): 2727-2774
-- [`std.log`](#stdlog): 2776-2843
-- [`std.markdown`](#stdmarkdown): 2845-2879
-- [`std.template`](#stdtemplate): 2881-2918
-- [`std.math`](#stdmath): 2920-2991
-- [`std.mime`](#stdmime): 2993-3019
-- [`std.net`](#stdnet): 3021-3103
-- [`std.path`](#stdpath): 3105-3122
-- [`std.process`](#stdprocess): 3124-3183
-- [`std.random`](#stdrandom): 3185-3206
-- [`std.ready`](#stdready): 3208-3239
-- [`std.regex`](#stdregex): 3241-3294
-- [`std.report`](#stdreport): 3296-3307
-- [`std.secrets`](#stdsecrets): 3309-3335
-- [`std.shlex`](#stdshlex): 3337-3346
-- [`std.sketch`](#stdsketch): 3348-3386
-- [`std.sketch.xor`](#stdsketchxor): 3388-3399
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3401-3416
-- [`std.signal`](#stdsignal): 3418-3435
-- [`std.simd`](#stdsimd): 3437-3596
-- [`std.stat`](#stdstat): 3598-3631
-- [`std.plot`](#stdplot): 3633-3722
-- [`std.linalg`](#stdlinalg): 3724-3765
-- [`std.sync`](#stdsync): 3767-3799
-- [`std.system`](#stdsystem): 3801-3860
-- [`std.tempfile`](#stdtempfile): 3862-3894
-- [`std.test`](#stdtest): 3896-3938
-- [`std.text`](#stdtext): 3940-3983
-- [`std.thread`](#stdthread): 3985-3989
-- [`std.time`](#stdtime): 3991-4035
-- [`std.tls`](#stdtls): 4037-4119
-- [`std.toml`](#stdtoml): 4121-4220
-- [`std.unicode`](#stdunicode): 4222-4234
-- [`std.units`](#stdunits): 4236-4473
-- [`std.units.catalogue`](#stdunitscatalogue): 4475-5253
-- [`std.url`](#stdurl): 5255-5283
-- [`std.uuid`](#stduuid): 5285-5308
-- [`std.xml`](#stdxml): 5310-5343
+- [`std.alloc`](#stdalloc): 354-396
+- [`std.archive`](#stdarchive): 398-464
+- [`std.atomic`](#stdatomic): 466-475
+- [`std.bigint`](#stdbigint): 477-511
+- [`std.bytes`](#stdbytes): 513-585
+- [`std.cache.lru`](#stdcachelru): 587-609
+- [`std.channel`](#stdchannel): 611-615
+- [`std.cli`](#stdcli): 617-647
+- [`std.cli.fileinput`](#stdclifileinput): 649-658
+- [`std.cli.progress`](#stdcliprogress): 660-684
+- [`std.collections`](#stdcollections): 686-713
+- [`std.complex`](#stdcomplex): 715-741
+- [`std.compress`](#stdcompress): 743-773
+- [`std.concurrent`](#stdconcurrent): 775-779
+- [`std.crypto`](#stdcrypto): 781-862
+- [`std.csv`](#stdcsv): 864-927
+- [`std.dataframe`](#stddataframe): 929-1128
+- [`std.db.kv`](#stddbkv): 1130-1162
+- [`std.db.sqlite`](#stddbsqlite): 1164-1228
+- [`std.deque`](#stddeque): 1230-1244
+- [`std.experimental.alloc`](#stdexperimentalalloc): 1246-1292
+- [`std.diff`](#stddiff): 1294-1323
+- [`std.encoding`](#stdencoding): 1325-1392
+- [`std.env`](#stdenv): 1394-1408
+- [`std.error`](#stderror): 1410-1431
+- [`std.fmt`](#stdfmt): 1433-1500
+- [`std.fs`](#stdfs): 1502-1603
+- [`std.fs.dirs`](#stdfsdirs): 1605-1615
+- [`std.fs.lock`](#stdfslock): 1617-1632
+- [`std.fs.watch`](#stdfswatch): 1634-1669
+- [`std.graph`](#stdgraph): 1671-1759
+- [`std.http`](#stdhttp): 1761-1832
+- [`std.http.decoder`](#stdhttpdecoder): 1834-1851
+- [`std.http.body`](#stdhttpbody): 1853-1888
+- [`std.http.client`](#stdhttpclient): 1890-2000
+- [`std.http.cookie`](#stdhttpcookie): 2002-2034
+- [`std.http.files`](#stdhttpfiles): 2036-2049
+- [`std.http.https`](#stdhttphttps): 2051-2065
+- [`std.http.proxy`](#stdhttpproxy): 2067-2088
+- [`std.http.server`](#stdhttpserver): 2090-2191
+- [`std.http.sse`](#stdhttpsse): 2193-2212
+- [`std.http.tls`](#stdhttptls): 2214-2231
+- [`std.http.typed`](#stdhttptyped): 2233-2266
+- [`std.http.websocket`](#stdhttpwebsocket): 2268-2303
+- [`std.http.wss`](#stdhttpwss): 2305-2311
+- [`std.image`](#stdimage): 2313-2359
+- [`std.io`](#stdio): 2361-2467
+- [`std.io.typed`](#stdiotyped): 2469-2507
+- [`std.serial`](#stdserial): 2509-2575
+- [`std.json`](#stdjson): 2577-2729
+- [`std.jwt`](#stdjwt): 2731-2778
+- [`std.log`](#stdlog): 2780-2847
+- [`std.markdown`](#stdmarkdown): 2849-2883
+- [`std.template`](#stdtemplate): 2885-2922
+- [`std.math`](#stdmath): 2924-2995
+- [`std.mime`](#stdmime): 2997-3023
+- [`std.net`](#stdnet): 3025-3107
+- [`std.path`](#stdpath): 3109-3126
+- [`std.process`](#stdprocess): 3128-3187
+- [`std.random`](#stdrandom): 3189-3210
+- [`std.ready`](#stdready): 3212-3243
+- [`std.regex`](#stdregex): 3245-3298
+- [`std.report`](#stdreport): 3300-3311
+- [`std.secrets`](#stdsecrets): 3313-3339
+- [`std.shlex`](#stdshlex): 3341-3350
+- [`std.sketch`](#stdsketch): 3352-3390
+- [`std.sketch.xor`](#stdsketchxor): 3392-3403
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3405-3420
+- [`std.signal`](#stdsignal): 3422-3439
+- [`std.simd`](#stdsimd): 3441-3600
+- [`std.stat`](#stdstat): 3602-3635
+- [`std.plot`](#stdplot): 3637-3726
+- [`std.linalg`](#stdlinalg): 3728-3769
+- [`std.sync`](#stdsync): 3771-3803
+- [`std.system`](#stdsystem): 3805-3864
+- [`std.tempfile`](#stdtempfile): 3866-3898
+- [`std.test`](#stdtest): 3900-3942
+- [`std.text`](#stdtext): 3944-3987
+- [`std.thread`](#stdthread): 3989-3993
+- [`std.time`](#stdtime): 3995-4039
+- [`std.tls`](#stdtls): 4041-4123
+- [`std.toml`](#stdtoml): 4125-4224
+- [`std.unicode`](#stdunicode): 4226-4238
+- [`std.units`](#stdunits): 4240-4477
+- [`std.units.catalogue`](#stdunitscatalogue): 4479-5257
+- [`std.url`](#stdurl): 5259-5287
+- [`std.uuid`](#stduuid): 5289-5312
+- [`std.xml`](#stdxml): 5314-5347
 
 ## `std.actor`
 
@@ -353,7 +353,7 @@ def serve_tls_events[F: Callable[[], Result[H, FE]], H: Handler[M, HE], M, FE, H
 
 ## `std.alloc`
 
-Retained system and custom allocators for boxes, lists (including generator collection), dictionaries, sets and safe byte blocks; allocation-free layouts. Errors: `AllocError`, `BoxError[T]`, `LayoutError`, `RegistrationError[P]`. [Reference](alloc.md).
+Retained system and custom allocators for boxes, lists (including generator collection), dictionaries, sets and safe byte blocks; explicit output allocator for set algebra; allocation-free layouts. Errors: `AllocError`, `BoxError[T]`, `LayoutError`, `RegistrationError[P]`. [Reference](alloc.md).
 
 ```text
 enum LayoutError
@@ -382,6 +382,10 @@ class Allocator
     def dict_with_capacity[K: KeyType, V](self, capacity: i64) -> Result[dict[K, V], AllocError]
     def empty_set[T: KeyType](self) -> Result[set[T], AllocError]
     def set_with_capacity[T: KeyType](self, capacity: i64) -> Result[set[T], AllocError]
+    def union[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]
+    def intersection[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]
+    def difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]
+    def symmetric_difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]
 def system() -> Allocator
 protocol Provider
     def allocate(self: &mut Provider, request: &Layout) -> Result[ByteBlock, AllocError]

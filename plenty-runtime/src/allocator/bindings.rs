@@ -5,12 +5,17 @@ use crate::aggregates::{Type, allocator_owners};
 use crate::collection_opcodes::*;
 
 #[inline(always)]
-pub(crate) unsafe fn operation(op: i64, a: u128, b: u128, ty: *const Type) -> u128 {
+pub(crate) unsafe fn borrow_handle(a: u128) -> ManuallyDrop<Allocator> {
     // Check before touching ownership or allocating. Separately compiled hosts
     // must also keep retained owners out of actor/arena contexts.
     if !crate::actor_heap::allocator_registration_allowed() {
         crate::fail("retained allocator use is unsupported in actor or arena contexts");
     }
+    ManuallyDrop::new(Allocator(NonNull::new(a as *mut ProviderHeader)))
+}
+
+#[inline(always)]
+pub(crate) unsafe fn operation(op: i64, a: u128, b: u128, ty: *const Type) -> u128 {
     let into_handle = |allocator: Allocator| {
         let pointer = allocator.0.map_or(std::ptr::null_mut(), NonNull::as_ptr);
         std::mem::forget(allocator);
@@ -18,7 +23,7 @@ pub(crate) unsafe fn operation(op: i64, a: u128, b: u128, ty: *const Type) -> u1
     };
     // SAFETY: generated std code passes null or a live retained header. This
     // temporary only borrows that reference except for the explicit release.
-    let handle = ManuallyDrop::new(Allocator(NonNull::new(a as *mut ProviderHeader)));
+    let handle = unsafe { borrow_handle(a) };
     match op {
         ALLOCATOR_SYSTEM => into_handle(Allocator::system()),
         ALLOCATOR_SHARE => into_handle(Allocator::clone(&handle)),

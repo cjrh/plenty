@@ -204,7 +204,7 @@ impl CopyDestination<'_> {
 /// As for the selected constructors, the caller must be outside actor/arena
 /// contexts. Both borrows must be local sets of the same legal, copyable key
 /// type. Key views need a separate result descriptor.
-unsafe fn try_set_algebra_in(
+pub(super) unsafe fn try_set_algebra_in(
     allocator: &Allocator,
     left: &Collection,
     right: &Collection,
