@@ -15,7 +15,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 
 Binary: `label`. The label reads **Ready** from state on each draw. There is no label handle to keep or update.
 
-```plenty
+```plenty fragment
 {{#include ../../../../examples/gui/egui_widgets/src/label.plenty}}
 ```
 
@@ -23,7 +23,7 @@ Binary: `label`. The label reads **Ready** from state on each draw. There is no 
 
 Binary: `button`. Click **Approve**. The successful `true` response changes **Waiting** to **Approved** before the label is drawn in the same pass. A later redraw keeps the new text without replaying the click.
 
-```plenty
+```plenty fragment
 {{#include ../../../../examples/gui/egui_widgets/src/button.plenty}}
 ```
 
@@ -31,6 +31,6 @@ Binary: `button`. Click **Approve**. The successful `true` response changes **Wa
 
 Binary: `text_edit`. Edit **Ada** and watch the label echo the current name without pressing Enter. Plain Enter also shows **Submitted** for that draw only. The fixed ID follows this field across redraws; the name itself must not be the ID.
 
-```plenty
+```plenty fragment
 {{#include ../../../../examples/gui/egui_widgets/src/text_edit.plenty}}
 ```
