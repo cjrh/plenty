@@ -90,6 +90,7 @@ nav a {
 }
 
 .hero-with-logo {
+  padding-bottom: 40px;
   display: grid;
   grid-template-columns: minmax(0, 1.8fr) minmax(200px, .8fr);
   gap: 34px;
@@ -181,6 +182,69 @@ h1 span {
   font-size: 0.8125rem;
 }
 
+.language-example {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 52px);
+  align-items: center;
+  padding-bottom: 52px;
+}
+
+.example-code {
+  margin: 0;
+  padding: 20px 24px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111f37;
+  font: 0.875rem/1.65 ui-monospace, monospace;
+  tab-size: 4;
+}
+
+.example-code:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.example-code code {
+  font: inherit;
+}
+
+.code-keyword {
+  color: #ffa387;
+}
+
+.code-string {
+  color: #95e6cb;
+}
+
+.code-variant {
+  color: #ffe482;
+}
+
+.example-notes ul {
+  margin: 16px 0 0;
+  padding-inline-start: 1.25em;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.example-notes li + li {
+  margin-top: 10px;
+}
+
+.example-notes li::marker {
+  color: var(--accent);
+}
+
+.example-notes strong {
+  color: var(--ink);
+}
+
+.example-notes code {
+  color: var(--link);
+}
+
 .principles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -251,6 +315,10 @@ h2 {
     gap: 16px;
   }
 
+  .language-example {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .hero-logo {
     grid-column: 1;
     grid-row: 1;
@@ -285,6 +353,18 @@ h2 {
 
   .hero {
     padding: 66px 0 56px;
+  }
+
+  .hero-with-logo {
+    padding-bottom: 32px;
+  }
+
+  .language-example {
+    padding-bottom: 36px;
+  }
+
+  .example-code {
+    padding: 16px;
   }
 
   h1 {

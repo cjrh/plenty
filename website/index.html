@@ -34,6 +34,31 @@
           <p class="release-link"><a href="https://github.com/plentylang/plenty/releases">Download Plenty <span aria-hidden="true">↗</span></a></p>
         </div>
       </section>
+      <section class="language-example" aria-labelledby="example-title">
+        <pre class="example-code" tabindex="0" aria-label="Plenty source code"><code class="language-plenty"><span class="code-keyword">def</span> first_warning(lines: &amp;[str]) -&gt; Option[str]:
+    <span class="code-keyword">for</span> line <span class="code-keyword">in</span> lines:
+        <span class="code-keyword">if</span> line.startswith(<span class="code-string">"WARN "</span>):
+            <span class="code-keyword">return</span> <span class="code-variant">Some</span>(*line)
+    <span class="code-variant">Nothing</span>
+
+<span class="code-keyword">def</span> main() -&gt; Result[(), AllocError | IoError]:
+    lines = [<span class="code-string">"INFO Ready"</span>, <span class="code-string">"WARN Disk almost full"</span>]<span class="code-variant">?</span>
+    <span class="code-keyword">match</span> first_warning(&amp;lines):
+        <span class="code-keyword">case</span> <span class="code-variant">Some</span>(warning):
+            print(warning)<span class="code-variant">?</span>
+        <span class="code-keyword">case</span> <span class="code-variant">Nothing</span>:
+            print(<span class="code-string">"No warnings"</span>)<span class="code-variant">?</span>
+    <span class="code-variant">Ok</span>(())</code></pre>
+        <div class="example-notes">
+          <h2 id="example-title">Find the first warning</h2>
+          <ul>
+            <li><strong>Pythonic syntax.</strong> Indentation, a <code>for</code> loop, and a list literal keep the search readable.</li>
+            <li><strong>Rust-style sum types.</strong> <code>Option</code> represents a warning or its absence. <code>match</code> handles both.</li>
+            <li><strong>Fallible allocation.</strong> The list literal can fail. <code>?</code> passes that error back as part of <code>Result</code>.</li>
+            <li><strong>Checked borrowing.</strong> <code>&amp;lines</code> lets the search read the list without copying it or taking ownership.</li>
+          </ul>
+        </div>
+      </section>
       <section class="principles" aria-label="Why Plenty">
         <article>
           <h2>Familiar shape</h2>
