@@ -7,6 +7,20 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected list slices
+
+[`Allocator.slice`](../design/stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator)
+lets callers choose storage for selected list elements without first copying
+an entire list. It borrows the input and uses bracket bounds and copy rules;
+`Unset.Unset` represents an omitted bound without reserving any `i64` value.
+The [allocation lesson](../tutorial/04-collections/allocation.md#copy-selected-list-elements)
+shows why an omitted reverse stop differs from `-1`.
+
+`tests/test_std_alloc_slice.rs` covers public calls and rejection cases. The
+[allocation-site inventory](../design/toolchain/02-architecture/allocation-sites.md#owning-slices-and-their-non-owning-lookalikes)
+identifies separate native tests of retained growth, shared leaves and rollback.
+Other owning slice paths remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+
 ### Public selected key-view conversion
 
 [`out.to_set(view)`](../design/stdlib/alloc.md#copy-dictionary-keys-into-a-set)

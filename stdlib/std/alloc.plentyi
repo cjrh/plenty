@@ -67,6 +67,17 @@ pub class ByteBlock:
 pub enum BoxError[T]:
     Allocation(T, AllocError)
 
+@copy
+pub enum Unset:
+    Unset
+
+def _slice_bound(bound: i64 | Unset) -> Option[i64]:
+    match bound:
+        case index: i64:
+            Some(index)
+        case _:
+            Nothing
+
 pub class Allocator:
     _handle: Handle
 
@@ -97,6 +108,9 @@ pub class Allocator:
         for value in source:
             output.append(value)?
         Ok(output)
+
+    pub def slice[T](self, source: &list[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[list[T], AllocError]:
+        __allocator_list_slice[T](self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
     pub def empty_list[T](self) -> Result[list[T], AllocError]:
         __allocator_list[T](self._handle, 0)

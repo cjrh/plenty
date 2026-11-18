@@ -86,6 +86,41 @@ for invalid configuration rather than requiring a prevalidated integer domain.
 | `Allocator.empty_list[T](self) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with zero row capacity. Object and bookkeeping storage still allocate. |
 | `Allocator.list_with_capacity[T](self, capacity: i64) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with at least the requested element capacity. Zero is valid; negative or unrepresentable capacity returns `CapacityOverflow`. |
 
+### Copy a list slice with an output allocator
+
+`Allocator.slice[T](self, source: &list[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[list[T], AllocError]`
+borrows the allocator and the source. `out.slice(&xs, a, b, k)?` copies the
+same elements, in the same order, as `xs[a:b:k]?`, but selects `out` for the
+new list. Neither form inherits the source list's provider.
+
+`Unset` is a copyable enum with one variant, `Unset.Unset`. Passing it for
+`start` or `stop` is the same as omitting that argument. Integer bounds count
+from the end when negative and clamp to the list, with an exclusive stop.
+With a positive step the default range runs from zero to the length. With a
+negative step it runs from the last element to *before* the first; `stop=-1`
+instead names the last element. A nonzero step literal converts implicitly;
+`0` is a compile error. For a computed `i64`, use `NonZero.try_from(k)?`:
+zero returns `RangeError.OutOfRange` at the conversion, not at `slice`.
+
+Only selected elements are duplicated. As in a [list bracket slice](../language/04-expressions/slices.md#receivers-and-results),
+`T` need not be `CopyType`, but its owned parts must support explicit copying:
+recursive owned data and custom destructors are rejected even for an empty
+range. Elements cannot carry loans. Newly copied boxes and collections use
+`out` throughout; immutable text can keep its backing, and each `Shared` handle
+(including a whole list element) shares the same content.
+
+The result has at most `len(source)` elements. Even an empty result allocates
+its list object and bookkeeping. New owners retain the output provider for
+growth and cleanup after the source and handle are dropped. An unrepresentable
+allocation size returns `CapacityOverflow`; a provider refusal returns that
+provider's `AllocError` without fallback. Either failure releases partial
+copies and leaves the source intact.
+
+This method takes a list, not a slice view, text, bytes or a columnar list.
+Use `&xs[a:b]` to borrow a contiguous range without allocating. The two-bound
+[list method](../facilities/01-builtins/lists.md#slices) `temporary.slice(a, b)` can
+transfer affine elements with their existing storage instead of copying them.
+
 ### Dictionaries and sets
 
 | Signature | Result on success |
@@ -376,7 +411,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 There is no ambient selected allocator or fallback selection in this API.
 Ordinary constructors keep their existing paths. Selecting an owner changes
 where it obtains its backing, not where the surrounding code allocates. For
-example, ordinary `copy(value)`, `view.to_set()`, owning slices,
+example, ordinary `copy(value)`, `view.to_set()`, bracket slices,
 sorting scratch space and allocations made while producing elements or boxed
 content are not redirected. `out.copy(&value)` selects only the copy itself;
 it does not select storage for an expression that constructs `value`.

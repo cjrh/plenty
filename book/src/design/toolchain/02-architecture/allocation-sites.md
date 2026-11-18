@@ -102,13 +102,14 @@ failure and growth after the source and allocator handle are dropped.
 ## Owning slices and their non-owning lookalikes
 
 `src/frontend/slices.rs` dispatches on the receiver, not just the syntax.
-None of these materializers takes a selected allocator. Runtime bracket paths
+Only `out.slice(&xs, ...)` takes an output allocator. It and runtime bracket paths
 compute `(first, step, count)` with `slice_positions`, not a heap list of
 positions. The following distinctions matter even when the step is one.
 
 | Surface | Destination, nested data and failure |
 | --- | --- |
-| List brackets `xs[a:b:k]` | `ListSlice` → `try_list_slice_stepped`: ordinary list reserved for the exact count. Plain rows copy in bulk for adjacent positions or gather directly. Managed elements use `try_copy_into(..., Ordinary)` in their final rows. On failure the current slot is cleared and the guard drops the initialized prefix. Source is only read. |
+| List brackets `xs[a:b:k]` | `ListSlice` → `try_list_slice_stepped`: ordinary list reserved for the selected count. Only adjacent rows whose elements own nothing and have no inline payload copy in bulk. Typed insertion gathers other rows and gives inline payloads destination-local addresses. Managed elements use `try_copy_into(..., Ordinary)` in their final rows. On failure the current slot is cleared and the guard drops the initialized prefix. Source is only read. |
+| `out.slice(&xs, start, stop, step)` | `__allocator_list_slice` → `ALLOCATOR_LIST_SLICE` → `try_list_slice_stepped(..., Selected)`. Reserves for the selected count; even an empty list gets selected bookkeeping and object storage. Managed rows use the same destination recursively for new boxes and collections; text and `Shared` leaves can retain their backing. Provider refusal unwinds partial rows and storage without changing `xs` or trying another provider. |
 | List method `xs.slice(a, b)` | Opcode 45 → `try_list_slice`: clamp and reserve an ordinary result list before any transfer. Retain non-affine elements; for affine elements the receiver must be a unique temporary. Move the selected elements **with their existing backing** and let temporary cleanup drop the rest (all on failed reserve). Not bracket deep-copy semantics. |
 | List-view materialization | `view_slice` constructs an adjacent subview; `view_copy` / `view_share` in `src/frontend/view_methods.plenty` create an ordinary empty list, reserve and append `copy(element)?` or `element.share()`. Partial lists drop on error, the view is only read. No explicit step here; for a byte view choose `list(&v[a:b])?` or extend a `Bytes`. |
 | `str.slice(a, b)`, text brackets and text-view copies | In `plenty-runtime/src/strings.rs`, the method uses `try_slice` / `scalar_range`; brackets use `try_stepped_slice`. For adjacent scalars copy the UTF-8 interval; for strided ASCII gather bytes, otherwise count encoded bytes and fill the final output in forward or reverse order. Short results can be inline; no gathered-character buffer. A view's `[:]` uses `TEXT_VIEW_COPY` in `aggregates/text_views.rs`; bounded/stepped copies use `try_stepped_slice_range` via `aggregates/text_ranges.rs` (both under `plenty-runtime/src/`). Only the owned text can require allocation; failure preserves the input. |
@@ -132,4 +133,9 @@ Evidence by path:
 - `tests/test_std_bytes.rs`: `ranges_follow_one_rule_without_clamping_or_negative_offsets`
   and `second_allocation_failure_releases_the_first`.
 
-These slice failure tests exercise ordinary allocation, not selected storage.
+For **selected** list slices, `plenty-runtime/src/aggregates/allocator_owners/tests/list_slice.rs`
+checks growth through the retained provider, each refusal in a nested copy,
+shared leaves and source independence. It also checks that ordinary brackets do
+not inherit a selected source provider. `tests/test_std_alloc_slice.rs` covers
+the public method: default and explicit bounds, step refinement, worker loans,
+provider refusal and result lifetime.

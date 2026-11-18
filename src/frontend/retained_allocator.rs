@@ -130,6 +130,32 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_list_slice" => {
+                let [element] = types else {
+                    return Err(at.error("allocator slice requires one element type"));
+                };
+                let element = element.resolve(self.aliases)?.unwrap_or(Ty::Unit);
+                if element.carries_loan() {
+                    return Err(at.error(format!(
+                        "Allocator.slice result cannot carry a loan: `{element}`"
+                    )));
+                }
+                let list = Ty::List(Arc::new(element.clone()));
+                self.check_slice_element(&list, &element, at)?;
+                let bound = crate::sum::option(Ty::I64);
+                (
+                    code::ALLOCATOR_LIST_SLICE,
+                    vec![
+                        handle,
+                        Ty::Ref(Arc::new(list.clone()), false),
+                        bound.clone(),
+                        bound,
+                        Ty::I64,
+                    ],
+                    Some(crate::sum::result(list.clone(), crate::sum::alloc_error())),
+                    Some(list),
+                )
+            }
             "__allocator_list" => {
                 let [element] = types else {
                     return Err(at.error("allocator list requires one element type"));

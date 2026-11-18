@@ -52,11 +52,10 @@ unsafe extern "C" fn entry(storage: *mut u8) -> *mut u8 {
 unsafe extern "C" fn binding_entry(storage: *mut u8) -> *mut u8 {
     // Temporary system routing must not bypass a live actor recovery frame.
     outside(|| unsafe {
-        crate::aggregates::collection_at(
+        let mut args = [1u128; 6];
+        crate::aggregates::operation(
             *storage.cast::<i64>(),
-            1,
-            1,
-            1,
+            args.as_mut_ptr(),
             std::ptr::dangling(),
             std::ptr::null(),
         );
@@ -106,12 +105,17 @@ fn probe() {
     drop(accepted);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
     use crate::collection_opcodes::{
-        ALLOCATOR_COPY, ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_SET_SYMMETRIC_DIFFERENCE,
-        ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
+        ALLOCATOR_COPY, ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_LIST_SLICE,
+        ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
     };
-    for mut op in [ALLOCATOR_SYSTEM, ALLOCATOR_COPY, ALLOCATOR_KEY_VIEW_TO_SET]
-        .into_iter()
-        .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
+    for mut op in [
+        ALLOCATOR_SYSTEM,
+        ALLOCATOR_COPY,
+        ALLOCATOR_KEY_VIEW_TO_SET,
+        ALLOCATOR_LIST_SLICE,
+    ]
+    .into_iter()
+    .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
     {
         let heap = native::create(65536);
         assert!(heap >= 0);

@@ -4,8 +4,8 @@
 The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
 compiled custom-provider registration, safe byte blocks and selected builtin
 boxes, lists (including generator collection), dictionaries and sets. Callers
-can also select storage for [independent set results](#independent-set-results)
-and [copies](#selected-copy). Providers receive validated `Layout` requests
+can also select storage for [independent set results](#independent-set-results),
+[copies](#selected-copy) and [owning list slices](#selected-list-slices). Providers receive validated `Layout` requests
 and return affine `ByteBlock` owners, without raw-pointer escape.
 `Allocator.box` calls the private intrinsic `__allocator_box` (opcode 658) with a
 borrowed source value. The std wrapper then commits that source with
@@ -307,6 +307,23 @@ the same walk with `Ordinary`. The [allocation-site inventory](allocation-sites.
 records the destination and cleanup rules for its branches, and which key-view
 and slice operations use different paths.
 
+## Selected list slices
+
+[`Allocator.slice`](../../stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator)
+uses the bracket slice element check, not the consuming list method. Lowering
+rejects loan-carrying elements and passes the result descriptor `list[T]` to
+`__allocator_list_slice`. The Plenty wrapper maps each `i64 | Unset` bound to
+`Option[i64]` and unwraps the `NonZero[i64]` step. `ALLOCATOR_LIST_SLICE` (666)
+checks the actor/arena guard before reading the operands. It derives bound
+presence flags from the option tags, so every integer, including `-1` and
+`i64.MIN`, remains an explicit bound.
+
+`try_list_slice_stepped` normalizes the range once and builds the result
+through `CopyDestination::Selected`. Ordinary brackets use the same row walk
+with `Ordinary`. Neither path stages a list of indices or copies unselected
+rows. See the [slice allocation inventory](allocation-sites.md#owning-slices-and-their-non-owning-lookalikes)
+for nested copies, rollback and the separate temporary-transfer path.
+
 ## Native builtin owner paths
 
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
@@ -346,7 +363,7 @@ must not receive its storage ahead of those children. This is covered by a test
 whose descriptor explicitly offers the shortcut.
 
 Constructing a selected owner does not redirect subsequent builtin `copy`,
-owning slices, stable-sort scratch or adapted protocol/callable boxes. Its
+bracket slices, stable-sort scratch or adapted protocol/callable boxes. Its
 retained allocator is for its own storage growth and destruction.
 
 ## Evidence
