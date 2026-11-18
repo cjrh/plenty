@@ -101,7 +101,9 @@ impl Type {
     /// in the compiler: a class (after newtype layers, whose descriptors
     /// carry their field's layout) that keeps a record.
     pub(crate) fn flat_field(&self) -> bool {
-        self.kind == b'a' || self.kind == b'C' && self.inline_bytes != 0
+        // A record of zero-length arrays still sits flat (with width zero).
+        self.kind == b'a'
+            || self.kind == b'C' && (self.inline_bytes != 0 || !self.variants.is_empty())
     }
 
     /// Words a class field of this type takes in a class record.

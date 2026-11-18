@@ -445,13 +445,7 @@ impl Lowerer<'_, '_> {
             }
         }
         let local_frame = local_frame(self.bcx, &locals, &addressed, inputs);
-        let bytes: usize = decl.sig.outputs.iter().map(Ty::inline_bytes).sum();
-        let return_storage = decl
-            .sig
-            .outputs
-            .iter()
-            .any(Ty::has_inline_storage)
-            .then(|| self.inline_storage(bytes));
+        let return_storage = self.call_result_storage(&decl.sig.outputs);
         let mut scalar_captures =
             scalar_captures::Captures::new(body, &locals, inputs, functions, self.bcx);
         // These are immutable by-value scalar snapshots. Retain the actual

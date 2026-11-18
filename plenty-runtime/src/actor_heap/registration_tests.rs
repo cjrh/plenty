@@ -108,7 +108,7 @@ fn probe() {
     use crate::collection_opcodes::{
         ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
     };
-    for mut op in [ALLOCATOR_SYSTEM]
+    for mut op in [ALLOCATOR_SYSTEM, crate::collection_opcodes::ALLOCATOR_COPY]
         .into_iter()
         .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
     {

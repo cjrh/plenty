@@ -2,7 +2,7 @@
 use super::test_std_alloc::assert_stdout;
 use crate::test_support::check_error;
 
-const POLICY: &str = r#"import std.alloc as alloc
+pub(super) const POLICY: &str = r#"import std.alloc as alloc
 
 pub class Budget:
     root: alloc.Allocator

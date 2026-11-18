@@ -101,5 +101,8 @@ handle may be of any type. `copy(handle)` of a handle itself is rejected; write
 `handle.share()`.
 
 A failed copy preserves the source and releases newly initialized contents.
+Builtin `copy` uses ordinary allocation, even when the source is a collection
+with a retained allocator. To select storage for all newly copied owners, use
+[`out.copy(&value)`](../../stdlib/alloc.md#copy-with-an-output-allocator).
 Partial records do not run whole-record destructors. Copying follows the
 [ownership rules](../../language/05-ownership/index.md); it introduces no mutable aliases.

@@ -557,6 +557,7 @@
             - [Value representations](design/toolchain/02-architecture/values.md)
             - [Memory and destruction](design/toolchain/02-architecture/memory.md)
             - [Retained allocator storage](design/toolchain/02-architecture/allocator-storage.md)
+            - [Allocation sites: copies, key views and slices](design/toolchain/02-architecture/allocation-sites.md)
             - [Collection storage and costs](design/toolchain/02-architecture/collections.md)
             - [Generator frames and closure environments](design/toolchain/02-architecture/environments.md)
             - [Tail-call ABI](design/toolchain/02-architecture/tail-calls.md)

@@ -271,9 +271,10 @@ The difficult part is lifetime and provenance, not constructor spelling:
   other resources still run; bulk byte reclamation cannot replace them.
 - Inserting an existing string or nested list into a pool-backed list does not
   migrate its storage. The outer buffer uses the pool; each child retains its own
-  allocator. A future explicit `copy_into(pool)` must define which reachable
-  storage it duplicates and may fail partway through.
-- `copy` should default to the source allocator; changing allocators is explicit.
+  allocator. The delivered [`pool.copy(&value)`](../design/stdlib/alloc.md#copy-with-an-output-allocator)
+  duplicates eligible owned contents, retains shared leaves and can fail partway through.
+- Defaulting `copy` to the source allocator was proposed here but is not its
+  contract: builtin `copy` uses ordinary allocation.
   No pointer allocated in a DLL may be passed to another DLL's unrelated free
   function. FFI ownership contracts need the matching release operation and its
   library lifetime; Plenty's allocator handle remains a private representation.

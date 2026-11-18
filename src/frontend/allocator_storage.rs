@@ -29,6 +29,7 @@ pub(super) fn named(name: &str) -> bool {
             | "__allocator_list"
             | "__allocator_dict_set"
             | "__allocator_box"
+            | "__allocator_copy"
             | "__allocator_block"
             | "__allocator_block_release"
             | "__allocator_block_len"

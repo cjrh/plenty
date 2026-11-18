@@ -66,6 +66,30 @@ impl Lower<'_> {
                 Some(storage),
                 None,
             ),
+            "__allocator_copy" => {
+                let [element] = types else {
+                    return Err(at.error("allocator copy requires one element type"));
+                };
+                let element = element.resolve(self.aliases)?.unwrap_or(Ty::Unit);
+                // The input is borrowed, but T must not keep a loan. This includes
+                // view classes and loans carried by Option/Result; other aggregate
+                // storage (including array elements at length zero) forbids loans.
+                if element.carries_loan() {
+                    return Err(at.error(format!(
+                        "Allocator.copy result cannot carry a loan: `{element}`"
+                    )));
+                }
+                Self::check_explicit_copy(&element, at)?;
+                (
+                    code::ALLOCATOR_COPY,
+                    vec![handle, Ty::Ref(Arc::new(element.clone()), false)],
+                    Some(crate::sum::result(
+                        element.clone(),
+                        crate::sum::alloc_error(),
+                    )),
+                    Some(element),
+                )
+            }
             "__allocator_box" => {
                 let [element] = types else {
                     return Err(at.error("allocator box requires one element type"));
