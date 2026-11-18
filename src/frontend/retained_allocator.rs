@@ -130,6 +130,15 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_text_concat" => {
+                let view = Ty::View(Arc::new(Ty::Text), false);
+                (
+                    code::ALLOCATOR_TEXT_CONCAT,
+                    vec![handle, view.clone(), view],
+                    Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                    None,
+                )
+            }
             "__allocator_bytes_slice" | "__allocator_text_slice" => {
                 let (opcode, source, result) = if name == "__allocator_text_slice" {
                     (

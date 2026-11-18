@@ -314,6 +314,25 @@ def main() -> Result[(), AllocError | IoError]:
 If you only need to read the piece while the label stays in place, use
 `&label[1:-1]` by itself. That lends the UTF-8 bytes and never allocates.
 
+## Build a label from two text views
+
+Use `concat_text` to choose where a combined label lives without first making an owned copy of each part.
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    route = "/reports"
+    label = out.concat_text("Daily ", &route[1:])?
+    print(label)?
+    Ok(())
+```
+
+```output
+Daily reports
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

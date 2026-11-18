@@ -2,7 +2,9 @@
 //! mention. Keep this join analysis separate from structural worker eligibility.
 use crate::clist::ClistOp;
 use crate::collection::CollectionOp;
-use crate::collection_opcodes::{ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_SLICE};
+use crate::collection_opcodes::{
+    ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_SLICE,
+};
 use crate::hash::HashSet;
 use crate::op::{CallableSig, Op, Ty};
 use crate::threading::{self, CallableTargets, ThreadOp};
@@ -18,7 +20,7 @@ enum Owner {
 impl Owner {
     fn producer(op: &Op) -> Option<Self> {
         match crate::foreign::allocator_opcode(op)? {
-            ALLOCATOR_TEXT_SLICE => Some(Self::Text),
+            ALLOCATOR_TEXT_CONCAT | ALLOCATOR_TEXT_SLICE => Some(Self::Text),
             ALLOCATOR_CLIST_SLICE => Some(Self::Clist),
             _ => None,
         }

@@ -26,6 +26,35 @@ def main() -> Result[(), AllocError | IoError | RangeError]:
 }
 
 #[test]
+fn concat_text_writes_utf8_directly_to_selected_storage() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("concat", 1, AllocError.CapacityOverflow)
+    left = ("prefix" + "🙂")?
+    right = ("🙂" + "suffix")?
+    saved = out.concat_text(&left[6:], &right[:1])?
+    print(out.concat_text("", "")?.byte_len(), out.concat_text("🙂", "界")?)?
+    match out.concat_text(left, right):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(left, right)?
+    drop(left)
+    drop(right)
+    drop(out)
+    print(saved, len(saved), saved.byte_len())?
+    drop(saved)
+    Ok(())
+"#
+        ),
+        "0 🙂界\nrefused concat\nAllocError.CapacityOverflow\nprefix🙂 🙂suffix\n🙂🙂 2 8\nconcat 0 1\n",
+    );
+}
+
+#[test]
 fn inline_threshold_refusal_and_worker_read() {
     assert_stdout(
         &format!(

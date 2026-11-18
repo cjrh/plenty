@@ -222,6 +222,10 @@ By contrast, `buf[a:b:k]?` uses the same bounds but ordinary output storage,
 regardless of `buf`'s provider. `buf.slice(a, b)?` also uses ordinary storage,
 but takes no step and traps unless `0 <= a <= b <= buf.len()`.
 
+### Concatenate text with an output allocator
+
+`out.concat_text(left, right)` borrows two text views (`&strview`), including whole strings, and returns `Result[str, AllocError]`. Up to seven **UTF-8 bytes** fit inline. For longer results it writes both ranges directly into one block from `out`, even if one input is empty. The result can outlive both inputs and the allocator handle. Refusal leaves both inputs usable, without a system retry. Ordinary `+` and `.concat()` keep their system-storage policy.
+
 ### Copy a text slice with an output allocator
 
 `Allocator.slice_text(self, source: &strview, start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[str, AllocError]`

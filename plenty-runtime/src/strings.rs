@@ -455,9 +455,17 @@ pub(crate) unsafe fn try_concat(a: *const Text, b: *const Text) -> Result<*mut T
 }
 
 pub(crate) fn try_concat_range(a: &str, b: &str) -> Result<*mut Text, AllocError> {
+    try_concat_range_in(a, b, None)
+}
+
+pub(crate) fn try_concat_range_in(
+    a: &str,
+    b: &str,
+    allocator: Option<&Allocator>,
+) -> Result<*mut Text, AllocError> {
     let bytes = add_length(a.len() as u64, b.len() as u64)?;
     let scalars = add_length(a.chars().count() as u64, b.chars().count() as u64)?;
-    try_build(bytes, scalars, |out| {
+    try_build_in(allocator, bytes, scalars, |out| {
         let offset = put(out, 0, a.as_bytes());
         put(out, offset, b.as_bytes());
     })
