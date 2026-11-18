@@ -1,8 +1,9 @@
 # Exports and generated C contracts
 
 `export def` gives a top-level function an explicit C entry point in a library
-build. It remains an ordinary Plenty callable; `pub` independently controls
-imports. In application builds, export functions retain private native symbols.
+build or an explicit [executable callback build](#executable-callbacks). It
+remains an ordinary Plenty callable; `pub` independently controls imports.
+Ordinary application builds keep export functions private.
 
 ```text
 export def add(a: i32, b: i32) -> i32 = "calc_add":
@@ -110,3 +111,54 @@ nonlocal jumps across Plenty frames. Traps and explicit unwrap failures can
 terminate the process; adapters invent no recovery mechanism. Keep the generated
 header, interface, and binary together; see [contracts](contracts.md) and
 [library artifacts](../../toolchain/01-building/artifacts.md).
+
+## Executable callbacks
+
+`--executable-exports NAME` explicitly enables the same C adapters in an
+application object (`--emit-object`) or executable (`--compile`). The application
+still requires ordinary Plenty main; native support calls its adapters only
+after normal application startup. A generated `NAME.h` accompanies the output,
+with the same checked scalar/borrow/Result/owned-handle contracts and originating
+destructors as a library. `address "symbol"` in a trusted interface refers to
+that C adapter, never the private Plenty body. No retained closures or implicit
+callback registry are introduced.
+
+```sh
+plenty --emit-object app.plenty --executable-exports app -o build/app.o
+plenty --compile app.plenty --executable-exports app -o build/app
+```
+
+Ordinary exports must use the `NAME_` prefix; `exact` keeps its explicit opt-in
+meaning. `main` and `plenty_` symbols are reserved for application/runtime entry.
+Adapters and destructor addresses remain image-local on ELF (protected visibility).
+Native code can link directly or receive explicitly taken addresses. This does
+not enable dynamic executable symbol discovery (`-rdynamic`), arbitrary retained
+callbacks, thread transfer or reentrancy. All pointer/loan/serialization obligations
+in the generated header still apply. Returned owners must be destroyed exactly
+once after callback cessation. Reachability follows direct references and address
+relocations; unused adapters and their private checked bodies can be removed by
+native section GC. This explicit mode uses the existing runtime-helper checks
+throughout the application instead of registering a startup signal-trap table:
+otherwise that table would retain unused callback and destructor bodies. Live
+checks retain their failure semantics, source diagnostics and actor containment.
+Stack probing stays enabled. On unqualified AArch64 callback builds, specialized
+below-SP loop-probe-PC overflow diagnostics are not registered; stack-page
+protection remains, but that specialized diagnostic is not promised.
+
+This initial mode is qualified on Linux GNU x86-64, requires the baseline CPU
+level and excludes test hooks,
+fuzzing, distribution output and CLI package-graph builds. Invalid modes/names
+or output/header collisions are errors. Object/header and executable/header sets
+use the [library publication guarantees](../../toolchain/01-building/artifacts.md#publication-guarantees).
+Whole-program caching is bypassed in this explicit mode so header and adapters
+come from one checked frontend result; compiled-function caching remains active.
+An owned handle and an exclusive borrow can have **identical C prototypes**.
+Native callers that depend on one ownership convention should pin the full
+`NAME_plenty_contract_v1_HASH` from a reviewed, compatible interface. Enforce
+this independently of the newly generated header: require the pinned symbol at
+[final link](../../toolchain/01-building/linking.md#external-build-systems),
+or declare and call it on a live path before creating an owner or invoking any
+callbacks. Merely including today’s header, or extracting today’s hash during
+each build, does not check the caller’s expectation. Adding even an unrelated
+export changes this [whole-interface guard](contracts.md#compatibility-fingerprints);
+review intentional changes before updating the pin.

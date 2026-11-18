@@ -50,6 +50,15 @@ cannot be exported directly. See [exported error contracts](export-result-contra
 
 `pub` makes the function accessible through source imports. `export` independently
 creates a C entry point in a library build. Libraries do not need `main`.
+For a Plenty-owned executable that receives native callbacks,
+[`--executable-exports NAME`](../../design/facilities/04-interop/exports.md#executable-callbacks)
+explicitly enables these same adapters alongside ordinary main and writes a C
+header. A trusted `address` declaration selects the adapter address, not the
+private Plenty function. Keep callbacks serialized and call the originating
+destructor only after callbacks stop; this is not a retained-closure API.
+If native code keeps an owner across calls, pin its reviewed contract at the
+[final link](../../design/toolchain/01-building/linking.md#external-build-systems):
+a borrow and a transfer can look the same to C.
 
 Save the module as `calc.plenty`, create a `build` directory, and run:
 

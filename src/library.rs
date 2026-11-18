@@ -126,6 +126,9 @@ pub fn compile_file_to_library(
     options: &LibraryOptions,
 ) -> Result<LibraryArtifacts> {
     crate::validate_target(options.compile.target.as_deref())?;
+    if options.compile.executable_exports.is_some() {
+        return Err("executable exports require application output".into());
+    }
     reject_cpu_level(options.compile.cpu)?;
     crate::exports::check_library_name(&options.name)?;
     if options.unloadable {

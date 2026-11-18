@@ -1132,9 +1132,11 @@ mod native {
     }
 
     pub(super) fn operate(op: i64, argument: i64) -> i64 {
+        // Unit harnesses retain library dispatch semantics; integration tests
+        // exercise the Cargo executable feature with the real router.
         // Libraries lack the router and must remain safely unsupported on
         // every caller thread, without acquiring a process-wide actor owner.
-        if !cfg!(plenty_runtime_embedded) && matches!(op, CREATE | PREPARE) {
+        if !cfg!(all(plenty_runtime_embedded, not(test))) && matches!(op, CREATE | PREPARE) {
             return UNSUPPORTED;
         }
         if op == TRAP_KIND {
@@ -1154,22 +1156,8 @@ mod native {
         // SAFETY (each table read): owning thread, checked above.
         let heaps = || unsafe { &(*table()).heaps };
         match op {
-            CREATE => {
-                if cfg!(plenty_runtime_embedded) {
-                    create(argument)
-                } else {
-                    // Without the router, handler allocations would not
-                    // reach the heap.
-                    UNSUPPORTED
-                }
-            }
-            PREPARE => {
-                if cfg!(plenty_runtime_embedded) {
-                    prepare()
-                } else {
-                    UNSUPPORTED
-                }
-            }
+            CREATE => create(argument),
+            PREPARE => prepare(),
             DISCARD => discard(argument),
             USED => live(argument).map_or(-1, |index| heaps()[index].used as i64),
             USED_TOTAL => heaps()

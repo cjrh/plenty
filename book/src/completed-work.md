@@ -40,6 +40,9 @@ optional and fallible view results.
 The [Rust-source backend decision](completed-work/language-and-tooling.md#rust-source-backend-proposal-rejected)
 records the proposal's rejection on 2026-11-14; its experiments remain historical.
 
+[Native executable callbacks](completed-work/language-and-tooling.md#native-executable-callbacks)
+reuse the library ownership contract in an opt-in application build.
+
 [Multiple transitive dependency versions](completed-work/language-and-tooling.md#b17-tooling-and-packaging)
 record source identity, edge-specific locks and updates, provenance inspection,
 and explicit shared-resource restrictions.

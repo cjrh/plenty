@@ -53,7 +53,8 @@ pub extern def descriptor_storage() -> Pointer = storage 64
 ```
 
 `address` returns the C entry adapter of an exported function in the same
-library, not its private Plenty calling-convention address. The binding author
+library or [explicit executable callback build](exports.md#executable-callbacks),
+not its private Plenty calling-convention address. The binding author
 must match the callback signature expected by C. There is no implicit closure
 capture or managed callback environment.
 

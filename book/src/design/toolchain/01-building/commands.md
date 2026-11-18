@@ -16,6 +16,7 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty --compile FILE -o OUT` | Produce a native executable (dynamic dependencies remain) |
 | `plenty --compile FILE --dist DIR` | Publish a new [application distribution](distributions.md) with only reached engines and their notices |
 | `plenty --emit-object FILE -o OUT` | Emit one application object, including imported modules; requires `main` |
+| `--executable-exports NAME` with `--emit-object` or `--compile` | Publish checked [C callback adapters](../../facilities/04-interop/exports.md#executable-callbacks) and a matching `NAME.h` beside the output |
 | `plenty --dump STAGES FILE -o DIR` | Write each function's [IR and machine code as text](../02-architecture/dump.md); `--dump-std` and `--dump-filter TEXT` select functions |
 | `plenty --fuzz FILE -o OUT` | Produce a coverage-instrumented [libFuzzer executable](fuzzing.md) that runs `main` once per input; `--libfuzzer PATH` selects libFuzzer |
 | `plenty --shared-library FILE --library-name NAME -o OUT` | Build a shared C library with generated header and interface |
