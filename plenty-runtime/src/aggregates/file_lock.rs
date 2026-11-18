@@ -93,6 +93,7 @@ mod native {
         use std::os::fd::AsRawFd;
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
+        use std::time::{Duration, Instant};
 
         struct Fixture(std::path::PathBuf);
         impl Fixture {
@@ -148,7 +149,12 @@ mod native {
             assert!(!try_lock(contender.as_raw_fd(), true).unwrap());
             child.stdin.take().unwrap().write_all(b"done\n").unwrap();
             assert!(child.wait().unwrap().success());
-            assert!(try_lock(contender.as_raw_fd(), true).unwrap());
+            // A concurrent fork can still hold the owner's description until exec.
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while !try_lock(contender.as_raw_fd(), true).unwrap() {
+                assert!(Instant::now() < deadline, "inherited lock did not clear");
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }
 
         #[test]
