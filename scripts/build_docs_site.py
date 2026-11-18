@@ -171,7 +171,7 @@ def assemble(repo, output, prefix, manifest):
     docs_prefix = prefix + "docs/"
     source = repo / "website"
     shutil.copytree(source / "assets", output / "assets")
-    for name in ("plenty.svg", "plenty.png"):
+    for name in ("plenty.svg", "plenty.png", "plenty_heptagon.svg", "plenty_heptagon.png"):
         shutil.copyfile(repo / "logos" / name, output / "assets" / name)
     homepage = (source / "index.html").read_text()
     homepage = homepage.replace("@SITE_PREFIX@", prefix).replace("@DOCS_PREFIX@", docs_prefix)

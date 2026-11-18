@@ -1,11 +1,10 @@
 # Plenty logo
 
-Official logo artwork supplied for the Plenty website:
+The website and documentation use the heptagon artwork in
+`plenty_heptagon.svg` and `plenty_heptagon.png`. The website displays the SVG
+and publishes both formats under `assets/`. The mdBook theme uses matching
+copies at `book/theme/favicon.svg` and `book/theme/favicon.png` so the logo
+works in a standalone book build.
 
-- `plenty.svg`: original transparent vector artwork, copied unchanged from
-  `PLENTY_slab_six_bold_lenty_aligned_transparent.svg`.
-- `plenty.png`: the matching 800 × 800 PNG export, copied unchanged from
-  `export/Untitled.png`.
-
-The website uses the SVG and publishes both formats under `assets/`.
-Keep the source artwork here; generated site output remains in `book/site/`.
+The original `plenty.svg` and `plenty.png` are still available under
+`assets/` at their original URLs.

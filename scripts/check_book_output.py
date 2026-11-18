@@ -20,7 +20,8 @@ BOOK_ASSETS = ("index.html", "404.html", "print.html", "searchindex-*.js",
                "searcher-*.js", "highlight-*.js", "theme/plenty-highlight*.js",
                "theme/plenty-highlight*.css")
 SITE_ASSETS = ("index.html", "404.html", "assets/site.css", "assets/plenty.svg",
-               "assets/plenty.png", "docs/versions.json")
+               "assets/plenty.png", "assets/plenty_heptagon.svg", "assets/plenty_heptagon.png",
+               "docs/versions.json")
 
 
 def check(root, prefix="/", *, site_root=None, site_prefix=None, required=BOOK_ASSETS):

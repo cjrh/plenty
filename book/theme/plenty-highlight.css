@@ -68,3 +68,51 @@ code.language-error {
 .ayu code.language-error {
     border-left-color: #cc6666;
 }
+
+/* mdBook loads its light syntax sheet for custom themes. Scope the overrides
+   to the Plenty theme on screen so print keeps the light syntax palette. */
+@media screen {
+    .plenty .hljs {
+        color: #edf4ff;
+        background: #111f37;
+    }
+
+    .plenty :is(.hljs-comment, .hljs-quote) {
+        color: #a5b8d4;
+    }
+
+    .plenty :is(.hljs-keyword, .hljs-selector-tag, .hljs-meta, .hljs-attr, .hljs-attribute) {
+        color: #ffa387;
+    }
+
+    .plenty :is(.hljs-number, .hljs-literal, .hljs-type, .hljs-char-escape, .hljs-symbol) {
+        color: #ffe482;
+    }
+
+    .plenty :is(.hljs-title, .hljs-section, .hljs-name, .hljs-built_in, .hljs-subst,
+                .hljs-selector-id, .hljs-selector-class, .hljs-tag) {
+        color: #93c5ff;
+    }
+
+    .plenty :is(.hljs-string, .hljs-bullet, .hljs-regexp, .hljs-operator) {
+        color: #95e6cb;
+    }
+
+    .plenty :is(.hljs-variable, .hljs-template-variable, .hljs-params, .hljs-link) {
+        color: #edf4ff;
+    }
+
+    .plenty .hljs-addition {
+        color: #95e6cb;
+        background: #18362e;
+    }
+
+    .plenty .hljs-deletion {
+        color: #ffa387;
+        background: #452922;
+    }
+
+    .plenty code.language-error {
+        border-left-color: #ffa387;
+    }
+}

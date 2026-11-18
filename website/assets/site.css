@@ -2,15 +2,13 @@
 
 :root {
   font-size: 100%;
-  color-scheme: light;
-  --paper: #faf8f3;
-  --paper: #faafdf;
-  --paper: hsl(322, 50%, 90%);
-  --paper: hsl(190, 50%, 70%);
-  --ink: #242820;
-  --muted: #5b6056;
-  --accent: #f3438c;
-  --line: #dbded1;
+  color-scheme: dark;
+  --paper: #080f20;
+  --ink: #edf4ff;
+  --muted: #b5c5df;
+  --accent: #ffd43b;
+  --link: #93c5ff;
+  --line: #2b4060;
   font-family: "Roboto Slab", Georgia, serif;
   color: var(--ink);
   background: var(--paper);
@@ -32,7 +30,7 @@ a {
 }
 
 a:hover {
-  color: var(--accent);
+  color: var(--link);
 }
 
 a:focus-visible {
@@ -154,7 +152,7 @@ h1 span {
   gap: 26px;
   min-height: 50px;
   padding: 14px 22px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--link);
   border-radius: 6px;
   font-size: 1.1rem;
   font-weight: 650;
@@ -162,23 +160,24 @@ h1 span {
 }
 
 .primary {
-  background: var(--ink);
+  background: var(--accent);
+  border-color: var(--accent);
   color: var(--paper);
 }
 
 .primary:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  background: #ffe482;
+  border-color: #ffe482;
+  color: var(--paper);
 }
 
 .secondary:hover {
-  border-color: var(--accent);
+  background: #111f37;
 }
 
 .release-link {
   margin: 22px 0 0;
-  color: var(--muted);
+  color: var(--link);
   font-size: 0.8125rem;
 }
 
@@ -190,17 +189,11 @@ h1 span {
   border-top: 1px solid var(--line);
 }
 
-.number {
-  color: var(--accent);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-
 h2 {
   font-size: 1.6rem;
   letter-spacing: -.035em;
   line-height: 1.2;
-  margin: 16px 0 12px;
+  margin: 0 0 12px;
 }
 
 .principles p {
@@ -213,27 +206,29 @@ h2 {
 .explore {
   display: grid;
   grid-template-columns: 1.6fr 1fr 1fr;
-  align-items: end;
+  align-items: center;
   gap: 30px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   padding: 38px 0;
 }
 
-.explore .eyebrow {
-  margin: 0 0 12px;
-}
-
 .explore h2 {
   margin: 0;
 }
 
-.explore>a {
+.explore > a {
+  color: var(--link);
   font-size: 0.875rem;
   display: flex;
   justify-content: space-between;
   gap: 15px;
   padding: 10px 0;
+}
+
+.explore > a:hover,
+.release-link a:hover {
+  color: var(--ink);
 }
 
 .site-footer {
@@ -316,7 +311,7 @@ h2 {
     padding: 30px 0;
   }
 
-  .explore>a {
+  .explore > a {
     max-width: 420px;
   }
 
