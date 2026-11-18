@@ -1,0 +1,11 @@
+manifest-version = 1
+
+[package]
+name = "egui"
+version = "0.0.1"
+plenty-version = "0.8.32"
+description = "Experimental bounded egui immediate-mode label and button bindings"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.plenty"

@@ -41,7 +41,8 @@ The [Rust-source backend decision](completed-work/language-and-tooling.md#rust-s
 records the proposal's rejection on 2026-11-14; its experiments remain historical.
 
 [Native executable callbacks](completed-work/language-and-tooling.md#native-executable-callbacks)
-reuse the library ownership contract in an opt-in application build.
+reuse the library ownership contract in an opt-in application build. The
+[egui counter](completed-work/libraries.md#experimental-egui-counter) exercises it with immediate-mode input.
 
 [Multiple transitive dependency versions](completed-work/language-and-tooling.md#b17-tooling-and-packaging)
 record source identity, edge-specific locks and updates, provenance inspection,

@@ -1,0 +1,4 @@
+# Checked only on the synchronous GUI thread; no worker certification.
+pub extern def run() -> u32 = "pleg_v1_run"
+pub extern def label(token: u64, text: &str as utf8) -> u32 = "pleg_v1_label"
+pub extern def button(token: u64, text: &str as utf8) -> u32 = "pleg_v1_button"

@@ -1,0 +1,56 @@
+# Experimental immediate-mode binding to egui (MIT OR Apache-2.0).
+import native
+
+pub enum EguiError:
+    OutOfMemory
+    CapacityOverflow
+    InvalidContext
+    LimitExceeded
+    InvalidArgument
+    NativeFailure
+
+pub def allocation(error: AllocError) -> EguiError:
+    match error:
+        case AllocError.OutOfMemory:
+            EguiError.OutOfMemory
+        case AllocError.CapacityOverflow:
+            EguiError.CapacityOverflow
+
+# Status 1 is reserved for a successful button click.
+def failure(status: u32) -> EguiError:
+    match status:
+        case 2u32:
+            EguiError.OutOfMemory
+        case 3u32:
+            EguiError.CapacityOverflow
+        case 4u32:
+            EguiError.InvalidContext
+        case 5u32:
+            EguiError.LimitExceeded
+        case 6u32:
+            EguiError.InvalidArgument
+        case _:
+            EguiError.NativeFailure
+
+def checked(status: u32) -> Result[(), EguiError]:
+    if status == 0u32:
+        return Ok(())
+    Err(failure(status))
+
+pub class Ui:
+    token: u64
+    pub def __init__(self, token: u64) -> ():
+        self.token = token
+    pub def label(self, text: &str) -> Result[(), EguiError]:
+        checked(native.label(self.token, text))
+    pub def button(self, text: &str) -> Result[bool, EguiError]:
+        match native.button(self.token, text):
+            case 0u32:
+                Ok(False)
+            case 1u32:
+                Ok(True)
+            case _ as status:
+                Err(failure(status))
+
+pub def run() -> Result[(), EguiError]:
+    checked(native.run())

@@ -644,3 +644,12 @@ and upstream panic paths can terminate the process. The UI is not a complete
 keyboard/accessibility API. Binary redistribution is not qualified: optional
 GPUI notice generation reports 31 transitive crates missing license texts rather
 than emitting incomplete notices. Remaining scope stays under B38.
+
+## Experimental egui counter
+
+`experiments/packages/egui/` uses egui/eframe 0.37.0 and the opt-in
+[native executable callbacks](language-and-tooling.md#native-executable-callbacks).
+In one exclusive UI pass, Plenty reads each button response, updates its own
+counter and paints the resulting label. This Linux x86-64 X11/Glow experiment
+is not a std GUI API or a qualified binary distribution. See the package README
+for build commands, tests and ownership limits.
