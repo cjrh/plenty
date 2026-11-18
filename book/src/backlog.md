@@ -448,8 +448,7 @@ and private slot ABI remain experimental, not builtin representations.
 
 Implement the remaining work in staged PRs:
 
-3. **Complete the migration.** Migrate independent collection results (including
-   copies and set algebra), strings, formatting, owning slices, scratch buffers
+3. **Complete the migration.** Extend [native selected set results](design/toolchain/02-architecture/allocator-storage.md#independent-set-results) to public algebra and recursive key copies. Migrate other independent collection results, strings, formatting, owning slices, scratch buffers
    and allocating std APIs. Maintain an
    allocation-site inventory and verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable

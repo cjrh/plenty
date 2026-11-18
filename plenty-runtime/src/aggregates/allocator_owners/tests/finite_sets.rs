@@ -25,12 +25,12 @@ static FLAG: Type = Type {
     }),
     ..INTEGER
 };
-static SMALL: Type = Type {
+pub(super) static SMALL: Type = Type {
     kind: b'S',
     key: Some(&FLAG),
     ..LIST
 };
-static MEDIUM: Type = Type {
+pub(super) static MEDIUM: Type = Type {
     key: Some(&Type {
         kind: b'B',
         variants: &[UNIT; 65],
@@ -38,7 +38,7 @@ static MEDIUM: Type = Type {
     }),
     ..SMALL
 };
-static LARGE: Type = Type {
+pub(super) static LARGE: Type = Type {
     key: Some(&Type {
         kind: b'B',
         variants: &[UNIT; 256],

@@ -247,6 +247,20 @@ membership mask; valid hints above the domain need neither row nor bucket
 storage. Member insertion uses that mask, with the same canonical slots as an
 ordinary bitset. Only the owner block needs release.
 
+## Independent set results
+
+A private native entry point accepts two borrowed sets and a separate allocator
+for their union, intersection, difference or symmetric difference. It uses the
+ordinary membership algorithm, but builds the result and its hash index through
+the output allocator. Neither input supplies scratch storage. Compact finite sets
+keep their inline masks. Allocation failure leaves both inputs unchanged.
+
+This path accepts only non-affine keys. Retaining an immutable text key shares
+its existing backing; it does not allocate a new string. Copying an affine key
+can recursively allocate boxes or collections, so the native entry point rules
+out that path before constructing the result. Public set algebra and key-view
+operations have not changed.
+
 ## Native builtin owner paths
 
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
