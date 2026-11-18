@@ -671,3 +671,8 @@ facades and ordinary [package builds](../design/stdlib/gui-build.md) on Linux
 GNU x86-64. Selection follows resolved imports; CLI packages build neither
 archive. The reviewed whole-interface guards and distinct programming models
 remain intact. No release/distribution support or changes to GPUI.
+
+The [egui command picker](../tutorial/special-purpose/gui-counters.md#filtering-commands-as-you-type)
+adds one bounded single-line field with stable identity. Plenty owns its query,
+filters commands and displays the first match on Enter; checked edit failure
+preserves the old text. The callback contract and backend selection are unchanged.

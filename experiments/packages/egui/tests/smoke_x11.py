@@ -94,14 +94,8 @@ def exercise(server, binary, out, expect_render_error):
         assert process.wait(timeout=15) == 0
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary', type=Path, default=PACKAGE / 'target/optimized/plenty-egui')
-    parser.add_argument('--out', type=Path, default=PACKAGE / 'target/smoke')
-    parser.add_argument('--expect-render-error', action='store_true',
-                        help='instrumented fixture only: first press must return LimitExceeded to main')
-    args = parser.parse_args()
-    args.out.mkdir(parents=True, exist_ok=True)
+@contextmanager
+def private_display(out):
     # Never probe a user's desktop, even if setup fails. The X display number
     # comes from our own new Xwayland, not a guessed number or inherited env.
     for key in ['DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'XAUTHORITY']:
@@ -115,11 +109,11 @@ def main():
             subprocess.run(['xauth', 'add', f':{number}', '.', cookie], check=True)
         authorize(0)
         with running(['weston', '--no-config', '--backend=headless', '--renderer=pixman',
-                      '--shell=kiosk-shell.so', '--idle-time=0', '--socket=egui-private'], args.out / 'weston.log') as compositor:
+                      '--shell=kiosk-shell.so', '--idle-time=0', '--socket=egui-private'], out / 'weston.log') as compositor:
             wait_for((Path(runtime) / 'egui-private').is_socket, compositor)
             read, write = os.pipe()
             with os.fdopen(read) as result, running(['Xwayland', '-displayfd', str(write), '-auth', str(auth),
-                         '-geometry', '800x600', '-nolisten', 'tcp'], args.out / 'xwayland.log', pass_fds=(write,)):
+                         '-geometry', '800x600', '-nolisten', 'tcp'], out / 'xwayland.log', pass_fds=(write,)):
                 os.close(write)
                 assert select.select([result], [], [], 20)[0], 'private Xwayland not ready'
                 number = int(result.readline())
@@ -128,9 +122,21 @@ def main():
                 os.environ['DISPLAY'] = f':{number}'
                 server = display.Display(os.environ['DISPLAY'])
                 try:
-                    exercise(server, args.binary, args.out, args.expect_render_error)
+                    yield server
                 finally:
                     server.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--binary', type=Path, default=PACKAGE / 'target/optimized/plenty-egui')
+    parser.add_argument('--out', type=Path, default=PACKAGE / 'target/smoke')
+    parser.add_argument('--expect-render-error', action='store_true',
+                        help='instrumented fixture only: first press must return LimitExceeded to main')
+    args = parser.parse_args()
+    args.out.mkdir(parents=True, exist_ok=True)
+    with private_display(args.out) as server:
+        exercise(server, args.binary, args.out, args.expect_render_error)
     result = 'render error returned to main' if args.expect_render_error else 'two increments, reset and native close'
     print(f'PASS: private X11: {result}; {args.out}')
 

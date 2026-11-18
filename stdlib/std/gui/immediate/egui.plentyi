@@ -1,9 +1,16 @@
 # egui/eframe 0.37.0 (Emil Ernerfeldt and contributors, MIT OR Apache-2.0):
 # synchronous widgets, default fonts and the X11/glow renderer. https://www.egui.rs/
 # Checked only on the synchronous GUI thread; no worker certification.
+import std.bytes as buffers
+
 extern def native_run() -> u32 = "pleg_v1_run"
 extern def native_label(token: u64, text: &str as utf8) -> u32 = "pleg_v1_label"
 extern def native_button(token: u64, text: &str as utf8) -> u32 = "pleg_v1_button"
+
+extern def native_edit(token: u64, id: u64, text: &str as utf8, count: &mut i64) -> u32 = "pleg_v1_text_edit"
+extern def copy_edit(token: u64, out: &mut list[u8] as strided) -> u32 = "pleg_v1_copy_edit"
+
+extern def reject_edit(token: u64, status: u32) -> u32 = "pleg_v1_reject_edit"
 
 pub enum EguiError:
     OutOfMemory
@@ -20,7 +27,17 @@ pub def allocation(error: AllocError) -> EguiError:
         case AllocError.CapacityOverflow:
             EguiError.CapacityOverflow
 
-# Status 1 is reserved for a successful button click.
+# Copyback happens after admission. Latch a local failure just as the native
+# widget would, even when draw handles the returned Err and continues.
+def reject_allocation(token: u64, error: AllocError) -> EguiError:
+    status = match error:
+        case AllocError.OutOfMemory:
+            2u32
+        case AllocError.CapacityOverflow:
+            3u32
+    failure(reject_edit(token, status))
+
+# Status 1 is a successful widget action.
 def failure(status: u32) -> EguiError:
     match status:
         case 2u32:
@@ -55,6 +72,29 @@ pub class Ui:
                 Ok(True)
             case _ as status:
                 Err(failure(status))
+
+    pub def text_edit(self, id: u64, text: &mut str) -> Result[bool, EguiError]:
+        mut count = -1
+        status = native_edit(self.token, id, text, &mut count)
+        if status > 1u32:
+            return Err(failure(status))
+        if count >= 0:
+            if count > 4096:
+                return Err(failure(reject_edit(self.token, 7u32)))
+            mut data = match [0u8 for _ in range(count)]:
+                case Ok(value):
+                    value
+                case Err(error):
+                    return Err(reject_allocation(self.token, error))
+            checked(copy_edit(self.token, &mut data))?
+            match buffers.to_text(&data):
+                case Ok(value):
+                    *text = value
+                case Err(buffers.BytesError.Allocation(error)):
+                    return Err(reject_allocation(self.token, error))
+                case Err(buffers.BytesError.InvalidUtf8):
+                    return Err(failure(reject_edit(self.token, 7u32)))
+        Ok(status == 1u32)
 
 pub def run() -> Result[(), EguiError]:
     checked(native_run())

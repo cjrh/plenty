@@ -1,4 +1,4 @@
-# Two windowed counters
+# Windowed counters and a command picker
 
 Which part of a click changes the model? Try the two complete source packages
 `examples/gui/iced_counter` and `examples/gui/egui_counter` with the
@@ -34,3 +34,29 @@ headless arguments opens the native window on your own display. The runners
 read all process arguments themselves: passing a filename instead of
 `--headless` returns an error, not a window for that file. Never store
 a frame/UI token for a later callback.
+
+## Filtering commands as you type
+
+Run `plenty run` in `examples/gui/egui_command_picker` using the same
+[source setup](../../design/stdlib/gui-build.md). Click the field and type
+`file`: only **Open file** and **Save file** remain. Press Enter to display
+**Selected: Open file**. Nothing is executed. A case-sensitive substring
+filter and the original command order make the first match predictable;
+submitting an empty result leaves the previous selection alone.
+
+```plenty fragment
+mut select = ui.text_edit(1u64, &mut state.query)?
+for command in &state.commands:
+    if state.query in *command:
+        ui.label(command)?
+        if select:
+            state.selected = *command
+            select = False
+```
+
+The edit, filter and selection all happen in `draw`. The field always has
+ID `1u64`, whether four commands match or none. The toolkit remembers where
+you were typing; the string in `State` is the source of truth. There is no
+second filtered list to allocate and synchronize. `?` propagates a rejected
+edit; it does not overwrite the query with an empty string. See the
+[single-line editing contract](../../design/stdlib/gui-egui.md#editing-a-single-line).

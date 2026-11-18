@@ -23,7 +23,7 @@ Delivery history and retired backlog entries live here, separate from the
 
 The [iced counter experiment](completed-work/libraries.md#iced-counter-experiment)
 uses checked executable callbacks and a separately selected native archive.
-[Source-built GUI packages](completed-work/libraries.md#source-built-gui-packages) now select either backend with an ordinary std import.
+[Source-built GUI packages](completed-work/libraries.md#source-built-gui-packages) now select either backend with an ordinary std import; the egui command picker adds bounded single-line editing.
 
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and public
