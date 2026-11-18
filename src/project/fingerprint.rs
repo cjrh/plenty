@@ -133,6 +133,7 @@ fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
 /// followed by a newline and the encoded inputs of its last build.
 pub(super) struct Fingerprint {
     path: PathBuf,
+    lock_path: PathBuf,
     digest: String,
 }
 
@@ -140,8 +141,15 @@ impl Fingerprint {
     pub(super) fn new(directory: &Path, name: &str, digest: String) -> Fingerprint {
         Fingerprint {
             path: directory.join(".fingerprint").join(name),
+            lock_path: directory.join(".build-locks").join(name),
             digest,
         }
+    }
+
+    /// The output and fingerprint have to describe the same build, including
+    /// a GUI build that publishes an executable but intentionally no record.
+    pub(super) fn lock(&self) -> std::io::Result<std::fs::File> {
+        crate::build_lock::acquire(&self.lock_path)
     }
 
     /// Whether the last successful build had these inputs, its output (if

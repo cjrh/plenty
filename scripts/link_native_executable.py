@@ -39,6 +39,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest-path", type=Path, required=True)
     parser.add_argument("--lib-name", required=True, help="Cargo library target name")
+    parser.add_argument("--target", help="pass an explicit target triple to Cargo")
     parser.add_argument("--target-dir", type=Path)
     parser.add_argument("--features", help="comma-separated support crate features")
     parser.add_argument("--require-contract", metavar="GUARD",
@@ -59,6 +60,8 @@ def main():
         guard = [f"-Wl,--require-defined={args.require_contract}"]
     command = ["cargo", "rustc", "--locked", "--manifest-path", args.manifest_path,
                "--lib", "--message-format=json"]
+    if args.target:
+        command += ["--target", args.target]
     if args.target_dir:
         command += ["--target-dir", args.target_dir]
     if args.features:

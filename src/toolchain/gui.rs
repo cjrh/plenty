@@ -78,6 +78,16 @@ impl Backend {
         let sources: Vec<_> = inputs.sources().map(Path::to_owned).collect();
         crate::library::publication::validate(&[output], &sources)?;
         let native = root.join("experiments/packages").join(name).join("native");
+        let cargo_target = target.join("std-gui").join(name);
+        // Cargo releases its own lock before the final driver opens the
+        // archive. Hold this backend's lock across *both* commands so a
+        // second consumer cannot replace its bytes under our link arguments.
+        let _archive_lock = crate::build_lock::acquire(&cargo_target.join("plenty-link.lock"))?;
+        let features = if cfg!(feature = "runtime-checks") {
+            "application,plenty-runtime/allocation-checks"
+        } else {
+            "application"
+        };
         // Never discover Cargo configuration in the consumer package. Use a
         // reviewed *fixed* header, not C text generated from user exports.
         let inputs = Command::new("python3")
@@ -87,10 +97,11 @@ impl Backend {
             .arg("--manifest-path")
             .arg(native.join("Cargo.toml"))
             .arg("--target-dir")
-            .arg(target.join("std-gui").join(name))
+            .arg(cargo_target)
+            .args(["--target", native_target()])
             .arg("--lib-name")
             .arg(format!("plenty_{name}"))
-            .args(["--features", "application"])
+            .args(["--features", features])
             .env(include_var, native.join("reviewed"))
             .env("CARGO_NET_OFFLINE", "true")
             .current_dir("/")

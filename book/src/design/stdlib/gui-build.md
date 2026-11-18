@@ -44,7 +44,22 @@ archive. The package command rechecks the chosen native graph with Cargo on
 every build and relinks (the package source fingerprint alone cannot certify
 a native archive). Cargo artifacts are under the **compiler checkout's**
 `target/std-gui/{iced,egui}/`; deleting one of those directories forces a cold
-native build. Plenty's normal per-function and program-object caches apply.
+native build. Do not delete live lock files, clean these directories, or use
+them as target directories for independent Cargo commands during a build.
+Plenty serializes builds sharing a backend cache from Cargo selection through
+final driver consumption. A separate per-target lock covers the package
+freshness check through binary and fingerprint publication, including builds
+of separately selected workspace members sharing a binary name. Builds of
+different targets using different backends (or CLI targets) can overlap.
+This doesn't reserve a shared executable name after `build` returns.
+
+The Cargo invocation explicitly targets `x86_64-unknown-linux-gnu`, ignoring a
+conflicting Cargo default target. A `runtime-checks` compiler forwards
+`plenty-runtime/allocation-checks` to the archive. Native build inputs include
+the installed Cargo/Rust/C toolchains, their configuration and environment
+(e.g. `RUSTFLAGS`, target-specific rustflags, `CC`, `CFLAGS` and `AR`). Use
+baseline-compatible flags; the lock fixes dependency versions, not native
+bytes or CPU features selected by those tools. Plenty's normal per-function and program-object caches apply.
 Cargo reports the staticlib and ordered system libraries, not a filename
 guessed by scanning the target directory. The final link uses one archive
 with the bridge, renderer and executable runtime, never a second runtime.

@@ -1502,6 +1502,7 @@ fn reuse_or_build(
     progress: &mut Progress,
     build: impl FnOnce() -> Result<crate::frontend::Inputs>,
 ) -> Result<()> {
+    let _lock = fingerprint.lock()?;
     if fingerprint.fresh(output, graph) {
         return Ok(());
     }
