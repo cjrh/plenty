@@ -25,7 +25,9 @@ immutable strings can share storage. A nested
 [`Shared`](../../facilities/01-builtins/shared.md) handle is not duplicated:
 the copy holds another owner of the same content, as `share()` would.
 `copy(handle)` on a handle itself is rejected in favour of `handle.share()`.
-Copying does not supply mutable aliases.
+Copying does not supply mutable aliases. Builtin `copy` does not inherit the
+source allocator; [`out.copy(&value)`](../../stdlib/alloc.md#copy-with-an-output-allocator)
+explicitly selects storage for the new owners.
 For a value that already copies, `copy(value)?` and `copy(&value)?` equal
 `value`; checking reports them as a
 [`redundant-copy` warning](../../toolchain/01-building/warnings.md#redundant-copy).

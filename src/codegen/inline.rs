@@ -92,6 +92,15 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().stack_addr(PTR_TY, slot, 0)
     }
 
+    /// Match the hidden result parameter in `tail_abi::layout`. An inline
+    /// type such as `array[T, 0]` needs that parameter even for zero bytes.
+    pub(super) fn call_result_storage(&mut self, outputs: &[Ty]) -> Option<NativeValue> {
+        outputs
+            .iter()
+            .any(Ty::has_inline_storage)
+            .then(|| self.inline_storage(outputs.iter().map(Ty::inline_bytes).sum()))
+    }
+
     pub(super) fn copy_inline_to(
         &mut self,
         value: NativeValue,

@@ -124,6 +124,38 @@ same form works for `union`, `intersection` and `symmetric_difference`. See
 [set algebra with an output allocator](../../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
 for key-copy requirements.
 
+## Copy a value into selected storage
+
+Suppose you need a working copy of a score sheet. Call `copy` on the allocator
+that should pay for it. The sheet itself is a record; its list needs new storage
+so edits to the copy leave the original alone:
+
+```plenty
+import std.alloc as alloc
+
+class Sheet:
+    scores: list[i64]
+
+def main() -> Result[(), AllocError | IoError]:
+    original = Sheet([21, 42]?)
+    out = alloc.system()
+    mut working = out.copy(&original)?
+    drop(out)
+    working.scores.append(63)?
+    print(original.scores)?
+    print(working.scores)?
+    Ok(())
+```
+```output
+[21, 42]
+[21, 42, 63]
+```
+
+If allocation fails, `?` propagates the error; the call itself does not consume
+`original` even then. Text and nested `Shared` handles keep their existing
+backing. See [copy with an output allocator](../../design/stdlib/alloc.md#copy-with-an-output-allocator)
+for which values can be copied.
+
 ## Box a value and collect a generator
 
 `owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the
@@ -249,8 +281,8 @@ callback traps, including cleanup traps, terminate the process.
 
 Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
-does not redirect element expressions, `copy` or ordinary `set` methods to an
-input's allocator. The ordinary rules for storing, borrowing and moving
+does not redirect element expressions, builtin `copy`, dictionary key-view
+results, ordinary set methods or owning slices to an input's allocator. The ordinary rules for storing, borrowing and moving
 values to workers still apply. Ordinary constructors remain available during the explicit-allocation
 migration; selection does not remove implicit defaults or provide resettable
 arenas.

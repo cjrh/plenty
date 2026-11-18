@@ -142,7 +142,8 @@ The public `std.alloc` constructors for boxes, lists, dictionaries and sets use
 with retained prefixes and ordered destruction. Dense-list ABI offsets are
 preserved. The same storage path backs [set results with an explicit output
 allocator](allocator-storage.md#independent-set-results); ordinary set methods
-do not infer that choice from either operand.
+do not infer that choice from either operand. A [selected copy](allocator-storage.md#selected-copy)
+uses the same retained storage for newly duplicated owners throughout the value.
 
 ### Small-block pool
 

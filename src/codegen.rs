@@ -4580,10 +4580,7 @@ impl Lowerer<'_, '_> {
     ) -> Result<()> {
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
-        let bytes = outputs.iter().map(Ty::inline_bytes).sum();
-        if bytes != 0 {
-            args.push(self.inline_storage(bytes));
-        }
+        args.extend(self.call_result_storage(&outputs));
         let funcref = self.module.declare_func_in_func(func_id, self.bcx.func);
         let saved = if !track_caller {
             None
@@ -4635,10 +4632,7 @@ impl Lowerer<'_, '_> {
             self.terminated = true;
             return Ok(());
         }
-        let bytes = sig.outputs.iter().map(Ty::inline_bytes).sum();
-        if bytes != 0 {
-            args.push(self.inline_storage(bytes));
-        }
+        args.extend(self.call_result_storage(&sig.outputs));
         let native = user_fn_signature(&sig);
         let reference = self.bcx.import_signature(native);
         let saved = self.enter_call()?;

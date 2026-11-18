@@ -7,6 +7,23 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected copy
+
+[`Allocator.copy`](../design/stdlib/alloc.md#copy-with-an-output-allocator)
+exposes the destination-aware copy walk for eligible values, not just members
+of a set result. Newly duplicated owners use the output provider throughout;
+inline data needs no heap scratch and retained leaves keep their provenance.
+Partial failure returns `AllocError` and leaves the source intact. The
+[allocation lesson](../tutorial/04-collections/allocation.md#copy-a-value-into-selected-storage)
+shows a copied record whose nested list grows after the handle is dropped.
+
+`tests/test_std_alloc_copy.rs` covers typed references, inline results, a worker
+copy with a refusing provider, and compiler restrictions. The
+[allocation-site inventory](../design/toolchain/02-architecture/allocation-sites.md)
+distinguishes that compiled entry from direct native walker coverage and from
+ordinary key-view and slice results. See [B13](../backlog.md#b13-explicit-allocator-implementation-sequence)
+for remaining scope.
+
 ### Public selected set algebra
 
 [`Allocator.union`, `intersection`, `difference` and `symmetric_difference`](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)

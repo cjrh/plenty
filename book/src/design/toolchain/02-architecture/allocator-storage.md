@@ -3,8 +3,9 @@
 `plenty-runtime/src/allocator.rs` implements B13's native storage substrate.
 The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
 compiled custom-provider registration, safe byte blocks and selected builtin
-boxes, lists (including generator collection), dictionaries and sets, including
-[independent set results](#independent-set-results). Providers receive validated `Layout` requests
+boxes, lists (including generator collection), dictionaries and sets. Callers
+can also select storage for [independent set results](#independent-set-results)
+and [copies](#selected-copy). Providers receive validated `Layout` requests
 and return affine `ByteBlock` owners, without raw-pointer escape.
 `Allocator.box` calls the private intrinsic `__allocator_box` (opcode 658) with a
 borrowed source value. The std wrapper then commits that source with
@@ -266,6 +267,25 @@ If allocation fails, cleanup releases only partial output and the caller gets
 the allocation error with both inputs unchanged. Ordinary set methods, `copy`
 and key-view operations still use their ordinary allocation paths.
 
+## Selected copy
+
+`Allocator.copy` in `stdlib/std/alloc.plentyi` calls std-only `__allocator_copy`.
+`src/frontend/retained_allocator.rs` rejects loan-carrying `T` (including a
+class with a slice-view field), then applies the builtin's `check_explicit_copy`.
+It emits `ThreadOp::AllocatorUse` and passes the type descriptor with
+`ALLOCATOR_COPY` (opcode 664). Unlike selected boxing, there is no commit: the input stays
+borrowed. `lower_c_intrinsic` in `src/codegen/foreign.rs` reads the typed
+reference, packs the operand and supplies private frame storage for any inline
+payload. The result must point into its own storage, not into the input record.
+
+The native `operation` entry checks the actor/arena guard before reading the
+operand buffer; `collection_at` borrows the guarded handle before inspecting
+the descriptor. `try_copy` relocates the inline payload and calls `try_copy_into`
+with `CopyDestination::Selected`. Ordinary `CollectionOp::TryCopy` (33) uses
+the same walk with `Ordinary`. The [allocation-site inventory](allocation-sites.md)
+records the destination and cleanup rules for its branches, and which key-view
+and slice operations use different paths.
+
 ## Native builtin owner paths
 
 `aggregates/allocator_owners.rs` constructs ordinary plain boxes and dense lists
@@ -304,9 +324,9 @@ not use the legacy fast child-release shortcut: even a child with no language
 must not receive its storage ahead of those children. This is covered by a test
 whose descriptor explicitly offers the shortcut.
 
-Copying, slices, stable-sort scratch, adapted protocol/callable boxes and other
-allocation sites are not routed by these constructors. Their migration remains
-separate from storage growth and destruction.
+Constructing a selected owner does not redirect subsequent builtin `copy`,
+owning slices, stable-sort scratch or adapted protocol/callable boxes. Its
+retained allocator is for its own storage growth and destruction.
 
 ## Evidence
 

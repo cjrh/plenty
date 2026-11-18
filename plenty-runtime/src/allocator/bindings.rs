@@ -5,12 +5,17 @@ use crate::aggregates::{Type, allocator_owners};
 use crate::collection_opcodes::*;
 
 #[inline(always)]
-pub(crate) unsafe fn borrow_handle(a: u128) -> ManuallyDrop<Allocator> {
+pub(crate) fn require_supported_context() {
     // Check before touching ownership or allocating. Separately compiled hosts
     // must also keep retained owners out of actor/arena contexts.
     if !crate::actor_heap::allocator_registration_allowed() {
         crate::fail("retained allocator use is unsupported in actor or arena contexts");
     }
+}
+
+#[inline(always)]
+pub(crate) unsafe fn borrow_handle(a: u128) -> ManuallyDrop<Allocator> {
+    require_supported_context();
     ManuallyDrop::new(Allocator(NonNull::new(a as *mut ProviderHeader)))
 }
 
@@ -89,9 +94,7 @@ pub(super) unsafe fn write_block(storage: u128, block: Block) -> u128 {
 
 #[inline(always)]
 pub(crate) unsafe fn block_operation(op: i64, [a, b, c, d]: [u128; 4]) -> u128 {
-    if !crate::actor_heap::allocator_registration_allowed() {
-        crate::fail("retained allocator use is unsupported in actor or arena contexts");
-    }
+    require_supported_context();
     if op == ALLOCATOR_BLOCK {
         // Validate even compiler-generated scalar inputs. Layout's public
         // factory is not a license to use unchecked native Layout creation.

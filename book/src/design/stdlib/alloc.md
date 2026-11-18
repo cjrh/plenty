@@ -144,6 +144,37 @@ owner allocation. If allocation fails, the operation releases partial output
 and returns the `AllocError` without fallback. Both inputs remain unchanged on
 success and failure.
 
+### Copy with an output allocator
+
+`Allocator.copy[T](self, value: &T) -> Result[T, AllocError]` borrows both
+inputs. Use `out.copy(&value)?` to duplicate an existing value without moving
+it. When the copy needs a new `Box`, list, dictionary or set, even inside a
+record or active enum payload, `out` pays for the owner and its backing. These
+owners keep that provider for growth and destruction after `out` is dropped.
+Unlike `out.box(value)`, this does not move nested owners with their original
+storage. Unlike builtin [`copy(value)`](../facilities/01-builtins/construction-copy.md#explicit-copying),
+it chooses the destination explicitly.
+
+Inline fields need no heap allocation of their own. Immutable strings can keep
+the same backing; a nested `Shared` handle gains a reference to the same value,
+not a copy of its contents. Selection does not migrate those shared leaves.
+The walk is bounded by the existing value, not a producer; there is no
+separate size parameter. If the provider refuses a request, the copy releases its partial
+output and returns the `AllocError` without retrying through the source or
+system allocator. The source stays usable on either return.
+
+`T` must satisfy the builtin explicit-copy rules but need not implement
+`CopyType`: a class with an owned list field can be copied without `@copy`,
+but recursive types, generators, captured closures and records with custom
+destruction cannot be duplicated. For a bare `Shared`, use `handle.share()`.
+
+Selected copy additionally requires that `T` cannot carry a loan. For example,
+a class with a `data: &[i64]` field is rejected: copying the field would copy
+the view, not its backing. Wrapping a borrowed value does not remove its loan.
+To copy the elements of a view, use a [slice-view materializer](../language/04-expressions/slices.md#operations-on-views).
+The ordinary worker borrow and transfer rules and the module's
+[actor exclusion](#current-boundaries) still apply.
+
 ### Selected boxes and collection
 
 | Signature | Ownership, allocation and errors |
@@ -303,8 +334,10 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 There is no ambient selected allocator or fallback selection in this API.
 Ordinary constructors keep their existing paths. Selecting an owner changes
 where it obtains its backing, not where the surrounding code allocates. For
-example, owning slices, sorting scratch space and allocations made while
-producing elements or boxed content are not redirected.
+example, ordinary `copy(value)`, dictionary key-view results, owning slices,
+sorting scratch space and allocations made while producing elements or boxed
+content are not redirected. `out.copy(&value)` selects only the copy itself;
+it does not select storage for an expression that constructs `value`.
 
 `ByteBlock` is allocator backing, not a replacement for the general-purpose
 [`Bytes`](bytes.md) transport buffer. There is no general typed-storage consumer,

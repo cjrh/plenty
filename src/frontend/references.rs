@@ -2315,6 +2315,13 @@ impl Lower<'_> {
             return Ok(None);
         }
         let (ty, loans) = self.observe(arg, ops)?;
+        Self::check_explicit_copy(&ty, at)?;
+        ops.push(Op::Collection(CollectionOp::TryCopy(ty.clone())));
+        Self::end_reads(loans, ops);
+        Ok(Some(crate::sum::result(ty, crate::sum::alloc_error())))
+    }
+
+    pub(super) fn check_explicit_copy(ty: &Ty, at: &Token) -> Result<()> {
         if matches!(ty, Ty::View(..)) {
             return Err(at.error(
                 "copy() does not take a slice view; copy its elements into a list with `list(v)?` or `v[a:b]?`",
@@ -2339,9 +2346,7 @@ impl Lower<'_> {
         if ty.layout_depth() >= 64 {
             return Err(at.error("type nesting exceeds the implementation limit of 64"));
         }
-        ops.push(Op::Collection(CollectionOp::TryCopy(ty.clone())));
-        Self::end_reads(loans, ops);
-        Ok(Some(crate::sum::result(ty, crate::sum::alloc_error())))
+        Ok(())
     }
 
     pub(super) fn read_place(&mut self, local: &Local, ops: &mut Vec<Op>) -> (Ty, usize) {

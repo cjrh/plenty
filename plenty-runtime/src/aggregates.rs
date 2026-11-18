@@ -2235,14 +2235,19 @@ impl FlatTuple {
 
 /// Copy `value` into an independent owner. A value with inline storage first
 /// moves its bytes to `storage`, which reserves `ty.payload_bytes()`.
-unsafe fn try_copy(value: u128, ty: &'static Type, storage: *mut u128) -> Result<u128, AllocError> {
+unsafe fn try_copy(
+    value: u128,
+    ty: &'static Type,
+    storage: *mut u128,
+    destination: CopyDestination<'_>,
+) -> Result<u128, AllocError> {
     unsafe {
         let mut value = if ty.payload_bytes() != 0 {
             ranges::copy_payload(value, ty, storage.cast())
         } else {
             value
         };
-        try_copy_into(&mut value, ty, CopyDestination::Ordinary)?;
+        try_copy_into(&mut value, ty, destination)?;
         Ok(value)
     }
 }
@@ -3430,7 +3435,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659 660 661 662 663
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3541,6 +3546,10 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
     // followed by 32 bytes of scratch range storage. `site` is null for
     // operations that cannot trap.
     unsafe {
+        if op == ALLOCATOR_COPY {
+            // Reject an ambient context before reading even the operand buffer.
+            crate::allocator::bindings::require_supported_context();
+        }
         let out = args.add(3).cast_mut();
         if matches!(op, 300..350 | 440..500) {
             let operands = read_operands::<4>(op, args);
@@ -3716,6 +3725,15 @@ pub(crate) unsafe fn collection_at(
     unsafe {
         // Reject unsupported allocator contexts before even inspecting the type
         // descriptor: it may belong to storage the context cannot safely use.
+        if op == ALLOCATOR_COPY {
+            let allocator = crate::allocator::bindings::borrow_handle(a);
+            return fallible(try_copy(
+                b,
+                &*descriptor,
+                value as *mut u128,
+                CopyDestination::Selected(&allocator),
+            ));
+        }
         let algebra = match op {
             ALLOCATOR_SET_UNION => Some(SET_UNION),
             ALLOCATOR_SET_INTERSECTION => Some(SET_INTERSECTION),
@@ -3751,10 +3769,12 @@ pub(crate) unsafe fn collection_at(
             }
         }
         if op == 33 {
-            return match try_copy(a, &*descriptor, b as *mut u128) {
-                Ok(value) => wrap(value, 0),
-                Err(error) => wrap(wrap(0, error as u64), 1),
-            };
+            return fallible(try_copy(
+                a,
+                &*descriptor,
+                b as *mut u128,
+                CopyDestination::Ordinary,
+            ));
         }
         // A `bytes` literal: immortal read-only data in the text layout,
         // indexed by byte with the list index rules.

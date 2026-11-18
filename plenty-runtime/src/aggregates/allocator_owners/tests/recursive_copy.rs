@@ -219,3 +219,56 @@ fn recursive_copy_routes_allocations_retains_leaves_and_unwinds_each_failure() {
     drop(b);
     assert_eq!(out.drops.load(Relaxed), 1);
 }
+
+#[test]
+fn selected_copy_entry_relocates_inline_variant_before_copying_its_box() {
+    use crate::collection_opcodes::ALLOCATOR_COPY;
+    static CHOICE: Type = Type {
+        kind: b'B',
+        affine: true,
+        inline_bytes: 64,
+        variants: &[
+            Variant {
+                name: "Empty",
+                fields: &[],
+            },
+            Variant {
+                name: "Full",
+                fields: &[&RANGE, &BOX],
+            },
+        ],
+        ..INTEGER
+    };
+    // Full's range slot points to its own two words of storage, followed by
+    // the box slot. Only the box needs an allocation, not the enum record.
+    unsafe {
+        let mut source = [0u128; 4];
+        let mut output = [0u128; 4];
+        source[0] = source.as_mut_ptr().add(1) as u128;
+        (source[0] as *mut ranges::Range).write(ranges::Range::new(4, 8, 1, true));
+        source[3] = try_box_new_in(&Allocator::system(), &BOX, 17).unwrap() as u128;
+        let input = CHOICE.pack(source.as_ptr() as u128, 1);
+        let mut args = [0, input, output.as_mut_ptr() as u128, 0, 0, 0];
+        #[cfg(feature = "allocation-checks")]
+        {
+            let before = source;
+            crate::accounting::fail_after(Some(0));
+            crate::aggregates::operation(ALLOCATOR_COPY, args.as_mut_ptr(), &CHOICE, ptr::null());
+            crate::accounting::fail_after(None);
+            assert_eq!(args[3], fallible(Err(AllocError::OutOfMemory)));
+            assert_eq!(source, before);
+        }
+        crate::aggregates::operation(ALLOCATOR_COPY, args.as_mut_ptr(), &CHOICE, ptr::null());
+        let copy = CHOICE.pack(output.as_ptr() as u128, 1);
+        assert_eq!(args[3], wrap(copy, 0));
+        assert_eq!(output[0], output.as_ptr().add(1) as u128);
+        assert_ne!(output[3], source[3]);
+        release(input, &CHOICE);
+        assert_eq!((*(output[0] as *const ranges::Range)).start, 4);
+        assert_eq!(
+            Boxed::content(output[3] as *const Boxed, &INTEGER).read(),
+            17
+        );
+        release(copy, &CHOICE);
+    }
+}

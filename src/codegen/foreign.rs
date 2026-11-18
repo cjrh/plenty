@@ -44,16 +44,26 @@ impl Lowerer<'_, '_> {
         args.reverse();
         let value = match intrinsic {
             Intrinsic::Allocator { opcode, descriptor } => {
-                use crate::collection_opcodes::{ALLOCATOR_BLOCK, ALLOCATOR_BLOCK_SPLIT};
+                use crate::collection_opcodes::{
+                    ALLOCATOR_BLOCK, ALLOCATOR_BLOCK_SPLIT, ALLOCATOR_BOX, ALLOCATOR_COPY,
+                };
                 for (argument, (_, ty)) in args.iter_mut().zip(&sig.inputs) {
                     if let Ty::Ref(inner, _) = ty {
                         *argument = self.read_typed_reference(*argument, inner);
-                        if *opcode == crate::collection_opcodes::ALLOCATOR_BOX {
+                        if matches!(*opcode, ALLOCATOR_BOX | ALLOCATOR_COPY) {
                             // Reference reads leave narrow scalars unpacked; the
-                            // selected-box ABI takes the ordinary packed value.
+                            // runtime expects the ordinary packed value.
                             let value = self.unpack(*argument, inner);
                             *argument = self.pack(value, inner);
                         }
+                    }
+                }
+                if *opcode == ALLOCATOR_COPY {
+                    // The native walk writes any inline payload into private frame
+                    // storage. Its packed Result points here, not into the source.
+                    let bytes = descriptor.as_ref().expect("copy descriptor").inline_bytes();
+                    if bytes != 0 {
+                        args.push(self.inline_storage(bytes));
                     }
                 }
                 if matches!(*opcode, ALLOCATOR_BLOCK | ALLOCATOR_BLOCK_SPLIT) {
@@ -64,7 +74,11 @@ impl Lowerer<'_, '_> {
                 let packed = self.collection_call(*opcode, &args, descriptor.as_ref())?;
                 sig.outputs.first().map(|ty| {
                     let value = self.unpack(packed, ty);
-                    self.snapshot_inline(value, ty)
+                    if *opcode == ALLOCATOR_COPY {
+                        value
+                    } else {
+                        self.snapshot_inline(value, ty)
+                    }
                 })
             }
             Intrinsic::AllocatorRegister(provider) => {

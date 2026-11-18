@@ -79,6 +79,9 @@ pub class Allocator:
     pub def share(self) -> Allocator:
         Allocator(__allocator_share(self._handle))
 
+    pub def copy[T](self, value: &T) -> Result[T, AllocError]:
+        __allocator_copy[T](self._handle, value)
+
     pub def box[T](self, value: T) -> Result[Box[T], BoxError[T]]:
         mut content = value
         match __allocator_box[T](self._handle, &mut content):
