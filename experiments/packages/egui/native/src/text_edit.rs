@@ -50,11 +50,22 @@ fn oversized_paste(ui: &egui::Ui, field: egui::Id, limit: usize) -> bool {
         // When a pointer transition can redirect keyboard focus, let TextEdit
         // route the paste and let Draft check it. Never reject a sibling's input.
         let keyboard = focused && !i.pointer.any_pressed() && !i.pointer.any_released();
-        i.events.iter().any(|event| match event {
-            Event::Paste(text) => keyboard && text.len() > limit,
-            Event::MiddleClickPaste { text, .. } => under_pointer && text.len() > limit,
-            _ => false,
-        })
+        if keyboard
+            && i.events
+                .iter()
+                .any(|e| matches!(e, Event::Paste(text) if text.len() > limit))
+        {
+            return true;
+        }
+        // TextEdit processes all keyboard pastes but only the first middle-click paste.
+        under_pointer
+            && i.events
+                .iter()
+                .find_map(|event| match event {
+                    Event::MiddleClickPaste { text, .. } => Some(text.len() > limit),
+                    _ => None,
+                })
+                .unwrap_or(false)
     })
 }
 

@@ -227,6 +227,55 @@ fn paste_only_preflights_the_recipient() {
 }
 
 #[test]
+fn only_first_middle_click_paste_counts_towards_the_limit() {
+    let ctx = egui::Context::default();
+    let mut pos = egui::Pos2::ZERO;
+    frame(&ctx, vec![], |ui| {
+        let id = field(ui, 1);
+        with_ui(ui, |t| {
+            assert_eq!(edit(t, 1, "", &mut -9), 0);
+            Ok(())
+        })
+        .unwrap();
+        pos = ui.ctx().read_response(id).unwrap().rect.center();
+    });
+    for oversize_first in [false, true] {
+        let mut texts = [String::from("ok"), "x".repeat(MAX_TEXT + 1)];
+        if oversize_first {
+            texts.swap(0, 1);
+        }
+        let mut events = vec![Event::PointerMoved(pos)];
+        events.extend(texts.map(|text| Event::MiddleClickPaste { pos, text }));
+        frame(&ctx, events, |ui| {
+            let result = with_ui(ui, |t| {
+                let mut count = -9;
+                let status = edit(t, 1, "", &mut count);
+                if oversize_first {
+                    assert_eq!((status, count), (Error::LimitExceeded as u32, -9));
+                } else {
+                    assert_eq!((status, count), (0, 2));
+                    let mut out = [0; 2];
+                    assert_eq!(
+                        unsafe { pleg_v1_copy_edit(t, out.as_mut_ptr(), out.len(), 1) },
+                        0
+                    );
+                    assert_eq!(&out, b"ok");
+                }
+                Ok(())
+            });
+            assert_eq!(
+                result,
+                if oversize_first {
+                    Err(Error::LimitExceeded)
+                } else {
+                    Ok(())
+                }
+            );
+        });
+    }
+}
+
+#[test]
 fn deletion_to_empty_is_a_replacement_not_an_idle_frame() {
     frame(
         &egui::Context::default(),
