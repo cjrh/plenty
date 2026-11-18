@@ -17,6 +17,11 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [ProgressBar](gui-iced-widgets/progress_bar.md)
 - [Space](gui-iced-widgets/space.md)
 - [Rule](gui-iced-widgets/rule.md)
+- [Grid](gui-iced-widgets/grid.md)
+- [Container](gui-iced-widgets/container.md)
+- [Pin](gui-iced-widgets/pin.md)
+- [Scrollable](gui-iced-widgets/scrollable.md)
+- [Tooltip](gui-iced-widgets/tooltip.md)
 - [Stack](gui-iced-widgets/stack.md)
 
 ## Text

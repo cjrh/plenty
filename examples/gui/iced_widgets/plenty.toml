@@ -47,3 +47,23 @@ path = "src/rule.plenty"
 [[bin]]
 name = "stack"
 path = "src/stack.plenty"
+
+[[bin]]
+name = "grid"
+path = "src/grid.plenty"
+
+[[bin]]
+name = "container"
+path = "src/container.plenty"
+
+[[bin]]
+name = "pin"
+path = "src/pin.plenty"
+
+[[bin]]
+name = "scrollable"
+path = "src/scrollable.plenty"
+
+[[bin]]
+name = "tooltip"
+path = "src/tooltip.plenty"
