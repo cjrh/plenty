@@ -496,6 +496,11 @@ fn check_type(
         Ty::Generator(_) => {
             return Err("generator worker eligibility is not implemented yet".into())
         }
+        // A local projection can be used by worker code, but cannot be a job
+        // argument: the erased dictionary value type has no transfer evidence.
+        Ty::KeyView(_) if reach != Reach::Local => {
+            return Err("a KeyView is local-only and cannot enter a worker thread; pass the dictionary and project its keys inside the worker".into())
+        }
         Ty::Ref(t, _)
         | Ty::View(t, _)
         // The last owner can drop on any holder's thread, so the content's

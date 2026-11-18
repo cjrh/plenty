@@ -68,6 +68,7 @@ Evidence distinguishes three boundaries:
 | --- | --- | --- |
 | `d.keys()` and observations | `CollectionOp::KeyView` in `src/codegen/collections.rs` forwards the dictionary reference. Iteration, length, membership, equality (`src/frontend/operators.rs`) and set relationships require no snapshot. | Loan, no result allocation. `values()` and `items()` also project existing storage. Mutating filters are not independent results. |
 | `keys.to_set()` | `KeyViewToSet` → `KEY_VIEW_TO_SET` → `try_members_copy(..., Ordinary)`. Allocates a set of keys, not a dictionary, and does not duplicate values. Matching sequential layouts can reuse the hash information by copying buckets. | Reserves for the source length before copying. On failure drops initialized output, not the dictionary. |
+| `out.to_set(keys)` | `Allocator.to_set` → `__allocator_key_view_to_set` → `ALLOCATOR_KEY_VIEW_TO_SET` → `try_key_view_to_set_in` → `try_members_copy(..., Selected)`. Same member walk as `keys.to_set()`, but the result owner and hash backing (or just the finite-set owner) use `out`. The result descriptor is `set[K]`, not `dict[K, V]`. | Copies only keys from the borrowed dictionary. Provider refusal releases partial storage and returns its `AllocError`, without changing keys or values. |
 | Union, intersection, difference, symmetric difference involving a key view | `src/frontend/collections.rs` lowers set-like method operands; `src/codegen/collections.rs` passes `KeySetAlgebra` a **set-of-keys** result descriptor. `KEY_VIEW_*` → `try_set_algebra` → `try_set_algebra_with(..., Ordinary)`. | View/view or matching set/view (either order). Counts result members and reserves before copying. On error both inputs remain unchanged. |
 | `d.keys_snapshot()` / `values_snapshot()`; `d.into_keys()` / `into_values()` | Separate dictionary **list** results: `TryKeys` / `TryValues` → `try_dictionary_snapshot`. Reserves ordinary list storage for all entries before retaining or transferring in insertion order. | Borrowed snapshots retain non-affine elements. An affine projected element must be transferred from a unique temporary or consumed dictionary, not duplicated from a borrow. `into_*` consumes the dictionary even if reserve fails; it does not return it. |
 
@@ -87,6 +88,13 @@ Evidence: `tests/test_dictionary_views.rs` (`observations_never_allocate_and_alg
 `into_keys_allocation_failure_consumes_and_drops_affine_values_once`);
 `tests/test_dictionary_snapshots.rs` (`each_snapshot_allocation_can_fail_and_retry`);
 `tests/test_std_alloc_set_algebra.rs` (`selected_set_algebra_requires_matching_legal_sets`).
+
+For selected conversion, `plenty-runtime/src/aggregates/allocator_owners/tests/key_view_to_set.rs`
+refuses each hash-result allocation, checks source lookups and value cleanup,
+and exercises the native opcode with a finite-set descriptor.
+`tests/test_std_alloc_key_view.rs` exercises the **public method** with a named
+view and a direct `keys()` projection, including a scoped worker, provider
+failure and growth after the source and allocator handle are dropped.
 
 ## Owning slices and their non-owning lookalikes
 
@@ -121,5 +129,4 @@ Evidence by path:
 - `tests/test_std_bytes.rs`: `ranges_follow_one_rule_without_clamping_or_negative_offsets`
   and `second_allocation_failure_releases_the_first`.
 
-These key-view and slice failure tests exercise ordinary allocation. They do
-not establish provider routing for a selected view or slice API.
+These slice failure tests exercise ordinary allocation, not selected storage.

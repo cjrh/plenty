@@ -24,8 +24,9 @@ Delivery history and retired backlog entries live here, separate from the
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and public
 allocator selection for boxes, lists, dictionaries and sets, including
-[set algebra](completed-work/language-and-tooling.md#public-selected-set-algebra) and
-[explicit copies](completed-work/language-and-tooling.md#public-selected-copy) with an output allocator.
+[set algebra](completed-work/language-and-tooling.md#public-selected-set-algebra),
+[explicit copies](completed-work/language-and-tooling.md#public-selected-copy) and
+[key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion) with an output allocator.
 B13 remains open.
 
 [Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)

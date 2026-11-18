@@ -21,6 +21,8 @@ pub const ALLOCATOR_SET_INTERSECTION: i64 = 661;
 pub const ALLOCATOR_SET_DIFFERENCE: i64 = 662;
 pub const ALLOCATOR_SET_SYMMETRIC_DIFFERENCE: i64 = 663;
 pub const ALLOCATOR_COPY: i64 = 664;
+/// Inputs: output allocator handle, borrowed dictionary handle. Descriptor: set[K].
+pub const ALLOCATOR_KEY_VIEW_TO_SET: i64 = 665;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

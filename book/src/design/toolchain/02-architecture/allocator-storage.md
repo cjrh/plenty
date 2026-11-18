@@ -264,8 +264,21 @@ new copy. Existing shared leaves, such as immutable text, retain their backing.
 This does not widen `KeyType`: legal affine keys that can be explicitly copied
 work, but a key with custom cleanup anywhere in its type cannot be duplicated.
 If allocation fails, cleanup releases only partial output and the caller gets
-the allocation error with both inputs unchanged. Ordinary set methods, `copy`
-and key-view operations still use their ordinary allocation paths.
+the allocation error with both inputs unchanged.
+
+[`Allocator.to_set`](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set) takes
+one key view instead of two sets. The frontend admits the `KeyView[K]` parameter
+only for the trusted `std/alloc.plentyi` method with the matching signature.
+It tracks the argument's loan back to the dictionary. Worker eligibility is
+checked on that dictionary, not inferred from `K`: a view may be created
+inside a worker, but cannot enter as a job argument or capture.
+
+`ALLOCATOR_KEY_VIEW_TO_SET` (665) checks the actor/arena guard before reading
+the operand buffer. The compiler supplies a `set[K]` descriptor separately from
+the borrowed dictionary. `try_key_view_to_set_in` passes both to `try_members_copy`
+with the selected destination. The walk copies only keys, so neither construction
+nor rollback needs to duplicate or destroy a dictionary value. Ordinary set
+methods, including `view.to_set()`, do not select an allocator.
 
 ## Selected copy
 

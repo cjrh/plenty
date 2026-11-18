@@ -1237,7 +1237,7 @@ impl Collection {
                 && self.table.index_by_slot(&source.table);
             let shift = source.table.shift_bits();
             for slot in source.entries.indices() {
-                let key = source.entries.get(slot).key;
+                let key = source.entries.key(slot);
                 let mut known = if scratch {
                     self.table.slot_hash(slot, shift)
                 } else {
@@ -3435,7 +3435,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3546,7 +3546,7 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
     // followed by 32 bytes of scratch range storage. `site` is null for
     // operations that cannot trap.
     unsafe {
-        if op == ALLOCATOR_COPY {
+        if matches!(op, ALLOCATOR_COPY | ALLOCATOR_KEY_VIEW_TO_SET) {
             // Reject an ambient context before reading even the operand buffer.
             crate::allocator::bindings::require_supported_context();
         }
@@ -3732,6 +3732,14 @@ pub(crate) unsafe fn collection_at(
                 &*descriptor,
                 value as *mut u128,
                 CopyDestination::Selected(&allocator),
+            ));
+        }
+        if op == ALLOCATOR_KEY_VIEW_TO_SET {
+            let allocator = crate::allocator::bindings::borrow_handle(a);
+            return fallible(allocator_owners::try_key_view_to_set_in(
+                &allocator,
+                &*(b as *const Collection),
+                &*descriptor,
             ));
         }
         let algebra = match op {

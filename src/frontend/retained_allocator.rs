@@ -147,25 +147,32 @@ impl Lower<'_> {
                 )
             }
             _ => {
-                let opcode = allocator_storage::set_algebra_opcode(name)
+                let opcode = allocator_storage::set_result_opcode(name)
                     .expect("checked allocator intrinsic");
                 let [set] = types else {
-                    return Err(at.error("allocator set algebra requires a set type"));
+                    return Err(at.error("allocator set result requires a set type"));
                 };
                 let Some(set @ Ty::Set(_)) = set.resolve(self.aliases)? else {
-                    return Err(at.error("allocator set algebra requires a set type"));
+                    return Err(at.error("allocator set result requires a set type"));
                 };
                 if crate::boxed::erasure_barrier(&set) {
                     return Err(at.error(format!("allocator cannot construct `{set}`: hidden task/channel ownership is unsupported")));
                 }
                 let key = set.element().unwrap();
+                let conversion = opcode == code::ALLOCATOR_KEY_VIEW_TO_SET;
                 if !key.copy_facts().copyable {
-                    return Err(at.error(format!("set algebra requires copying keys, but {key} contains custom cleanup (__del__)")));
+                    let operation = if conversion { "to_set" } else { "set algebra" };
+                    return Err(at.error(format!("{operation} requires copying keys, but {key} contains custom cleanup (__del__)")));
                 }
-                let source = Ty::Ref(Arc::new(set.clone()), false);
+                let inputs = if conversion {
+                    vec![handle, Ty::KeyView(Arc::new(key))]
+                } else {
+                    let source = Ty::Ref(Arc::new(set.clone()), false);
+                    vec![handle, source.clone(), source]
+                };
                 (
                     opcode,
-                    vec![handle, source.clone(), source],
+                    inputs,
                     Some(crate::sum::result(set.clone(), crate::sum::alloc_error())),
                     Some(set),
                 )

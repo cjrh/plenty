@@ -101,6 +101,20 @@ fn output(ty: &Ty) -> Type {
 }
 
 pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
+    fn dictionary_view(ty: &Ty) -> bool {
+        match ty {
+            Ty::KeyView(_) | Ty::DictView(..) => true,
+            Ty::Ref(inner, _) | Ty::Iter(inner, _) => dictionary_view(inner),
+            Ty::Generator(generator) => dictionary_view(&generator.element),
+            _ => signature(ty)
+                .is_some_and(|sig| sig.inputs.iter().chain(&sig.output).any(dictionary_view)),
+        }
+    }
+    if sig.inputs.iter().chain(&sig.output).any(dictionary_view) {
+        return Err(at.error(
+            "dictionary views are local-only and cannot appear in callable inputs or outputs",
+        ));
+    }
     fn frame(ty: &Ty) -> bool {
         match ty {
             Ty::Generator(_) | Ty::Closure(_) => true,

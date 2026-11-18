@@ -117,6 +117,27 @@ or channel ownership is rejected. Selecting a table does not select storage for
 nested values, even a string key constructed from bytes. Neither `copy` nor
 ordinary set methods inherit an input's allocator for their result.
 
+### Copy dictionary keys into a set
+
+`Allocator.to_set[K: KeyType](self, view: KeyView[K]) -> Result[set[K], AllocError]`
+borrows the allocator and the dictionary behind `view`. Pass a named key view
+as `out.to_set(view)` (not `&view`), or project the keys directly as
+`out.to_set(d.keys())`, including when `d` is a borrowed dictionary. Only the
+keys are copied. They must support explicit copying: affine keys are allowed,
+but keys containing custom cleanup are not. Values need not be copyable.
+
+The independent set has one member per dictionary entry. It retains `out`'s
+provider for its storage, growth and cleanup; immutable text in a key can keep
+its existing backing. If allocation fails, the call releases partial output and
+returns the provider's `AllocError` without fallback. Neither success nor failure
+changes the dictionary, and a named view remains usable.
+
+Only this trusted method can declare a `KeyView` parameter. User functions
+borrow the dictionary and call `keys()` locally; they cannot take or return
+the view. For a scoped worker, pass the eligible dictionary and allocator by
+shared borrow, not the view as a job argument or capture. The dictionary's
+value type still participates in worker eligibility checks.
+
 ### Set algebra with an output allocator
 
 | Signature | Members of the result |
@@ -334,7 +355,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 There is no ambient selected allocator or fallback selection in this API.
 Ordinary constructors keep their existing paths. Selecting an owner changes
 where it obtains its backing, not where the surrounding code allocates. For
-example, ordinary `copy(value)`, dictionary key-view results, owning slices,
+example, ordinary `copy(value)`, `view.to_set()`, owning slices,
 sorting scratch space and allocations made while producing elements or boxed
 content are not redirected. `out.copy(&value)` selects only the copy itself;
 it does not select storage for an expression that constructs `value`.

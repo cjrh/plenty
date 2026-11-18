@@ -26,6 +26,8 @@ mod test_std_alloc_consumers;
 mod test_std_alloc_copy;
 #[path = "test_std_alloc_dict_set.rs"]
 mod test_std_alloc_dict_set;
+#[path = "test_std_alloc_key_view.rs"]
+mod test_std_alloc_key_view;
 #[path = "test_std_alloc_set_algebra.rs"]
 mod test_std_alloc_set_algebra;
 

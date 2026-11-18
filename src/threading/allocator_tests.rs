@@ -368,3 +368,23 @@ fn marker_keeps_both_callback_bodies_reachable() {
     assert_eq!(names, ["allocate", "release"]);
     crate::op::check(&program(Ty::I64, vec![], vec![])).unwrap();
 }
+
+#[test]
+fn key_view_argument_cannot_enter_worker_under_the_std_signature_exception() {
+    // Check the lowered dispatch boundary independently of surface syntax for
+    // selecting a job. KeyView[K] lacks the source's value-type evidence.
+    let view = Ty::KeyView(Arc::new(Ty::I64));
+    let task = Arc::new(Task {
+        adapter: "unused".into(),
+        worker: "convert".into(),
+        closure: None,
+        inputs: vec![view.clone()],
+        output: Ty::Unit,
+    });
+    let ops = [
+        function("convert", Some(view), vec![]),
+        Op::Thread(ThreadOp::Start(task, 0, false)),
+    ];
+    let error = check(&ops).unwrap_err().to_string();
+    assert!(error.contains("a KeyView is local-only"), "{error}");
+}

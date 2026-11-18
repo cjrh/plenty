@@ -62,7 +62,7 @@ pub(super) fn lends_mutably(ty: &Ty) -> bool {
 /// generator frame the argument's own loan keeps: a closure environment
 /// that captures one.
 pub(super) fn borrowing_closure(ty: &Ty) -> bool {
-    !matches!(ty, Ty::Ref(..) | Ty::View(..))
+    !matches!(ty, Ty::Ref(..) | Ty::View(..) | Ty::KeyView(_))
         && ty.carried_reference().is_none()
         && !ty.lends_frame()
         && ty.contains_reference()

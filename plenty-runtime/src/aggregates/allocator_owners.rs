@@ -201,6 +201,17 @@ impl CopyDestination<'_> {
     }
 }
 
+/// The dictionary behind a key view may own noncopyable values. Only the
+/// compiler-supplied set descriptor describes the result and its cleanup.
+pub(super) unsafe fn try_key_view_to_set_in(
+    allocator: &Allocator,
+    dictionary: &Collection,
+    set: &'static Type,
+) -> Result<u128, AllocError> {
+    assert!(dictionary.ty().kind == b'D' && set.kind == b'S');
+    unsafe { try_members_copy(dictionary, set, CopyDestination::Selected(allocator)) }
+}
+
 /// As for the selected constructors, the caller must be outside actor/arena
 /// contexts. Both borrows must be local sets of the same legal, copyable key
 /// type. Key views need a separate result descriptor.
