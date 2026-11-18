@@ -333,7 +333,7 @@ fn check_with_exports(
             current = Some(name);
         }
     }
-    crate::executor::submitters::check(&jobs, &functions, |name| describe(name, &functions))?;
+    crate::executor::submitters::check(ops, &jobs, &functions, |name| describe(name, &functions))?;
     Ok(())
 }
 

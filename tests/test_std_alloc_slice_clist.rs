@@ -291,6 +291,25 @@ pub(super) fn check_provider_join(
 }
 
 #[test]
+fn submitter_checks_waits_inside_provider_callbacks() {
+    let worker = "def child(m: Shared[Mutex[i64]]) -> ():\n    pass\ndef parent(handle: Submitter, m: Shared[Mutex[i64]], rows: clist[Row]) -> ():\n    drop(rows)\n    _ = handle.submit_nowait(child, m).drop_job()";
+    let caller = "with ThreadPoolExecutor(1, 4).unwrap() as pool:\n        pool.submit_nowait(parent, pool.submitter(), guard.share(), picked).drop_job().unwrap()";
+    check_join(worker, caller, true, true, Some("locks a `Mutex[i64]`"));
+    check_join(worker, caller, false, false, None);
+    let body = JOIN_POLICY
+        .replace("WORKER", worker)
+        .replace("CALLER", caller)
+        .replace("OWNER", "out.slice_clist(&rows).unwrap()")
+        .replace(
+            "PROVIDER",
+            "alloc.allocator(&root, Policy(root.share(), guard.share())).unwrap()",
+        )
+        .replace("with self.guard.lock():\n            ", "")
+        .replace("drop(open(\"provider.fifo\"))\n            ", "");
+    plenty::check_source(&body).unwrap_or_else(|e| panic!("{body}\n{e}"));
+}
+
+#[test]
 fn selected_clist_worker_joins_account_for_retained_provider_state() {
     const LOCK: &str = "worker can lock a `Mutex[i64]`";
     let join = "with spawn(work, ARG).drop_job().unwrap() as task:\n        with guard.lock():\n            task.join()";
