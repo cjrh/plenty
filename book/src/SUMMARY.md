@@ -529,6 +529,7 @@
                     - [Spinner](design/stdlib/gui-egui-widgets/spinner.md)
                     - [ProgressBar](design/stdlib/gui-egui-widgets/progress_bar.md)
                     - [Slider](design/stdlib/gui-egui-widgets/slider.md)
+                    - [RangeSlider](design/stdlib/gui-egui-widgets/range_slider.md)
                     - [DragValue](design/stdlib/gui-egui-widgets/drag_value.md)
                     - [Button](design/stdlib/gui-egui-widgets/button.md)
                     - [Single-line text editor](design/stdlib/gui-egui-widgets/text_edit.md)

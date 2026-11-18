@@ -1,0 +1,20 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    low: f32
+    high: f32
+    def __init__(self) -> ():
+        self.low = 20.0f32
+        self.high = 80.0f32
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    ui.label(&"Price range")?
+    if ui.range_slider(&mut state.low, &mut state.high, 0.0f32, 100.0f32)?:
+        ui.label(&"Range changed")?
+    Ok(())
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)

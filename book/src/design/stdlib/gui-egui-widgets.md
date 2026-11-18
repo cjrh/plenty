@@ -17,6 +17,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Separator](gui-egui-widgets/separator.md)
 - [Spinner](gui-egui-widgets/spinner.md)
 - [ProgressBar](gui-egui-widgets/progress_bar.md)
+- [RangeSlider](gui-egui-widgets/range_slider.md)
 - [Slider](gui-egui-widgets/slider.md)
 - [DragValue](gui-egui-widgets/drag_value.md)
 
