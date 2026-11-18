@@ -12,8 +12,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 The native runtime can build an independent result with a provider distinct
 from either input's provider. Tests cover failure during result construction,
 result lifetime after input destruction, and compact finite sets. This covers
-four operations on borrowed ordinary sets with non-affine keys, not public
-allocator bindings or recursive copying. See [independent set results](../design/toolchain/02-architecture/allocator-storage.md#independent-set-results).
+four operations on borrowed ordinary sets. Recursive copying now uses the
+result allocator for new boxes and collections while retaining shared leaves.
+Native tests cover a legal affine record key and, separately, all 21 allocation
+failure points in a nested dictionary copy. No public binding has changed. See [independent set results](../design/toolchain/02-architecture/allocator-storage.md#independent-set-results).
 
 ### Public selected dictionaries and sets
 
