@@ -118,6 +118,8 @@ fn fixed_child_counts_and_grid_bounds() {
         (1, (|t| plic_v1_container(t, 4)) as fn(u64) -> u32),
         (1, |t| plic_v1_float_scaled(t, 100)),
         (1, |t| plic_v1_float_scaled(t, 400)),
+        (1, |t| plic_v1_mouse_area(t, 2)),
+        (1, |t| plic_v1_sensor(t, 3)),
         (1, |t| plic_v1_themer(t, false)),
         (1, |t| plic_v1_pin(t, 2, 4)),
         (1, |t| plic_v1_scrollable(t, 12)),
@@ -140,6 +142,35 @@ fn fixed_child_counts_and_grid_bounds() {
                 assert_eq!(result, Err(Error::InvalidLayout));
             }
         }
+    }
+}
+
+#[test]
+fn wrapper_actions_share_the_button_namespace() {
+    for open in [plic_v1_mouse_area, plic_v1_sensor] {
+        for first in [true, false] {
+            assert_eq!(
+                build_scene(|t| {
+                    column(t);
+                    if first {
+                        open(t, 1);
+                        text(t, b"duplicate", 1);
+                    } else {
+                        text(t, b"one", 1);
+                        open(t, 1);
+                    }
+                    Ok(())
+                }),
+                Err(Error::InvalidArgument)
+            );
+        }
+        assert_eq!(
+            build_scene(|t| {
+                open(t, 0);
+                Ok(())
+            }),
+            Err(Error::InvalidArgument)
+        );
     }
 }
 

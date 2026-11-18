@@ -19,6 +19,8 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Rule](gui-iced-widgets/rule.md)
 - [Grid](gui-iced-widgets/grid.md)
 - [Float](gui-iced-widgets/float_scaled.md)
+- [MouseArea](gui-iced-widgets/mouse_area.md)
+- [Sensor](gui-iced-widgets/sensor.md)
 - [Themer](gui-iced-widgets/themer.md)
 - [Container](gui-iced-widgets/container.md)
 - [Pin](gui-iced-widgets/pin.md)
