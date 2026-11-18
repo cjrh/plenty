@@ -668,7 +668,7 @@ for build commands, tests and ownership limits.
 
 The [iced widget examples](../design/stdlib/gui-iced-widgets.md) and
 [egui widget examples](../design/stdlib/gui-egui-widgets.md) show a complete
-Plenty executable for each exposed control or container. Their build-only book fences
+Plenty executable on a separate reference page for each exposed control or container. Their build-only book fences
 link the actual packages in CI without opening a window.
 
 B38: the retained iced and immediate egui counter ports now have embedded std
