@@ -401,3 +401,66 @@ fn selected_text_pool_result_under_provider_lock_is_rejected() {
         Some("this result() waits for a job that can lock a `Mutex[i64]`"),
     );
 }
+
+// Only the outer allocator reaches the worker. Destroying its state can
+// release the last selected string, calling the separate, lock-taking Policy.
+const HOLDING_TEXT: &str = r#"pub class HoldingText:
+    saved: Option[Box[str]]
+    pub def allocate(self: &mut HoldingText, request: &alloc.Layout) -> Result[alloc.ByteBlock, AllocError]:
+        alloc.system().block(request)
+    pub def release(self: &mut HoldingText, storage: alloc.ByteBlock) -> ():
+        drop(storage)
+"#;
+
+fn holding_text(value: &str) -> String {
+    format!("alloc.allocator(&root, HoldingText(Some(Box({value}).unwrap()))).unwrap()")
+}
+
+#[test]
+fn final_allocator_release_at_scoped_join_includes_hidden_text_cleanup() {
+    let owning =
+        format!("{HOLDING_TEXT}\ndef work(owner: alloc.Allocator) -> ():\n    drop(owner)");
+    let join = JOIN.replace("ARG", "picked");
+    check_provider_join(&owning, &join, &holding_text(TEXT), true, Some(LOCK));
+
+    let borrowed = format!(
+        "{HOLDING_TEXT}\ndef work(owner: &alloc.Allocator) -> ():\n    drop(owner.share())"
+    );
+    check_provider_join(
+        &borrowed,
+        &JOIN.replace("ARG", "&picked"),
+        &holding_text(TEXT),
+        true,
+        None,
+    );
+
+    // A live clist producer does not activate the ordinary str in HoldingText.
+    let clist_only = format!("drop(out.slice_clist(&rows))\n    {join}");
+    check_provider_join(&owning, &clist_only, &holding_text(ORDINARY), true, None);
+}
+
+#[test]
+fn final_allocator_release_in_pool_job_accounts_for_hidden_text_at_result_and_shutdown() {
+    let worker = format!("{HOLDING_TEXT}\ndef work(owner: alloc.Allocator) -> ():\n    pass");
+    for (wait, diagnostic) in [
+        (
+            "drop(future.result())",
+            "this result() waits for a job that can lock a `Mutex[i64]`",
+        ),
+        (
+            "pool.shutdown()",
+            "a job that can lock a `Mutex[i64]` was submitted",
+        ),
+    ] {
+        let caller = format!(
+            "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        future = pool.submit(work, picked).unwrap()\n        with guard.lock():\n            {wait}"
+        );
+        check_provider_join(
+            &worker,
+            &caller,
+            &holding_text(TEXT),
+            true,
+            Some(diagnostic),
+        );
+    }
+}

@@ -45,6 +45,7 @@ impl Owner {
 #[derive(Default)]
 pub(super) struct Providers {
     owners: Vec<Owner>,
+    state_owns_selected: bool,
     mutexes: Vec<Ty>,
     targets: CallableTargets,
 }
@@ -53,6 +54,7 @@ pub(super) struct Providers {
 #[derive(Default)]
 pub(super) struct Sources {
     allocator: bool,
+    releasable_allocator: bool,
     owners: Vec<Owner>,
 }
 
@@ -73,7 +75,7 @@ pub(super) struct WorkerEffects {
 impl Providers {
     pub fn new(ops: &[Op]) -> Self {
         // Checking sees even unused monomorphic std method bodies. Importing
-        // std.alloc alone must not count as constructing a selected str.
+        // std.alloc alone must not count as constructing a selected owner.
         let mut registered = false;
         threading::walk(ops, &mut |op| {
             registered |= matches!(op, Op::Thread(ThreadOp::AllocatorProvider(_)));
@@ -106,9 +108,17 @@ impl Providers {
         if states.is_empty() || owners.is_empty() {
             return Self::default();
         }
+        // A last Allocator drop destroys its erased state. The owner and the
+        // callback mutex can belong to different registrations: a selected str
+        // or clist retains its inner allocator. Bound both by emitted types.
+        let mut state_owns_selected = false;
+        visit_types(&states, Ty::managed, |ty| {
+            state_owns_selected |= Owner::of(ty).is_some_and(|kind| owners.contains(&kind));
+        });
         let mutexes = threading::mutexes(states);
         Self {
             owners,
+            state_owns_selected,
             targets: if mutexes.is_empty() {
                 CallableTargets::default()
             } else {
@@ -120,19 +130,37 @@ impl Providers {
 
     pub fn sources(&self, inputs: &[Ty]) -> Sources {
         let mut sources = Sources::default();
-        if !self.mutexes.is_empty() {
+        if self.mutexes.is_empty() {
+            return sources;
+        }
+        let mut transferable = Vec::new();
+        visit_types(
+            inputs,
+            |_| true,
+            |ty| {
+                sources.allocator |= is_allocator(ty);
+                if let Some(kind) = Owner::of(ty)
+                    && self.owners.contains(&kind)
+                    && !sources.owners.contains(&kind)
+                {
+                    sources.owners.push(kind);
+                }
+                // A shared loan pins ordinary fields, but messages can leave a
+                // borrowed queue, and a lock permits replacing its guarded value.
+                if self.state_owns_selected
+                    && (matches!(ty, Ty::Channel(..)) || crate::mutex::class(ty).is_some())
+                {
+                    threading::contained(ty, &mut transferable);
+                }
+            },
+        );
+        if self.state_owns_selected && sources.allocator {
+            transferable.extend_from_slice(inputs);
             visit_types(
-                inputs,
-                |_| true,
+                &transferable,
+                |ty| !matches!(ty, Ty::Ref(_, false) | Ty::View(_, false)),
                 |ty| {
-                    sources.allocator |=
-                        matches!(ty, Ty::Class(c) if c.name.as_ref() == "std.alloc.Allocator");
-                    if let Some(kind) = Owner::of(ty)
-                        && self.owners.contains(&kind)
-                        && !sources.owners.contains(&kind)
-                    {
-                        sources.owners.push(kind);
-                    }
+                    sources.releasable_allocator |= is_allocator(ty);
                 },
             );
         }
@@ -211,6 +239,11 @@ impl Providers {
     pub fn cleanup(&self, roots: &[Ty], sources: &Sources, effects: &mut WorkerEffects) {
         if !self.owners.is_empty() {
             visit_types(roots, Ty::managed, |ty| {
+                if self.state_owns_selected && is_allocator(ty) {
+                    effects.waits = true;
+                    // A share made from &Allocator cannot be the last owner.
+                    effects.provider_lock |= sources.releasable_allocator;
+                }
                 if let Some(kind) = Owner::of(ty)
                     && self.owners.contains(&kind)
                 {
@@ -220,6 +253,10 @@ impl Providers {
             });
         }
     }
+}
+
+fn is_allocator(ty: &Ty) -> bool {
+    matches!(ty, Ty::Class(c) if c.name.as_ref() == "std.alloc.Allocator")
 }
 
 #[expect(
@@ -235,5 +272,56 @@ fn visit_types(roots: &[Ty], through: impl Fn(&Ty) -> bool, mut visit: impl FnMu
         }
         visit(&ty);
         threading::contained(&ty, &mut pending);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pruned_std_bodies_do_not_supply_either_hidden_cleanup_fact() {
+        // Model both operations in pre-lowered std bodies. clist's real method
+        // is generic, so an unused import alone wouldn't exercise pruning.
+        let source = r#"import std.alloc as alloc
+class Row:
+    n: i64
+pub class Holding:
+    rows: clist[Row]
+    pub def allocate(self: &mut Holding, request: &alloc.Layout) -> Result[alloc.ByteBlock, AllocError]:
+        alloc.system().block(request)
+    pub def release(self: &mut Holding, storage: alloc.ByteBlock) -> ():
+        drop(storage)
+def register_owner() -> ():
+    root = alloc.system()
+    drop(alloc.allocator(&root, Holding(clist[Row]())))
+def produce() -> ():
+    rows = clist[Row]()
+    drop(alloc.system().slice_clist(&rows))
+def main() -> ():
+    pass
+"#;
+        let program = crate::frontend::compile(source, &mut Default::default()).unwrap();
+        for produce in [false, true] {
+            for register in [false, true] {
+                let mut ops = program.ops.clone();
+                for op in &mut ops {
+                    if let Op::DefineFn(name, f) = op {
+                        std::sync::Arc::make_mut(&mut f.origins).standard_library = name != "main";
+                    }
+                }
+                if produce {
+                    ops.push(Op::Call("produce".into()));
+                }
+                if register {
+                    ops.push(Op::Call("register_owner".into()));
+                }
+                assert_eq!(
+                    Providers::new(&ops).state_owns_selected,
+                    produce && register,
+                    "produce={produce}, register={register}"
+                );
+            }
+        }
     }
 }
