@@ -266,6 +266,16 @@ or provide separate Plenty module compilation by default; use a library build
 for exports, or opt into [executable callbacks](../../facilities/04-interop/exports.md#executable-callbacks)
 with `--executable-exports NAME`. The latter also writes `NAME.h` beside the output.
 
+For compiler-linked callback executables on Linux, an unused adapter does not by
+itself require an optional [engine](engines.md). With the default `cc` driver,
+the compiler follows relocations from `plenty_main`, retained metadata and symbols
+referenced by explicit ELF relocatable `.o` inputs. It counts even references in
+unused native object sections, including direct engine imports. With a custom
+driver, archives, linker flags, scripts or other opaque inputs it conservatively
+counts **all** application globals as possible roots. These cases can require an
+engine the final binary would otherwise omit. Native dependencies hidden inside
+opaque inputs remain the native caller’s responsibility.
+
 For native Rust support, do not combine independently bundled Rust staticlibs:
 Rust standard-library/global allocator definitions can collide. Build **one**
 Cargo staticlib depending on `plenty-runtime` with its `executable` feature and

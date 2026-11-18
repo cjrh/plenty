@@ -639,3 +639,120 @@ unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
         }
     }
 }
+
+/// The final link, not the visibility of the adapter, controls whether its
+/// checked body needs the optional engine (#1000).
+#[test]
+fn executable_exports_engine_roots_include_native_objects_and_preserve_opaque_inputs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    let source = root.join("engine.plenty");
+    let output = root.join("app");
+    let engine = root.join("libplenty_dataframe_v1.so");
+    let missing = root.join("missing.so");
+    std::fs::write(
+        root.join("engine.c"),
+        "int pldf_v1_fixture(void) { return 42; }",
+    )
+    .unwrap();
+    success(
+        Command::new("cc")
+            .args(["-shared", "-fPIC", "-Wl,-soname,libplenty_dataframe_v1.so"])
+            .arg(root.join("engine.c"))
+            .arg("-o")
+            .arg(&engine)
+            .output()
+            .unwrap(),
+    );
+    std::fs::write(root.join("raw.plentyi"), "pub extern def engine() -> i32 = \"pldf_v1_fixture\"\npub extern def drive() -> i32 = \"drive\"\n").unwrap();
+    let app = |expr| {
+        std::fs::write(&source, format!("import raw\nexport def check(x: i32) -> i32 = \"proof_check\":\n    unchecked:\n        raw.engine() // x\ndef main() -> i32:\n    {expr}\n")).unwrap()
+    };
+    let object = root.join("drive.o");
+    let driver = |body| {
+        std::fs::write(root.join("drive.c"), format!("#include \"proof.h\"\nextern int pldf_v1_fixture(void);\nint drive(void) {{ return {body}; }}")).unwrap();
+        success(
+            Command::new("cc")
+                .arg("-c")
+                .arg(root.join("drive.c"))
+                .arg("-o")
+                .arg(&object)
+                .output()
+                .unwrap(),
+        );
+    };
+    let needs_engine = || {
+        let elf = success(
+            Command::new("readelf")
+                .arg("-d")
+                .arg(&output)
+                .output()
+                .unwrap(),
+        );
+        String::from_utf8(elf.stdout)
+            .unwrap()
+            .lines()
+            .any(|l| l.contains("NEEDED") && l.contains("libplenty_dataframe_v1.so"))
+    };
+    for optimize in [false, true] {
+        let compile = |selected: &Path, args: &[std::ffi::OsString]| {
+            plenty::compile_file_to_executable_with_options(
+                &source,
+                &output,
+                None,
+                &CompileOptions {
+                    executable_exports: Some("proof".into()),
+                    dataframe_engine: Some(selected.into()),
+                    link_args: args.to_vec(),
+                    optimize,
+                    ..Default::default()
+                },
+            )
+        };
+        app("0i32");
+        for selected in [&engine, &missing] {
+            compile(selected, &[]).unwrap();
+            assert!(!needs_engine());
+            success(Command::new(&output).output().unwrap());
+        }
+        app("raw.drive()");
+        driver("0");
+        let object_arg = [object.clone().into_os_string()];
+        compile(&missing, &object_arg).unwrap();
+        assert!(!needs_engine());
+        // With identical Plenty code, changing only the native caller now
+        // retains the callback. A direct engine import is also a possible root.
+        for body in ["proof_check(2)", "pldf_v1_fixture() / 2"] {
+            driver(body);
+            assert!(
+                compile(&missing, &object_arg)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("std.dataframe requires")
+            );
+            compile(&engine, &object_arg).unwrap();
+            assert!(needs_engine());
+            assert_eq!(Command::new(&output).status().unwrap().code(), Some(21));
+        }
+        app("check(2i32)");
+        assert!(
+            compile(&missing, &[])
+                .unwrap_err()
+                .to_string()
+                .contains("std.dataframe requires")
+        );
+        compile(&engine, &[]).unwrap();
+        assert!(needs_engine());
+        assert_eq!(Command::new(&output).status().unwrap().code(), Some(21));
+        app("0i32");
+        // -u can retain an adapter without an undefined reference in any .o.
+        assert!(
+            compile(&missing, &["-Wl,-u,proof_check".into()])
+                .unwrap_err()
+                .to_string()
+                .contains("std.dataframe requires")
+        );
+        compile(&engine, &["-Wl,-u,proof_check".into()]).unwrap();
+        assert!(needs_engine());
+    }
+}

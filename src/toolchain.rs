@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod distribution;
+mod engine_roots;
+use engine_roots::EngineRoots;
 #[cfg(any(windows, target_os = "macos", test))]
 mod engine_install;
 #[cfg(any(target_os = "macos", test))]
@@ -583,6 +585,7 @@ impl Engine {
 fn reached_engines<'a>(
     bytes: &[u8],
     engines: &'a [Engine],
+    roots: &EngineRoots,
 ) -> Result<Vec<&'a Engine>, Box<dyn std::error::Error>> {
     use object::{Object, ObjectSection, ObjectSymbol, RelocationTarget, SectionFlags};
     let object = object::File::parse(bytes)?;
@@ -596,9 +599,11 @@ fn reached_engines<'a>(
             .iter()
             .position(|e| name.starts_with(e.symbol_prefix))
     };
-    if !object.symbols().any(|symbol| {
-        symbol.is_undefined() && symbol.name().is_ok_and(|name| engine_of(name).is_some())
-    }) {
+    if roots.native_imports.is_empty()
+        && !object.symbols().any(|symbol| {
+            symbol.is_undefined() && symbol.name().is_ok_and(|name| engine_of(name).is_some())
+        })
+    {
         return Ok(Vec::new());
     }
     let atom = |symbol: object::Symbol<'_, '_>| {
@@ -622,7 +627,7 @@ fn reached_engines<'a>(
     let mut pending: Vec<_> = object
         .symbols()
         .filter(|symbol| {
-            (symbol.is_global() && !symbol.is_undefined())
+            (symbol.is_global() && !symbol.is_undefined() && roots.includes_global(symbol.name()))
                 || matches!(symbol.flags(), object::SymbolFlags::MachO { n_desc, .. }
                     if n_desc.contains(object::macho::N_NO_DEAD_STRIP))
         })
@@ -639,6 +644,11 @@ fn reached_engines<'a>(
             .map(|section| (section.index(), 0, section.size())),
     );
     let mut reached = vec![false; engines.len()];
+    for name in &roots.native_imports {
+        if let Some(engine) = engine_of(name) {
+            reached[engine] = true;
+        }
+    }
     let mut seen = std::collections::HashSet::new();
     while let Some((index, start, end)) = pending.pop() {
         if !seen.insert((index, start, end)) {
@@ -687,7 +697,8 @@ fn engine_link_args(
     let _ = output;
     #[cfg_attr(not(any(windows, target_os = "macos")), allow(unused_mut))]
     let mut installs = Vec::new();
-    let reached = reached_engines(&std::fs::read(object)?, ENGINES)?;
+    let roots = EngineRoots::for_link(options);
+    let reached = reached_engines(&std::fs::read(object)?, ENGINES, &roots)?;
     if reached.is_empty() {
         return Ok((Vec::new(), installs));
     }
@@ -1134,13 +1145,17 @@ mod tests {
             fake_engine("std.b", "plfb_v1_"),
         ];
         let bytes = std::fs::read(&object).unwrap();
-        let reached: Vec<_> = reached_engines(&bytes, &engines)
+        let reached: Vec<_> = reached_engines(&bytes, &engines, &EngineRoots::default())
             .unwrap()
             .into_iter()
             .map(|engine| engine.module)
             .collect();
         assert_eq!(reached, ["std.a"]);
-        assert!(reached_engines(&bytes, ENGINES).unwrap().is_empty());
+        assert!(
+            reached_engines(&bytes, ENGINES, &EngineRoots::default())
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1237,7 +1252,7 @@ mod tests {
                 fake_engine("std.a", "plfa_v1_"),
                 fake_engine("std.b", "plfb_v1_"),
             ];
-            let reached: Vec<_> = reached_engines(&bytes, &engines)
+            let reached: Vec<_> = reached_engines(&bytes, &engines, &EngineRoots::default())
                 .unwrap()
                 .into_iter()
                 .map(|engine| engine.module)
