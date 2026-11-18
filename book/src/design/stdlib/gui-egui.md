@@ -6,6 +6,30 @@ example packages and the [signatures](signatures.md#stdguiimmediateegui).
 The external toolkit supplies layout, input, text and graphics integration;
 there is no retained Plenty widget tree or event dispatcher.
 
+## Widgets
+
+| Example | Call | Effect |
+| --- | --- | --- |
+| [Label](gui-egui-widgets.md#label) | `ui.label(&message)` | Paints borrowed text; no interaction. |
+| [Button](gui-egui-widgets.md#button) | `ui.button(&caption)` | Returns whether this button was clicked. |
+| [Single-line text editor](gui-egui-widgets.md#single-line-text-editor) | `ui.text_edit(id, &mut text)` | Updates the string; returns whether Enter submitted it. |
+
+## Example: a counter
+
+Click **Increment** and `draw` changes the count immediately. The label below the buttons sees the new value in that same pass.
+After [setting up the source build](gui-build.md#source-installation-and-host),
+run from the checkout root:
+
+```sh
+(cd examples/gui/egui_counter && plenty run)
+```
+
+```plenty fragment
+{{#include ../../../../examples/gui/egui_counter/src/main.plenty}}
+```
+
+## Running the application
+
 `egui.run()` enters once on the process main thread and reads the original
 process arguments after the executable name. No arguments opens a window;
 `--headless [X,Y ...]` accepts up to 64 pointer clicks, each a pair of decimal

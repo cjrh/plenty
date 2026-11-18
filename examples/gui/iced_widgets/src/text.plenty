@@ -1,0 +1,19 @@
+import std.gui.retained.iced as iced
+
+class State:
+    message: str
+    def __init__(self) -> ():
+        self.message = "Ready"
+
+export def create() -> Result[State, AllocError] = "iced_app_create":
+    Ok(State())
+
+export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "iced_app_render":
+    frame = iced.Frame(token)
+    frame.text(&state.message)
+
+export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] = "iced_app_event":
+    Err(iced.IcedError.InvalidArgument)
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run()

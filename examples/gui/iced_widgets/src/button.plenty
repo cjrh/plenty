@@ -1,0 +1,25 @@
+import std.gui.retained.iced as iced
+
+class State:
+    status: str
+    def __init__(self) -> ():
+        self.status = "Waiting"
+
+export def create() -> Result[State, AllocError] = "iced_app_create":
+    Ok(State())
+
+export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "iced_app_render":
+    frame = iced.Frame(token)
+    frame.column()?
+    frame.button(&"Approve", 1u64)?
+    frame.text(&state.status)?
+    frame.end()
+
+export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] = "iced_app_event":
+    if action == 1u64:
+        state.status = "Approved"
+        return Ok(())
+    Err(iced.IcedError.InvalidArgument)
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run()

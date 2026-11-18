@@ -666,6 +666,10 @@ for build commands, tests and ownership limits.
 
 ## Source-built GUI packages
 
+The [iced widget examples](../design/stdlib/gui-iced-widgets.md) and
+[egui widget examples](../design/stdlib/gui-egui-widgets.md) show a complete
+Plenty executable for each exposed control or container.
+
 B38: the retained iced and immediate egui counter ports now have embedded std
 facades and ordinary [package builds](../design/stdlib/gui-build.md) on Linux
 GNU x86-64. Selection follows resolved imports; CLI packages build neither
