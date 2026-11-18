@@ -414,6 +414,7 @@ impl Lowerer<'_, '_> {
 pub(super) fn mark_context_preserving(
     bodies: &[(String, Arc<[Op]>)],
     fns: &mut HashMap<String, UserFn>,
+    providers: ByteProviders,
 ) {
     let index: HashMap<&str, usize> = bodies
         .iter()
@@ -429,14 +430,21 @@ pub(super) fn mark_context_preserving(
         let function = &fns[name];
         let eligible = function.generator.is_none()
             && function.source.is_some()
-            && reads_no_caller(body, &function.sig, &function.locals, &mut |callee| {
-                if let Some(&g) = index.get(callee) {
-                    readers[g].push(i);
-                    true
-                } else {
-                    false
-                }
-            });
+            && safe_caller_body(
+                body,
+                &function.sig,
+                &function.locals,
+                false,
+                providers,
+                &mut |callee| {
+                    if let Some(&g) = index.get(callee) {
+                        readers[g].push(i);
+                        true
+                    } else {
+                        false
+                    }
+                },
+            );
         reads_nothing[i] = eligible;
     }
     let mut pending: Vec<_> = (0..bodies.len()).filter(|&i| !reads_nothing[i]).collect();
@@ -505,9 +513,14 @@ pub(super) fn mark_context_preserving(
             function.standard_library
                 && function.generator.is_none()
                 && !function.reads_no_caller
-                && safe_caller_body(body, &function.sig, &function.locals, true, &mut |callee| {
-                    fns.get(callee).is_some_and(|callee| callee.reads_no_caller)
-                })
+                && safe_caller_body(
+                    body,
+                    &function.sig,
+                    &function.locals,
+                    true,
+                    providers,
+                    &mut |callee| fns.get(callee).is_some_and(|callee| callee.reads_no_caller),
+                )
         })
         .collect();
     for ((name, _), names_sites) in bodies.iter().zip(names_sites) {
@@ -528,6 +541,7 @@ fn safe_caller_body(
     sig: &FnSig,
     locals: &[Ty],
     allow_traps: bool,
+    providers: ByteProviders,
     callees: &mut impl FnMut(&str) -> bool,
 ) -> bool {
     use crate::collection::CollectionOp as C;
@@ -537,7 +551,7 @@ fn safe_caller_body(
         .map(|(_, ty)| ty)
         .chain(locals)
         .chain(&sig.outputs)
-        .any(Ty::release_runs_code);
+        .any(|ty| ty.release_runs_code(providers));
     if runs_code {
         return false;
     }
@@ -555,10 +569,11 @@ fn safe_caller_body(
                         Op::Site(_) | Op::UseLoan(_) | Op::EndLoan(_)
                     )),
                     Some(Op::Collection(C::Bytes(primitive)))
-                        if !primitive.signature().1.release_runs_code()
+                        if !primitive.signature().1.release_runs_code(providers)
                 ),
                 Op::Call(callee) | Op::TailCall(callee) => callees(callee),
-                _ if allow_traps => primitive_reads_no_caller(op),
+                Op::Collection(C::Bytes(primitive)) if providers.0 && primitive.may_grow() => false,
+                _ if allow_traps => primitive_reads_no_caller(op, providers),
                 Op::Collection(C::Trap)
                 | Op::Enum(crate::sum::EnumOp::Unwrap(_))
                 | Op::Add
@@ -570,7 +585,7 @@ fn safe_caller_body(
                 Op::Collection(C::Bytes(_) | C::QueryRef(_)) => {
                     !matches!(op, Op::Collection(operation) if operation.traps())
                 }
-                _ => primitive_reads_no_caller(op),
+                _ => primitive_reads_no_caller(op, providers),
             };
         }
     });
@@ -579,24 +594,24 @@ fn safe_caller_body(
 
 /// Whether `op`, outside a nested body, can read the caller context only
 /// through a trap site; see [`safe_caller_body`].
-fn primitive_reads_no_caller(op: &Op) -> bool {
+fn primitive_reads_no_caller(op: &Op, providers: ByteProviders) -> bool {
     use crate::collection::CollectionOp as C;
     match op {
-        Op::ReadRef(ty) => !ty.release_runs_code(),
-        // Native byte primitives and read-only queries: none calls
-        // compiled code. A trap passes its site record.
+        Op::ReadRef(ty) => !ty.release_runs_code(providers),
+        // Byte growth with possible providers was excluded above. A trap
+        // passes its site record.
         Op::Collection(C::Bytes(_) | C::QueryRef(_) | C::Trap) => true,
         Op::Enum(op) => op.signature().is_some_and(|(inputs, output)| {
             inputs
                 .iter()
                 .chain(std::iter::once(&output))
-                .all(|ty| !ty.release_runs_code())
+                .all(|ty| !ty.release_runs_code(providers))
         }),
         Op::Class(op) => op.signature().is_some_and(|(inputs, output)| {
             inputs
                 .iter()
                 .chain(std::iter::once(&output))
-                .all(|ty| !ty.release_runs_code())
+                .all(|ty| !ty.release_runs_code(providers))
         }),
         Op::Collection(C::ViewNew(..) | C::ViewLen(_)) => true,
         Op::Site(_)
@@ -638,19 +653,6 @@ fn primitive_reads_no_caller(op: &Op) -> bool {
         | Op::Return => true,
         _ => false,
     }
-}
-
-/// Whether this body and all its direct callees read no caller context.
-/// Code-free owned values may allocate or return errors; they cannot invoke
-/// destructors. Unknown/indirect calls and traps remain conservative. The
-/// caller supplies the direct-call proof (or records fixed-point edges).
-fn reads_no_caller(
-    body: &[Op],
-    sig: &FnSig,
-    locals: &[Ty],
-    callees: &mut impl FnMut(&str) -> bool,
-) -> bool {
-    safe_caller_body(body, sig, locals, false, callees)
 }
 
 /// Visits every operation of one function, not of the functions it defines.

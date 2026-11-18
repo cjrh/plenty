@@ -10,10 +10,7 @@ unsafe extern "C" fn unused_destroy(_: *mut Header) {
 }
 
 fn buffer(bytes: &[u8]) -> Storage {
-    Storage {
-        header: Header::new(unused_destroy),
-        bytes: bytes.to_vec(),
-    }
+    Storage::ordinary(unused_destroy, bytes.to_vec())
 }
 
 /// Models codegen: three initialized fixed operands, an uninitialized result,
@@ -49,7 +46,7 @@ fn byte_fill_reads_the_fourth_operand_but_not_the_absent_fifth() {
     let owner = ptr::addr_of_mut!(bytes) as u128;
     // SAFETY: valid range and exclusively owned buffer.
     assert_eq!(unsafe { invoke(237, &[owner, 1, 3, b'x' as u128]) }, 0);
-    assert_eq!(bytes.bytes, b"axxd");
+    assert_eq!(bytes.as_slice(), b"axxd");
 }
 
 #[test]
@@ -59,7 +56,7 @@ fn byte_overwrite_reads_a_view_operand() {
     let source = super::byte_storage::view_operand(&b"wxyz"[2..]);
     // SAFETY: a live buffer and a separate live view.
     assert_eq!(unsafe { invoke(179, &[owner, 1, source]) }, 0);
-    assert_eq!(bytes.bytes, b"ayzd");
+    assert_eq!(bytes.as_slice(), b"ayzd");
 }
 
 #[test]

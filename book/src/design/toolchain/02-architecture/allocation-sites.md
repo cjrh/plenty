@@ -117,6 +117,7 @@ instead reads a contiguous range whose bounds are already part of the view.
 | Ordinary list-view materialization | `view_slice` constructs an adjacent subview; `view_copy` / `view_share` in `src/frontend/view_methods.plenty` create an ordinary empty list, reserve and append `copy(element)?` or `element.share()`. Partial lists drop on error, the view is only read. No explicit step here; for a byte view choose `list(&v[a:b])?` or extend a `Bytes`. |
 | `str.slice(a, b)`, text brackets and text-view copies | In `plenty-runtime/src/strings.rs`, the method uses `try_slice` / `scalar_range`; brackets use `try_stepped_slice`. For adjacent scalars copy the UTF-8 interval; for strided ASCII gather bytes, otherwise count encoded bytes and fill the final output in forward or reverse order. Short results can be inline; no gathered-character buffer. A view's `[:]` uses `TEXT_VIEW_COPY` in `aggregates/text_views.rs`; bounded/stepped copies use `try_stepped_slice_range` via `aggregates/text_ranges.rs` (both under `plenty-runtime/src/`). Only the owned text can require allocation; failure preserves the input. |
 | `bytes` literal / `Bytes` brackets | `BytesOp::SliceLiteral` / `Slice` → `BYTES_SLICE` in `src/bytes.rs`. `plenty-runtime/src/aggregates/byte_storage.rs`: `create(count)` reserves ordinary vector storage before allocating the header; if the header fails the vector drops. Copy or gather directly into that buffer and wrap it as `Bytes`. Source is only read. |
+| `out.slice_bytes(view, start, stop, step)` | `__allocator_bytes_slice` → `ALLOCATOR_BYTES_SLICE` → `byte_storage::slice` with the output allocator. Normalize against the view length; copy the adjacent range or gather directly into the final packed rows, without a temporary list or index buffer. `byte_storage/buffer.rs::create_in` requests payload for the selected count (none if empty), then the owner, both through the provider. Object refusal releases provisional backing. The owner retains the provider for growth and release; a refused growth leaves the old bytes intact. No fallback. |
 | `Bytes.slice(start, stop)` | `stdlib/std/bytes.plenty`: check `0 <= start <= stop <= len` (trap, not a clamped slice), `__bytes_new(width)?`, then `__bytes_append` from a borrowed byte range. Allocation errors do not change the source. |
 | Named `clist` brackets | `ClistOp::Slice` → `slice` / `reserve` in `plenty-runtime/src/aggregates/clist.rs`. Reserve one `Columns` allocation for a nonempty result; copy one contiguous interval or gather strided primitive rows **per column**. Empty result can be null. Failed reserve leaves the source unchanged. |
 | Adjacent borrowed ranges | `&xs[a:b]`, allowed exclusive ranges and subviews lend existing storage; `&s[a:b]` lends UTF-8 by scalar bounds. No new owner, nested duplication or allocation-error result for the loan. |
@@ -136,6 +137,11 @@ Evidence by path:
 - `tests/test_std_alloc_copy_view.rs`: public method on empty and nonempty ranges,
   packed bytes and list-backed bytes; partial nested-copy refusal on a worker,
   retained growth after source and handle drop, and compile-time rejections.
+- `tests/test_std_alloc_slice_bytes.rs`: view-relative bounds on packed and
+  list-backed inputs, loan end, provider refusal, and no ordinary scratch.
+  `plenty-runtime/src/aggregates/byte_storage/tests/selected.rs` checks retained
+  growth, rollback and ordinary `BYTES_SLICE` dispatch: the selected source's
+  provider receives no request and is destroyed before the ordinary result grows.
 - `tests/test_std_bytes.rs`: `ranges_follow_one_rule_without_clamping_or_negative_offsets`
   and `second_allocation_failure_releases_the_first`.
 

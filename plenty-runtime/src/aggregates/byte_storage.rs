@@ -1,20 +1,16 @@
 //! Contiguous byte storage behind `std.bytes`: one byte per element, with every
 //! buffer acquisition fallible. `std.bytes` validates ranges and reports them as
 //! values; a violated precondition here is a library bug and stops the process.
-//! No pointer into the buffer crosses the ABI, so growth can relocate freely.
+//! A view borrows the packed rows; growth may relocate only after that loan ends.
 use super::{Collection, OwnedValue, Type, byte_scan, wrap};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
 use crate::text_io;
 use std::io::{Read, Write};
 
-/// `crypto::State` begins with this layout, so byte operations on a crypto
-/// state see an empty, ordinary buffer.
-#[repr(C)]
-pub(super) struct Storage {
-    pub(super) header: Header,
-    pub(super) bytes: Vec<u8>,
-}
+mod buffer;
+use crate::allocator::Allocator;
+pub(super) use buffer::{Storage, create_in};
 
 unsafe extern "C" fn destroy(pointer: *mut Header) {
     // SAFETY: the last owner has gone; the buffer is released exactly once.
@@ -31,10 +27,7 @@ fn create(capacity: usize) -> Result<*mut Storage, AllocError> {
     let owner = memory::try_allocate::<Storage, u8>(0)?;
     // SAFETY: fresh, exclusively owned storage of the right layout.
     unsafe {
-        owner.write(Storage {
-            header: Header::new(destroy),
-            bytes,
-        });
+        owner.write(Storage::ordinary(destroy, bytes));
     }
     Ok(owner)
 }
@@ -42,20 +35,20 @@ fn create(capacity: usize) -> Result<*mut Storage, AllocError> {
 pub(super) fn from_slice(source: &[u8]) -> Result<u128, AllocError> {
     let owner = create(source.len())?;
     // SAFETY: `create` reserved the full length for its sole owner.
-    unsafe { (*owner).bytes.extend_from_slice(source) };
+    unsafe { (*owner).extend_reserved(source) };
     Ok(owner as u128)
 }
 
 /// Content equality, so `==` on a `Bytes` never compares owner addresses.
 pub(super) unsafe fn equal(a: u128, b: u128) -> bool {
     // SAFETY: both operands are live storage owners.
-    unsafe { (*(a as *const Storage)).bytes == (*(b as *const Storage)).bytes }
+    unsafe { (*(a as *const Storage)).as_slice() == (*(b as *const Storage)).as_slice() }
 }
 
 /// The byte-literal spelling of a buffer; see `render_slice`.
 pub(super) unsafe fn render(value: u128, out: &mut crate::render_buffer::Buffer) {
     // SAFETY: the operand is a live storage owner.
-    render_slice(unsafe { &(*(value as *const Storage)).bytes }, out);
+    render_slice(unsafe { (*(value as *const Storage)).as_slice() }, out);
 }
 
 /// The spelling `Bytes`, `bytes`, and `&[u8]` values share, Python's: a
@@ -95,7 +88,21 @@ pub(super) unsafe fn source<'a>(value: u128) -> &'a [u8] {
         if (*(value as *const Header)).destroy.is_none() {
             strings::heap_bytes(value as *const strings::Text)
         } else {
-            (*(value as *const Storage)).bytes.as_slice()
+            (*(value as *const Storage)).as_slice()
+        }
+    }
+}
+
+/// Unlike `source`, a view's raw address can also be passed to generated
+/// writers. Never derive a selected writable address from a shared slice.
+unsafe fn view_parts(owner: *const u8) -> (*const u8, usize) {
+    // SAFETY: compiler operands are live storage or read-only immortal text.
+    unsafe {
+        if (*owner.cast::<Header>()).destroy.is_none() {
+            let bytes = strings::heap_bytes(owner.cast());
+            (bytes.as_ptr(), bytes.len())
+        } else {
+            (*owner.cast::<Storage>()).view_parts()
         }
     }
 }
@@ -122,16 +129,53 @@ pub(crate) fn view_operand(bytes: &[u8]) -> u128 {
 /// native writing `storage` while reading `view` would alias them.
 pub(crate) unsafe fn view_overlaps(view: u128, storage: u128) -> bool {
     // SAFETY: the caller passes a live view and a live storage prefix.
-    let (input, output) = unsafe {
-        (
-            view_bytes(view),
-            (*(storage as *const Storage)).bytes.as_slice(),
-        )
-    };
+    let (input, output) = unsafe { (view_bytes(view), (*(storage as *const Storage)).as_slice()) };
     !input.is_empty()
         && !output.is_empty()
         && input.as_ptr() < output.as_ptr_range().end
         && output.as_ptr() < input.as_ptr_range().end
+}
+
+/// A view into the destination must become offsets before a mutable loan or
+/// relocation. Valid views into one buffer are wholly contained in it.
+unsafe fn overlapping_range(view: u128, owner: u128) -> Option<std::ops::Range<usize>> {
+    if !unsafe { view_overlaps(view, owner) } {
+        return None;
+    }
+    let bytes = unsafe { (*(owner as *const Storage)).as_slice() };
+    let offset = (view as u64 as usize)
+        .checked_sub(bytes.as_ptr().addr())
+        .expect("contained byte view");
+    let end = offset
+        .checked_add((view >> 64) as usize)
+        .expect("contained byte view");
+    assert!(end <= bytes.len());
+    Some(offset..end)
+}
+
+/// Owning bracket slice. The source view never determines the destination's
+/// allocator; even an empty selected result keeps its own provider.
+pub(super) fn slice(
+    source: &[u8],
+    start: i64,
+    stop: i64,
+    step: i64,
+    flags: i64,
+    allocator: Option<&Allocator>,
+) -> Result<u128, AllocError> {
+    let (first, step, count) = super::slice_positions(source.len(), start, stop, step, flags);
+    let owner = match allocator {
+        Some(a) => create_in(a, count)?,
+        None => create(count)?,
+    };
+    // SAFETY: fresh, distinct final buffer; normalization proves all positions.
+    let bytes = unsafe { &mut *owner };
+    if step == 1 {
+        bytes.extend_reserved(&source[first..first + count]);
+    } else {
+        bytes.gather_reserved((0..count).map(|k| source[super::slice_position(first, step, k)]));
+    }
+    Ok(owner as u128)
 }
 
 pub(super) fn size(value: u128) -> usize {
@@ -222,73 +266,83 @@ pub(super) unsafe fn call(
     let [a, b, c, d, e] = operands;
     // SAFETY: see above; descriptors are process-lifetime compiler metadata.
     unsafe {
-        let storage = |value: u128| &mut (*(value as *mut Storage)).bytes;
+        let storage = |value: u128| &mut *(value as *mut Storage);
+        let target = |value: u128| storage(value).as_mut_slice();
         // Scans only read, and their operands may be the same buffer.
-        let view = |value: u128| (*(value as *const Storage)).bytes.as_slice();
+        let view = |value: u128| (*(value as *const Storage)).as_slice();
         match op {
             170 => result(create(size(a)).map(|owner| owner as u128)),
-            280 => crate::formatting::write_float(storage(a), f64::from_bits(b as u64)) as u128,
+            280 => crate::formatting::write_float(target(a), f64::from_bits(b as u64)) as u128,
             281 => crate::formatting::write_float_spec(
-                storage(a),
+                target(a),
                 f64::from_bits(b as u64),
                 c as i64,
                 d as i64,
                 e as i64,
             ) as u128,
-            171 => storage(a).len() as u128,
-            172 => storage(a).capacity() as u128,
+            171 => view(a).len() as u128,
+            172 => (*(a as *const Storage)).capacity() as u128,
             173 => byte_at(view(a), b) as u128,
             174 => {
-                set_byte(storage(a), b, c as u8);
+                set_byte(target(a), b, c as u8);
                 0
             }
-            175 => result(memory::try_reserve(storage(a), size(b)).map(|()| 0)),
+            175 => result(storage(a).reserve(size(b), false).map(|()| 0)),
             176 => {
                 let (bytes, len) = (storage(a), size(b));
-                let additional = len.saturating_sub(bytes.len());
-                result(memory::try_reserve_amortized(bytes, additional).map(|()| {
-                    bytes.resize(len, c as u8);
+                let additional = len.saturating_sub(bytes.as_slice().len());
+                result(bytes.reserve(additional, true).map(|()| {
+                    bytes.resize_reserved(len, c as u8);
                     0
                 }))
             }
             178 => {
-                let source = view_bytes(b);
-                let bytes = storage(a);
-                result(
-                    memory::try_reserve_amortized(bytes, source.len()).map(|()| {
-                        bytes.extend_from_slice(source);
+                if let Some(within) = overlapping_range(b, a) {
+                    let bytes = storage(a);
+                    let old_len = bytes.as_slice().len();
+                    result(bytes.reserve(within.len(), true).map(|()| {
+                        bytes.resize_reserved(old_len + within.len(), 0);
+                        bytes.as_mut_slice().copy_within(within, old_len);
                         0
-                    }),
-                )
+                    }))
+                } else {
+                    let source = view_bytes(b);
+                    let bytes = storage(a);
+                    result(bytes.reserve(source.len(), true).map(|()| {
+                        bytes.extend_reserved(source);
+                        0
+                    }))
+                }
             }
             179 => {
-                let source = view_bytes(c);
-                let bytes = storage(a);
                 let offset = size(b);
-                match offset
-                    .checked_add(source.len())
-                    .and_then(|end| bytes.get_mut(offset..end))
+                let count = (c >> 64) as usize;
+                if offset
+                    .checked_add(count)
+                    .is_none_or(|end| end > view(a).len())
                 {
-                    Some(target) => target.copy_from_slice(source),
-                    None => crate::fail_kind(
+                    crate::fail_kind(
                         crate::actor_heap::TrapKind::Index,
                         "byte range out of bounds",
-                    ),
+                    );
+                }
+                if let Some(within) = overlapping_range(c, a) {
+                    target(a).copy_within(within, offset);
+                } else {
+                    target(a)[offset..offset + count].copy_from_slice(view_bytes(c));
                 }
                 0
             }
             180 => {
                 let list = &*(a as *const Collection);
                 result(create(list.entries.len()).map(|owner| {
-                    (*owner)
-                        .bytes
-                        .extend(list.entries.iter().map(|entry| entry.key as u8));
+                    (*owner).gather_reserved(list.entries.iter().map(|entry| entry.key as u8));
                     owner as u128
                 }))
             }
             181 => {
                 let ty = (*descriptor).variants[0].fields[0];
-                let bytes = storage(a);
+                let bytes = view(a);
                 result(super::try_collection_new(ty, bytes.len()).and_then(|list| {
                     // The guard releases a partially filled list.
                     let owner = OwnedValue {
@@ -304,7 +358,7 @@ pub(super) unsafe fn call(
             182 => result(from_slice(strings::bytes(&(a as *const strings::Text)))),
             183 => to_text(view_bytes(a)),
             188 => {
-                let bytes = storage(a);
+                let bytes = target(a);
                 let within = range(b, c, bytes.len());
                 let target = &mut bytes[within];
                 text_io::result(crate::files::read_bytes(
@@ -320,7 +374,7 @@ pub(super) unsafe fn call(
                 ))
             }
             190 => {
-                let bytes = storage(a);
+                let bytes = target(a);
                 let within = range(b, c, bytes.len());
                 let target = &mut bytes[within];
                 crate::io::io_result(text_io::Stdin.read(target).map(|count| count as u128))
@@ -358,32 +412,22 @@ pub(super) unsafe fn call(
                 run as u128
             }
             237 => {
-                let bytes = storage(a);
+                let bytes = target(a);
                 let within = range(b, c, bytes.len());
                 bytes[within].fill(d as u8);
                 0
             }
+            283 => result(slice(
+                source(a),
+                b as i64,
+                c as i64,
+                d as i64,
+                e as i64,
+                None,
+            )),
             // `copy_within`: memmove inside one buffer, so the ranges may overlap.
-            // `source[start:stop:step]` with clamped bounds, into a new
-            // buffer of exact capacity.
-            283 => {
-                let source = source(a);
-                let (first, step, count) =
-                    super::slice_positions(source.len(), b as i64, c as i64, d as i64, e as i64);
-                result(create(count).map(|owner| {
-                    let bytes = &mut (*owner).bytes;
-                    if step == 1 {
-                        bytes.extend_from_slice(&source[first..first + count]);
-                    } else {
-                        bytes.extend(
-                            (0..count).map(|k| source[super::slice_position(first, step, k)]),
-                        );
-                    }
-                    owner as u128
-                }))
-            }
             282 => {
-                let bytes = storage(a);
+                let bytes = target(a);
                 let within = range(b, c, bytes.len());
                 let to = size(d);
                 if to > bytes.len() - within.len() {
@@ -401,13 +445,13 @@ pub(super) unsafe fn call(
                 bytes[super::index(b as i64, bytes.len(), site)] as u128
             }
             239 => {
-                let bytes = storage(a);
+                let bytes = target(a);
                 let index = super::index(b as i64, bytes.len(), site);
                 bytes[index] = c as u8;
                 0
             }
             248 => {
-                let bytes = storage(a);
+                let bytes = target(a);
                 let within = range(b, c, bytes.len());
                 crate::io::io_result(crate::entropy::read(&mut bytes[within]))
             }
@@ -423,7 +467,7 @@ pub(super) unsafe fn call(
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
     // SAFETY: the compiler keeps the storage owner alive through the call.
-    unsafe { (*owner.cast::<Storage>()).bytes.len() as u64 }
+    unsafe { (*owner.cast::<Storage>()).as_slice().len() as u64 }
 }
 
 /// Strict byte access used by `Bytes.get`, without the wide dispatcher ABI.
@@ -431,7 +475,7 @@ pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
 pub(crate) unsafe extern "C" fn plenty_bytes_get(owner: *const u8, index: i64) -> u64 {
     // SAFETY: the compiler keeps the shared storage owner alive through the call.
     u64::from(byte_at(
-        unsafe { &(*owner.cast::<Storage>()).bytes },
+        unsafe { (*owner.cast::<Storage>()).as_slice() },
         index as u128,
     ))
 }
@@ -441,7 +485,7 @@ pub(crate) unsafe extern "C" fn plenty_bytes_get(owner: *const u8, index: i64) -
 pub(crate) unsafe extern "C" fn plenty_bytes_set(owner: *mut u8, index: i64, value: u64) {
     // SAFETY: the caller holds an exclusive loan of a live storage owner.
     set_byte(
-        unsafe { &mut (*owner.cast::<Storage>()).bytes },
+        unsafe { (*owner.cast::<Storage>()).as_mut_slice() },
         index as u128,
         value as u8,
     );
@@ -453,7 +497,7 @@ pub(crate) unsafe extern "C" fn plenty_bytes_set(owner: *mut u8, index: i64, val
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *const u8 {
     // SAFETY: the compiler keeps the owner alive through the call.
-    unsafe { source(owner as usize as u128).as_ptr() }
+    unsafe { view_parts(owner).0 }
 }
 
 /// Two result words in the two return registers of the C ABI.
@@ -472,8 +516,8 @@ impl Words {
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_byte_view(owner: *const u8) -> Words {
     // SAFETY: the compiler keeps the owner alive through the call.
-    let bytes = unsafe { source(owner as usize as u128) };
-    Words(bytes.as_ptr() as u64, bytes.len() as u64)
+    let (address, len) = unsafe { view_parts(owner) };
+    Words(address as u64, len as u64)
 }
 
 /// `__bytes_to_text` without the dispatcher's argument block (issue #931):
@@ -541,7 +585,7 @@ pub(crate) unsafe extern "C" fn plenty_bytes_item(
 ) -> u64 {
     // SAFETY: as for `plenty_bytes_len`.
     unsafe {
-        let bytes = &(*owner.cast::<Storage>()).bytes;
+        let bytes = (*owner.cast::<Storage>()).as_slice();
         u64::from(bytes[super::index(i, bytes.len(), site)])
     }
 }
@@ -555,7 +599,7 @@ pub(crate) unsafe extern "C" fn plenty_bytes_set_item(
 ) {
     // SAFETY: the caller holds an exclusive loan of a live storage owner.
     unsafe {
-        let bytes = &mut (*owner.cast::<Storage>()).bytes;
+        let bytes = (*owner.cast::<Storage>()).as_mut_slice();
         let index = super::index(i, bytes.len(), site);
         bytes[index] = value as u8;
     }
@@ -566,9 +610,9 @@ pub(crate) unsafe extern "C" fn plenty_bytes_set_item(
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_bytes_push(owner: *mut u8, value: u64) -> u64 {
     // SAFETY: the caller holds an exclusive loan of a live storage owner.
-    let bytes = unsafe { &mut (*owner.cast::<Storage>()).bytes };
-    let pushed = memory::try_reserve_amortized(bytes, 1).map(|()| {
-        bytes.push(value as u8);
+    let bytes = unsafe { &mut *owner.cast::<Storage>() };
+    let pushed = bytes.reserve(1, true).map(|()| {
+        bytes.extend_reserved(&[value as u8]);
         0
     });
     (result(pushed) >> 64) as u64
@@ -576,6 +620,7 @@ pub(crate) unsafe extern "C" fn plenty_bytes_push(owner: *mut u8, value: u64) ->
 
 #[cfg(test)]
 mod tests {
+    mod selected;
     use super::*;
 
     struct Owner(u128);
@@ -592,7 +637,7 @@ mod tests {
 
     fn bytes(owner: &Owner) -> &[u8] {
         // SAFETY: the owner outlives the returned view within each test.
-        unsafe { &(*(owner.0 as *const Storage)).bytes }
+        unsafe { (*(owner.0 as *const Storage)).as_slice() }
     }
 
     #[test]

@@ -40,7 +40,7 @@ unsafe extern "C" fn destroy_blake3(pointer: *mut Header) {
     // runs after their last owner is released.
     unsafe {
         let state = pointer.cast::<Blake3State>();
-        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage));
         scrub_blake3(ptr::addr_of_mut!((*state).hasher));
         memory::free::<Blake3State, u8>(state, 0);
     }
@@ -64,10 +64,7 @@ fn create_blake3(hasher: blake3::Hasher) -> Result<u128, AllocError> {
     // SAFETY: fresh allocation with the matching layout and exclusive owner.
     unsafe {
         owner.write(Blake3State {
-            storage: Storage {
-                header: Header::new(destroy_blake3),
-                bytes: Vec::new(),
-            },
+            storage: Storage::ordinary(destroy_blake3, Vec::new()),
             hasher: Some(hasher),
         });
     }
@@ -119,7 +116,7 @@ unsafe extern "C" fn destroy(pointer: *mut Header) {
     // allocated by `create` with `State`'s layout.
     unsafe {
         let state = pointer.cast::<State>();
-        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage));
         scrub(ptr::addr_of_mut!((*state).hasher));
         memory::free::<State, u8>(state, 0);
     }
@@ -143,10 +140,7 @@ fn create(hasher: Hasher) -> Result<u128, AllocError> {
     // SAFETY: fresh, exclusively owned memory with `State`'s layout.
     unsafe {
         owner.write(State {
-            storage: Storage {
-                header: Header::new(destroy),
-                bytes: Vec::new(),
-            },
+            storage: Storage::ordinary(destroy, Vec::new()),
             hasher,
         });
     }
@@ -309,7 +303,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             302 => update(a, view(b)) as u128,
             303 => update(a, super::text_views::bytes(b)) as u128,
             304 => {
-                let target = &mut (*(b as *mut Storage)).bytes;
+                let target = (*(b as *mut Storage)).as_mut_slice();
                 finish(a, target, size(c)) as u128
             }
             305 => verify(a, view(b)) as u128,

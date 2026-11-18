@@ -212,17 +212,26 @@ impl Lower<'_> {
         Self::end_reads(reads, ops);
         Self::end_reads(loans, ops);
         if let Some(class) = byte_buffers::byte_buffer(&result) {
-            // Wrap the storage where `Bytes` is declared, which reaches its
-            // private constructor.
-            let declared = self
-                .aliases
-                .class_declaration(&class.name)
-                .ok_or_else(|| e.at.error("`std.bytes.Bytes` is missing"))?;
-            return Ok(self
-                .rewrap(&class, &declared, Some(output), ops)?
-                .expect("a rewrapped slice result"));
+            return self.wrap_bytes_slice(&class, output, &e.at, ops);
         }
         Ok(crate::sum::result(result, alloc()))
+    }
+
+    /// Construct the public Bytes in its declaring module; its storage field is private.
+    pub(super) fn wrap_bytes_slice(
+        &mut self,
+        class: &crate::nominal::Nominal<crate::record::ClassType>,
+        output: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let declared = self
+            .aliases
+            .class_declaration(&class.name)
+            .ok_or_else(|| at.error("`std.bytes.Bytes` is missing"))?;
+        Ok(self
+            .rewrap(class, &declared, Some(output), ops)?
+            .expect("a rewrapped slice result"))
     }
 
     /// `v[a:b]?` of a list view: an owned list of copies of the elements
@@ -263,7 +272,7 @@ impl Lower<'_> {
 
     /// `std.bytes.Bytes`, which a `bytes` slice produces. The loader adds
     /// `std.bytes` to a program that might need it; see `Loader::slice_bytes`.
-    fn bytes_class(&self, at: &Token) -> Result<Ty> {
+    pub(super) fn bytes_class(&self, at: &Token) -> Result<Ty> {
         TypeRef {
             concrete: None,
             metadata: None,

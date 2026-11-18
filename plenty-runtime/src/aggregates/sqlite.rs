@@ -204,10 +204,7 @@ struct Transaction {
 }
 
 fn empty_storage(destroy: unsafe extern "C" fn(*mut Header)) -> Storage {
-    Storage {
-        header: Header::new(destroy),
-        bytes: Vec::new(),
-    }
+    Storage::ordinary(destroy, Vec::new())
 }
 
 unsafe extern "C" fn destroy_connection(pointer: *mut Header) {
@@ -218,7 +215,7 @@ unsafe extern "C" fn destroy_connection(pointer: *mut Header) {
         if !(*connection).db.is_null() {
             sqlite3_close_v2((*connection).db);
         }
-        ptr::drop_in_place(ptr::addr_of_mut!((*connection).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*connection).storage));
         memory::free::<Connection, u8>(connection, 0);
     }
 }
@@ -230,7 +227,7 @@ unsafe extern "C" fn destroy_statement(pointer: *mut Header) {
         let statement = pointer.cast::<Statement>();
         sqlite3_finalize((*statement).stmt);
         let connection = (*statement).connection;
-        ptr::drop_in_place(ptr::addr_of_mut!((*statement).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*statement).storage));
         memory::free::<Statement, u8>(statement, 0);
         (*connection).users.fetch_sub(1, Ordering::Release);
         plenty_release(connection.cast());
@@ -247,7 +244,7 @@ unsafe extern "C" fn destroy_transaction(pointer: *mut Header) {
         if (*connection).transaction.load(Ordering::Acquire) == generation {
             finish(connection, generation, c"ROLLBACK");
         }
-        ptr::drop_in_place(ptr::addr_of_mut!((*transaction).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*transaction).storage));
         memory::free::<Transaction, u8>(transaction, 0);
         (*connection).users.fetch_sub(1, Ordering::Release);
         plenty_release(connection.cast());

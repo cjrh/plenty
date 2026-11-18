@@ -252,7 +252,7 @@ mod native {
                 421 => control(file(a)?, file(b)?, c as u64, d as u8),
                 422 => {
                     let selector = file(b)?;
-                    let out = &mut (*(a as *mut Storage)).bytes;
+                    let out = (*(a as *mut Storage)).as_mut_slice();
                     select(out, selector, c as u64, d)
                 }
                 423 => Ok(file(a)? as u128),

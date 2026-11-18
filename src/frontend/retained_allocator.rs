@@ -130,6 +130,24 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_bytes_slice" => {
+                let bound = crate::sum::option(Ty::I64);
+                (
+                    code::ALLOCATOR_BYTES_SLICE,
+                    vec![
+                        handle,
+                        crate::bytes::byte_view(),
+                        bound.clone(),
+                        bound,
+                        Ty::I64,
+                    ],
+                    Some(crate::sum::result(
+                        Ty::ByteStorage,
+                        crate::sum::alloc_error(),
+                    )),
+                    None,
+                )
+            }
             "__allocator_list_slice" => {
                 let [element] = types else {
                     return Err(at.error("allocator slice requires one element type"));
@@ -244,6 +262,14 @@ impl Lower<'_> {
                 outputs: output.iter().cloned().collect(),
             }),
         });
+        if opcode == code::ALLOCATOR_BYTES_SLICE {
+            let Ty::Class(class) = self.bytes_class(at)? else {
+                unreachable!("verified Bytes class")
+            };
+            return self
+                .wrap_bytes_slice(&class, output.unwrap(), at, ops)
+                .map(Some);
+        }
         Ok(output)
     }
 }

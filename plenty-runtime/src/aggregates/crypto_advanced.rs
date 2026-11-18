@@ -33,7 +33,7 @@ unsafe extern "C" fn destroy(pointer: *mut Header) {
     unsafe {
         let state = pointer.cast::<Exchange>();
         clear_key(ptr::addr_of_mut!((*state).key));
-        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage));
         memory::free::<Exchange, u8>(state, 0);
     }
 }
@@ -47,10 +47,7 @@ fn exchange() -> Result<u128, AllocError> {
     // SAFETY: a fresh allocation with the correct layout.
     unsafe {
         state.write(Exchange {
-            storage: Storage {
-                header: Header::new(destroy),
-                bytes: Vec::new(),
-            },
+            storage: Storage::ordinary(destroy, Vec::new()),
             key,
             failed,
         });
@@ -144,7 +141,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     // aliases rejected above.
     unsafe {
         let view = |value: u128| view_bytes(value);
-        let target = |value: u128| (*(value as *mut Storage)).bytes.as_mut_slice();
+        let target = |value: u128| (*(value as *mut Storage)).as_mut_slice();
         let status = match op {
             308..=311 => encrypt(
                 if op < 310 {
@@ -271,20 +268,14 @@ mod tests {
         // keeps the production RNG real while exercising the failure path.
         unsafe {
             state.write(Exchange {
-                storage: Storage {
-                    header: Header::new(destroy),
-                    bytes: Vec::new(),
-                },
+                storage: Storage::ordinary(destroy, Vec::new()),
                 key: None,
                 failed: true,
             });
-            let mut output = Storage {
-                header: Header::new(destroy),
-                bytes: vec![99; 32],
-            };
+            let mut output = Storage::ordinary(destroy, vec![99; 32]);
             let pointer = ptr::addr_of_mut!(output) as u128;
             assert_eq!(call(317, [state as u128, pointer, 0, 0]) as i64, -3);
-            assert_eq!(output.bytes, [99; 32]);
+            assert_eq!(output.as_slice(), [99; 32]);
             destroy(state.cast());
         }
     }
@@ -295,22 +286,16 @@ mod tests {
         unsafe {
             let state = exchange_state(state);
             assert!((*state).key.is_some());
-            let peer = Storage {
-                header: Header::new(destroy),
-                bytes: vec![0; 32],
-            };
-            let mut output = Storage {
-                header: Header::new(destroy),
-                bytes: vec![99; 32],
-            };
-            let peer = super::super::byte_storage::view_operand(&peer.bytes);
+            let peer = Storage::ordinary(destroy, vec![0; 32]);
+            let mut output = Storage::ordinary(destroy, vec![99; 32]);
+            let peer = super::super::byte_storage::view_operand(peer.as_slice());
             let output_pointer = ptr::addr_of_mut!(output) as u128;
             assert_eq!(
                 call(318, [state as u128, peer, output_pointer, 0]) as i64,
                 -4
             );
             assert!((*state).key.is_none());
-            assert_eq!(output.bytes, [0; 32]);
+            assert_eq!(output.as_slice(), [0; 32]);
             assert_eq!(
                 call(318, [state as u128, peer, output_pointer, 0]) as i64,
                 -2

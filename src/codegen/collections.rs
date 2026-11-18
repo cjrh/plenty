@@ -817,7 +817,7 @@ impl Lowerer<'_, '_> {
         // A release that runs no compiled code needs no site (issue #750).
         let tracked = match opcode {
             24 => true,
-            27 => ty.is_none_or(Ty::release_runs_code),
+            27 => ty.is_none_or(|ty| ty.release_runs_code(self.runtime.byte_providers)),
             _ => false,
         };
         let saved = if !self.in_standard_library() && tracked {

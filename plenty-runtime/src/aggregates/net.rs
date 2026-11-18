@@ -172,6 +172,18 @@ mod native {
 
     /// Appends the encoding of a native address; other families are rejected.
     fn encode(address: &SocketAddress, out: &mut Vec<u8>) -> Result<(), Error> {
+        encode_with(address, |size| {
+            out.try_reserve(size).map_err(|_| AllocError::OutOfMemory)?;
+            let start = out.len();
+            out.resize(start + size, 0);
+            Ok(&mut out[start..])
+        })
+    }
+
+    fn encode_with<'a>(
+        address: &SocketAddress,
+        output: impl FnOnce(usize) -> Result<&'a mut [u8], Error>,
+    ) -> Result<(), Error> {
         let bytes = &address.0;
         let family = u16::from_ne_bytes([bytes[0], bytes[1]]) as i32;
         let size = match family {
@@ -179,17 +191,16 @@ mod native {
             AF_INET6 => 23,
             _ => return Err(Kind::Unsupported.into()),
         };
-        out.try_reserve(size).map_err(|_| AllocError::OutOfMemory)?;
+        let out = output(size)?;
+        out[1..3].copy_from_slice(&bytes[2..4]);
         if family == AF_INET {
-            out.push(4);
-            out.extend_from_slice(&bytes[2..4]);
-            out.extend_from_slice(&bytes[4..8]);
+            out[0] = 4;
+            out[3..].copy_from_slice(&bytes[4..8]);
         } else {
-            out.push(6);
-            out.extend_from_slice(&bytes[2..4]);
-            out.extend_from_slice(&bytes[8..24]);
+            out[0] = 6;
+            out[3..19].copy_from_slice(&bytes[8..24]);
             let scope = u32::from_ne_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]);
-            out.extend_from_slice(&scope.to_be_bytes());
+            out[19..].copy_from_slice(&scope.to_be_bytes());
         }
         Ok(())
     }
@@ -331,11 +342,11 @@ mod native {
 
     /// Returns the datagram's full length, which exceeds the target when the
     /// datagram was truncated, and replaces `from` with the sender's address.
-    fn receive_from(fd: i32, target: &mut [u8], from: &mut Vec<u8>) -> Result<u128, Error> {
+    fn receive_from(fd: i32, target: &mut [u8], from: &mut Storage) -> Result<u128, Error> {
         let mut native = SocketAddress([0; 128]);
         let mut length = 128u32;
         // A full address fits without growing `from` after the datagram is gone.
-        from.try_reserve(23).map_err(|_| AllocError::OutOfMemory)?;
+        from.reserve_address(23)?;
         // SAFETY: a live slice and storage for any address family.
         let received = unsafe {
             recvfrom(
@@ -350,8 +361,11 @@ mod native {
         if received < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        from.clear();
-        encode(&native, from)?;
+        from.resize_reserved(0, 0);
+        encode_with(&native, |size| {
+            from.resize_reserved(size, 0);
+            Ok(from.as_mut_slice())
+        })?;
         Ok(received as u128)
     }
 
@@ -595,9 +609,9 @@ mod native {
                 416 => send_to(file(b)?, byte_storage::view_bytes(a), &contiguous(c)?),
                 417 => {
                     let fd = file(d)?;
-                    let bytes = &mut (*(a as *mut Storage)).bytes;
+                    let bytes = (*(a as *mut Storage)).as_mut_slice();
                     let within = byte_storage::range(b, c, bytes.len());
-                    let from = &mut (*(e as *mut Storage)).bytes;
+                    let from = &mut *(e as *mut Storage);
                     receive_from(fd, &mut bytes[within], from)
                 }
                 418 => {
@@ -718,6 +732,38 @@ mod native {
                 assert_eq!(files::read_bytes(server.pointer(), &mut [0]).unwrap(), 1);
                 assert!(files::read_bytes(server.pointer(), &mut [0]).is_err_and(is_again));
             }
+        }
+
+        #[cfg(feature = "allocation-checks")]
+        #[test]
+        fn selected_address_refusal_leaves_datagram_for_retry() {
+            let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+            let addr = socket.local_addr().unwrap();
+            socket.set_nonblocking(true).unwrap();
+            socket.send_to(b"abc", addr).unwrap();
+            let allocator = crate::allocator::Allocator::system();
+            let owner = Owner(byte_storage::create_in(&allocator, 0).unwrap() as u128);
+            let target = Owner(byte_storage::create_in(&allocator, 3).unwrap() as u128);
+            // SAFETY: distinct, live, exclusively owned storage prefixes.
+            let from = unsafe { &mut *(owner.0 as *mut Storage) };
+            let data = unsafe { &mut *(target.0 as *mut Storage) };
+            data.resize_reserved(3, 0);
+            crate::accounting::fail_after(Some(0));
+            let refused = receive_from(socket.as_raw_fd(), data.as_mut_slice(), from);
+            crate::accounting::fail_after(None);
+            assert!(matches!(
+                refused,
+                Err(Error::Allocation(AllocError::OutOfMemory))
+            ));
+            assert_eq!(data.as_slice(), [0; 3]);
+            assert!(from.as_slice().is_empty());
+            assert_eq!(
+                receive_from(socket.as_raw_fd(), data.as_mut_slice(), from).unwrap(),
+                3
+            );
+            assert_eq!(data.as_slice(), b"abc");
+            let [a, b] = addr.port().to_be_bytes();
+            assert_eq!(from.as_slice(), [4, a, b, 127, 0, 0, 1]);
         }
 
         #[test]

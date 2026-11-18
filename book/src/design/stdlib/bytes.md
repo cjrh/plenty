@@ -83,8 +83,7 @@ compare contents. A buffer
 [prints](#printing) as a byte literal.
 
 `Bytes` is a resource: assignment and argument passing move it, and the builtin
-`copy` rejects it. Duplication is always the fallible `copy()` or `slice()`
-method. It has no hashing. A buffer can be stored in collections, sent through
+`copy` rejects it. Use `buffer.copy()?` to duplicate the whole buffer. It has no hashing. A buffer can be stored in collections, sent through
 channels, and moved into worker threads.
 
 ## Printing
@@ -198,7 +197,10 @@ buffer, and the body of a shared loop cannot write to it.
 selected bytes into a new `Bytes` with Python's clamping and returns
 `Result[Bytes, AllocError]`; it also slices `bytes` literals. The `slice(start,
 stop)` method keeps the [range rule](#the-range-rule): a range outside the
-buffer traps instead of clamping. A [slice view](#views),
+buffer traps instead of clamping. Both forms use ordinary output storage, even
+on a selected buffer. To choose the provider for a new packed buffer, use
+[`out.slice_bytes(&buffer, start, stop, step)?`](alloc.md#copy-a-byte-slice-into-packed-storage).
+A [slice view](#views),
 `&buffer[a:b]`, borrows the bytes without a copy.
 
 ## Lossy text

@@ -5,7 +5,9 @@ The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
 compiled custom-provider registration, safe byte blocks and selected builtin
 boxes, lists (including generator collection), dictionaries and sets. Callers
 can also select storage for [independent set results](#independent-set-results),
-[copies](#selected-copy) and [owning list slices](#selected-list-slices). Providers receive validated `Layout` requests
+[copies](#selected-copy), [owning list slices](#selected-list-slices) and
+[packed byte slices](allocation-sites.md#owning-slices-and-their-non-owning-lookalikes).
+Providers receive validated `Layout` requests
 and return affine `ByteBlock` owners, without raw-pointer escape.
 `Allocator.box` calls the private intrinsic `__allocator_box` (opcode 658) with a
 borrowed source value. The std wrapper then commits that source with

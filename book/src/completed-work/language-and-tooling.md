@@ -7,6 +7,17 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected packed byte slices
+
+[`Allocator.slice_bytes`](../design/stdlib/alloc.md#copy-a-byte-slice-into-packed-storage)
+lets callers copy a range or stride from a byte view straight into packed
+`Bytes` using the output allocator. The [frame example](../tutorial/04-collections/allocation.md#keep-part-of-a-byte-frame)
+grows the result after dropping the frame and allocator handle. Ordinary byte
+brackets and the strict `Bytes.slice` method do not inherit a provider.
+The [slice inventory](../design/toolchain/02-architecture/allocation-sites.md#owning-slices-and-their-non-owning-lookalikes)
+records routing, rollback and regression coverage. This selects byte-slice
+results, not storage for all allocating `std.bytes` operations.
+
 ### Public selected view-to-list copies
 
 [`Allocator.copy_view`](../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)
