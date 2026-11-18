@@ -2067,9 +2067,14 @@ impl Lower<'_> {
         // (for example affine values_snapshot) from borrowed collections.
         let collection_owner = !unbox_owned
             && matches!(&result.0, Ty::List(value) | Ty::Dict(_, value) if value.affine());
+        // A computed str may be the last owner of provider-backed text. A
+        // literal is immortal or inline, and a named str already has a slot.
+        let text_owner = result.0 == Ty::Str
+            && !matches!(ungroup(e).kind, Expression::Text(_) | Expression::Name(_));
         if result.1.is_empty()
-            && (result.0.has_destructor() || collection_owner)
-            && (collection_owner || !matches!(ungroup(e).kind, Expression::Index(..)))
+            && (text_owner
+                || collection_owner
+                || result.0.has_destructor() && !matches!(ungroup(e).kind, Expression::Index(..)))
         {
             let slot = self.slot(result.0.clone(), &e.at)?;
             ops.push(Op::StoreLocal(slot));

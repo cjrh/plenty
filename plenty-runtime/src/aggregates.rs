@@ -787,7 +787,7 @@ unsafe fn release_next_string(base: *mut u128, strings: &[u32]) -> Option<*mut H
 /// Cleared slots and the class initializer bit remember completed work without
 /// allocating a traversal stack. Recursion follows only finite inline layouts;
 /// every heap edge returns to the intrusive queue before descending further.
-unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
+pub(crate) unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
     unsafe {
         let value = slot.read();
         if value == 0 {

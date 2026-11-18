@@ -158,19 +158,29 @@ unsafe extern "C" fn drop_receiver(endpoint: *mut Header) {
     unsafe {
         let pointer = (*endpoint.cast::<Endpoint>()).core;
         let channel = &*pointer;
-        let (head, len) = {
+        let (mut head, mut len, was_closed) = {
             let mut state = channel.lock();
+            let was_closed = state.recv_closed;
             state.recv_closed = true;
-            let saved = (state.head, state.len);
-            state.len = 0;
-            saved
+            (state.head, state.len, was_closed)
         };
-        channel.writable.notify_all();
-        // Never run Plenty destructors while holding a synchronization lock.
-        // Closed receivers exclude every producer from writing another slot.
+        if !was_closed {
+            channel.writable.notify_all();
+        }
+        // Once closed, no producer can write the ring. Resume in the same
+        // pinned slot after each child, never holding the lock across cleanup.
         if channel.stride != 0 {
-            for i in 0..len {
-                aggregates::release(channel.take((head + i) % channel.capacity), channel.message);
+            while len != 0 {
+                if let Some(child) = aggregates::release_next(channel.slot(head), channel.message) {
+                    let mut state = channel.lock();
+                    state.head = head;
+                    state.len = len;
+                    drop(state);
+                    memory::continue_after(endpoint, child);
+                    return;
+                }
+                head = (head + 1) % channel.capacity;
+                len -= 1;
             }
         }
         release_core(pointer);

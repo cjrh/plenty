@@ -1,7 +1,7 @@
 //! Transactional registration of compiler-certified Plenty providers.
 use super::*;
 use crate::aggregates::{Type, allocator_owners};
-use crate::memory::{Header, plenty_release};
+use crate::memory::{self, Header, plenty_release};
 
 // Private scalar callback ABI, independent of Plenty/Rust enum layouts.
 const PROVIDER_OK: u64 = 0;
@@ -52,11 +52,47 @@ impl Provider for CompiledProvider {
         }
     }
 }
-impl Drop for CompiledProvider {
-    fn drop(&mut self) {
-        // Allocator::destroy surrounds this with a nested managed-drop queue:
-        // all provider children finish before backing/control storage release.
-        unsafe { plenty_release(self.state) };
+
+unsafe fn destroy_compiled(header: NonNull<ProviderHeader>) {
+    // The last handle owns the control allocation. Replace its dead State
+    // with a continuation that holds storage until the boxed fields finish.
+    const {
+        assert!(size_of::<State<CompiledProvider>>() >= size_of::<StateCleanup>());
+        assert!(align_of::<State<CompiledProvider>>() >= align_of::<StateCleanup>());
+    }
+    unsafe {
+        let state = header.cast::<State<CompiledProvider>>().as_ptr();
+        let provider = ptr::read(ptr::addr_of!((*state).provider))
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner());
+        let storage = ptr::read(ptr::addr_of!((*state).storage));
+        let cleanup = state.cast::<StateCleanup>();
+        cleanup.write(StateCleanup {
+            header: Header::new(release_state),
+            child: provider.state,
+            storage,
+        });
+        with_callback_scope(|| {
+            memory::with_provider_state_drops(|| plenty_release(cleanup.cast()))
+        });
+    }
+}
+
+#[repr(C)]
+struct StateCleanup {
+    header: Header,
+    child: *mut Header,
+    storage: ManuallyDrop<Block>,
+}
+unsafe extern "C" fn release_state(header: *mut Header) {
+    unsafe {
+        let cleanup = header.cast::<StateCleanup>();
+        let child = ptr::replace(ptr::addr_of_mut!((*cleanup).child), ptr::null_mut());
+        if child.is_null() {
+            drop(ManuallyDrop::take(&mut (*cleanup).storage));
+        } else {
+            memory::continue_after(header, child);
+        }
     }
 }
 
@@ -83,14 +119,13 @@ pub(crate) unsafe fn register(
         allocate: unsafe { std::mem::transmute::<usize, Allocate>(allocate as usize) },
         release: unsafe { std::mem::transmute::<usize, Release>(release as usize) },
     };
-    match Allocator::new(&bootstrap, provider) {
+    match unsafe { Allocator::new_with_destroy(&bootstrap, provider, destroy_compiled) } {
         Ok(allocator) => {
             let allocator = ManuallyDrop::new(allocator);
             allocator.0.unwrap().as_ptr() as u128
         }
         Err(rejected) => {
-            let provider = ManuallyDrop::new(rejected.provider);
-            unsafe { allocator_owners::provider_box_rollback(provider.state, ty) };
+            unsafe { allocator_owners::provider_box_rollback(rejected.provider.state, ty) };
             error(match rejected.error {
                 CreateError::Allocation(AllocError::OutOfMemory) => REGISTRATION_OUT_OF_MEMORY,
                 CreateError::Allocation(AllocError::CapacityOverflow) => {

@@ -156,3 +156,53 @@ def main() -> Result[(), AllocError | IoError]:
         "8\nbefore scope exit\nscope 0 1\n",
     );
 }
+
+#[test]
+fn observed_text_temporaries_outlive_the_comparison() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def make(label: str) -> str:
+    out = budget(label, 1)
+    out.slice_text("same selected text").unwrap()
+
+def main() -> ():
+    print(make("left") == make("right")).unwrap()
+    print("done").unwrap()
+"#
+        ),
+        "True\nright 0 1\nleft 0 1\ndone\n",
+    );
+}
+
+#[test]
+fn unread_channel_message_and_untaken_job_result_release_selected_fields_in_order() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+class Message:
+    first: str
+    second: str
+
+def make(label: str) -> str:
+    out = budget(label, 1)
+    out.slice_text("selected text").unwrap()
+
+def make_message() -> Message:
+    Message(make("first"), make("second"))
+
+def main() -> ():
+    tx, rx = channel[Message](1).unwrap()
+    tx.send(make_message()).unwrap()
+    drop(rx)
+    print("closed").unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(make_message).unwrap()
+        pool.shutdown()
+        drop(future)
+    print("done").unwrap()
+"#
+        ),
+        "first 0 1\nsecond 0 1\nclosed\nfirst 0 1\nsecond 0 1\ndone\n",
+    );
+}
