@@ -1,3 +1,7 @@
+<header class="book-intro-banner">
+    <p>The Plenty programming language</p>
+</header>
+
 # Introduction
 
 Plenty is a general-purpose programming language.

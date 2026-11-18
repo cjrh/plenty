@@ -69,3 +69,27 @@
         outline-offset: 2px;
     }
 }
+
+.book-intro-banner {
+    margin-block: 2rem 5rem;
+    text-align: center;
+}
+
+.book-intro-banner p {
+    margin: 0;
+    font-size: clamp(2.8rem, 5vw, 4rem);
+    font-weight: 700;
+    line-height: 1.15;
+    text-wrap: balance;
+}
+
+@media screen {
+    .book-intro-banner::before {
+        content: "";
+        display: block;
+        width: 12rem;
+        height: 12rem;
+        margin: 0 auto 1.6rem;
+        background: url('{{ resource "favicon.svg" }}') center / contain no-repeat;
+    }
+}
