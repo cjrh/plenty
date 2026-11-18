@@ -1,0 +1,26 @@
+import std.gui.retained.iced as iced
+
+class State:
+    notified: bool
+    def __init__(self) -> ():
+        self.notified = False
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.mouse_area(on_press=1u64)?
+    if state.notified:
+        frame.text(&"Pressed")?
+    else:
+        frame.text(&"Press this area")?
+    frame.end()
+
+def update(state: &mut State, action: u64) -> Result[(), iced.IcedError]:
+    if action != 1u64:
+        return Err(iced.IcedError.InvalidArgument)
+    state.notified = True
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view, update=update)

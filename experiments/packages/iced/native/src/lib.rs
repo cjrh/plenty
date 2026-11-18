@@ -33,6 +33,8 @@ pub enum Kind {
     Container(u16),
     FloatScaled(u16),
     Themer(bool),
+    MousePress(u64),
+    SensorShow(u64),
     Pin(u16, u16),
     Scrollable(u16),
     Tooltip,
@@ -47,9 +49,22 @@ pub enum Kind {
 }
 
 impl Kind {
+    fn action(&self) -> Option<u64> {
+        match self {
+            Self::MousePress(a)
+            | Self::SensorShow(a)
+            | Self::Button(_, a)
+            | Self::Checkbox(_, _, a)
+            | Self::Toggler(_, _, a)
+            | Self::Radio(_, _, a) => Some(*a),
+            _ => None,
+        }
+    }
     fn exact_children(&self) -> Option<usize> {
         match self {
             Self::Container(_)
+            | Self::MousePress(_)
+            | Self::SensorShow(_)
             | Self::Themer(_)
             | Self::FloatScaled(_)
             | Self::Pin(_, _)
@@ -77,7 +92,7 @@ impl Scene {
             && self
                 .nodes
                 .iter()
-                .any(|node| matches!(node.kind, Kind::Button(_, a) | Kind::Checkbox(_,_,a) | Kind::Toggler(_,_,a) | Kind::Radio(_,_,a) if a == action))
+                .any(|node| node.kind.action() == Some(action))
     }
 }
 
@@ -218,6 +233,14 @@ pub extern "C" fn plic_v1_float_scaled(token: u64, percent: u16) -> u32 {
     group(token, Kind::FloatScaled(percent))
 }
 #[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_mouse_area(token: u64, action: u64) -> u32 {
+    group(token, Kind::MousePress(action))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_sensor(token: u64, action: u64) -> u32 {
+    group(token, Kind::SensorShow(action))
+}
+#[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_themer(token: u64, dark: bool) -> u32 {
     group(token, Kind::Themer(dark))
 }
@@ -243,6 +266,12 @@ pub extern "C" fn plic_v1_tooltip(token: u64) -> u32 {
 
 fn group(token: u64, kind: Kind) -> u32 {
     command(token, |builder| {
+        if kind
+            .action()
+            .is_some_and(|a| a == 0 || builder.scene.has_action(a))
+        {
+            return Err(Error::InvalidArgument);
+        }
         if matches!(kind, Kind::FloatScaled(n) if !(100..=400).contains(&n)) {
             return Err(Error::InvalidArgument);
         }

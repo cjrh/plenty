@@ -65,6 +65,14 @@ name = "themer"
 path = "src/themer.plenty"
 
 [[bin]]
+name = "mouse_area"
+path = "src/mouse_area.plenty"
+
+[[bin]]
+name = "sensor"
+path = "src/sensor.plenty"
+
+[[bin]]
 name = "pin"
 path = "src/pin.plenty"
 

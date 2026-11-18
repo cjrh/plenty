@@ -520,6 +520,8 @@
                     - [Rule](design/stdlib/gui-iced-widgets/rule.md)
                     - [Grid](design/stdlib/gui-iced-widgets/grid.md)
                     - [Float](design/stdlib/gui-iced-widgets/float_scaled.md)
+                    - [MouseArea](design/stdlib/gui-iced-widgets/mouse_area.md)
+                    - [Sensor](design/stdlib/gui-iced-widgets/sensor.md)
                     - [Themer](design/stdlib/gui-iced-widgets/themer.md)
                     - [Container](design/stdlib/gui-iced-widgets/container.md)
                     - [Pin](design/stdlib/gui-iced-widgets/pin.md)

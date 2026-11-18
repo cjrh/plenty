@@ -128,6 +128,12 @@ fn view(session: &Session) -> Element<'_, Pressed> {
                 child(0),
             )
             .into(),
+            Kind::MousePress(id) => iced::widget::mouse_area(child(0))
+                .on_press(Pressed(*id))
+                .into(),
+            Kind::SensorShow(id) => iced::widget::sensor(child(0))
+                .on_show(move |_| Pressed(*id))
+                .into(),
             Kind::Container(p) => container(child(0)).padding(*p).into(),
             Kind::Pin(x, y) => iced::widget::pin(child(0))
                 .x(f32::from(*x))
