@@ -1,0 +1,7 @@
+# Linked by name. None of these calls is certified for worker entry.
+pub extern def run() -> u32 = "plic_v1_run"
+pub extern def row(token: u64) -> u32 = "plic_v1_row"
+pub extern def column(token: u64) -> u32 = "plic_v1_column"
+pub extern def end(token: u64) -> u32 = "plic_v1_end"
+pub extern def text(token: u64, text: &str as utf8) -> u32 = "plic_v1_text"
+pub extern def button(token: u64, text: &str as utf8, action: u64) -> u32 = "plic_v1_button"

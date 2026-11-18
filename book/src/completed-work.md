@@ -21,6 +21,9 @@ Delivery history and retired backlog entries live here, separate from the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
 
+The [iced counter experiment](completed-work/libraries.md#iced-counter-experiment)
+uses checked executable callbacks and a separately selected native archive.
+
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and public
 allocator selection for boxes, lists, dictionaries and sets, including

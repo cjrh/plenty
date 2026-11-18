@@ -1,0 +1,11 @@
+manifest-version = 1
+
+[package]
+name = "iced"
+version = "0.0.1"
+plenty-version = "0.8.32"
+description = "Experimental bounded iced window, layout, text and click bindings"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.plenty"
