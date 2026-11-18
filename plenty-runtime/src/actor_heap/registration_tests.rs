@@ -106,9 +106,10 @@ fn probe() {
     drop(accepted);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
     use crate::collection_opcodes::{
-        ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
+        ALLOCATOR_COPY, ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_SET_SYMMETRIC_DIFFERENCE,
+        ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
     };
-    for mut op in [ALLOCATOR_SYSTEM, crate::collection_opcodes::ALLOCATOR_COPY]
+    for mut op in [ALLOCATOR_SYSTEM, ALLOCATOR_COPY, ALLOCATOR_KEY_VIEW_TO_SET]
         .into_iter()
         .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
     {

@@ -1375,7 +1375,13 @@ impl Lower<'_> {
                 None,
                 self.aliases,
                 self.sigs,
-                self.generics.wrapper_positions(&new.function.name),
+                SignatureContext {
+                    parameter_order: self.generics.wrapper_positions(&new.function.name),
+                    allocator_to_set: allocator_storage::to_set_template(
+                        &new.template,
+                        self.generics,
+                    ),
+                },
             );
             self.aliases.data.attribute(outer);
             registered.map_err(|error| -> Box<dyn Error> {
@@ -1749,9 +1755,25 @@ impl Lower<'_> {
                 }
                 ty
             };
+            // Infer only K, and only at the authenticated method's view parameter.
+            // In particular, recursive inference through a Callable never unwraps KeyView.
+            let (pattern, actual) = if let Ty::KeyView(key) = &ty {
+                if index != 1
+                    || !allocator_storage::to_set_template(&template, self.generics)
+                    || pattern.name.as_deref() != Some("KeyView")
+                    || pattern.args.len() != 1
+                {
+                    return Err(arg.at.error(format!(
+                        "{ty} is local-only; dictionary views cannot be passed to this call"
+                    )));
+                }
+                (&pattern.args[0], key.as_ref())
+            } else {
+                (pattern, &ty)
+            };
             infer(
                 pattern,
-                &ty,
+                actual,
                 &template,
                 &mut inferred,
                 self.aliases,
@@ -1781,6 +1803,9 @@ impl Lower<'_> {
         let symbol = self.specialize(name, actual, at)?;
         let callee = self.specialize_frames(&symbol, arguments.clone(), at)?;
         let sig = self.sigs[&callee].clone();
+        if matches!(arguments.as_slice(), [_, Ty::KeyView(_)]) {
+            loans.push(self.allocator_key_view_loan(&callee, &args[1], ops)?);
+        }
         for ((source, (_, target)), end) in
             arguments.iter().zip(&sig.inputs).zip(argument_ends).rev()
         {

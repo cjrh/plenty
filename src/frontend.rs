@@ -3290,6 +3290,13 @@ impl Lower<'_> {
             self.mark(at, ops);
             loans[0] = self.activate_receiver(loans[0], ops);
             loans
+        } else if matches!(sig.inputs.as_slice(), [_, (_, Ty::KeyView(_))]) {
+            let mut loans = self.call_arguments(&args[..1], &sig.inputs[..1], ops)?;
+            let expected = &sig.inputs[1].1;
+            let actual = self.stored_value(&args[1], Some(expected.clone()), ops)?;
+            self.same(Some(actual), Some(expected.clone()), &args[1].at)?;
+            loans.push(self.allocator_key_view_loan(name, &args[1], ops)?);
+            loans
         } else {
             self.call_arguments(args, &sig.inputs, ops)?
         };
@@ -3359,6 +3366,11 @@ impl Lower<'_> {
         let mut argument_loans = Vec::new();
         let mut frames = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
+            if expected.dictionary_view() {
+                return Err(arg.at.error(format!(
+                    "{expected} is local-only; dictionary views cannot be passed to this call"
+                )));
+            }
             if let Ty::View(_, mutable) = expected {
                 let text = *expected == text_view();
                 let (ty, loan) = self.view_argument(arg, *mutable, text, ops)?;
@@ -5143,7 +5155,21 @@ fn register_resolved(
     aliases: &TypeAliases,
     sigs: &mut functions::Functions,
 ) -> Result<Arc<FnSig>> {
-    register_with_body(symbol, f, &f.body, resolved, aliases, sigs, None)
+    register_with_body(
+        symbol,
+        f,
+        &f.body,
+        resolved,
+        aliases,
+        sigs,
+        SignatureContext::default(),
+    )
+}
+
+#[derive(Default)]
+struct SignatureContext<'a> {
+    parameter_order: Option<&'a [usize]>,
+    allocator_to_set: bool,
 }
 
 /// [`register_resolved`] reading whether `f` yields, and what reference it
@@ -5157,7 +5183,7 @@ fn register_with_body(
     resolved: Option<generics::Signature>,
     aliases: &TypeAliases,
     sigs: &mut functions::Functions,
-    parameter_order: Option<&[usize]>,
+    context: SignatureContext<'_>,
 ) -> Result<Arc<FnSig>> {
     if f.inputs.len() > 256 {
         return Err(f
@@ -5181,7 +5207,12 @@ fn register_with_body(
         Some(resolved) => resolved,
         None => protocols::signature(f, aliases)?,
     };
-    if types.iter().any(Ty::dictionary_view) || output.as_ref().is_some_and(Ty::dictionary_view) {
+    let allocator_to_set =
+        context.allocator_to_set && allocator_storage::to_set_signature(&types, &output);
+    if !allocator_to_set
+        && (types.iter().any(Ty::dictionary_view)
+            || output.as_ref().is_some_and(Ty::dictionary_view))
+    {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }
     let pipeline = |ty: &Ty| {
@@ -5239,7 +5270,8 @@ fn register_with_body(
             .enumerate()
             .filter(|(_, (_, ty))| references::returns_through(ty))
             .min_by_key(|(index, _)| {
-                parameter_order
+                context
+                    .parameter_order
                     .and_then(|order| order.get(*index))
                     .copied()
                     .unwrap_or(*index)
@@ -5273,6 +5305,9 @@ fn register_with_body(
         sigs.set_returned_fields(symbol, fields);
     }
     sigs.register(symbol, &sig);
+    if allocator_to_set {
+        sigs.allocator_to_set.insert(symbol);
+    }
     Ok(sig)
 }
 
@@ -5573,6 +5608,7 @@ fn lower_body(
                 }
                 let (root, mutable) = match ty {
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
+                    Ty::KeyView(_) => (i as u8, false),
                     // A borrowing generator's loans are its caller's, kept
                     // through a hidden referent as a carried reference's are,
                     // so a frame returned from it borrows only caller data. In

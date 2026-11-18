@@ -3,15 +3,29 @@
 //! these are never public raw-pointer or general-purpose forget facilities.
 use super::*;
 
-pub(super) fn set_algebra_opcode(name: &str) -> Option<i64> {
+pub(super) fn set_result_opcode(name: &str) -> Option<i64> {
     use crate::collection_opcodes as code;
     Some(match name {
+        "__allocator_key_view_to_set" => code::ALLOCATOR_KEY_VIEW_TO_SET,
         "__allocator_set_union" => code::ALLOCATOR_SET_UNION,
         "__allocator_set_intersection" => code::ALLOCATOR_SET_INTERSECTION,
         "__allocator_set_difference" => code::ALLOCATOR_SET_DIFFERENCE,
         "__allocator_set_symmetric_difference" => code::ALLOCATOR_SET_SYMMETRIC_DIFFERENCE,
         _ => return None,
     })
+}
+
+pub(super) fn to_set_template(template: &Function, engine: &generics::Engine) -> bool {
+    template.name == "__plenty_class_std.alloc.Allocator.to_set"
+        && template.at.source().as_ref().is_some_and(|source| {
+            source.as_ref() == "std/alloc.plentyi" && engine.standard_sources.contains(source)
+        })
+}
+
+pub(super) fn to_set_signature(inputs: &[Ty], output: &Type) -> bool {
+    matches!(inputs, [Ty::Ref(owner, false), Ty::KeyView(key)]
+        if matches!(&**owner, Ty::Class(class) if class.name.as_ref() == "std.alloc.Allocator")
+            && *output == Some(crate::sum::result(Ty::Set(key.clone()), crate::sum::alloc_error())))
 }
 
 pub(super) fn named(name: &str) -> bool {
@@ -37,10 +51,29 @@ pub(super) fn named(name: &str) -> bool {
             | "__allocator_block_get"
             | "__allocator_block_set"
             | "__allocator_block_split"
-    ) || set_algebra_opcode(name).is_some()
+    ) || set_result_opcode(name).is_some()
 }
 
 impl Lower<'_> {
+    /// Only a direct call to a verified specialization may pass its projection loan.
+    pub(super) fn allocator_key_view_loan(
+        &self,
+        callee: &str,
+        view: &Expr,
+        ops: &[Op],
+    ) -> Result<usize> {
+        if !self
+            .sigs
+            .symbol(callee)
+            .is_some_and(|s| self.sigs.allocator_to_set.contains(&s))
+        {
+            return Err(view
+                .at
+                .error("dictionary key views are local-only and cannot be passed to this call"));
+        }
+        self.reference_origin(view, ops)
+    }
+
     pub(super) fn allocator_storage(
         &mut self,
         name: &str,

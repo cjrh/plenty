@@ -261,6 +261,12 @@ receiver order. `set.intersection_update(view)` and
 methods observe their operands, so an explicit `&` may be omitted without
 moving a named set or view.
 
+To choose the allocator for a set of just the keys, use
+[`out.to_set(view)` or `out.to_set(dictionary.keys())`](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set).
+Unlike `view.to_set()`, this trusted method builds the set in the caller's
+chosen storage. Neither form copies dictionary values. The allocator's binary
+set methods still require two sets.
+
 `set(view)` and `list(view)` are not supported. Use `view.to_set()`,
 `dictionary.keys_snapshot()`, or `[*key for key in view]?` to choose the owned
 result explicitly.

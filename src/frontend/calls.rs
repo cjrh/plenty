@@ -285,7 +285,10 @@ impl Lower<'_> {
                 None,
                 self.aliases,
                 self.sigs,
-                Some(&positions),
+                SignatureContext {
+                    parameter_order: Some(&positions),
+                    ..Default::default()
+                },
             )?;
             if let Some(fields) = self.sigs.returned_fields(name).cloned() {
                 let wrapper = self.sigs.intern(&symbol);

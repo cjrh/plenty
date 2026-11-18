@@ -23,6 +23,8 @@ pub(super) struct Functions {
     entries: Vec<Entry>,
     /// Few functions return borrowed fields, so these stay out of `entries`.
     returned_fields: HashMap<Symbol, Vec<usize>>,
+    /// Only concrete instances of the loader-authenticated std.alloc conversion.
+    pub(super) allocator_to_set: HashSet<Symbol>,
     /// Declared functions, counted for generated names.
     declared: usize,
 }

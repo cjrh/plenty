@@ -7,6 +7,19 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected key-view conversion
+
+[`out.to_set(view)`](../design/stdlib/alloc.md#copy-dictionary-keys-into-a-set)
+materializes just the keys of a borrowed dictionary in a caller-selected set.
+Values stay in place even when they cannot be copied. The trusted method takes
+an existing view or a `keys()` projection; user functions still borrow the
+dictionary, as in the [player names example](../tutorial/04-collections/allocation.md#keep-the-player-names-without-copying-the-scores).
+
+`tests/test_std_alloc_key_view.rs` covers the public calls, refusal and scoped
+worker rules. The [allocation-site inventory](../design/toolchain/02-architecture/allocation-sites.md#dictionary-key-views-and-independent-results)
+identifies the separate native rollback and finite-set tests. This delivers
+conversion only, not selected algebra on key views.
+
 ### Public selected copy
 
 [`Allocator.copy`](../design/stdlib/alloc.md#copy-with-an-output-allocator)

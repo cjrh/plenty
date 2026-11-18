@@ -116,7 +116,9 @@ True
 ```
 
 Read-only checks return plain values. Set algebra and `names.to_set()` allocate
-an owned set and return an allocation result. The view stays local: use
+an owned set and return an allocation result. Use `out.to_set(names)?` to
+[choose storage for just the names](allocation.md#keep-the-player-names-without-copying-the-scores).
+The view stays local: use
 `scores.keys_snapshot()?` or `scores.values_snapshot()?` when an owned ordered
 list must outlive the borrow. For mutable payloads,
 `copy(groups)?.values_snapshot()?` requests independent copies explicitly.

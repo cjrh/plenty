@@ -116,6 +116,9 @@ pub class Allocator:
     pub def set_with_capacity[T: KeyType](self, capacity: i64) -> Result[set[T], AllocError]:
         __allocator_dict_set[set[T]](self._handle, capacity)
 
+    pub def to_set[K: KeyType](self, view: KeyView[K]) -> Result[set[K], AllocError]:
+        __allocator_key_view_to_set[set[K]](self._handle, view)
+
     pub def union[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]:
         __allocator_set_union[set[K]](self._handle, left, right)
 

@@ -124,6 +124,35 @@ same form works for `union`, `intersection` and `symmetric_difference`. See
 [set algebra with an output allocator](../../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
 for key-copy requirements.
 
+## Keep the player names without copying the scores
+
+If all you need is a membership check now, use `name in scores` without
+allocating. To keep the names after the scores change, borrow the dictionary
+and let the caller choose storage for an independent set:
+
+```plenty
+import std.alloc as alloc
+
+def player_names(scores: &dict[str, i64], out: &alloc.Allocator) -> Result[set[str], AllocError]:
+    out.to_set(scores.keys())
+
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = {"Ada": 21, "Lin": 42}?
+    out = alloc.system()
+    names = player_names(&scores, &out)?
+    scores.clear()
+    print("Ada" in names, len(names), len(scores))?
+    Ok(())
+```
+```output
+True 2 0
+```
+
+Only the keys are copied, so this also works when the scores are replaced by
+values that cannot be copied. If you already have `view = scores.keys()`, use
+`out.to_set(view)?`. A failure leaves `scores` unchanged. See the
+[key conversion contract](../../design/stdlib/alloc.md#copy-dictionary-keys-into-a-set).
+
 ## Copy a value into selected storage
 
 Suppose you need a working copy of a score sheet. Call `copy` on the allocator
@@ -281,8 +310,8 @@ callback traps, including cleanup traps, terminate the process.
 
 Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
-does not redirect element expressions, builtin `copy`, dictionary key-view
-results, ordinary set methods or owning slices to an input's allocator. The ordinary rules for storing, borrowing and moving
+does not redirect element expressions, builtin `copy`, `view.to_set()`, ordinary
+set methods or owning slices to an input's allocator. The ordinary rules for storing, borrowing and moving
 values to workers still apply. Ordinary constructors remain available during the explicit-allocation
 migration; selection does not remove implicit defaults or provide resettable
 arenas.

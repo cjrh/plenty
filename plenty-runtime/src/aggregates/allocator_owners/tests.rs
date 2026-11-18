@@ -559,8 +559,8 @@ fn selected_box_binding_preserves_failure_input_and_encodes_success() {
 #[test]
 fn allocator_dispatch_rejects_arena_before_operand_access() {
     use crate::collection_opcodes::{
-        ALLOCATOR_BOX, ALLOCATOR_COPY, ALLOCATOR_DICT_SET, ALLOCATOR_LIST,
-        ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
+        ALLOCATOR_BOX, ALLOCATOR_COPY, ALLOCATOR_DICT_SET, ALLOCATOR_KEY_VIEW_TO_SET,
+        ALLOCATOR_LIST, ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
     };
     const PROBE: &str = "PLENTY_SELECTED_BOX_ARENA_PROBE";
     if let Ok(probe) = std::env::var(PROBE) {
@@ -572,8 +572,8 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
             // The argument buffer is valid; none of its pointer operands are.
             if entry == "operation" {
                 let mut args = [1u128; 6];
-                let args = if op == ALLOCATOR_COPY {
-                    // Even scalar copies must reject before loading an operand.
+                let args = if matches!(op, ALLOCATOR_COPY | ALLOCATOR_KEY_VIEW_TO_SET) {
+                    // Reject before loading even the allocator handle.
                     ptr::dangling()
                 } else {
                     args.as_mut_ptr()
@@ -586,7 +586,12 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
         panic!("allocator arena guard did not terminate");
     }
     for op in (ALLOCATOR_SYSTEM..=ALLOCATOR_LIST)
-        .chain([ALLOCATOR_BOX, ALLOCATOR_DICT_SET, ALLOCATOR_COPY])
+        .chain([
+            ALLOCATOR_BOX,
+            ALLOCATOR_DICT_SET,
+            ALLOCATOR_COPY,
+            ALLOCATOR_KEY_VIEW_TO_SET,
+        ])
         .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
     {
         for entry in ["operation", "collection_at"] {
@@ -624,5 +629,6 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
 
 mod finite_sets;
 mod hash_storage;
+mod key_view_to_set;
 mod recursive_copy;
 mod set_algebra;

@@ -440,8 +440,9 @@ is delivered as a separate experiment. Public [`std.alloc`](design/stdlib/alloc.
 now includes system and compiled custom-provider handles, validated layouts,
 safe byte blocks, selected boxes and lists (including generator collection),
 [selected dictionary and set constructors](completed-work/language-and-tooling.md#public-selected-dictionaries-and-sets),
-[set algebra](completed-work/language-and-tooling.md#public-selected-set-algebra) and
-[explicit copies](completed-work/language-and-tooling.md#public-selected-copy) with an output allocator.
+[set algebra](completed-work/language-and-tooling.md#public-selected-set-algebra),
+[explicit copies](completed-work/language-and-tooling.md#public-selected-copy) and
+[key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion) with an output allocator.
 The [design record](proposals/allocator-experiments.md) preserves the direction
 and experimental evidence. The bounded stage-1 ownership gate delivered safe
 external block providers, a generic owned collection, typed relocation, returned
@@ -451,7 +452,7 @@ and private slot ABI remain experimental, not builtin representations.
 Implement the remaining work in staged PRs:
 
 3. **Complete the migration.** Migrate remaining independent collection results
-   (including key-view results), strings, formatting, owning slices, scratch buffers
+   (including algebra involving key views), strings, formatting, owning slices, scratch buffers
    and allocating std APIs. Extend the [allocation-site inventory](design/toolchain/02-architecture/allocation-sites.md)
    beyond the audited copy, key-view result and slice paths. Verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable

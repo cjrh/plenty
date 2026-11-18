@@ -789,7 +789,10 @@ impl Lower<'_> {
             None,
             self.aliases,
             self.sigs,
-            self.generics.wrapper_positions(name),
+            SignatureContext {
+                parameter_order: self.generics.wrapper_positions(name),
+                ..Default::default()
+            },
         )?;
         self.generics.frames.insert(key, symbol.clone());
         // A frame is named by its consumer, which may itself be an instance.
