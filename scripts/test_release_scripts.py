@@ -65,6 +65,16 @@ class ThirdPartyNotices(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "no license file in shipped packages"):
             self.notices.render([self.package], "gpui")
 
+    def test_source_gui_notices_are_not_release_qualification(self):
+        for name in ("iced", "egui"):
+            self.assertEqual(self.notices.COMPONENTS[name], (
+                f"experiments/packages/{name}/native/Cargo.toml", (f"plenty-{name}",)))
+            output = self.notices.render([self.package], name)
+            self.assertIn("not a qualified GUI redistribution bundle", output)
+            self.assertIn("SQLite 3.54.0", output)  # application archive contains the runtime
+            with self.assertRaisesRegex(SystemExit, "no license file"):
+                self.notices.render([{**self.package, "name": "unreviewed"}], name)
+
     def test_omitted_license_uses_complete_pinned_upstream_text(self):
         output = self.notices.render([self.package])
         license_text = (RELEASE / "licenses" / "iced-x86-1.21.0-LICENSE.txt").read_text()

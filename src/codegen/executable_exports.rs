@@ -8,35 +8,10 @@ pub(super) fn compile(
     test_hooks: bool,
     executable: bool,
 ) -> Result<crate::frontend::Inputs> {
-    if options.cpu != crate::CpuLevel::Baseline {
-        return Err("executable exports currently require the baseline CPU level".into());
-    }
-    if test_hooks || options.test_hooks || options.fuzz.is_some() || options.distribution {
-        return Err(
-            "executable exports exclude test hooks, fuzzing and distribution output".into(),
-        );
-    }
     let name = options.executable_exports.as_deref().unwrap();
-    crate::exports::check_library_name(name)?;
     let mut heap = Heap::default();
     let program = sources.compile(&mut heap)?;
-    op::check(&program.ops)?;
-    let objects = crate::foreign::exported_objects(&program.ops);
-    for symbol in program
-        .exports
-        .iter()
-        .map(|export| &export.symbol)
-        .chain(objects.iter().map(|object| &object.symbol))
-    {
-        if symbol == "main" || symbol.starts_with("plenty_") {
-            return Err(format!(
-                "executable export `{symbol}` conflicts with the application runtime namespace"
-            )
-            .into());
-        }
-    }
-    let interface = crate::exports::Interface::new(name, &program.exports, &objects)?;
-    interface.validate_imports(&program.imported_symbols)?;
+    let interface = checked_interface(name, &program, options, test_hooks)?;
     let directory = output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -85,4 +60,39 @@ pub(super) fn compile(
         &[(built, output.to_owned()), (staged_header, header)],
     )?;
     Ok(program.inputs)
+}
+
+pub(super) fn checked_interface(
+    name: &str,
+    program: &crate::frontend::Program,
+    options: &crate::CompileOptions,
+    test_hooks: bool,
+) -> Result<crate::exports::Interface> {
+    if options.cpu != crate::CpuLevel::Baseline {
+        return Err("executable exports currently require the baseline CPU level".into());
+    }
+    if test_hooks || options.test_hooks || options.fuzz.is_some() || options.distribution {
+        return Err(
+            "executable exports exclude test hooks, fuzzing and distribution output".into(),
+        );
+    }
+    crate::exports::check_library_name(name)?;
+    op::check(&program.ops)?;
+    let objects = crate::foreign::exported_objects(&program.ops);
+    for symbol in program
+        .exports
+        .iter()
+        .map(|export| &export.symbol)
+        .chain(objects.iter().map(|object| &object.symbol))
+    {
+        if symbol == "main" || symbol.starts_with("plenty_") {
+            return Err(format!(
+                "executable export `{symbol}` conflicts with the application runtime namespace"
+            )
+            .into());
+        }
+    }
+    let interface = crate::exports::Interface::new(name, &program.exports, &objects)?;
+    interface.validate_imports(&program.imported_symbols)?;
+    Ok(interface)
 }

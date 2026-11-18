@@ -9,6 +9,7 @@ and linked module references own the current API contracts.
 
 | Task | Where to look and what to distinguish |
 |---|---|
+| Native window with buttons and text | Choose [`std.gui.retained.iced`](../../../../book/src/design/stdlib/gui-iced.md) (render/event) **or** [`std.gui.immediate.egui`](../../../../book/src/design/stdlib/gui-egui.md) (clicked responses in draw). Start from `examples/gui/{iced_counter,egui_counter}`; a Linux x86-64 source-toolchain `plenty build` selects the backend from imports. Keep the checked callback contract. |
 | Write TOML configuration | [Typed TOML codecs](../../../../book/src/design/stdlib/toml-codecs.md): use `@serial` classes/enums with `load[T]` and `dump`; hooks are shared with JSON. `encode`, `encode_text`, `write_value` write dynamic value trees; `Document` preserves layout. Read TOML's null/integer/root restrictions before choosing a schema. |
 | Render HTML or text | [std.template](../../../../book/src/design/stdlib/template.md): `engine`, `Engine.add`, `Engine.render`; HTML escaping is the default; `escape_text` and quote-specific filters select per-placeholder contexts on raw values. `html=False` disables default escaping; explicit escape filters still apply. Read its supported syntax and escaping contexts before substituting for another engine. |
 | Locate per-user state | [std.fs.dirs](../../../../book/src/design/stdlib/fs/dirs.md): `state_dir`; returns an optional native-byte path, creates nothing, and has target/environment limits. |

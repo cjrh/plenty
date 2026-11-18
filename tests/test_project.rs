@@ -2233,3 +2233,39 @@ fn check_tests_in_a_workspace_checks_each_members_own_tests() {
         "{lines}"
     );
 }
+
+#[test]
+fn gui_selection_uses_resolved_imports_of_each_executable() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "widgets",
+        "",
+        &[(
+            "src/lib.plenty",
+            "import std.gui.retained.iced as retained\npub def count() -> i64:\n    7\n",
+        )],
+    );
+    package(
+        dir.path(),
+        "app",
+        "controls = { path = \"../widgets\" }\n",
+        &[(
+            "src/main.plenty",
+            "import controls\nfrom std.gui.immediate.egui import Ui\ndef main() -> ():\n    drop(controls.count())\n",
+        )],
+    );
+    let app = dir.path().join("app");
+    fails(
+        &app,
+        &["build"],
+        "mixing std.gui.retained.iced and std.gui.immediate.egui",
+    );
+    // An unused package dependency and strings/comments are not imports.
+    write(
+        &app.join("src/main.plenty"),
+        "# import std.gui.retained.iced\ndef main() -> Result[(), IoError]:\n    print(\"import std.gui.immediate.egui\")\n",
+    );
+    assert_eq!(succeeds(&app, &["run"]), "import std.gui.immediate.egui\n");
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+}

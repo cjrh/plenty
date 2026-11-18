@@ -1502,12 +1502,18 @@ fn reuse_or_build(
     progress: &mut Progress,
     build: impl FnOnce() -> Result<crate::frontend::Inputs>,
 ) -> Result<()> {
+    let _lock = fingerprint.lock()?;
     if fingerprint.fresh(output, graph) {
         return Ok(());
     }
     progress.building();
     fingerprint.invalidate()?;
     let inputs = build()?;
+    // The Plenty-only fingerprint cannot certify a native Cargo graph. Let
+    // Cargo check the selected archive again; the program object stays cached.
+    if output.is_some() && crate::toolchain::gui::Backend::selected(&inputs)?.is_some() {
+        return Ok(());
+    }
     fingerprint.record(&inputs)
 }
 

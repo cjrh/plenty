@@ -10,3 +10,7 @@ interface while storing each primitive field in its own contiguous column.
 For analytical queries and Parquet datasets, use
 [Dataframes](dataframes.md): explicit expression plans executed by an optional
 Polars engine. Columnar lists remain the lightweight mutable collection.
+
+[Two windowed counters](gui-counters.md) contrasts a retained model/view
+with immediate-mode click handling. The examples use an optional Linux GUI
+source toolchain.

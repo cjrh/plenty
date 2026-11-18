@@ -1,0 +1,40 @@
+import std.gui.retained.iced as iced
+
+class State:
+    count: i64
+    def __init__(self) -> ():
+        self.count = 0
+
+export def create() -> Result[State, AllocError] = "iced_app_create":
+    Ok(State())
+
+export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "iced_app_render":
+    frame = iced.Frame(token)
+    frame.column()?
+    frame.text(&"Plenty + iced")?
+    label = f"Count: {state.count}".map_error(iced.allocation)?
+    frame.text(&label)?
+    frame.row()?
+    frame.button(&"Increment", 1u64)?
+    frame.button(&"Reset", 2u64)?
+    frame.end()?
+    frame.end()?
+    Ok(())
+
+export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] = "iced_app_event":
+    match action:
+        case 1u64:
+            # Bound the teaching example's counter instead of allowing overflow.
+            if state.count == 1000000:
+                return Err(iced.IcedError.LimitExceeded)
+            incremented = checked:
+                state.count + 1
+            state.count = incremented.map_error(def(error: OverflowError[i64]) -> iced.IcedError: iced.IcedError.LimitExceeded)?
+        case 2u64:
+            state.count = 0
+        case _:
+            return Err(iced.IcedError.InvalidArgument)
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run()

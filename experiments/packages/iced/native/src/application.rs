@@ -151,7 +151,7 @@ fn run() -> Result<(), Error> {
 
     // boot is Fn, not FnOnce. Transfer the unique preflighted owner exactly once.
     let initial = Cell::new(Some(Session::create()?));
-    iced::application(
+    let result = iced::application(
         move || initial.take().expect("one boot per run"),
         update,
         view,
@@ -162,8 +162,8 @@ fn run() -> Result<(), Error> {
     .map_err(|e| {
         diagnostic(format_args!("iced: {e}"));
         Error::NativeFailure
-    })?;
-    FAILURE.take().map_or(Ok(()), Err)
+    });
+    crate::loop_outcome(result, FAILURE.take())
 }
 
 #[unsafe(no_mangle)]

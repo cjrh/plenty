@@ -199,3 +199,16 @@ fn scope_clears_on_callback_error_or_panic() {
     })
     .unwrap();
 }
+
+#[cfg(feature = "application")]
+#[test]
+fn callback_failure_precedes_a_native_loop_error_during_exit() {
+    assert_eq!(
+        loop_outcome(Err(Error::NativeFailure), Some(Error::LimitExceeded)),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(
+        loop_outcome(Err(Error::NativeFailure), None),
+        Err(Error::NativeFailure)
+    );
+}

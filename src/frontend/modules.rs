@@ -22,6 +22,14 @@ enum ModuleSource {
 /// the unknown-module diagnostic lists them.
 const STANDARD_MODULES: &[(&str, &str)] = &[
     (
+        "std.gui.retained.iced",
+        include_str!("../../stdlib/std/gui/retained/iced.plentyi"),
+    ),
+    (
+        "std.gui.immediate.egui",
+        include_str!("../../stdlib/std/gui/immediate/egui.plentyi"),
+    ),
+    (
         "std.linalg",
         include_str!("../../stdlib/std/linalg.plentyi"),
     ),
@@ -247,6 +255,7 @@ impl ModuleSource {
                 // declarations. The latter keeps raw storage private to std.
                 let extension = if *name == "std.experimental.alloc"
                     || *name == "std.alloc"
+                    || crate::toolchain::gui::Backend::for_module(name).is_some()
                     || crate::toolchain::ENGINES
                         .iter()
                         .any(|engine| engine.module == *name)

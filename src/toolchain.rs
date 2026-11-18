@@ -8,6 +8,7 @@ mod engine_roots;
 use engine_roots::EngineRoots;
 #[cfg(any(windows, target_os = "macos", test))]
 mod engine_install;
+pub(crate) mod gui;
 #[cfg(any(target_os = "macos", test))]
 mod macho;
 

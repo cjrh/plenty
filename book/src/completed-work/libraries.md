@@ -663,3 +663,11 @@ In one exclusive UI pass, Plenty reads each button response, updates its own
 counter and paints the resulting label. This Linux x86-64 X11/Glow experiment
 is not a std GUI API or a qualified binary distribution. See the package README
 for build commands, tests and ownership limits.
+
+## Source-built GUI packages
+
+B38: the retained iced and immediate egui counter ports now have embedded std
+facades and ordinary [package builds](../design/stdlib/gui-build.md) on Linux
+GNU x86-64. Selection follows resolved imports; CLI packages build neither
+archive. The reviewed whole-interface guards and distinct programming models
+remain intact. No release/distribution support or changes to GPUI.

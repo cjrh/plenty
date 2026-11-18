@@ -31,6 +31,7 @@ pub(crate) fn teardown<T>(value: T, options: &CheckOptions) {
 
 mod atomic;
 mod boxed;
+mod build_lock;
 mod bytes;
 pub mod cache;
 mod channel;

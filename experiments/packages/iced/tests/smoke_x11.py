@@ -97,6 +97,7 @@ def exercise(server, binary, out, expect_render_error):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, default=PACKAGE / 'target/smoke')
+    parser.add_argument('--binary', type=Path, help='exercise a package-built executable instead')
     parser.add_argument('--fast-compile', action='store_true', help='exercise the fast-compile executable')
     parser.add_argument('--expect-render-error', action='store_true',
                         help='instrumented fixture only: first press must return LimitExceeded to main')
@@ -129,7 +130,8 @@ def main():
                 server = display.Display(os.environ['DISPLAY'])
                 try:
                     profile = 'fast-compile' if args.fast_compile else 'optimized'
-                    exercise(server, PACKAGE / 'target' / profile / 'plenty-iced', args.out, args.expect_render_error)
+                    binary = args.binary or PACKAGE / 'target' / profile / 'plenty-iced'
+                    exercise(server, binary.resolve(strict=True), args.out, args.expect_render_error)
                 finally:
                     server.close()
     result = 'render error returned to main' if args.expect_render_error else 'two increments, reset and native close'
