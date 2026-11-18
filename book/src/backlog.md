@@ -457,8 +457,7 @@ and private slot ABI remain experimental, not builtin representations.
 Implement the remaining work in staged PRs:
 
 3. **Complete the migration.** Migrate remaining independent collection results,
-   other string operations, formatting, other owning slice paths (including
-   materializing views of `Shared` handles), scratch buffers
+   other string operations, formatting, scratch buffers
    and allocating std APIs. Extend the [allocation-site inventory](design/toolchain/02-architecture/allocation-sites.md)
    beyond the audited copy, key-view result and slice paths. Verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable

@@ -156,6 +156,10 @@ from its inputs, the [join-under-lock check](../facilities/03-concurrency/mutex.
 includes the mutex types held by compiled provider state. A shared borrow used
 only to inspect a count or a scalar field does not call the provider.
 
+### Share a view of handles into a list
+
+`out.share_view(source)` takes `&[Shared[T]]` and returns `Result[list[Shared[T]], AllocError]`. The result list uses `out` for storage, growth and release. Each element shares its existing payload, including repeated handles to the same object. Neither the payloads nor the source list move. Allocation failure leaves the source unchanged and never retries on the system. Unlike `copy_view`, this operation explicitly asks to share each handle.
+
 ### Copy a slice view into a list
 
 `Allocator.copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]`

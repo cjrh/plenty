@@ -129,6 +129,12 @@ pub class Allocator:
             output.append(self.copy(element)?)?
         Ok(output)
 
+    pub def share_view[T](self, source: &[Shared[T]]) -> Result[list[Shared[T]], AllocError]:
+        mut output = self.list_with_capacity[Shared[T]](len(source))?
+        for handle in source:
+            output.append(handle.share())?
+        Ok(output)
+
     pub def empty_list[T](self) -> Result[list[T], AllocError]:
         __allocator_list[T](self._handle, 0)
 
