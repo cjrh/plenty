@@ -14,6 +14,8 @@ there is no retained Plenty widget tree or event dispatcher.
 | [Button](gui-egui-widgets/button.md) | `ui.button(&caption)` | Returns whether this button was clicked. |
 | [Single-line text editor](gui-egui-widgets/text_edit.md) | `ui.text_edit(id, &mut text)` | Updates the string; returns whether Enter submitted it. |
 
+For selection, numeric input, progress, and visual separators, see the [complete widget catalog](gui-egui-widgets.md).
+
 ## Example: a counter
 
 Click **Increment** and `draw` changes the count immediately. The label below the buttons sees the new value in that same pass.

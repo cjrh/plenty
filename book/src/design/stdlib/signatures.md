@@ -53,65 +53,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fs.lock`](#stdfslock): 1626-1641
 - [`std.fs.watch`](#stdfswatch): 1643-1678
 - [`std.graph`](#stdgraph): 1680-1768
-- [`std.gui.immediate.egui`](#stdguiimmediateegui): 1770-1784
-- [`std.gui.retained.iced`](#stdguiretainediced): 1786-1802
-- [`std.http`](#stdhttp): 1804-1875
-- [`std.http.decoder`](#stdhttpdecoder): 1877-1894
-- [`std.http.body`](#stdhttpbody): 1896-1931
-- [`std.http.client`](#stdhttpclient): 1933-2043
-- [`std.http.cookie`](#stdhttpcookie): 2045-2077
-- [`std.http.files`](#stdhttpfiles): 2079-2092
-- [`std.http.https`](#stdhttphttps): 2094-2108
-- [`std.http.proxy`](#stdhttpproxy): 2110-2131
-- [`std.http.server`](#stdhttpserver): 2133-2234
-- [`std.http.sse`](#stdhttpsse): 2236-2255
-- [`std.http.tls`](#stdhttptls): 2257-2274
-- [`std.http.typed`](#stdhttptyped): 2276-2309
-- [`std.http.websocket`](#stdhttpwebsocket): 2311-2346
-- [`std.http.wss`](#stdhttpwss): 2348-2354
-- [`std.image`](#stdimage): 2356-2402
-- [`std.io`](#stdio): 2404-2510
-- [`std.io.typed`](#stdiotyped): 2512-2550
-- [`std.serial`](#stdserial): 2552-2618
-- [`std.json`](#stdjson): 2620-2772
-- [`std.jwt`](#stdjwt): 2774-2821
-- [`std.log`](#stdlog): 2823-2890
-- [`std.markdown`](#stdmarkdown): 2892-2926
-- [`std.template`](#stdtemplate): 2928-2965
-- [`std.math`](#stdmath): 2967-3038
-- [`std.mime`](#stdmime): 3040-3066
-- [`std.net`](#stdnet): 3068-3150
-- [`std.path`](#stdpath): 3152-3169
-- [`std.process`](#stdprocess): 3171-3230
-- [`std.random`](#stdrandom): 3232-3253
-- [`std.ready`](#stdready): 3255-3286
-- [`std.regex`](#stdregex): 3288-3341
-- [`std.report`](#stdreport): 3343-3354
-- [`std.secrets`](#stdsecrets): 3356-3382
-- [`std.shlex`](#stdshlex): 3384-3393
-- [`std.sketch`](#stdsketch): 3395-3433
-- [`std.sketch.xor`](#stdsketchxor): 3435-3446
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3448-3463
-- [`std.signal`](#stdsignal): 3465-3482
-- [`std.simd`](#stdsimd): 3484-3643
-- [`std.stat`](#stdstat): 3645-3678
-- [`std.plot`](#stdplot): 3680-3769
-- [`std.linalg`](#stdlinalg): 3771-3812
-- [`std.sync`](#stdsync): 3814-3846
-- [`std.system`](#stdsystem): 3848-3907
-- [`std.tempfile`](#stdtempfile): 3909-3941
-- [`std.test`](#stdtest): 3943-3985
-- [`std.text`](#stdtext): 3987-4030
-- [`std.thread`](#stdthread): 4032-4036
-- [`std.time`](#stdtime): 4038-4082
-- [`std.tls`](#stdtls): 4084-4166
-- [`std.toml`](#stdtoml): 4168-4267
-- [`std.unicode`](#stdunicode): 4269-4281
-- [`std.units`](#stdunits): 4283-4520
-- [`std.units.catalogue`](#stdunitscatalogue): 4522-5300
-- [`std.url`](#stdurl): 5302-5330
-- [`std.uuid`](#stduuid): 5332-5355
-- [`std.xml`](#stdxml): 5357-5390
+- [`std.gui.immediate.egui`](#stdguiimmediateegui): 1770-1792
+- [`std.gui.retained.iced`](#stdguiretainediced): 1794-1810
+- [`std.http`](#stdhttp): 1812-1883
+- [`std.http.decoder`](#stdhttpdecoder): 1885-1902
+- [`std.http.body`](#stdhttpbody): 1904-1939
+- [`std.http.client`](#stdhttpclient): 1941-2051
+- [`std.http.cookie`](#stdhttpcookie): 2053-2085
+- [`std.http.files`](#stdhttpfiles): 2087-2100
+- [`std.http.https`](#stdhttphttps): 2102-2116
+- [`std.http.proxy`](#stdhttpproxy): 2118-2139
+- [`std.http.server`](#stdhttpserver): 2141-2242
+- [`std.http.sse`](#stdhttpsse): 2244-2263
+- [`std.http.tls`](#stdhttptls): 2265-2282
+- [`std.http.typed`](#stdhttptyped): 2284-2317
+- [`std.http.websocket`](#stdhttpwebsocket): 2319-2354
+- [`std.http.wss`](#stdhttpwss): 2356-2362
+- [`std.image`](#stdimage): 2364-2410
+- [`std.io`](#stdio): 2412-2518
+- [`std.io.typed`](#stdiotyped): 2520-2558
+- [`std.serial`](#stdserial): 2560-2626
+- [`std.json`](#stdjson): 2628-2780
+- [`std.jwt`](#stdjwt): 2782-2829
+- [`std.log`](#stdlog): 2831-2898
+- [`std.markdown`](#stdmarkdown): 2900-2934
+- [`std.template`](#stdtemplate): 2936-2973
+- [`std.math`](#stdmath): 2975-3046
+- [`std.mime`](#stdmime): 3048-3074
+- [`std.net`](#stdnet): 3076-3158
+- [`std.path`](#stdpath): 3160-3177
+- [`std.process`](#stdprocess): 3179-3238
+- [`std.random`](#stdrandom): 3240-3261
+- [`std.ready`](#stdready): 3263-3294
+- [`std.regex`](#stdregex): 3296-3349
+- [`std.report`](#stdreport): 3351-3362
+- [`std.secrets`](#stdsecrets): 3364-3390
+- [`std.shlex`](#stdshlex): 3392-3401
+- [`std.sketch`](#stdsketch): 3403-3441
+- [`std.sketch.xor`](#stdsketchxor): 3443-3454
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3456-3471
+- [`std.signal`](#stdsignal): 3473-3490
+- [`std.simd`](#stdsimd): 3492-3651
+- [`std.stat`](#stdstat): 3653-3686
+- [`std.plot`](#stdplot): 3688-3777
+- [`std.linalg`](#stdlinalg): 3779-3820
+- [`std.sync`](#stdsync): 3822-3854
+- [`std.system`](#stdsystem): 3856-3915
+- [`std.tempfile`](#stdtempfile): 3917-3949
+- [`std.test`](#stdtest): 3951-3993
+- [`std.text`](#stdtext): 3995-4038
+- [`std.thread`](#stdthread): 4040-4044
+- [`std.time`](#stdtime): 4046-4090
+- [`std.tls`](#stdtls): 4092-4174
+- [`std.toml`](#stdtoml): 4176-4275
+- [`std.unicode`](#stdunicode): 4277-4289
+- [`std.units`](#stdunits): 4291-4528
+- [`std.units.catalogue`](#stdunitscatalogue): 4530-5308
+- [`std.url`](#stdurl): 5310-5338
+- [`std.uuid`](#stduuid): 5340-5363
+- [`std.xml`](#stdxml): 5365-5398
 
 ## `std.actor`
 
@@ -1777,6 +1777,14 @@ enum EguiError
 def allocation(error: AllocError) -> EguiError
 class Ui
     def __init__(self, token: u64) -> ()
+    def checkbox(self, text: &str, value: &mut bool) -> Result[bool, EguiError]
+    def radio(self, text: &str, selected: bool) -> Result[bool, EguiError]
+    def link(self, text: &str) -> Result[bool, EguiError]
+    def separator(self) -> Result[(), EguiError]
+    def spinner(self) -> Result[(), EguiError]
+    def progress_bar(self, fraction: f32) -> Result[(), EguiError]
+    def slider(self, value: &mut f32, minimum: f32, maximum: f32) -> Result[bool, EguiError]
+    def drag_value(self, value: &mut f32, minimum: f32, maximum: f32) -> Result[bool, EguiError]
     def label(self, text: &str) -> Result[(), EguiError]
     def button(self, text: &str) -> Result[bool, EguiError]
     def text_edit(self, id: u64, text: &mut str) -> Result[bool, EguiError]

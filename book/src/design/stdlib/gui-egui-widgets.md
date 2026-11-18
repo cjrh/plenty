@@ -11,6 +11,15 @@ plenty run --bin label
 
 Use the binary name shown for each example. Append `-- --headless` to inspect its initial labels without opening a window.
 
+- [Checkbox](gui-egui-widgets/checkbox.md)
+- [RadioButton](gui-egui-widgets/radio.md)
+- [Link](gui-egui-widgets/link.md)
+- [Separator](gui-egui-widgets/separator.md)
+- [Spinner](gui-egui-widgets/spinner.md)
+- [ProgressBar](gui-egui-widgets/progress_bar.md)
+- [Slider](gui-egui-widgets/slider.md)
+- [DragValue](gui-egui-widgets/drag_value.md)
+
 ## Label
 
 [Label example](gui-egui-widgets/label.md) · `label`

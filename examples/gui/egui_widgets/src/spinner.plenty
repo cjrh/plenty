@@ -1,0 +1,17 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "Loading"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    ui.label(&state.title)?
+    ui.spinner()
+
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)
