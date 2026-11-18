@@ -57,18 +57,19 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "#;
 
+fn registration(registered: bool) -> &'static str {
+    if registered {
+        "out = alloc.allocator(&root, Forward(root.share())).unwrap()"
+    } else {
+        "out = root.share()"
+    }
+}
+
 fn budget(selected: bool, registered: bool, checked: &str, reject: &str) -> Result<u64> {
     let source = ADAPTER
         .replace("CHECKED_BODY", checked)
         .replace("REJECT_BODY", reject)
-        .replace(
-            "PROVIDER",
-            if registered {
-                "out = alloc.allocator(&root, Forward(root.share())).unwrap()"
-            } else {
-                "out = root.share()"
-            },
-        )
+        .replace("PROVIDER", registration(registered))
         .replace(
             "BUFFER",
             if selected {
@@ -189,4 +190,55 @@ fn mixed_program_keeps_borrowed_indexing_and_requires_a_bounded_reject_bridge() 
         error.contains("cannot safely report serialization stack exhaustion"),
         "{error}"
     );
+}
+
+#[test]
+fn selected_text_reads_lend_but_replacement_can_release() {
+    let functions = HashMap::default();
+    let targets = HashMap::default();
+    let effects = ProviderEffects {
+        text: true,
+        ..Default::default()
+    };
+    let mut graph = Graph::new(&functions, &[], &targets, effects);
+    graph.body(&[
+        Op::Collection(CollectionOp::QueryRef(crate::collection::Query::TextLen)),
+        Op::Collection(CollectionOp::TextView(crate::text::TextViewOp::Len)),
+    ]);
+    graph.release(&Ty::ByteStorage);
+    assert!(!graph.unknown);
+    let nested = crate::sum::option(Ty::Box(Arc::new(Ty::Str)));
+    graph.body(&[Op::WriteRef(nested.clone())]);
+    assert!(graph.unknown);
+    let mut graph = Graph::new(&functions, &[], &targets, effects);
+    graph.release(&nested);
+    assert!(graph.unknown);
+}
+
+#[test]
+fn text_producer_and_compiled_provider_make_even_identity_fault_rejection_unbounded() {
+    // Fault can own a str, even though this adapter simply returns the fault.
+    for selected in [false, true] {
+        for registered in [false, true] {
+            let mut setup = registration(registered).to_owned();
+            if selected {
+                setup.push_str("\n    drop(out.slice_text(\"abcdefgh\"))");
+            }
+            let source = ADAPTER
+                .replace("CHECKED_BODY", "pass")
+                .replace("REJECT_BODY", "pass")
+                .replace("BUFFER", "binary.from_bytes(b\"x\")")
+                .replace("PROVIDER", &setup);
+            let result = compiled_budget(&source);
+            if selected && registered {
+                let error = result.unwrap_err().to_string();
+                assert!(
+                    error.contains("cannot safely report serialization stack exhaustion"),
+                    "{error}"
+                );
+            } else {
+                assert_ne!(result.unwrap(), u64::MAX);
+            }
+        }
+    }
 }

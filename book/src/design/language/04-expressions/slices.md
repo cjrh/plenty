@@ -512,6 +512,10 @@ r
 wö
 ```
 
+For an independent `str` in selected storage, use
+[`out.slice_text(view, start, stop, step)?`](../../stdlib/alloc.md#copy-a-text-slice-with-an-output-allocator).
+Text brackets never select the source's provider.
+
 `&strview` is a separate type from `&str`. A `&str` refers to a whole `str`,
 whose [representation](../../toolchain/02-architecture/values.md#strings)
 stores its byte length and scalar count ahead of the text, and every `str`

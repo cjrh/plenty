@@ -253,6 +253,21 @@ fn check_join(
     registered: bool,
     expected: Option<&str>,
 ) {
+    let owner = if selected {
+        "out.slice_clist(&rows).unwrap()"
+    } else {
+        "clist[Row]()"
+    };
+    check_provider_join(worker, caller, owner, registered, expected);
+}
+
+pub(super) fn check_provider_join(
+    worker: &str,
+    caller: &str,
+    owner: &str,
+    registered: bool,
+    expected: Option<&str>,
+) {
     let program = JOIN_POLICY
         .replace("WORKER", worker)
         .replace("CALLER", caller)
@@ -264,14 +279,7 @@ fn check_join(
                 "root.share()"
             },
         )
-        .replace(
-            "OWNER",
-            if selected {
-                "out.slice_clist(&rows).unwrap()"
-            } else {
-                "clist[Row]()"
-            },
-        );
+        .replace("OWNER", owner);
     let result = plenty::check_source(&program);
     match expected {
         Some(message) => {
@@ -588,6 +596,13 @@ fn final_allocator_release_at_scoped_join_includes_hidden_clist_cleanup() {
         let caller = format!("{OUTER}\n    {setup}\n    {}", join.replace("ARG", arg));
         check_join(&worker, &caller, true, true, Some(lock));
     }
+    let owning = format!("{HOLDING}\ndef work(owner: alloc.Allocator) -> ():\n    pass");
+    // Producing selected text doesn't activate an ordinary clist in Holding.
+    let text_only = format!(
+        "drop(out.slice_text(\"selected text\"))\n    {OUTER}\n    {}",
+        join.replace("ARG", "outer")
+    );
+    check_join(&owning, &text_only, false, true, None);
     // A sender cannot yield its queued value, even when the message or the
     // endpoint is itself queued. The worker can only drop a pinned share.
     for (message, endpoint, arg, peer) in [
@@ -606,13 +621,7 @@ fn final_allocator_release_at_scoped_join_includes_hidden_clist_cleanup() {
     }
     // A producer alone doesn't make owning Allocator cleanup a clist release:
     // the only *registered* state is Policy, not Holding.
-    check_join(
-        &format!("{HOLDING}\ndef work(owner: alloc.Allocator) -> ():\n    pass"),
-        &join.replace("ARG", "out"),
-        true,
-        true,
-        None,
-    );
+    check_join(&owning, &join.replace("ARG", "out"), true, true, None);
 }
 
 #[test]

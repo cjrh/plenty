@@ -97,9 +97,9 @@ A class with a record also has a plan in its runtime descriptor: the word
 offsets of the strings it owns, including those of flat class fields, whether
 those strings are all it owns, and whether its bytes hold any address into
 themselves. When the strings are all it owns (no `__del__` at any depth, no
-other managed field), the runtime releases the record by freeing those strings
-directly instead of walking its fields; freeing a string runs no user code, so
-the order is unobservable. A record holding no internal addresses moves without
+other managed field), the runtime visits the recorded string offsets instead of walking all fields.
+Ordinary leaves can be freed in place; a selected leaf can run a provider
+callback and must finish before the next field. A record holding no internal addresses moves without
 relocation: only its owner's value word changes. Collection rows use both, and
 a list whose row class owns nothing skips its per-row release entirely.
 
@@ -138,7 +138,8 @@ describe the remaining space used by sum and record elements.
 
 A `str` is one 64-bit word. Heap and literal pointers address a 32-byte prefix:
 a 16-byte managed header, byte length, and scalar count, followed by UTF-8 bytes
-without a terminator. Literal storage is immortal and eight-byte aligned.
+without a terminator. Long selected text has its owning block immediately before
+that prefix; its word and header offsets are identical to ordinary text. Literal storage is immortal and eight-byte aligned.
 
 A set low bit marks an inline string. Its low byte stores `length << 1 | 1`;
 the remaining seven bytes store UTF-8. These values own no heap allocation and

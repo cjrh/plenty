@@ -2,7 +2,7 @@
 //! mention. Keep this join analysis separate from structural worker eligibility.
 use crate::clist::ClistOp;
 use crate::collection::CollectionOp;
-use crate::collection_opcodes::ALLOCATOR_CLIST_SLICE;
+use crate::collection_opcodes::{ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_SLICE};
 use crate::hash::HashSet;
 use crate::op::{CallableSig, Op, Ty};
 use crate::threading::{self, CallableTargets, ThreadOp};
@@ -12,11 +12,13 @@ use crate::threading::{self, CallableTargets, ThreadOp};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Owner {
     Clist,
+    Text,
 }
 
 impl Owner {
     fn producer(op: &Op) -> Option<Self> {
         match crate::foreign::allocator_opcode(op)? {
+            ALLOCATOR_TEXT_SLICE => Some(Self::Text),
             ALLOCATOR_CLIST_SLICE => Some(Self::Clist),
             _ => None,
         }
@@ -24,6 +26,7 @@ impl Owner {
 
     fn of(ty: &Ty) -> Option<Self> {
         match ty {
+            Ty::Str => Some(Self::Text),
             Ty::Clist(_) => Some(Self::Clist),
             _ => None,
         }
@@ -106,8 +109,8 @@ impl Providers {
             return Self::default();
         }
         // A last Allocator drop destroys its erased state. The owner and the
-        // callback mutex can belong to *different* registrations (the stored
-        // clist retains the inner allocator). Bound both by emitted types.
+        // callback mutex can belong to different registrations: a selected str
+        // or clist retains its inner allocator. Bound both by emitted types.
         let mut state_owns_selected = false;
         visit_types(&states, Ty::managed, |ty| {
             state_owns_selected |= Owner::of(ty).is_some_and(|kind| owners.contains(&kind));

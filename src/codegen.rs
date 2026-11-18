@@ -857,7 +857,6 @@ fn object_module(
     small_calls::substitute(&mut ops, build.optimize, workers);
     fixed_state::prepare(&mut ops, build.optimize);
     crate::tail_abi::prepare(&mut ops, workers);
-    last_use::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
     let targets = build.targets(opt_level)?;
     let mut out = Output::new(targets, build.cache.clone())?;
@@ -883,6 +882,11 @@ fn object_module(
     // Every symbol a body refers to by name is declared before any body is
     // built, so forward references and mutual recursion resolve, and the
     // threads building bodies only read the declarations.
+    let providers = allocator_providers::declare_adapters(&ops, workers, &mut out.module)?;
+    if !providers.is_empty() {
+        runtime.provider_effects = allocator_providers::selected_owners(&ops);
+    }
+    last_use::prepare(&mut ops, workers, runtime.provider_effects);
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
@@ -898,10 +902,6 @@ fn object_module(
             out.address_taken(function.id);
         }
     });
-    let providers = allocator_providers::declare_adapters(&ops, workers, &mut out.module)?;
-    if !providers.is_empty() {
-        runtime.provider_effects = allocator_providers::selected_owners(&ops);
-    }
     sites::mark_context_preserving(&bodies, &mut user_fns, runtime.provider_effects);
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);

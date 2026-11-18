@@ -481,7 +481,7 @@ impl<'a> Graph<'a> {
     reason = "type identity excludes definition cells"
 )]
 fn may_own_selected_storage(ty: &Ty, providers: ProviderEffects) -> bool {
-    if !(providers.bytes || providers.clists) || !ty.managed() {
+    if !(providers.bytes || providers.clists || providers.text) || !ty.managed() {
         return false;
     }
     let mut pending = vec![ty.clone()];
@@ -490,6 +490,7 @@ fn may_own_selected_storage(ty: &Ty, providers: ProviderEffects) -> bool {
         match &ty {
             // An erased owning payload can hide the buffer from a type walk.
             Ty::ByteStorage if providers.bytes => return true,
+            Ty::Str if providers.text => return true,
             Ty::Clist(_) if providers.clists => return true,
             Ty::BoxedCallable(..) | Ty::BoxedProtocol(_) => return true,
             Ty::Class(t) if t.try_get().is_none() => return true,

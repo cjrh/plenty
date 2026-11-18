@@ -578,14 +578,17 @@ unsafe extern "C" fn destroy_job(header: *mut Header) {
     unsafe {
         let job = header.cast::<Job>();
         let phase = *lock(&(*job).phase);
-        match phase {
-            Phase::Cancelled => aggregates::release((*job).data.read(), (*job).input),
-            Phase::Ready => aggregates::release(
-                (*job).data.add((*job).input.slot_words()).read(),
-                (*job).output,
-            ),
-            Phase::Taken => {}
+        let child = match phase {
+            Phase::Cancelled => aggregates::release_next((*job).data, (*job).input),
+            Phase::Ready => {
+                aggregates::release_next((*job).data.add((*job).input.slot_words()), (*job).output)
+            }
+            Phase::Taken => None,
             _ => crate::fail("unfinished executor job lost its worker owner"),
+        };
+        if let Some(child) = child {
+            memory::continue_after(header, child);
+            return;
         }
         let words = (*job).words;
         std::ptr::drop_in_place(job);

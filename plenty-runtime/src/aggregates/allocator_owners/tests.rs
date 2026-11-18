@@ -387,6 +387,46 @@ fn final_builtin_owners_can_drop_on_worker() {
 }
 
 #[test]
+fn selected_text_slices_keep_one_block_until_last_worker_release() {
+    let counts = counts();
+    let out = allocator(&counts, "text");
+    counts.budget.store(1, Ordering::Relaxed);
+    let slice =
+        |source, positions| strings::try_stepped_slice_range_in(source, positions, Some(&out));
+    let short = slice("界ab🙂", (3, -3, 2)).unwrap();
+    assert!(strings::is_inline(short));
+    assert_eq!(unsafe { strings::text(short) }, "🙂界");
+    assert_eq!(counts.calls.load(Ordering::Relaxed), 0);
+    let long = slice("界ab🙂", (3, -1, 4)).unwrap();
+    assert_eq!(slice("abcdefgh", (0, 1, 8)), Err(AllocError::OutOfMemory));
+    drop(out);
+    // Ordinary slices copy into ordinary storage even when the source's
+    // provider is now exhausted. Retained word copies keep the same prefix.
+    let ordinary = unsafe {
+        crate::memory::plenty_retain(long.cast());
+        let text = strings::try_stepped_slice(long, (3, -1, 4)).unwrap();
+        strings::release_text(long);
+        text
+    };
+    assert_eq!(counts.calls.load(Ordering::Relaxed), 2);
+    assert_eq!(counts.drops.load(Ordering::Relaxed), 0);
+    let address = long.expose_provenance();
+    std::thread::spawn(move || unsafe {
+        let text = ptr::with_exposed_provenance_mut(address);
+        assert_eq!(strings::text(text), "🙂ba界");
+        strings::release_text(text);
+    })
+    .join()
+    .unwrap();
+    assert_eq!(counts.releases.load(Ordering::Relaxed), 1);
+    assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
+    unsafe {
+        assert_eq!(strings::text(ordinary), "界ab🙂");
+        strings::release_text(ordinary);
+    }
+}
+
+#[test]
 fn selected_lists_keep_dense_scalar_widths_and_compiler_offsets() {
     static BYTE: Type = Type {
         kind: b'5',
@@ -562,6 +602,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
         ALLOCATOR_BOX, ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE, ALLOCATOR_COPY,
         ALLOCATOR_DICT_SET, ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_LIST, ALLOCATOR_LIST_SLICE,
         ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
+        ALLOCATOR_TEXT_SLICE,
     };
     const PROBE: &str = "PLENTY_SELECTED_BOX_ARENA_PROBE";
     if let Ok(probe) = std::env::var(PROBE) {
@@ -579,6 +620,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
                         | ALLOCATOR_KEY_VIEW_TO_SET
                         | ALLOCATOR_LIST_SLICE
                         | ALLOCATOR_BYTES_SLICE
+                        | ALLOCATOR_TEXT_SLICE
                         | ALLOCATOR_CLIST_SLICE
                 ) {
                     // Reject before loading even the allocator handle.
@@ -601,6 +643,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
             ALLOCATOR_KEY_VIEW_TO_SET,
             ALLOCATOR_LIST_SLICE,
             ALLOCATOR_BYTES_SLICE,
+            ALLOCATOR_TEXT_SLICE,
             ALLOCATOR_CLIST_SLICE,
         ])
         .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)

@@ -193,6 +193,7 @@ impl StorageBarrier {
 #[derive(Clone, Copy, Default)]
 pub(crate) struct ProviderEffects {
     pub bytes: bool,
+    pub text: bool,
     pub clists: bool,
 }
 
@@ -698,7 +699,7 @@ impl Ty {
     /// Whether releasing a value of this type can run compiled code: a class
     /// `__del__`, a generator's cleanup, or whatever a closure, channel or
     /// executor owns. Only such code can trap in std or read the caller
-    /// location. Strings, ordinary byte storage, and collections, boxes and records of
+    /// location. Ordinary strings and byte storage, and collections, boxes and records of
     /// them are freed by the runtime alone, which neither traps nor reads the
     /// caller. A release destroys only what it reaches, since the destruction
     /// queue is empty whenever a release starts a drain. So a user-code
@@ -706,7 +707,7 @@ impl Ty {
     /// undefined forward reference counts as code.
     pub(crate) fn release_runs_code(&self, providers: ProviderEffects) -> bool {
         let facts = self.facts();
-        if facts.complete && !facts.destructor {
+        if !providers.text && facts.complete && !facts.destructor {
             return false;
         }
         let mut work = vec![self.clone()];
@@ -714,7 +715,7 @@ impl Ty {
         while let Some(ty) = work.pop() {
             match &ty {
                 _ if !ty.managed() => {}
-                Self::Str => {}
+                Self::Str if !providers.text => {}
                 Self::ByteStorage if !providers.bytes => {}
                 Self::Clist(_) if !providers.clists => {}
                 Self::List(t)

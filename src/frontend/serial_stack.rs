@@ -130,7 +130,7 @@ impl Lower<'_> {
             return false;
         }
         let mut cleanup = ops.split_off(index + 1);
-        self.finish_temporaries(start, &mut cleanup);
+        self.finish_statement_temporaries(start, &mut cleanup);
         let branch = ops.pop().unwrap();
         let check = ops.pop().unwrap();
         ops.extend(cleanup);

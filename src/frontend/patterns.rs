@@ -2175,6 +2175,9 @@ impl Lower<'_> {
             }
             self.leave_case();
             bodies.push(Some(body));
+            if arm + 1 < cases.len() {
+                self.recycle_observation_slots(case_start);
+            }
         }
         self.names = saved;
         if !matches!(tail, Tail::Function)

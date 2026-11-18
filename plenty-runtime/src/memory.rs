@@ -94,8 +94,21 @@ const _: () = {
 struct Queue {
     pending: *mut Header,
     dropping: bool,
+    provider_state: bool,
+    #[cfg(test)]
+    depth: usize,
 }
-thread_local! { static QUEUE: Cell<Queue> = const { Cell::new(Queue { pending: ptr::null_mut(), dropping: false }) }; }
+thread_local! {
+    static QUEUE: Cell<Queue> = const { Cell::new(Queue {
+        pending: ptr::null_mut(), dropping: false, provider_state: false,
+        #[cfg(test)] depth: 0,
+    }) };
+}
+
+#[cfg(test)]
+pub(crate) fn queue_depth() -> usize {
+    QUEUE.with(|q| q.get().depth)
+}
 
 /// The drop queue as it was before an actor handler ran.
 #[derive(Clone, Copy)]
@@ -118,13 +131,38 @@ pub(crate) fn dropping() -> bool {
 /// A user hook's explicit drops finish synchronously before its next statement.
 /// Never hold a RefCell borrow or mutable Rust reference across native callbacks.
 pub(crate) fn with_nested_drops<R>(f: impl FnOnce() -> R) -> R {
+    with_queue(Queue::default(), f)
+}
+
+/// Only automatic provider-state descendants share this protected drain. User
+/// hooks and allocator callbacks start ordinary nested queues as usual.
+pub(crate) fn with_provider_state_drops(f: impl FnOnce()) {
+    if QUEUE.with(|q| q.get().provider_state) {
+        f();
+    } else {
+        with_queue(
+            Queue {
+                provider_state: true,
+                ..Queue::default()
+            },
+            f,
+        );
+    }
+}
+
+fn with_queue<R>(queue: Queue, f: impl FnOnce() -> R) -> R {
     struct Restore(Queue);
     impl Drop for Restore {
         fn drop(&mut self) {
             QUEUE.with(|q| q.set(self.0));
         }
     }
-    let _restore = Restore(QUEUE.with(|q| q.replace(Queue::default())));
+    #[cfg(test)]
+    let queue = Queue {
+        depth: queue_depth() + 1,
+        ..queue
+    };
+    let _restore = Restore(QUEUE.with(|q| q.replace(queue)));
     f()
 }
 

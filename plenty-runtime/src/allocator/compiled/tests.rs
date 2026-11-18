@@ -213,3 +213,74 @@ fn compiled_registration_rejects_context_before_allocation_or_source_access() {
     }
     DROPS.with(|drops| assert_eq!(&*drops.borrow(), &[91]));
 }
+
+#[test]
+fn compiled_states_owning_selected_text_share_one_protected_walk() {
+    static TEXT: Type = Type {
+        kind: b's',
+        ..INTEGER
+    };
+    static STATE: Type = Type {
+        kind: b'C',
+        affine: true,
+        inline_bytes: 32,
+        variants: &[Variant {
+            name: "child",
+            fields: &[&TEXT],
+        }],
+        drop: Some(state_hook),
+        ..INTEGER
+    };
+    static STATE_BOX: Type = Type {
+        key: Some(&STATE),
+        ..BOX
+    };
+    thread_local! {
+        static DEPTHS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+        static PROTECTED_HOOKS: Cell<usize> = const { Cell::new(0) };
+    }
+    unsafe extern "C" fn state_hook(_: *mut u128) {
+        PROTECTED_HOOKS.with(|n| n.set(n.get() + usize::from(callback_active())));
+    }
+    unsafe extern "C" fn release(_: *mut Header, words: *const u64) {
+        DEPTHS.with(|d| d.borrow_mut().push(memory::queue_depth()));
+        unsafe { release_block(ptr::null_mut(), words) };
+    }
+    // Measure nesting directly, not by making a recursive implementation run
+    // out of stack. Each state has exactly one child, with a distinct provider.
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(|| unsafe {
+            let mut text = 1; // empty inline string
+            for _ in 0..8 {
+                let state = [1, text]; // armed hook, then child
+                let handle = register(
+                    [
+                        0,
+                        state.as_ptr() as u128,
+                        allocate as *const () as u128,
+                        release as *const () as u128,
+                    ],
+                    &STATE_BOX,
+                );
+                assert_eq!(handle >> 64, 0);
+                let allocator = Allocator(NonNull::new(handle as *mut ProviderHeader));
+                text = crate::strings::try_stepped_slice_range_in(
+                    "long text",
+                    (0, 1, 9),
+                    Some(&allocator),
+                )
+                .unwrap() as u128;
+            }
+            plenty_release(text as *mut Header);
+            // First callback is outside a state walk. All remaining releases are
+            // isolated callbacks within the same walk, not a fresh walk per edge.
+            DEPTHS.with(|d| assert_eq!(&*d.borrow(), &[1, 2, 2, 2, 2, 2, 2, 2]));
+            assert_eq!(PROTECTED_HOOKS.with(Cell::get), 8);
+            assert!(!callback_active());
+            assert_eq!(memory::queue_depth(), 0);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

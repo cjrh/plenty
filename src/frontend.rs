@@ -1048,7 +1048,7 @@ impl Lower<'_> {
         let result = ty.and_then(|ty| {
             self.same(ty, Some(Ty::Bool), &condition.at)?;
             self.building(&condition.at, 0, &mut test, false);
-            self.finish_temporaries(temporary_start, &mut test);
+            self.finish_statement_temporaries(temporary_start, &mut test);
             let saved = self.names.clone();
             self.loop_steps.push(Vec::new());
             self.loop_scopes.push(self.locals.len());
@@ -1256,6 +1256,7 @@ struct Lower<'a> {
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
     expression_temps: Vec<u8>,
+    observations: references::ObservationSlots,
     /// Free hidden operand locals of collection displays; see
     /// `Lower::operand_slot`.
     spare_operands: Vec<u8>,
@@ -3757,7 +3758,7 @@ impl Lower<'_> {
             self.finish_tail_temporaries(temporary_start, &mut returned);
             finish_return(&mut returned);
         } else {
-            self.finish_temporaries(temporary_start, &mut returned);
+            self.finish_statement_temporaries(temporary_start, &mut returned);
             self.leaving(0, &mut returned);
             if let Some(loan) = returned_loan {
                 returned.push(Op::UseLoan(loan));
@@ -4006,6 +4007,7 @@ impl Lower<'_> {
     ) -> Result<BlockResult> {
         let saved = self.narrowed.clone();
         let result = self.block_statements(body, ops, tail);
+        self.restore_observation_slots();
         self.narrowed = saved;
         result
     }
@@ -4015,8 +4017,12 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
         tail: &Tail,
     ) -> Result<BlockResult> {
+        let scope_start = self.locals.len();
         let mut result = None;
         for (i, stmt) in body.iter().enumerate() {
+            if i != 0 {
+                self.recycle_observation_slots(scope_start);
+            }
             let temporary_start = self.expression_temps.len();
             // A discarded expression statement's value is built until its drop.
             let mut discarded = None;
@@ -4067,7 +4073,7 @@ impl Lower<'_> {
                         expected
                     };
                     self.building(&e.at, value_start, ops, false);
-                    self.finish_temporaries(temporary_start, ops);
+                    self.finish_statement_temporaries(temporary_start, ops);
                     ops.push(Op::Yield(expected));
                     None
                 }
@@ -4303,7 +4309,7 @@ impl Lower<'_> {
                         let start = ops.len();
                         self.write_reference(&target, value, ops)?;
                         self.building(&value.at, start, ops, block_value(value));
-                        self.finish_temporaries(temporary_start, ops);
+                        self.finish_statement_temporaries(temporary_start, ops);
                         continue;
                     }
                     let context = if let Some(ann) = annotation {
@@ -4376,12 +4382,7 @@ impl Lower<'_> {
                         }
                         local.slot
                     } else {
-                        let slot =
-                            u8::try_from(self.parameters + self.locals.len()).map_err(|_| {
-                                stmt.at
-                                    .error("at most 256 parameter/local slots are supported")
-                            })?;
-                        self.locals.push(ty.clone());
+                        let slot = self.slot(ty.clone(), &stmt.at)?;
                         // An immutable integer keeps the interval of its
                         // value: nothing assigns to it again.
                         match self.operand_interval(value, &ty) {
@@ -4440,10 +4441,11 @@ impl Lower<'_> {
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
                     self.building(&condition.at, condition_start, ops, false);
-                    self.finish_temporaries(temporary_start, ops);
+                    self.finish_statement_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
                     let mut narrowing = self.if_narrowing(condition);
                     let mut then = Vec::new();
+                    let then_start = self.locals.len();
                     let yes_result = self.branch_block(yes, &stmt.at, &mut then, tail);
                     self.suite_narrowed(&mut narrowing, yes_result.as_ref().ok());
                     let yes_result = yes_result?;
@@ -4452,6 +4454,10 @@ impl Lower<'_> {
                     // second value does.
                     let mut inferred = None;
                     first_value(tail, &yes_result, &mut inferred);
+                    // Each finished suite has emitted its cleanup and restored the
+                    // physical slot table. Reopen only its idle suffix before
+                    // the next sibling takes a cleanup watermark of its own.
+                    self.recycle_observation_slots(then_start);
                     let elif_start = self.locals.len();
                     let mut arms = Vec::with_capacity(elifs.len());
                     let mut results = Vec::with_capacity(elifs.len());
@@ -4466,7 +4472,7 @@ impl Lower<'_> {
                         self.elif_narrowing(&mut narrowing, &elif.condition);
                         self.same(cond?, Some(Ty::Bool), &elif.condition.at)?;
                         self.building(&elif.condition.at, condition_start, &mut test, false);
-                        self.finish_temporaries(temporary_start, &mut test);
+                        self.finish_statement_temporaries(temporary_start, &mut test);
                         self.enter_suite_narrowing(&narrowing);
                         let result = self.case_block(
                             &stmt.at,
@@ -4480,6 +4486,7 @@ impl Lower<'_> {
                         first_value(tail, &result, &mut inferred);
                         results.push(result);
                         arms.push((test, arm));
+                        self.recycle_observation_slots(elif_start);
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
@@ -4565,7 +4572,7 @@ impl Lower<'_> {
             if last && matches!(stmt.kind, Statement::Expr(_)) {
                 self.finish_tail_temporaries(temporary_start, ops);
             } else {
-                self.finish_temporaries(temporary_start, ops);
+                self.finish_statement_temporaries(temporary_start, ops);
             }
         }
         Ok(BlockResult::Continues(result))
@@ -5518,6 +5525,7 @@ fn lower_body(
                 indexed_lists: Vec::new(),
                 range_stop: None,
                 expression_temps: Vec::new(),
+                observations: Default::default(),
                 spare_operands: Vec::new(),
                 interval: None,
                 slot_intervals: HashMap::default(),

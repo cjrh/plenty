@@ -1,3 +1,4 @@
+use crate::allocator::{Allocator, Block};
 use crate::memory::{self, AllocError, Header};
 use std::mem::MaybeUninit;
 use std::{ptr, slice, str};
@@ -340,6 +341,15 @@ fn try_build(
     scalar_len: u64,
     fill: impl FnOnce(&mut [MaybeUninit<u8>]),
 ) -> Result<*mut Text, AllocError> {
+    try_build_in(None, byte_len, scalar_len, fill)
+}
+
+fn try_build_in(
+    allocator: Option<&Allocator>,
+    byte_len: u64,
+    scalar_len: u64,
+    fill: impl FnOnce(&mut [MaybeUninit<u8>]),
+) -> Result<*mut Text, AllocError> {
     if byte_len as usize <= INLINE_MAX {
         let mut data = [MaybeUninit::new(0u8); INLINE_MAX];
         fill(&mut data[..byte_len as usize]);
@@ -347,11 +357,33 @@ fn try_build(
         let data = data.map(|byte| unsafe { byte.assume_init() });
         return Ok(pack(&data[..byte_len as usize]));
     }
-    let out = memory::try_allocate_uninit::<Text, u8>(byte_len as usize)?;
-    // SAFETY: the allocation has a header followed by exactly byte_len bytes.
+    let (out, header) = if let Some(allocator) = allocator {
+        // Keep Text (and its compiler-visible offsets) unchanged. The prefix
+        // owns the exact block containing itself, the header and the UTF-8.
+        let layout = memory::object_layout::<Text, u8>(byte_len as usize)?;
+        let (whole, offset) = std::alloc::Layout::new::<Block>()
+            .extend(layout)
+            .map_err(|_| AllocError::CapacityOverflow)?;
+        const {
+            assert!(align_of::<Block>() >= align_of::<Text>());
+        }
+        debug_assert_eq!(offset, size_of::<Block>());
+        let mut block = allocator.allocate(whole.pad_to_align())?;
+        unsafe {
+            let prefix = block.as_mut_ptr().cast::<Block>();
+            prefix.write(block);
+            (prefix.add(1).cast::<Text>(), Header::new(destroy_selected))
+        }
+    } else {
+        (
+            memory::try_allocate_uninit::<Text, u8>(byte_len as usize)?,
+            Header::new(destroy),
+        )
+    };
+    // SAFETY: either allocation has a header followed by byte_len bytes.
     unsafe {
         out.write(Text {
-            header: Header::new(destroy),
+            header,
             byte_len,
             scalar_len,
             data: [],
@@ -374,15 +406,36 @@ pub(crate) unsafe fn try_duplicate(text: *const Text) -> Result<*mut Text, Alloc
         })
     }
 }
-/// Release one owned reference and free the text at once if it was the last:
-/// a string owns nothing, so it needs no place in the destruction queue.
-pub(crate) unsafe fn release_leaf(text: *mut Text) {
+/// Consume an ordinary leaf immediately. A nonstandard destructor may enter
+/// compiled provider code; leave that reference for the ordered drop queue.
+pub(crate) unsafe fn release_plain(text: *mut Text) -> bool {
     unsafe {
         let header = text.cast::<Header>();
-        if !memory::inert(header) && (*header).release_last() {
+        if memory::inert(header) {
+            return true;
+        }
+        let Some(callback) = (*header).destroy else {
+            return true;
+        }; // literal
+        if !std::ptr::fn_addr_eq(callback, destroy as unsafe extern "C" fn(*mut Header)) {
+            return false;
+        }
+        if (*header).release_last() {
             destroy(header);
         }
+        true
     }
+}
+pub(crate) unsafe fn release_text(text: *mut Text) {
+    unsafe {
+        if !release_plain(text) {
+            memory::plenty_release(text.cast());
+        }
+    }
+}
+unsafe extern "C" fn destroy_selected(header: *mut Header) {
+    // Move the block out before its release clears the prefix.
+    unsafe { drop(header.cast::<Block>().sub(1).read()) };
 }
 unsafe extern "C" fn destroy(header: *mut Header) {
     // SAFETY: callback installed only on dynamically allocated Text objects.
@@ -942,26 +995,36 @@ unsafe fn try_scalar_range(
 ) -> Result<*mut Text, AllocError> {
     // SAFETY: the caller keeps the string word live through the call.
     // SAFETY: the same live string exposes its cached byte/scalar counts.
-    scalar_range(unsafe { utf8(&text) }, bounds, unsafe { is_ascii(text) })
+    scalar_range(
+        unsafe { utf8(&text) },
+        bounds,
+        unsafe { is_ascii(text) },
+        None,
+    )
 }
 
 fn scalar_range(
     source: &str,
     bounds: std::ops::Range<usize>,
     ascii: bool,
+    allocator: Option<&Allocator>,
 ) -> Result<*mut Text, AllocError> {
-    if bounds.is_empty() {
-        return try_new("");
-    }
-    if ascii {
-        return try_new(&source[bounds]);
-    }
-    let start = source.char_indices().nth(bounds.start).unwrap().0;
-    let end = source[start..]
-        .char_indices()
-        .nth(bounds.len())
-        .map_or(source.len(), |(offset, _)| start + offset);
-    try_new(&source[start..end])
+    let count = bounds.len();
+    let range = if count == 0 {
+        ""
+    } else if ascii {
+        &source[bounds]
+    } else {
+        let start = source.char_indices().nth(bounds.start).unwrap().0;
+        let end = source[start..]
+            .char_indices()
+            .nth(count)
+            .map_or(source.len(), |(offset, _)| start + offset);
+        &source[start..end]
+    };
+    try_build_in(allocator, range.len() as u64, count as u64, |out| {
+        out.write_copy_of_slice(range.as_bytes());
+    })
 }
 
 /// Copy `count` scalars `step` apart from scalar `first`, positions that
@@ -973,28 +1036,42 @@ pub(crate) unsafe fn try_stepped_slice(
 ) -> Result<*mut Text, AllocError> {
     // SAFETY: the caller keeps the string word live through the call.
     // SAFETY: the same live string exposes its cached byte/scalar counts.
-    stepped_slice_range(unsafe { utf8(&text) }, positions, unsafe { is_ascii(text) })
+    stepped_slice_range(
+        unsafe { utf8(&text) },
+        positions,
+        unsafe { is_ascii(text) },
+        None,
+    )
 }
 
 pub(crate) fn try_stepped_slice_range(
     source: &str,
     positions: (usize, i64, usize),
 ) -> Result<*mut Text, AllocError> {
-    stepped_slice_range(source, positions, source.is_ascii())
+    try_stepped_slice_range_in(source, positions, None)
+}
+
+pub(crate) fn try_stepped_slice_range_in(
+    source: &str,
+    positions: (usize, i64, usize),
+    allocator: Option<&Allocator>,
+) -> Result<*mut Text, AllocError> {
+    stepped_slice_range(source, positions, source.is_ascii(), allocator)
 }
 
 fn stepped_slice_range(
     source: &str,
     (first, step, count): (usize, i64, usize),
     ascii: bool,
+    allocator: Option<&Allocator>,
 ) -> Result<*mut Text, AllocError> {
     use crate::aggregates::slice_position;
     if step == 1 || count <= 1 {
-        return scalar_range(source, first..first + count, ascii);
+        return scalar_range(source, first..first + count, ascii, allocator);
     }
     if ascii {
         let source = source.as_bytes();
-        return try_build(count as u64, count as u64, |out| {
+        return try_build_in(allocator, count as u64, count as u64, |out| {
             for (k, byte) in out.iter_mut().enumerate() {
                 byte.write(source[slice_position(first, step, k)]);
             }
@@ -1014,7 +1091,7 @@ fn stepped_slice_range(
             .take(count)
     };
     let total: usize = selected().map(char::len_utf8).sum();
-    try_build(total as u64, count as u64, |out| {
+    try_build_in(allocator, total as u64, count as u64, |out| {
         // A reversed slice writes each scalar so that it ends where the
         // previous one starts, filling the output from its end.
         let mut offset = if step > 0 { 0 } else { out.len() };
@@ -1169,7 +1246,7 @@ mod tests {
                     assert_eq!(bytes(&(made as *const Text)), case);
                     assert_eq!(is_inline(made), case.len() <= INLINE_MAX);
                     assert_eq!(scalar_len(made), expected.chars().count() as u64);
-                    release_leaf(made);
+                    release_text(made);
                 },
                 (Err(_), None) => {}
                 (expected, made) => panic!("{case:?}: {expected:?} but {made:?}"),

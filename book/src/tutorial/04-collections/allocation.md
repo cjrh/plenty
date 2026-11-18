@@ -272,6 +272,31 @@ payload no longer borrows the frame, and `push` uses its retained provider.
 Use [`copy_view`](../../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)
 instead when you want all the viewed bytes in a `list[u8]`.
 
+## Keep text from a borrowed label
+
+To keep a piece after the label changes, copy it into a `str`. Use
+`out.slice_text` when the caller supplies the allocator. Here the view
+excludes the brackets, and the step reverses whole Unicode scalars, not
+individual UTF-8 bytes:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    mut label = "[a界🙂é]"
+    saved = out.slice_text(&label[1:-1], step=-1)?
+    label = "[new]"
+    print(saved, label)?
+    Ok(())
+```
+```output
+é🙂界a [new]
+```
+
+If you only need to read the piece while the label stays in place, use
+`&label[1:-1]` by itself. That lends the UTF-8 bytes and never allocates.
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

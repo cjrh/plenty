@@ -1,6 +1,67 @@
 //! Source places and explicit loans with statically disjoint field projections.
 use super::*;
 
+/// Only unbound observation slots with explicit full-expression drops are
+/// recyclable. Their physical types never change. Between sibling statements
+/// or arms an idle suffix is outside `locals`, so even an intervening checked
+/// block's cleanup watermark precedes any slot it reuses.
+#[derive(Default)]
+pub(super) struct ObservationSlots {
+    held: HashSet<u8>,
+    idle: HashSet<u8>,
+    suffix: Vec<Ty>, // last slot first
+}
+
+impl Lower<'_> {
+    fn observation_slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
+        let slot = if let Some(i) = self.observations.suffix.iter().rposition(|t| t == &ty) {
+            self.locals
+                .extend(self.observations.suffix.drain(i..).rev());
+            let slot = (self.parameters + self.locals.len() - 1) as u8;
+            self.observations.idle.remove(&slot);
+            slot
+        } else {
+            self.slot(ty, at)?
+        };
+        self.observations.held.insert(slot);
+        Ok(slot)
+    }
+
+    pub(super) fn restore_observation_slots(&mut self) {
+        if !self.observations.suffix.is_empty() {
+            self.locals.extend(self.observations.suffix.drain(..).rev());
+        }
+    }
+
+    /// Return slots only after the enclosing statement emits their drops.
+    /// An inner cleanup sequence (e.g. a deferred iteration step) is not
+    /// evidence that its slots are free in the surrounding code.
+    pub(super) fn finish_statement_temporaries(&mut self, start: usize, ops: &mut Vec<Op>) {
+        for &slot in &self.expression_temps[start..] {
+            if self.observations.held.remove(&slot)
+                && self
+                    .slot_names
+                    .get(slot as usize)
+                    .is_none_or(Option::is_none)
+                && !self.loans.iter().any(|loan| loan.root == slot)
+            {
+                self.observations.idle.insert(slot);
+            }
+        }
+        self.finish_temporaries(start, ops);
+    }
+
+    pub(super) fn recycle_observation_slots(&mut self, scope_start: usize) {
+        while self.locals.len() > scope_start {
+            let slot = (self.parameters + self.locals.len() - 1) as u8;
+            if !self.observations.idle.contains(&slot) {
+                break;
+            }
+            self.observations.suffix.push(self.locals.pop().unwrap());
+        }
+    }
+}
+
 /// Whether `ty` may be the success payload of an `Option` or `Result`: a
 /// reference to a value that holds no loan of its own, a builtin view, a
 /// view class, or a further `Option`/`Result` carrying an ordinary reference.
@@ -2067,11 +2128,28 @@ impl Lower<'_> {
         // (for example affine values_snapshot) from borrowed collections.
         let collection_owner = !unbox_owned
             && matches!(&result.0, Ty::List(value) | Ty::Dict(_, value) if value.affine());
+        // A computed owner may hold the last share of selected text several
+        // fields deep. Places and projections observe existing storage; for
+        // a temporary base it is the base's owner that must be saved.
+        let facts = result.0.facts();
+        let text_owner = facts.owned_text
+            && !matches!(
+                ungroup(e).kind,
+                Expression::Text(_)
+                    | Expression::Name(_)
+                    | Expression::Member(..)
+                    | Expression::Index(..)
+            );
         if result.1.is_empty()
-            && (result.0.has_destructor() || collection_owner)
-            && (collection_owner || !matches!(ungroup(e).kind, Expression::Index(..)))
+            && (text_owner
+                || collection_owner
+                || facts.destructor && !matches!(ungroup(e).kind, Expression::Index(..)))
         {
-            let slot = self.slot(result.0.clone(), &e.at)?;
+            let slot = if text_owner && !collection_owner {
+                self.observation_slot(result.0.clone(), &e.at)?
+            } else {
+                self.slot(result.0.clone(), &e.at)?
+            };
             ops.push(Op::StoreLocal(slot));
             self.expression_temps.push(slot);
             if collection_owner {

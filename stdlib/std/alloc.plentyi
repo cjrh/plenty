@@ -120,6 +120,9 @@ pub class Allocator:
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def slice_text(self, source: &strview, start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[str, AllocError]:
+        __allocator_text_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
+
     pub def copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]:
         mut output = self.list_with_capacity[T](len(source))?
         for element in source:

@@ -218,6 +218,42 @@ By contrast, `buf[a:b:k]?` uses the same bounds but ordinary output storage,
 regardless of `buf`'s provider. `buf.slice(a, b)?` also uses ordinary storage,
 but takes no step and traps unless `0 <= a <= b <= buf.len()`.
 
+### Copy a text slice with an output allocator
+
+`Allocator.slice_text(self, source: &strview, start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[str, AllocError]`
+returns independent immutable text. Pass a whole string, a literal, or a
+[substring view](../language/04-expressions/slices.md#substring-views).
+Bounds count **Unicode scalars within the input view**, not UTF-8 bytes or
+grapheme clusters. As with text brackets, negative bounds count from the end,
+bounds clamp, and the stop is exclusive. Omission (`alloc.Unset.Unset`) is
+not the same as `-1` when stepping backwards. Pass a nonzero literal step or
+convert a computed step with `NonZero.try_from(k)?`.
+
+The result is no larger in bytes than the input. Up to seven UTF-8 bytes,
+including empty text, fit in the result word without calling `out`. Longer
+results request one block from `out` for the header and bytes; even a full
+slice copies rather than sharing the input. There is no temporary string or
+index buffer. The result outlives both the loan and the allocator handle;
+counted copies retain the backing until the last release. An unrepresentable
+layout returns `CapacityOverflow`; provider refusal returns its `AllocError`
+without changing the input or retrying with system storage. Ordinary `s[a:b:k]?`
+and `view[a:b:k]?` still use ordinary storage, regardless of the source.
+
+**Checked serialization:** if the program emits both `slice_text` and a compiled
+provider registration, releasing an owning `str` may call a provider with
+unknown stack use. The checked rejection bridge takes a `Fault` that may itself
+own a string, so even an adapter that simply returns its fault cannot prove
+that rejection is safe. See [checked codec stack budgets](serial.md). Text
+selection with no compiled provider does not impose that restriction.
+
+**Worker waits:** with both a `slice_text` producer and a compiled provider,
+constructing a slice or releasing an owning `str` can call code that waits.
+This includes implicit cleanup of string fields. If the worker receives the
+allocator used to construct the slice, or can release text from its inputs,
+[join and pool checks](../facilities/03-concurrency/channels.md#which-workers-can-wait)
+account for mutex types reachable through the provider, even though `str` does
+not name the provider. Reading a length through a shared loan does not call it.
+
 ### Dictionaries and sets
 
 | Signature | Result on success |

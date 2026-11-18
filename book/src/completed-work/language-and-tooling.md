@@ -7,6 +7,16 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected text slices
+
+[`Allocator.slice_text`](../design/stdlib/alloc.md#copy-a-text-slice-with-an-output-allocator)
+copies Unicode scalars from a borrowed whole string or substring into an
+independent `str`. The [label example](../tutorial/04-collections/allocation.md#keep-text-from-a-borrowed-label)
+shows that the input can change immediately afterwards. Short results stay
+inline; longer results retain the output provider, including when dropped on
+a worker. See the [slice inventory](../design/toolchain/02-architecture/allocation-sites.md#owning-slices-and-their-non-owning-lookalikes)
+for routing and regression tests. Other allocating text operations remain B13 work.
+
 ### Public selected columnar list slices
 
 [`Allocator.slice_clist`](../design/stdlib/alloc.md#copy-a-columnar-list-slice)

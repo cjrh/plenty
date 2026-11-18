@@ -148,7 +148,8 @@ a wait. A worker *can wait* if code it can run performs any operation except:
 
 - computation, memory, and collection operations, including atomics and
   creating queues, tokens, pools, and mutexes, except for operations and cleanup
-  that can call a [selected clist's provider](../../stdlib/alloc.md#copy-a-columnar-list-slice);
+  that can call the provider of a [selected clist](../../stdlib/alloc.md#copy-a-columnar-list-slice)
+  or [selected text](../../stdlib/alloc.md#copy-a-text-slice-with-an-output-allocator);
 - `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`
   on a pool or a [`Submitter`](executors.md#submit-from-workers);
 - unlocking a mutex, cancelling a token or future, checking a token or

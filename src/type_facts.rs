@@ -10,6 +10,8 @@ pub struct Facts {
     pub affine: bool,
     pub copyable: bool,
     pub destructor: bool,
+    /// Owned storage reaches a string (not through a reference or view).
+    pub owned_text: bool,
     pub recursive: bool,
     /// A cycle with no heap boundary: the value would contain itself inline.
     pub infinite: bool,
@@ -53,6 +55,7 @@ impl Ty {
                             | Self::Atomic(_)
                     ),
                 destructor: resource,
+                owned_text: matches!(self, Self::Str),
                 complete: true,
                 reflexive: !self.is_float() && !matches!(self, Self::Clist(_)),
                 closure: matches!(
@@ -149,6 +152,7 @@ impl Ty {
             };
             facts.copyable &= part.copyable;
             facts.destructor |= part.destructor;
+            facts.owned_text |= part.owned_text;
             facts.recursive |= part.recursive;
             facts.infinite |= part.infinite;
             facts.complete &= part.complete;
@@ -207,6 +211,7 @@ impl Ty {
             facts.concurrent_handle |= nodes[i].is_concurrent_handle();
             facts.atomic |= matches!(nodes[i], Self::Atomic(_));
             facts.shared |= matches!(nodes[i], Self::Shared(_));
+            facts.owned_text |= matches!(nodes[i], Self::Str);
             facts.reflexive &= !nodes[i].is_float() && !matches!(nodes[i], Self::Clist(_));
             let weight = match &nodes[i] {
                 Self::Enum(t) => t.try_get().map_or(0, |definition| {
@@ -639,7 +644,11 @@ mod tests {
         );
         assert_eq!(
             dict(&Ty::Str, &list(&list(find("Point")))).facts(),
-            Facts { depth: 4, ..plain }
+            Facts {
+                depth: 4,
+                owned_text: true,
+                ..plain
+            }
         );
         assert_eq!(
             list(&dict(&Ty::Str, find("Resource"))).facts(),
@@ -647,6 +656,7 @@ mod tests {
                 depth: 3,
                 copyable: false,
                 destructor: true,
+                owned_text: true,
                 ..plain
             }
         );
@@ -659,8 +669,20 @@ mod tests {
         };
         assert_eq!(list(find("Node")).facts(), recursive);
         assert_eq!(boxed(&set(find("Chain"))).facts(), recursive);
-        assert_eq!(dict(find("Point"), find("Left")).facts(), recursive);
-        assert_eq!(dict(&Ty::Str, find("Right")).facts(), recursive);
+        assert_eq!(
+            dict(find("Point"), find("Left")).facts(),
+            Facts {
+                owned_text: true,
+                ..recursive
+            }
+        );
+        assert_eq!(
+            dict(&Ty::Str, find("Right")).facts(),
+            Facts {
+                owned_text: true,
+                ..recursive
+            }
+        );
         assert_eq!(
             list(find("Tree")).facts(),
             Facts {

@@ -107,7 +107,7 @@ thread_local! {
 pub(crate) fn callback_active() -> bool {
     CALLBACK_ACTIVE.with(Cell::get)
 }
-fn callback<R>(f: impl FnOnce() -> R) -> R {
+fn with_callback_scope<R>(f: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -115,11 +115,14 @@ fn callback<R>(f: impl FnOnce() -> R) -> R {
         }
     }
     let _restore = Restore(CALLBACK_ACTIVE.with(|active| active.replace(true)));
+    f()
+}
+fn callback<R>(f: impl FnOnce() -> R) -> R {
     // A callback may run while an outer managed-object drop queue is draining.
     // Its own managed cleanup must finish before its lock and fatal-trap scope
     // end, not be deferred into that outer queue. Preserve the outer queue on
     // both normal return and native unwinding, just as for Plenty user hooks.
-    crate::memory::with_nested_drops(f)
+    with_callback_scope(|| crate::memory::with_nested_drops(f))
 }
 
 fn thread_id() -> usize {
@@ -172,6 +175,7 @@ unsafe fn release<P: Provider>(header: NonNull<ProviderHeader>, block: Block) {
     let state = unsafe { header.cast::<State<P>>().as_ref() };
     callback(|| access(state).guard.release(block));
 }
+#[cfg(test)]
 unsafe fn destroy<P: Provider>(header: NonNull<ProviderHeader>) {
     let state = header.cast::<State<P>>().as_ptr();
     // SAFETY: no handles or callbacks remain. Move the owning block out first;
@@ -187,7 +191,16 @@ impl Allocator {
     pub(crate) const fn system() -> Self {
         Self(None)
     }
+    #[cfg(test)]
     pub(crate) fn new<P: Provider>(bootstrap: &Self, provider: P) -> Result<Self, Rejected<P>> {
+        unsafe { Self::new_with_destroy(bootstrap, provider, destroy::<P>) }
+    }
+    /// `destroy` must finalize exactly State<P> and release its storage last.
+    unsafe fn new_with_destroy<P: Provider>(
+        bootstrap: &Self,
+        provider: P,
+        destroy: unsafe fn(NonNull<ProviderHeader>),
+    ) -> Result<Self, Rejected<P>> {
         // Reject before bootstrap allocation or ownership transfer. Thread-safe
         // state alone does not establish survival across heap abandonment.
         if !crate::actor_heap::allocator_registration_allowed() {
@@ -214,7 +227,7 @@ impl Allocator {
                     refs: AtomicUsize::new(1),
                     allocate: allocate::<P>,
                     release: release::<P>,
-                    destroy: destroy::<P>,
+                    destroy,
                 },
                 active_thread: AtomicUsize::new(0),
                 provider: Mutex::new(provider),
