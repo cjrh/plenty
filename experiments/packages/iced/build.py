@@ -13,7 +13,7 @@ REPO = PACKAGE.parents[2]
 
 
 # Reviewed whole-interface pin, independent of the staged application's header.
-EXPECTED_CONTRACT = (PACKAGE / "native/expected-contract.txt").read_text().strip()
+EXPECTED_CONTRACT = (PACKAGE / "native/legacy/expected-contract.txt").read_text().strip()
 
 
 def main():
@@ -43,7 +43,7 @@ def main():
     executable = out / "plenty-iced"
     command = [sys.executable, "-B", REPO / "scripts/link_native_executable.py",
                "--manifest-path", PACKAGE / "native/Cargo.toml", "--lib-name", "plenty_iced",
-               "--target-dir", PACKAGE / "native/target", "--features", "application",
+               "--target-dir", PACKAGE / "native/target", "--features", "legacy-application",
                "--require-contract", EXPECTED_CONTRACT, "-o", executable, out / "application.o"]
     if args.release:
         command.append("--release")

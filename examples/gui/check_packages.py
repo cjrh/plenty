@@ -51,7 +51,7 @@ def qualify(compiler, toolkit, package):
         failure = run([exe], package, expected=1)
         assert 'NativeFailure' in failure.stderr and failure.stdout.splitlines().count('DROP 0') == 1
         error = f'{toolkit}.{toolkit.capitalize()}Error'
-        registration = 'create=create, draw=draw' if egui else ''
+        registration = 'create=create, draw=draw' if egui else 'create=create, view=view, update=update'
         path.write_text(base.split('def main()')[0] + f'''def main() -> i32:
     match {toolkit}.run({registration}):
         case Err({error}.InvalidArgument):
@@ -103,15 +103,28 @@ def main() -> Result[(), egui.EguiError]:
             assert guard in failed.stderr and exe.read_bytes() == good, failed.stderr
             print(f'egui {profile}: runtime callback choice, checked errors, drops, and interface guard')
             continue
-        callback = 'event'
-        prefix, rest = base.split(f'export def {callback}(', 1)
-        signature = rest.split('\n', 1)[0].replace('&mut State', 'State')
-        path.write_text(prefix + f'export def {callback}(' + signature + '\n    Ok(())\n\ndef main()' + rest.split('def main()', 1)[1])
+        path.write_text(base.split('def main()')[0] + '''def alternate(state: &mut State, action: u64) -> Result[(), iced.IcedError]:
+    state.count = 17
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    arguments = args_bytes().map_error(def(error: IoError) -> iced.IcedError: iced.IcedError.NativeFailure)?
+    chosen = alternate if len(arguments) == 3 else update
+    iced.run(update=chosen, view=view, create=create)
+''')
+        run(build, package)
+        for argv, count in [(['1'], 17), (['1', '1'], 2)]:
+            lines = run([exe, '--headless', *argv], package).stdout.splitlines()
+            assert f'Count: {count}' in lines and lines.count(f'DROP {count}') == 1, lines
+        path.write_text(base.replace(', update=update', ''))
+        run(build, package)
+        default_error = run([exe, '--headless', '1'], package, expected=1)
+        assert 'InvalidArgument' in default_error.stderr
         good = exe.read_bytes()
+        path.write_text(base + '\nexport def extra() -> i32 = "iced_app_extra":\n    0i32\n')
         failed = run(build, package, expected=1)
-        assert guard in failed.stderr and ('undefined' in failed.stderr or 'not defined' in failed.stderr), failed.stderr
-        assert exe.read_bytes() == good
-        print(f'{toolkit} {profile}: repeated builds, click trace {expected}, owner drop, startup/checked errors, ownership mismatch rejected at final link')
+        assert guard in failed.stderr and exe.read_bytes() == good, failed.stderr
+        print(f'iced {profile}: runtime update choice, optional update, checked failures, drops, interface guard')
 
 
 def main():

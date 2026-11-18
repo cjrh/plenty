@@ -1,6 +1,7 @@
 # iced 0.14.0 binding (iced contributors, MIT; https://iced.rs/).
 # Linked by name. None of these calls is certified for worker entry.
-extern def native_run() -> u32 = "plic_v1_run"
+extern def admit() -> u32 = "plic_v2_admit"
+extern def drive(driver: &mut Box[Driver] as scoped_box) -> u32 = "plic_v2_drive"
 extern def native_row(token: u64) -> u32 = "plic_v1_row"
 extern def native_column(token: u64) -> u32 = "plic_v1_column"
 extern def native_end(token: u64) -> u32 = "plic_v1_end"
@@ -59,5 +60,28 @@ pub class Frame:
     pub def button(self, text: &str, action: u64) -> Result[(), IcedError]:
         checked(native_button(self.token, text, action))
 
-pub def run() -> Result[(), IcedError]:
-    checked(native_run())
+class Driver:
+    callback: BoxedMutCallable[[bool, u64], Result[(), IcedError]]
+    def __init__(self, callback: BoxedMutCallable[[bool, u64], Result[(), IcedError]]) -> ():
+        self.callback = callback
+
+export def render_frame(driver: &mut Driver, token: u64) -> Result[(), IcedError] = "iced_app_render_frame":
+    driver.callback(False, token)
+
+export def handle_action(driver: &mut Driver, action: u64) -> Result[(), IcedError] = "iced_app_handle_action":
+    driver.callback(True, action)
+
+def reject_action[S](state: &mut S, action: u64) -> Result[(), IcedError]:
+    Err(IcedError.InvalidArgument)
+
+pub def run[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, &Frame], Result[(), IcedError]], update: Callable[[&mut S, u64], Result[(), IcedError]] = reject_action[S]) -> Result[(), IcedError]:
+    checked(admit())?
+    state = create().map_error(allocation)?
+    callback = def [mut state, view, update](is_action: bool, value: u64) -> Result[(), IcedError]:
+        if is_action:
+            return update(&mut state, value)
+        frame = Frame(value)
+        view(&state, &frame)
+    erased = BoxedMutCallable(callback).map_error(allocation)?
+    mut driver = Box(Driver(erased)).map_error(allocation)?
+    checked(drive(&mut driver))

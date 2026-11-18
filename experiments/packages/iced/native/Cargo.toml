@@ -11,6 +11,7 @@ publish = false
 crate-type = ["rlib", "staticlib"]
 
 [features]
+legacy-application = ["application"]
 application = ["dep:iced", "dep:plenty-runtime", "plenty-runtime/executable"]
 
 [dependencies]

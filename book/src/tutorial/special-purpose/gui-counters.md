@@ -4,13 +4,13 @@ Which part of a click changes the model? Try the two complete source packages
 `examples/gui/iced_counter` and `examples/gui/egui_counter` with the
 [GUI build instructions](../../design/stdlib/gui-build.md). Each defines a
 Plenty `State` with an integer field, provides a factory, and propagates the
-result of `run` from `main`. The iced example exports its callbacks. The egui
+result of `run` from `main`. The iced example passes `create`, `view`, and `update` to `run`. The egui
 example passes ordinary functions to `run(create=create, draw=draw)`; the
 toolkit borrows the driver while Plenty owns the state.
 
-**Retained:** read `iced_counter/src/main.plenty`. The shared `render` loan
+**Retained:** read `iced_counter/src/main.plenty`. The shared `view` loan
 submits a label and two buttons with distinct action IDs. A click calls
-`event` with an exclusive loan: only this callback changes the model. The
+`update` with an exclusive loan: only this callback changes the model. The
 new view reflects the new count. Try `plenty run -- --headless 1 1 2`: these
 actions produce `Count: 0`, `1`, `2`, `0`. The teaching counter deliberately
 reports `LimitExceeded` at a million instead of wrapping or ignoring input.

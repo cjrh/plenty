@@ -13,15 +13,17 @@ fn main() {
         "cargo:rerun-if-changed={}",
         path.join("iced_app.h").display()
     );
+    let (adapter, guard) = if env::var_os("CARGO_FEATURE_LEGACY_APPLICATION").is_some() {
+        ("legacy/app.c", include_str!("legacy/expected-contract.txt"))
+    } else {
+        ("app.c", include_str!("expected-contract.txt"))
+    };
     cc::Build::new()
-        .file("app.c")
-        .define(
-            "REQUIRE_ICED_APP_CONTRACT",
-            include_str!("expected-contract.txt").trim(),
-        )
+        .file(adapter)
+        .define("REQUIRE_ICED_APP_CONTRACT", guard.trim())
         .include(&path)
         .warnings_into_errors(true)
         .flag("-std=c11")
         .compile("iced_app_adapter");
-    println!("cargo:rerun-if-changed=app.c");
+    println!("cargo:rerun-if-changed={adapter}");
 }

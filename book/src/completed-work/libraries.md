@@ -683,4 +683,5 @@ filters commands and displays the first match on Enter; checked edit failure
 preserves the old text. Backend selection is unchanged. The egui std package now accepts runtime-selected
 `create` and `draw` function values in `main`; the application supplies no C exports.
 The native loop borrows one private driver for the duration of `run` and never
-owns the application model. The original external-binding experiment retains its own ABI.
+owns the application model. The iced std package likewise accepts `create`, read-only `view`, and optional
+mutable `update` function values. Both external-binding experiments retain their original ABIs.

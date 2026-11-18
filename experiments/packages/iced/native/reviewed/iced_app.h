@@ -15,7 +15,7 @@ extern "C" {
  * Keep the originating shared library loaded while calling its functions.
  */
 
-typedef struct iced_app_State iced_app_State;
+typedef struct iced_app_Driver iced_app_Driver;
 /* Requires: null or one live owned handle from this library instance.
  * Use its creating thread, with no outstanding borrows or concurrent/reentrant access.
  * Keep the originating library loaded through this call.
@@ -23,11 +23,7 @@ typedef struct iced_app_State iced_app_State;
  * running its destructor and field cleanup. All aliases become invalid.
  * Call exactly once per owned handle; never use free() or another library's destroy.
  */
-void iced_app_State_destroy(iced_app_State *value);
-
-/* AllocError codes, written to *out_error when a call returns 1. */
-#define iced_app_AllocError_OutOfMemory UINT32_C(0)
-#define iced_app_AllocError_CapacityOverflow UINT32_C(1)
+void iced_app_Driver_destroy(iced_app_Driver *value);
 
 /* IcedError codes, written to *out_error when a call returns 1. */
 #define iced_app_IcedError_OutOfMemory UINT32_C(0)
@@ -38,26 +34,10 @@ void iced_app_State_destroy(iced_app_State *value);
 #define iced_app_IcedError_InvalidArgument UINT32_C(5)
 #define iced_app_IcedError_NativeFailure UINT32_C(6)
 
-/* Plenty declaration: create.
- * Guarantees: scalar values are copied; borrowed storage is never retained.
- * On Ok, out_ok receives one non-null owned handle from this library.
- * Release it exactly once with iced_app_State_destroy; never use free().
- * On Err no handle is transferred and out_ok is unchanged.
- */
-/* Returns 0 for Ok, 1 for Err; no other status is returned.
- * Output pointers must be non-null, aligned, writable, mutually disjoint,
- * and disjoint from all input borrows for the whole call.
- * Output storage need not be initialized. Only the selected output is written;
- * the other output is unchanged. No old output value is released.
- * Err does not promise to undo mutations to borrowed inputs.
- */
-/* On Err, *out_error is one of the iced_app_AllocError_* codes. */
-uint32_t iced_app_create(iced_app_State * *out_ok, uint32_t *out_error);
-
-/* Plenty declaration: event.
+/* Plenty declaration: handle_action.
  * Guarantees: scalar values are copied; borrowed storage is never retained.
  * No ownership crosses this interface.
- * Requires p0: a live non-null iced_app_State handle from this library instance,
+ * Requires p0: a live non-null iced_app_Driver handle from this library instance,
  * used on its creating thread, with the library kept loaded.
  * Exclusive borrow: no other argument or alias may access this owner or
  * its fields during this call, including concurrent/reentrant access.
@@ -72,15 +52,17 @@ uint32_t iced_app_create(iced_app_State * *out_ok, uint32_t *out_error);
  * Err does not promise to undo mutations to borrowed inputs.
  */
 /* On Err, *out_error is one of the iced_app_IcedError_* codes. */
-uint32_t iced_app_event(iced_app_State * p0, uint64_t p1, uint32_t *out_error);
+uint32_t iced_app_handle_action(iced_app_Driver * p0, uint64_t p1, uint32_t *out_error);
 
-/* Plenty declaration: render.
+/* Plenty declaration: render_frame.
  * Guarantees: scalar values are copied; borrowed storage is never retained.
  * No ownership crosses this interface.
- * Requires p0: a live non-null iced_app_State handle from this library instance,
+ * Requires p0: a live non-null iced_app_Driver handle from this library instance,
  * used on its creating thread, with the library kept loaded.
- * Shared borrow: no mutation or destruction through any alias during
- * the call; shared reads may alias. Ownership remains with the caller.
+ * Exclusive borrow: no other argument or alias may access this owner or
+ * its fields during this call, including concurrent/reentrant access.
+ * Ownership remains with the caller. The whole owner is not replaced or
+ * destroyed, but fields may change even on Err; no rollback is promised.
  */
 /* Returns 0 for Ok, 1 for Err; no other status is returned.
  * Output pointers must be non-null, aligned, writable, mutually disjoint,
@@ -90,14 +72,14 @@ uint32_t iced_app_event(iced_app_State * p0, uint64_t p1, uint32_t *out_error);
  * Err does not promise to undo mutations to borrowed inputs.
  */
 /* On Err, *out_error is one of the iced_app_IcedError_* codes. */
-uint32_t iced_app_render(const iced_app_State * p0, uint64_t p1, uint32_t *out_error);
+uint32_t iced_app_render_frame(iced_app_Driver * p0, uint64_t p1, uint32_t *out_error);
 
-/* Interface SHA-256: c360ece2db2fe5325506bf49a6faf2654461a7fc1c8e5ccba76ab4b19fcb3836
+/* Interface SHA-256: 78fdb005f442394bc8754893de6956aed6cd7ab50fa0e7306448328e5953505b
  * Optional C compatibility guard: calling this no-op requires the exact
  * generated contract at link/symbol resolution. Does not allocate.
  * A fingerprint checks compatibility, not authenticity or implementation safety.
  */
-void iced_app_plenty_contract_v1_c360ece2db2fe5325506bf49a6faf2654461a7fc1c8e5ccba76ab4b19fcb3836(void);
+void iced_app_plenty_contract_v1_78fdb005f442394bc8754893de6956aed6cd7ab50fa0e7306448328e5953505b(void);
 
 /* Requires: length points to writable, aligned size_t storage (not null).
  * Writes the byte length; returns immutable UTF-8 metadata, without a NUL
