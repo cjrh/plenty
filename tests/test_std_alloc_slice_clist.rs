@@ -588,6 +588,22 @@ fn final_allocator_release_at_scoped_join_includes_hidden_clist_cleanup() {
         let caller = format!("{OUTER}\n    {setup}\n    {}", join.replace("ARG", arg));
         check_join(&worker, &caller, true, true, Some(lock));
     }
+    // A sender cannot yield its queued value, even when the message or the
+    // endpoint is itself queued. The worker can only drop a pinned share.
+    for (message, endpoint, arg, peer) in [
+        ("alloc.Allocator", "Sender", "&tx", "rx"),
+        ("Receiver[alloc.Allocator]", "Sender", "&tx", "rx"),
+        ("Sender[alloc.Allocator]", "Receiver", "&rx", "tx"),
+    ] {
+        let worker = format!(
+            "{HOLDING}\ndef work(owner: &alloc.Allocator, end: &{endpoint}[{message}]) -> ():\n    drop(owner.share())"
+        );
+        let caller = format!(
+            "{OUTER}\n    tx, rx = channel[{message}](1).unwrap()\n    drop({peer})\n    {}",
+            join.replace("ARG", &format!("&outer, {arg}"))
+        );
+        check_join(&worker, &caller, true, true, None);
+    }
     // A producer alone doesn't make owning Allocator cleanup a clist release:
     // the only *registered* state is Policy, not Holding.
     check_join(
