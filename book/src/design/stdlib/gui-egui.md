@@ -10,9 +10,9 @@ there is no retained Plenty widget tree or event dispatcher.
 
 | Example | Call | Effect |
 | --- | --- | --- |
-| [Label](gui-egui-widgets.md#label) | `ui.label(&message)` | Paints borrowed text; no interaction. |
-| [Button](gui-egui-widgets.md#button) | `ui.button(&caption)` | Returns whether this button was clicked. |
-| [Single-line text editor](gui-egui-widgets.md#single-line-text-editor) | `ui.text_edit(id, &mut text)` | Updates the string; returns whether Enter submitted it. |
+| [Label](gui-egui-widgets/label.md) | `ui.label(&message)` | Paints borrowed text; no interaction. |
+| [Button](gui-egui-widgets/button.md) | `ui.button(&caption)` | Returns whether this button was clicked. |
+| [Single-line text editor](gui-egui-widgets/text_edit.md) | `ui.text_edit(id, &mut text)` | Updates the string; returns whether Enter submitted it. |
 
 ## Example: a counter
 

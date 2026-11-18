@@ -9,10 +9,10 @@ handling, event loop and software renderer. See the [signatures](signatures.md#s
 
 | Example | Call | Effect |
 | --- | --- | --- |
-| [Text](gui-iced-widgets.md#text) | `frame.text(&message)` | Displays borrowed text; no action. |
-| [Button](gui-iced-widgets.md#button) | `frame.button(&caption, action)` | Sends a nonzero action ID on click. |
-| [Row](gui-iced-widgets.md#row) | `frame.row()` … `frame.end()` | Arranges children from left to right. |
-| [Column](gui-iced-widgets.md#column) | `frame.column()` … `frame.end()` | Stacks children from top to bottom. |
+| [Text](gui-iced-widgets/text.md) | `frame.text(&message)` | Displays borrowed text; no action. |
+| [Button](gui-iced-widgets/button.md) | `frame.button(&caption, action)` | Sends a nonzero action ID on click. |
+| [Row](gui-iced-widgets/row.md) | `frame.row()` … `frame.end()` | Arranges children from left to right. |
+| [Column](gui-iced-widgets/column.md) | `frame.column()` … `frame.end()` | Stacks children from top to bottom. |
 
 ## Example: a counter
 
