@@ -1,0 +1,114 @@
+{
+  "plenty_commit": "294c0a9c22b3305d2366bdfcbd3110dbcf957da2",
+  "plenty_version": "0.8.32",
+  "plenty_sha256": "30fb42f7e6a9caed3bafb50258dcdd2e2475f6e9b39b60e06412262779fb01e9",
+  "cranelift_pin": "d27f16528ab79ae70b6e0f4caca1d5e3a787e92b",
+  "regalloc2_pin": "b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1",
+  "kernel": "7.3.3-200.fc44.x86_64",
+  "host_cpu": "AMD Ryzen 7 7840HS",
+  "cpu_affinity": "3",
+  "size": 4000,
+  "pbm_sha256": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+  "runtime": {
+    "x86-64": [
+      {
+        "instructions": 8202033775,
+        "task_clock_ms": 840.81
+      },
+      {
+        "instructions": 8202033732,
+        "task_clock_ms": 827.86
+      },
+      {
+        "instructions": 8202033601,
+        "task_clock_ms": 836.25
+      }
+    ],
+    "x86-64-commuted-product": [
+      {
+        "instructions": 7827520762,
+        "task_clock_ms": 821.78
+      },
+      {
+        "instructions": 7827521033,
+        "task_clock_ms": 834.13
+      },
+      {
+        "instructions": 7827520770,
+        "task_clock_ms": 830.15
+      }
+    ],
+    "x86-64-v3": [
+      {
+        "instructions": 6265469611,
+        "task_clock_ms": 825.47
+      },
+      {
+        "instructions": 6265469611,
+        "task_clock_ms": 825.25
+      },
+      {
+        "instructions": 6265469402,
+        "task_clock_ms": 856.6
+      }
+    ],
+    "gcc-x86-64": [
+      {
+        "instructions": 6289012395,
+        "task_clock_ms": 844.12
+      },
+      {
+        "instructions": 6289012408,
+        "task_clock_ms": 847.76
+      },
+      {
+        "instructions": 6289012455,
+        "task_clock_ms": 846.56
+      }
+    ]
+  },
+  "compile": {
+    "x86-64": [
+      {
+        "instructions": 329353995,
+        "task_clock_ms": 82.96
+      },
+      {
+        "instructions": 329385415,
+        "task_clock_ms": 84.92
+      },
+      {
+        "instructions": 329363107,
+        "task_clock_ms": 89.23
+      }
+    ],
+    "x86-64-commuted-product": [
+      {
+        "instructions": 329335202,
+        "task_clock_ms": 85.12
+      },
+      {
+        "instructions": 329363645,
+        "task_clock_ms": 82.98
+      },
+      {
+        "instructions": 329351193,
+        "task_clock_ms": 90.32
+      }
+    ],
+    "x86-64-v3": [
+      {
+        "instructions": 329881574,
+        "task_clock_ms": 83.58
+      },
+      {
+        "instructions": 329866150,
+        "task_clock_ms": 86.52
+      },
+      {
+        "instructions": 329888175,
+        "task_clock_ms": 90.28
+      }
+    ]
+  }
+}

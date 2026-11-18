@@ -1,0 +1,41 @@
+%original loop 0x21-0x70: 20 instructions
+        21  movdqa %xmm2, %xmm6
+        25  addsd %xmm5, %xmm6
+        29  ucomisd %xmm6, %xmm3
+        2d  jb 0x79
+        33  subsd %xmm5, %xmm2
+        37  addsd %xmm0, %xmm2
+        3b  movdqa %xmm2, %xmm6
+        3f  mulsd %xmm2, %xmm6
+        43  addsd %xmm4, %xmm4
+        47  mulsd %xmm7, %xmm4
+        4b  addsd %xmm1, %xmm4
+        4f  movdqa %xmm4, %xmm5
+        53  mulsd %xmm4, %xmm5
+        57  subq $1, %rax
+        5b  testq %rax, %rax
+        5e  jle 0x75
+        64  movdqa %xmm4, %xmm7
+        68  movdqa %xmm2, %xmm4
+        6c  movdqa %xmm6, %xmm2
+        70  jmp 0x21
+%product loop 0x21-0x6c: 19 instructions
+        21  movdqa %xmm2, %xmm6
+        25  addsd %xmm5, %xmm6
+        29  ucomisd %xmm6, %xmm3
+        2d  jb 0x75
+        33  subsd %xmm5, %xmm2
+        37  addsd %xmm0, %xmm2
+        3b  movdqa %xmm2, %xmm6
+        3f  mulsd %xmm2, %xmm6
+        43  addsd %xmm7, %xmm7
+        47  mulsd %xmm7, %xmm4
+        4b  addsd %xmm1, %xmm4
+        4f  movdqa %xmm4, %xmm5
+        53  mulsd %xmm4, %xmm5
+        57  subq $1, %rax
+        5b  testq %rax, %rax
+        5e  jle 0x71
+        64  movdqa %xmm2, %xmm7
+        68  movdqa %xmm6, %xmm2
+        6c  jmp 0x21
