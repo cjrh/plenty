@@ -257,6 +257,15 @@ impl Lower<'_> {
                 Ty::Unit
             }
         };
+        self.lend_argument_value(e, ty, ops)
+    }
+
+    pub(super) fn lend_argument_value(
+        &mut self,
+        e: &Expr,
+        ty: Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, usize)> {
         if matches!(ty, Ty::Ref(..) | Ty::View(..)) {
             let parent = self.reference_origin(e, ops)?;
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);

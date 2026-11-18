@@ -98,18 +98,18 @@ for capacity errors and the fixed-size bitset case.
 
 ## Choose storage for a set result
 
-To find invitees who haven't replied, use `difference`: it keeps members of
-its first set that aren't in its second. Call it on the allocator that should
-pay for the result, not on either input:
+Suppose a guest list maps each invitee to their party size. To find invitees
+who haven't replied, compare the dictionary's keys with the set of replies.
+Call `difference` on the allocator that should pay for the result:
 
 ```plenty
 import std.alloc as alloc
 
 def main() -> Result[(), AllocError | IoError]:
-    invited = {"Ada", "Lin"}?
+    invited = {"Ada": 2, "Lin": 1}?
     replied = {"Lin"}?
     out = alloc.system()
-    pending = out.difference(&invited, &replied)?
+    pending = out.difference(invited.keys(), &replied)?
     print("Ada" in pending, "Lin" in pending)?
     print(len(invited), len(replied))?
     Ok(())
@@ -119,8 +119,10 @@ True False
 2 1
 ```
 
-Both inputs are borrowed and stay unchanged even if allocation fails. The
-same form works for `union`, `intersection` and `symmetric_difference`. See
+`invited.keys()` borrows the names in place. There's no intermediate set of
+invitees, and the party sizes are never copied. Both inputs stay unchanged
+even if allocation fails. The same form works for `union`, `intersection` and
+`symmetric_difference`. See
 [set algebra with an output allocator](../../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
 for key-copy requirements.
 

@@ -87,7 +87,7 @@ A [public binding](../design/stdlib/alloc.md) for `std.alloc` now delivers:
 - `system()` and selected builtin boxes and lists, including generator collection.
 - [Empty and capacity constructors for dictionaries and sets](../design/stdlib/alloc.md#dictionaries-and-sets),
   with retained hash storage or the ordinary inline finite-domain bitset.
-- [Set algebra on two borrowed sets](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator),
+- [Set algebra on borrowed sets or dictionary key views](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator),
   with an explicit output allocator rather than a choice inferred from either input.
 - [Copy with an output allocator](../design/stdlib/alloc.md#copy-with-an-output-allocator),
   borrowing the source and retaining existing shared leaves.

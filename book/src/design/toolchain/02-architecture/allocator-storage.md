@@ -252,12 +252,20 @@ ordinary bitset. Only the owner block needs release.
 ## Independent set results
 
 The four public [`Allocator` algebra methods](../../stdlib/alloc.md#set-algebra-with-an-output-allocator)
-call std-only intrinsics (opcodes 660–663). The runtime checks the actor/arena
-guard before accessing either borrowed set, then passes both sets and the
-receiver's allocator to `try_set_algebra_in`. The ordinary membership algorithm
-counts and reserves the hash result before copying keys; the result, its index
-and any scratch allocations use the output provider. Compact finite sets combine
-their masks directly in one selected result owner.
+declare two `&set[K]` operands. For a direct call involving a `KeyView[K]`,
+the frontend specializes the trusted `std/alloc.plentyi` wrapper with the
+actual operand types. It tracks each view back to its dictionary, keeping the
+first source borrowed while evaluating the second. No view-to-set conversion
+or public overload participates in generic or indirect calls.
+
+The std-only intrinsics (opcodes 660–663) pass the result descriptor `set[K]`
+separately: neither operand's descriptor is necessarily a set. After the
+actor/arena guard, `try_set_algebra_in` calls the same membership algorithm as
+ordinary algebra, with the receiver's allocator as its destination. Two bitsets
+combine their masks directly; otherwise the algorithm counts result members
+and reserves once before copying selected keys. It accesses dictionary keys in
+place, never reading the value field or staging the input keys in a set. A
+finite-domain bitset result uses a single selected owner even when an input is a dictionary.
 
 The recursive copy routine uses the selected allocator whenever it allocates a
 new copy. Existing shared leaves, such as immutable text, retain their backing.
@@ -267,8 +275,8 @@ If allocation fails, cleanup releases only partial output and the caller gets
 the allocation error with both inputs unchanged.
 
 [`Allocator.to_set`](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set) takes
-one key view instead of two sets. The frontend admits the `KeyView[K]` parameter
-only for the trusted `std/alloc.plentyi` method with the matching signature.
+one key view and copies all its keys, without a membership comparison. Only
+this trusted `std/alloc.plentyi` declaration takes a `KeyView[K]` parameter.
 It tracks the argument's loan back to the dictionary. Worker eligibility is
 checked on that dictionary, not inferred from `K`: a view may be created
 inside a worker, but cannot enter as a job argument or capture.
@@ -420,8 +428,8 @@ loans, and selected-list result inference. `tests/test_std_alloc_dict_set.rs`
 covers structural keys, selected hash growth and cleanup on a worker, capacity
 and provider errors (including finite sets), and ordinary admission restrictions.
 `tests/test_std_alloc_set_algebra.rs` exercises the public wrappers on hash sets
-and bitsets, borrowed inputs on provider failure, result lifetime and growth on
-return from a worker, and rejection of custom cleanup, key views and actor use.
+and bitsets, set/view and view/view calls, provider failure, result lifetime
+and growth, scoped workers, and rejection of nonduplicable keys and actor use.
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not
 optimized. Implementation priorities remain in

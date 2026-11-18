@@ -5170,6 +5170,7 @@ fn register_resolved(
 struct SignatureContext<'a> {
     parameter_order: Option<&'a [usize]>,
     allocator_to_set: bool,
+    allocator_algebra: bool,
 }
 
 /// [`register_resolved`] reading whether `f` yields, and what reference it
@@ -5209,9 +5210,9 @@ fn register_with_body(
     };
     let allocator_to_set =
         context.allocator_to_set && allocator_storage::to_set_signature(&types, &output);
-    if !allocator_to_set
-        && (types.iter().any(Ty::dictionary_view)
-            || output.as_ref().is_some_and(Ty::dictionary_view))
+    if (types.iter().any(Ty::dictionary_view) || output.as_ref().is_some_and(Ty::dictionary_view))
+        && !allocator_to_set
+        && !(context.allocator_algebra && allocator_storage::algebra_signature(&types, &output))
     {
         return Err(f.at.error("dictionary key views are local-only; user-function parameters, returns, and captures require an owned keys_snapshot(), into_keys(), or to_set()"));
     }

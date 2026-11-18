@@ -17,8 +17,8 @@ dictionary, as in the [player names example](../tutorial/04-collections/allocati
 
 `tests/test_std_alloc_key_view.rs` covers the public calls, refusal and scoped
 worker rules. The [allocation-site inventory](../design/toolchain/02-architecture/allocation-sites.md#dictionary-key-views-and-independent-results)
-identifies the separate native rollback and finite-set tests. This delivers
-conversion only, not selected algebra on key views.
+identifies the separate native rollback and finite-set tests. For binary operations, see
+[selected set algebra](#public-selected-set-algebra).
 
 ### Public selected copy
 
@@ -41,14 +41,16 @@ for remaining scope.
 
 [`Allocator.union`, `intersection`, `difference` and `symmetric_difference`](../design/stdlib/alloc.md#set-algebra-with-an-output-allocator)
 let callers choose the provider for an independent result rather than relying on
-ordinary set allocation. Both sets stay borrowed and unchanged on error. The
-result, scratch storage and newly allocated key copies use the chosen provider;
-existing shared leaves retain their backing. Legal affine keys need not be
-`@copy`; keys with custom cleanup and dictionary key views are not accepted.
+ordinary set allocation. Direct calls now accept matching sets or dictionary
+key views in either position without changing the public set/set declarations.
+Both inputs stay borrowed and unchanged on error. No input set is materialized
+and dictionary values are not copied. The result and any newly allocated key
+copies use the chosen provider; existing shared leaves retain their backing.
+Legal affine keys need not be `@copy`; keys with custom cleanup are rejected.
 
 `tests/test_std_alloc_set_algebra.rs` covers the four public calls on hash sets
-and bitsets, partial provider failure, worker borrows, result lifetime and type
-restrictions. The [allocation lesson](../tutorial/04-collections/allocation.md#choose-storage-for-a-set-result)
+and bitsets, mixed operands and argument order, partial provider failure,
+worker borrows, result lifetime and type restrictions. The [allocation lesson](../tutorial/04-collections/allocation.md#choose-storage-for-a-set-result)
 shows how to select an allocator for a difference. Other independent collection
 results and implicit allocation paths remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
 

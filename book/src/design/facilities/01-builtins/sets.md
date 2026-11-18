@@ -55,8 +55,9 @@ are not implied.
 
 To choose the result's allocator, call the corresponding
 [`std.alloc` method](../../stdlib/alloc.md#set-algebra-with-an-output-allocator),
-for example `out.union(&left, &right)?`. This form borrows two sets, not key
-views. Calling `left.union(&right)?` does not select `left`'s allocator.
+for example `out.union(&left, &right)?` or `out.difference(invited.keys(), &replied)?`.
+Either input can be a dictionary key view with the same `K`; pass a named view
+as `view`, not `&view`. Calling `left.union(&right)?` does not select `left`'s allocator.
 
 Keys containing `__del__` cannot be duplicated, so all four non-mutating
 algebra methods reject them, even for empty sets or a currently cleanup-free

@@ -69,7 +69,8 @@ Evidence distinguishes three boundaries:
 | `d.keys()` and observations | `CollectionOp::KeyView` in `src/codegen/collections.rs` forwards the dictionary reference. Iteration, length, membership, equality (`src/frontend/operators.rs`) and set relationships require no snapshot. | Loan, no result allocation. `values()` and `items()` also project existing storage. Mutating filters are not independent results. |
 | `keys.to_set()` | `KeyViewToSet` → `KEY_VIEW_TO_SET` → `try_members_copy(..., Ordinary)`. Allocates a set of keys, not a dictionary, and does not duplicate values. Matching sequential layouts can reuse the hash information by copying buckets. | Reserves for the source length before copying. On failure drops initialized output, not the dictionary. |
 | `out.to_set(keys)` | `Allocator.to_set` → `__allocator_key_view_to_set` → `ALLOCATOR_KEY_VIEW_TO_SET` → `try_key_view_to_set_in` → `try_members_copy(..., Selected)`. Same member walk as `keys.to_set()`, but the result owner and hash backing (or just the finite-set owner) use `out`. The result descriptor is `set[K]`, not `dict[K, V]`. | Copies only keys from the borrowed dictionary. Provider refusal releases partial storage and returns its `AllocError`, without changing keys or values. |
-| Union, intersection, difference, symmetric difference involving a key view | `src/frontend/collections.rs` lowers set-like method operands; `src/codegen/collections.rs` passes `KeySetAlgebra` a **set-of-keys** result descriptor. `KEY_VIEW_*` → `try_set_algebra` → `try_set_algebra_with(..., Ordinary)`. | View/view or matching set/view (either order). Counts result members and reserves before copying. On error both inputs remain unchanged. |
+| Ordinary union, intersection, difference, symmetric difference involving a key view | `src/frontend/collections.rs` lowers set-like method operands; `src/codegen/collections.rs` passes `KeySetAlgebra` a **set-of-keys** result descriptor. `KEY_VIEW_*` → `try_set_algebra` → `try_set_algebra_with(..., Ordinary)`. | View/view or matching set/view (either order). Counts result members and reserves before copying. On error both inputs remain unchanged. |
+| `out.union(left, right)` and its three algebra siblings | Trusted direct calls specialize the wrapper for shared sets and/or key views. `ALLOCATOR_SET_*` → `try_set_algebra_in` → `try_set_algebra_with(..., Selected)`. The compiler supplies the **result** `set[K]` descriptor independently of both input descriptors. | Borrows and probes keys in place; no input conversion or dictionary value copies. The selected provider pays for the independent result and any new key storage. Refusal unwinds partial output and preserves both sources, without fallback. |
 | `d.keys_snapshot()` / `values_snapshot()`; `d.into_keys()` / `into_values()` | Separate dictionary **list** results: `TryKeys` / `TryValues` → `try_dictionary_snapshot`. Reserves ordinary list storage for all entries before retaining or transferring in insertion order. | Borrowed snapshots retain non-affine elements. An affine projected element must be transferred from a unique temporary or consumed dictionary, not duplicated from a borrow. `into_*` consumes the dictionary even if reserve fails; it does not return it. |
 
 Independent key sets require duplicable keys; there is no implicit `set(view)`
@@ -77,17 +78,19 @@ or `list(view)` conversion. `try_push_members` retains simple keys, duplicates e
 final row, or inserts bits for a finite set. Where layouts permit, the **result
 table** temporarily indexes source slots and unused result value slots hold
 known hashes; there is no separate scratch collection. The temporary index is
-cleared before building the final index or rolling back. In contrast to views,
-[`out.union(&left, &right)` and its siblings](../../stdlib/alloc.md#set-algebra-with-an-output-allocator)
-accept only two matching sets: `try_set_algebra_in` takes the descriptor from
-the left **set**, not from a dictionary behind a key view.
+cleared before building the final index or rolling back.
 
 Evidence: `tests/test_dictionary_views.rs` (`observations_never_allocate_and_algebra_failure_preserves_source`,
 `tuple_key_views_compare_and_materialise_keys_with_independent_value_types`,
 `each_algebra_allocation_can_fail_without_changing_either_source`,
 `into_keys_allocation_failure_consumes_and_drops_affine_values_once`);
-`tests/test_dictionary_snapshots.rs` (`each_snapshot_allocation_can_fail_and_retry`);
-`tests/test_std_alloc_set_algebra.rs` (`selected_set_algebra_requires_matching_legal_sets`).
+`tests/test_dictionary_snapshots.rs` (`each_snapshot_allocation_can_fail_and_retry`).
+
+For selected algebra, `plenty-runtime/src/aggregates/allocator_owners/tests/set_algebra.rs`
+checks result descriptors, provider routing and rollback, and that mixed calls
+read keys without reading dictionary values. `tests/test_std_alloc_set_algebra.rs`
+covers the public calls, including operand order, matching key types, local
+loans, refusal and result lifetime.
 
 For selected conversion, `plenty-runtime/src/aggregates/allocator_owners/tests/key_view_to_set.rs`
 refuses each hash-result allocation, checks source lookups and value cleanup,

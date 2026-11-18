@@ -116,7 +116,8 @@ True
 ```
 
 Read-only checks return plain values. Set algebra and `names.to_set()` allocate
-an owned set and return an allocation result. Use `out.to_set(names)?` to
+an owned set and return an allocation result. Use `out.union(names, &expected)?`
+to [choose storage for a union](allocation.md#choose-storage-for-a-set-result), or `out.to_set(names)?` to
 [choose storage for just the names](allocation.md#keep-the-player-names-without-copying-the-scores).
 The view stays local: use
 `scores.keys_snapshot()?` or `scores.values_snapshot()?` when an owned ordered

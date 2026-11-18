@@ -31,7 +31,7 @@ borrowing, inline environments, generator frames, and cleanup bookkeeping do
 not make allocations performed by user expressions or destructors disappear.
 Cleanup on an allocation-error path must still handle its own fallible work.
 [`std.alloc`](../../stdlib/alloc.md) offers an explicit allocator for builtin
-boxes, lists, dictionaries, sets, algebra on two sets,
+boxes, lists, dictionaries, sets, [algebra on sets or dictionary key views](../../stdlib/alloc.md#set-algebra-with-an-output-allocator),
 [key-view conversion](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set) and
 [explicit copies](../../stdlib/alloc.md#copy-with-an-output-allocator). Ordinary
 constructors, `copy` and set methods do not implicitly select that allocator. The separate

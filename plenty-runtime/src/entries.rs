@@ -59,7 +59,15 @@ pub(crate) unsafe fn write_scalar(base: *mut u8, value: u128, ty: &Type) {
     }
 }
 
+// Key-only operations must not even load the value word of a dictionary row.
+#[cfg(test)]
+thread_local! { pub(crate) static DICT_VALUE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
 unsafe fn read_row(base: *const u8, key: &Type, value: Option<&Type>, packed: bool) -> Entry {
+    #[cfg(test)]
+    if value.is_some() {
+        DICT_VALUE_READS.with(|reads| reads.set(reads.get() + 1));
+    }
     unsafe {
         Entry {
             key: if packed {

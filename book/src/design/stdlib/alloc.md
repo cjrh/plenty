@@ -147,18 +147,39 @@ value type still participates in worker eligibility checks.
 | `Allocator.difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]` | In `left` but not `right` |
 | `Allocator.symmetric_difference[K: KeyType](self, left: &set[K], right: &set[K]) -> Result[set[K], AllocError]` | In exactly one set |
 
-For `out.union(&a, &b)`, `out` chooses the provider. The two borrowed sets may
-use different providers; neither is chosen implicitly. Both must have the same
-key type. Unlike the [ordinary set methods](../facilities/01-builtins/sets.md#set-algebra),
-these methods do not accept dictionary key views.
+A direct call to any of these four `std.alloc` methods accepts a shared set
+or a dictionary's keys in either position. For example:
+
+| Operands | Call |
+| --- | --- |
+| Two sets | `out.union(&a, &b)` |
+| Set and key view | `out.intersection(&a, d.keys())` |
+| Key view and set | `out.difference(d.keys(), &b)` |
+| Two key views | `out.symmetric_difference(d.keys(), other.keys())` |
+
+Both operands must have exactly the same `K`, whether inferred or written as in
+`out.difference[str](names, &replied)`. For a local `names = d.keys()`, pass
+`names`, not `&names`. The dictionary itself, `d.values()` and `d.items()` are
+not algebra operands. Two dictionaries may have different, even noncopyable, value
+types: the call probes and copies keys only. Unlike `out.to_set(view)`, which
+copies every key into a set, algebra never materializes a view as an input set.
+Only keys belonging in the result are copied.
+
+This is a direct-call rule for these trusted methods, not a public overload or
+a conversion to `&set[K]`. The declared signatures above still apply to
+function values. A key view keeps its whole dictionary borrowed through the
+call (until last use for a named view). It cannot be stored in a collection,
+passed to or returned from a user function, or captured or passed to a job.
+Pass the eligible dictionary itself by shared borrow and project its keys
+inside the worker instead; eligibility includes the value type.
 
 `K: KeyType` alone does not guarantee that a key can be duplicated. A legal
 affine record key that supports explicit copying works without `@copy`. A key
 with custom cleanup (`__del__`), even in a nested field or variant payload, is
-rejected at compile time, even if the input sets are empty.
+rejected at compile time, even if the result would be empty.
 
 The result is an independent `set[K]` that retains `out`'s provider for growth
-and cleanup. Result storage, any scratch storage and any new allocations needed
+and cleanup; neither input's provider is selected implicitly. Result storage, any scratch storage and any new allocations needed
 to copy keys use that provider. Already shared leaves such as immutable strings
 retain their existing backing. A finite-domain bitset needs just the result
 owner allocation. If allocation fails, the operation releases partial output
