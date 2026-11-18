@@ -3,8 +3,8 @@ use super::*;
 
 /// Only unbound observation slots with explicit full-expression drops are
 /// recyclable. Their physical types never change. Between sibling statements
-/// an idle suffix is outside `locals`, so even an intervening checked block's
-/// cleanup watermark precedes any slot it reuses.
+/// or arms an idle suffix is outside `locals`, so even an intervening checked
+/// block's cleanup watermark precedes any slot it reuses.
 #[derive(Default)]
 pub(super) struct ObservationSlots {
     held: HashSet<u8>,

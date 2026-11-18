@@ -1085,7 +1085,7 @@ impl Lower<'_> {
             ops[fact..].rotate_left(2);
         }
         let end = ops.len();
-        self.finish_temporaries(start, ops);
+        self.finish_statement_temporaries(start, ops);
         let call = match &ops[..end] {
             [
                 ..,

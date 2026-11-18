@@ -3758,7 +3758,7 @@ impl Lower<'_> {
             self.finish_tail_temporaries(temporary_start, &mut returned);
             finish_return(&mut returned);
         } else {
-            self.finish_temporaries(temporary_start, &mut returned);
+            self.finish_statement_temporaries(temporary_start, &mut returned);
             self.leaving(0, &mut returned);
             if let Some(loan) = returned_loan {
                 returned.push(Op::UseLoan(loan));
@@ -4445,6 +4445,7 @@ impl Lower<'_> {
                     let saved = self.names.clone();
                     let mut narrowing = self.if_narrowing(condition);
                     let mut then = Vec::new();
+                    let then_start = self.locals.len();
                     let yes_result = self.branch_block(yes, &stmt.at, &mut then, tail);
                     self.suite_narrowed(&mut narrowing, yes_result.as_ref().ok());
                     let yes_result = yes_result?;
@@ -4453,6 +4454,10 @@ impl Lower<'_> {
                     // second value does.
                     let mut inferred = None;
                     first_value(tail, &yes_result, &mut inferred);
+                    // Each finished suite has emitted its cleanup and restored the
+                    // physical slot table. Reopen only its idle suffix before
+                    // the next sibling takes a cleanup watermark of its own.
+                    self.recycle_observation_slots(then_start);
                     let elif_start = self.locals.len();
                     let mut arms = Vec::with_capacity(elifs.len());
                     let mut results = Vec::with_capacity(elifs.len());
@@ -4481,6 +4486,7 @@ impl Lower<'_> {
                         first_value(tail, &result, &mut inferred);
                         results.push(result);
                         arms.push((test, arm));
+                        self.recycle_observation_slots(elif_start);
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();

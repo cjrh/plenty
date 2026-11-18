@@ -236,17 +236,23 @@ def make(label: str) -> str:
     out = budget(label, 1)
     out.slice_text("selected text").unwrap()
 
-def exercise(n: i64) -> ():
+def exercise(skip: bool, n: i64) -> ():
+    kept = make("kept")
+    borrowed = &kept
     drop(make("warm") == make("up"))
-    failed = checked:
-        make("left") == make("right") and n + 1 == 0
-    print(failed.is_err()).unwrap()
+    if skip:
+        drop(make("then") == "selected text")
+    else:
+        failed = checked:
+            make("left") == make("right") and n + 1 == 0
+        print(failed.is_err()).unwrap()
+    print(*borrowed).unwrap()
 
 def main() -> ():
-    exercise(i64.MAX)
+    exercise(False, i64.MAX)
 "#
         ),
-        "up 0 1\nwarm 0 1\nright 0 1\nleft 0 1\nTrue\n",
+        "up 0 1\nwarm 0 1\nright 0 1\nleft 0 1\nTrue\nselected text\nkept 0 1\n",
     );
 }
 
@@ -272,6 +278,86 @@ def main() -> ():
 "#
         ),
         "done\ndone\n",
+    );
+}
+
+#[test]
+fn observed_pair_slots_are_reused_across_sibling_blocks() {
+    // With a bool parameter, 128 fresh pairs of slots exceed the frame.
+    let comparison = "drop(pair() == pair())";
+    let otherwise =
+        format!("    if flag:\n        pass\n    else:\n        {comparison}\n").repeat(128);
+    let mirrored =
+        format!("    if flag:\n        {comparison}\n    else:\n        pass\n").repeat(128);
+    let nested = format!(
+        "    if flag:\n        drop(text() == text())\n    else:\n        if other:\n            pass\n        else:\n            {comparison}\n"
+    )
+    .repeat(128);
+    assert_stdout(
+        &format!(
+            r#"def text() -> str:
+    return "x"
+
+def pair() -> (str, i64):
+    ("x", 1)
+
+def otherwise(flag: bool) -> ():
+{otherwise}
+def mirrored(flag: bool) -> ():
+{mirrored}
+def nested(flag: bool, other: bool) -> ():
+{nested}
+def main() -> ():
+    otherwise(False)
+    otherwise(True)
+    mirrored(False)
+    mirrored(True)
+    nested(True, False)
+    nested(False, True)
+    nested(False, False)
+    print("done").unwrap()
+"#
+        ),
+        "done\n",
+    );
+}
+
+#[test]
+fn observed_pair_slots_are_reused_within_a_single_branch_chain() {
+    // No intervening outer statement to recycle slots for the next arm.
+    let mut elifs = String::new();
+    let mut cases = String::new();
+    for i in 0..128 {
+        elifs.push_str(&format!(
+            "    elif n == {i}:\n        drop(pair() == pair())\n"
+        ));
+        cases.push_str(&format!(
+            "        case {i}:\n            drop(pair() == pair())\n"
+        ));
+    }
+    assert_stdout(
+        &format!(
+            r#"def pair() -> (str, i64):
+    ("x", 1)
+
+def by_if(n: i64) -> ():
+    if n < 0:
+        pass
+{elifs}    else:
+        pass
+
+def by_match(n: i64) -> ():
+    match n:
+{cases}        case _:
+            pass
+
+def main() -> ():
+    by_if(127)
+    by_match(127)
+    print("done").unwrap()
+"#
+        ),
+        "done\n",
     );
 }
 
