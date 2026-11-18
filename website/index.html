@@ -35,27 +35,36 @@
         </div>
       </section>
       <section class="language-example" aria-labelledby="example-title">
-        <pre class="example-code" tabindex="0" aria-label="Plenty source code"><code class="language-plenty"><span class="code-keyword">def</span> first_warning(lines: &amp;[str]) -&gt; Option[str]:
-    <span class="code-keyword">for</span> line <span class="code-keyword">in</span> lines:
-        <span class="code-keyword">if</span> line.startswith(<span class="code-string">"WARN "</span>):
-            <span class="code-keyword">return</span> <span class="code-variant">Some</span>(*line)
-    <span class="code-variant">Nothing</span>
+        <pre class="example-code" tabindex="0" aria-label="Plenty source code"><code class="language-plenty"><span class="code-keyword">def</span> is_warning(line: &amp;strview) -&gt; bool:
+    <span class="code-keyword">if</span> line.startswith(<span class="code-string">"&gt; "</span>):
+        <span class="code-keyword">return</span> is_warning(&amp;line[2:])
+    line.startswith(<span class="code-string">"WARN "</span>)
+
+<span class="code-keyword">def</span> warnings[<span class="code-keyword">const</span> N: i64](log: &amp;array[str, N]) -&gt; Generator[str]:
+    <span class="code-keyword">for</span> line <span class="code-keyword">in</span> log:
+        <span class="code-keyword">if</span> is_warning(*line):
+            <span class="code-keyword">yield</span> *line
 
 <span class="code-keyword">def</span> main() -&gt; Result[(), AllocError | IoError]:
-    lines = [<span class="code-string">"INFO Ready"</span>, <span class="code-string">"WARN Disk almost full"</span>]<span class="code-variant">?</span>
-    <span class="code-keyword">match</span> first_warning(&amp;lines):
-        <span class="code-keyword">case</span> <span class="code-variant">Some</span>(warning):
-            print(warning)<span class="code-variant">?</span>
+    lines: array[str, 3] = [
+        <span class="code-string">"INFO Ready"</span>, <span class="code-string">"&gt; &gt; WARN Disk almost full"</span>, <span class="code-string">"WARN High CPU"</span>,
+    ]
+    found = [line <span class="code-keyword">for</span> line <span class="code-keyword">in</span> warnings(&amp;lines)]<span class="code-variant">?</span>
+    <span class="code-keyword">match</span> found.get(0):
+        <span class="code-keyword">case</span> <span class="code-variant">Some</span>(first):
+            print(<span class="code-string">"Warnings:"</span>, len(found), <span class="code-string">"| First:"</span>, first)<span class="code-variant">?</span>
         <span class="code-keyword">case</span> <span class="code-variant">Nothing</span>:
             print(<span class="code-string">"No warnings"</span>)<span class="code-variant">?</span>
     <span class="code-variant">Ok</span>(())</code></pre>
         <div class="example-notes">
-          <h2 id="example-title">Find the first warning</h2>
+          <h2 id="example-title">Find warnings in forwarded logs</h2>
           <ul>
-            <li><strong>Pythonic syntax.</strong> Indentation, a <code>for</code> loop, and a list literal keep the search readable.</li>
-            <li><strong>Rust-style sum types.</strong> <code>Option</code> represents a warning or its absence. <code>match</code> handles both.</li>
-            <li><strong>Fallible allocation.</strong> The list literal can fail. <code>?</code> passes that error back as part of <code>Result</code>.</li>
-            <li><strong>Checked borrowing.</strong> <code>&amp;lines</code> lets the search read the list without copying it or taking ownership.</li>
+            <li><strong>Pythonic syntax.</strong> Indented blocks and a list comprehension keep the filtering readable.</li>
+            <li><strong>Tail-call optimization.</strong> Each recursive call to <code>is_warning</code> strips one forwarding prefix without growing the stack.</li>
+            <li><strong>Allocation-free generators.</strong> <code>yield</code> produces one warning at a time without allocating a generator frame on the heap.</li>
+            <li><strong>Fallible allocation.</strong> The fixed array is stored inline. The comprehension builds a heap list and <code>?</code> propagates allocation failure.</li>
+            <li><strong>Rust-style sum types.</strong> <code>match</code> handles both cases of <code>Option</code>. The anonymous sum <code>AllocError | IoError</code> lets <code>Result</code> carry either error type.</li>
+            <li><strong>Checked borrowing.</strong> <code>&amp;lines</code> lends the array to the generator. The compile-time <code>N</code> lets the same function accept arrays of any length.</li>
           </ul>
         </div>
       </section>
