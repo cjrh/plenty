@@ -28,6 +28,13 @@ pub enum Error {
 pub enum Kind {
     Row,
     Column,
+    Stack,
+    Rule,
+    Space(u16, u16),
+    ProgressBar(f32),
+    Checkbox(String, bool, u64),
+    Toggler(String, bool, u64),
+    Radio(String, bool, u64),
     Text(String),
     Button(String, u64),
 }
@@ -49,7 +56,7 @@ impl Scene {
             && self
                 .nodes
                 .iter()
-                .any(|node| matches!(node.kind, Kind::Button(_, a) if a == action))
+                .any(|node| matches!(node.kind, Kind::Button(_, a) | Kind::Checkbox(_,_,a) | Kind::Toggler(_,_,a) | Kind::Radio(_,_,a) if a == action))
     }
 }
 
@@ -207,7 +214,7 @@ pub extern "C" fn plic_v1_end(token: u64) -> u32 {
 /// length. No pointer is retained. The Plenty UTF-8 adapter establishes this.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn plic_v1_text(token: u64, text: *const u8, len: usize) -> u32 {
-    unsafe { leaf(token, text, len, None) }
+    unsafe { leaf(token, text, len, None, Kind::Text) }
 }
 
 /// # Safety
@@ -219,10 +226,102 @@ pub unsafe extern "C" fn plic_v1_button(
     len: usize,
     action: u64,
 ) -> u32 {
-    unsafe { leaf(token, text, len, Some(action)) }
+    unsafe { leaf(token, text, len, Some(action), |s| Kind::Button(s, action)) }
 }
 
-unsafe fn leaf(token: u64, text: *const u8, len: usize, action: Option<u64>) -> u32 {
+/// # Safety
+/// Same call-scoped caption contract as `plic_v1_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_checkbox(
+    token: u64,
+    text: *const u8,
+    len: usize,
+    selected: bool,
+    action: u64,
+) -> u32 {
+    unsafe {
+        leaf(token, text, len, Some(action), |s| {
+            Kind::Checkbox(s, selected, action)
+        })
+    }
+}
+
+/// # Safety
+/// Same call-scoped caption contract as `plic_v1_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_toggler(
+    token: u64,
+    text: *const u8,
+    len: usize,
+    selected: bool,
+    action: u64,
+) -> u32 {
+    unsafe {
+        leaf(token, text, len, Some(action), |s| {
+            Kind::Toggler(s, selected, action)
+        })
+    }
+}
+
+/// # Safety
+/// Same call-scoped caption contract as `plic_v1_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_radio(
+    token: u64,
+    text: *const u8,
+    len: usize,
+    selected: bool,
+    action: u64,
+) -> u32 {
+    unsafe {
+        leaf(token, text, len, Some(action), |s| {
+            Kind::Radio(s, selected, action)
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_progress_bar(token: u64, fraction: f32) -> u32 {
+    command(token, |b| {
+        if !(0.0..=1.0).contains(&fraction) {
+            return Err(Error::InvalidArgument);
+        }
+        b.add(Node {
+            kind: Kind::ProgressBar(fraction),
+            children: vec![],
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_rule(token: u64) -> u32 {
+    command(token, |b| {
+        b.add(Node {
+            kind: Kind::Rule,
+            children: vec![],
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_space(token: u64, width: u16, height: u16) -> u32 {
+    command(token, |b| {
+        b.add(Node {
+            kind: Kind::Space(width, height),
+            children: vec![],
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_stack(token: u64) -> u32 {
+    group(token, Kind::Stack)
+}
+
+unsafe fn leaf(
+    token: u64,
+    text: *const u8,
+    len: usize,
+    action: Option<u64>,
+    make: impl FnOnce(String) -> Kind,
+) -> u32 {
     command(token, |builder| {
         if len > MAX_TEXT || builder.text_bytes + len > MAX_FRAME_TEXT {
             return Err(Error::LimitExceeded);
@@ -243,10 +342,7 @@ unsafe fn leaf(token: u64, text: *const u8, len: usize, action: Option<u64>) -> 
         text.try_reserve(len).map_err(|_| Error::OutOfMemory)?;
         text.push_str(source);
         builder.add(Node {
-            kind: match action {
-                None => Kind::Text(text),
-                Some(action) => Kind::Button(text, action),
-            },
+            kind: make(text),
             children: Vec::new(),
         })?;
         builder.text_bytes += len;

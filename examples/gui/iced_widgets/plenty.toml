@@ -19,3 +19,31 @@ path = "src/row.plenty"
 [[bin]]
 name = "column"
 path = "src/column.plenty"
+
+[[bin]]
+name = "checkbox"
+path = "src/checkbox.plenty"
+
+[[bin]]
+name = "toggler"
+path = "src/toggler.plenty"
+
+[[bin]]
+name = "radio"
+path = "src/radio.plenty"
+
+[[bin]]
+name = "progress_bar"
+path = "src/progress_bar.plenty"
+
+[[bin]]
+name = "space"
+path = "src/space.plenty"
+
+[[bin]]
+name = "rule"
+path = "src/rule.plenty"
+
+[[bin]]
+name = "stack"
+path = "src/stack.plenty"

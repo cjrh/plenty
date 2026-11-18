@@ -1,0 +1,15 @@
+import std.gui.retained.iced as iced
+
+class State:
+    value: f32
+    def __init__(self) -> ():
+        self.value = 0.65f32
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.progress_bar(state.value)
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)
