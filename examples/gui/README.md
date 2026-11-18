@@ -3,6 +3,7 @@
 Start with [setup and build commands](../../book/src/design/stdlib/gui-build.md)
 and the [counter walkthrough](../../book/src/tutorial/special-purpose/gui-counters.md).
 `iced_counter/`, `egui_counter/` and `egui_command_picker/` are independent ordinary Plenty packages.
+For smaller programs, choose a binary from the [iced widget examples](../../book/src/design/stdlib/gui-iced-widgets.md) or [egui widget examples](../../book/src/design/stdlib/gui-egui-widgets.md).
 The picker filters a small command list as you type; Enter displays the first match.
 Run `python3 -B examples/gui/check_egui_picker.py --plenty target/debug/plenty`
 to exercise real editing in both profiles on a private Weston/Xwayland display

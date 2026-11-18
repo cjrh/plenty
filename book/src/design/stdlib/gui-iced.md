@@ -5,6 +5,31 @@ Import `std.gui.retained.iced as iced` for a bounded retained-mode tree. See
 owns the model and event policy; iced supplies the window, layout, font
 handling, event loop and software renderer. See the [signatures](signatures.md#stdguiretainediced).
 
+## Widgets and layout
+
+| Example | Call | Effect |
+| --- | --- | --- |
+| [Text](gui-iced-widgets.md#text) | `frame.text(&message)` | Displays borrowed text; no action. |
+| [Button](gui-iced-widgets.md#button) | `frame.button(&caption, action)` | Sends a nonzero action ID on click. |
+| [Row](gui-iced-widgets.md#row) | `frame.row()` … `frame.end()` | Arranges children from left to right. |
+| [Column](gui-iced-widgets.md#column) | `frame.column()` … `frame.end()` | Stacks children from top to bottom. |
+
+## Example: a counter
+
+Click **Increment** and the button sends action `1` to `event`. The next read-only `render` displays the new count; **Reset** sends action `2`.
+After [setting up the source build](gui-build.md#source-installation-and-host),
+run from the checkout root:
+
+```sh
+(cd examples/gui/iced_counter && plenty run)
+```
+
+```plenty
+{{#include ../../../../examples/gui/iced_counter/src/main.plenty}}
+```
+
+## Running the application
+
 `iced.run()` enters once on the process main thread and reads the original
 process arguments after the executable name. No arguments opens a window;
 `--headless [ACTION ...]` renders the initial snapshot, then dispatches each

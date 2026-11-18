@@ -1,0 +1,21 @@
+manifest-version = 1
+
+[package]
+name = "iced_widgets"
+version = "0.1.0"
+
+[[bin]]
+name = "text"
+path = "src/text.plenty"
+
+[[bin]]
+name = "button"
+path = "src/button.plenty"
+
+[[bin]]
+name = "row"
+path = "src/row.plenty"
+
+[[bin]]
+name = "column"
+path = "src/column.plenty"

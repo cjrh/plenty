@@ -1,0 +1,17 @@
+manifest-version = 1
+
+[package]
+name = "egui_widgets"
+version = "0.1.0"
+
+[[bin]]
+name = "label"
+path = "src/label.plenty"
+
+[[bin]]
+name = "button"
+path = "src/button.plenty"
+
+[[bin]]
+name = "text_edit"
+path = "src/text_edit.plenty"

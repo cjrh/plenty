@@ -1,0 +1,22 @@
+import std.gui.retained.iced as iced
+
+class State:
+    station: str
+    def __init__(self) -> ():
+        self.station = "Harbor"
+
+export def create() -> Result[State, AllocError] = "iced_app_create":
+    Ok(State())
+
+export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "iced_app_render":
+    frame = iced.Frame(token)
+    frame.column()?
+    frame.text(&"Weather station")?
+    frame.text(&state.station)?
+    frame.end()
+
+export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] = "iced_app_event":
+    Err(iced.IcedError.InvalidArgument)
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run()
