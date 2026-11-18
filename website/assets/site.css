@@ -241,6 +241,7 @@ h1 span {
   color: var(--ink);
 }
 
+.example-notes a,
 .example-notes code {
   color: var(--link);
 }

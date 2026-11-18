@@ -19,7 +19,8 @@ class DocsSiteTests(unittest.TestCase):
         def book(source, output, prefix, metadata):
             output.mkdir(parents=True, exist_ok=True)
             pages = ["index.html", "404.html", "print.html", "tutorial/index.html",
-                     "tutorial/00-setting-up.html", "design/index.html", "nested/chapter.html"]
+                     "tutorial/00-setting-up.html", "design/index.html",
+                     "design/language/index.html", "nested/chapter.html"]
             if metadata["channel"] == "development":
                 pages.append("development-only.html")
             for chapter in pages:

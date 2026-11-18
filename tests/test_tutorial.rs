@@ -1,4 +1,5 @@
-//! Execute the learner's guide and supplementary reference examples:
+//! Execute the learner's guide, supplementary reference, and homepage examples.
+//! In the book:
 //! `plenty` fences require
 //! `output` fences; `plenty-error` fences require an `error` fence whose every
 //! line is a substring of the diagnostic, so a lesson can show a diagnostic's
@@ -599,6 +600,47 @@ fn run_shard(shard: usize, shards: usize) {
         failures.is_empty(),
         "tutorial examples failed at lines {failures:?}"
     );
+}
+
+#[test]
+fn homepage_example_matches_the_language() {
+    let page = include_str!("../website/index.html");
+    let (before, block) = page
+        .split_once(r#"<code class="language-plenty">"#)
+        .expect("homepage must display a Plenty code block");
+    let (highlighted, _) = block
+        .split_once("</code>")
+        .expect("homepage code block must have an end tag");
+    // Remove the syntax highlighting before decoding entities from the source.
+    let highlighting = regex::Regex::new(r#"<span class="code-[a-z-]+">|</span>"#).unwrap();
+    let body = highlighting
+        .replace_all(highlighted, "")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&");
+    let line = format!("website/index.html:{}", before.lines().count());
+    let source = Fence {
+        language: "plenty".into(),
+        body,
+        line: line.clone(),
+    };
+    let expected = Fence {
+        language: "output".into(),
+        body: "Warnings: 2 | First: > > WARN Disk almost full\n".into(),
+        line,
+    };
+    let job = Job::Example {
+        source: &source,
+        expected: &expected,
+        modules: Vec::new(),
+        builds: Vec::new(),
+    };
+    let workspace =
+        Workspace(std::env::temp_dir().join(format!("plenty-homepage-{}", std::process::id())));
+    std::fs::create_dir(&workspace.0).unwrap();
+    assert!(run_job(&job, 0, &workspace.0, true));
 }
 
 /// The pages of the `plenty` agent skill (`.agents/skills/plenty/`) use the
