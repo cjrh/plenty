@@ -41,6 +41,14 @@ struct Pass {
     widgets: usize,
     bytes: usize,
     failure: Option<Error>,
+    edited: Option<String>,
+}
+impl Pass {
+    fn ui(&mut self) -> &mut egui::Ui {
+        // with_ui's scope keeps the original Ui alive. The TLS exclusive
+        // borrow covers the entire widget operation and rejects reentry.
+        unsafe { self.ui.as_mut() }
+    }
 }
 thread_local! { static ACTIVE: RefCell<Option<Pass>> = const { RefCell::new(None) }; }
 static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -67,6 +75,7 @@ fn with_ui(ui: &mut egui::Ui, draw: impl FnOnce(u64) -> Result<(), Error>) -> Re
             widgets: 0,
             bytes: 0,
             failure: None,
+            edited: None,
         });
         Ok(token)
     })?;
@@ -92,8 +101,15 @@ fn widget(token: u64, add: impl FnOnce(&mut Pass) -> Result<bool, Error>) -> u32
     result.map_or_else(|e| e as u32, u32::from)
 }
 
-// SAFETY: Non-null input must point to `len` readable bytes for this call.
-unsafe fn text_widget(token: u64, text: *const u8, len: usize, button: bool) -> u32 {
+mod text_edit;
+
+// SAFETY: non-null input points to `len` readable bytes for this call.
+unsafe fn text_widget(
+    token: u64,
+    text: *const u8,
+    len: usize,
+    add: impl FnOnce(&mut Pass, &str) -> Result<bool, Error>,
+) -> u32 {
     widget(token, |pass| {
         if pass.widgets == MAX_WIDGETS || len > MAX_TEXT || pass.bytes + len > MAX_PASS_BYTES {
             return Err(Error::LimitExceeded);
@@ -108,26 +124,25 @@ unsafe fn text_widget(token: u64, text: *const u8, len: usize, button: bool) -> 
         let text = std::str::from_utf8(bytes).map_err(|_| Error::InvalidArgument)?;
         pass.widgets += 1;
         pass.bytes += len;
-        // The only Ui access while `with_ui` lends it to TLS. Its guard clears
-        // the pointer before returning or unwinding. The dynamic exclusive
-        // borrow spans the *entire* widget operation, rejecting reentry before
-        // forming a reference. Nothing calls Plenty while holding this borrow.
-        let ui = unsafe { pass.ui.as_mut() };
-        Ok(if button {
-            ui.button(text).clicked()
-        } else {
-            ui.label(text);
-            false
-        })
+        add(pass, text)
     })
 }
 #[unsafe(no_mangle)]
 unsafe extern "C" fn pleg_v1_label(token: u64, text: *const u8, len: usize) -> u32 {
-    unsafe { text_widget(token, text, len, false) }
+    unsafe {
+        text_widget(token, text, len, |pass, text| {
+            pass.ui().label(text);
+            Ok(false)
+        })
+    }
 }
 #[unsafe(no_mangle)]
 unsafe extern "C" fn pleg_v1_button(token: u64, text: *const u8, len: usize) -> u32 {
-    unsafe { text_widget(token, text, len, true) }
+    unsafe {
+        text_widget(token, text, len, |pass, text| {
+            Ok(pass.ui().button(text).clicked())
+        })
+    }
 }
 
 #[cfg(all(feature = "application", not(test)))]

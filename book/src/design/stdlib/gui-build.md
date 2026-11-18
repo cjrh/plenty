@@ -38,7 +38,10 @@ export PATH="$PWD/target/debug:$PATH"
 (cd examples/gui/egui_counter && plenty build --locked && target/optimized/egui_counter --headless 20,15 20,15 20,36)
 ```
 
-In either package `plenty run` opens the window; `plenty build --fast-compile`
+Build the editable example with `(cd examples/gui/egui_command_picker && plenty build --locked)`;
+its executable is `target/optimized/egui_command_picker` relative to the package.
+
+In each package `plenty run` opens the window; `plenty build --fast-compile`
 produces `target/fast-compile/NAME`. Both modes use the same native Cargo dev
 archive. The package command rechecks the chosen native graph with Cargo on
 every build and relinks (the package source fingerprint alone cannot certify

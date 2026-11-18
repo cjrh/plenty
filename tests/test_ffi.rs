@@ -6,8 +6,12 @@ use std::process::{Command, Output};
 use support::assert_success as success;
 
 fn fixture(root: &Path, shared: bool) -> PathBuf {
+    fixture_source(root, shared, include_str!("fixtures/ffi.c"))
+}
+
+fn fixture_source(root: &Path, shared: bool, code: &str) -> PathBuf {
     let source = root.join("fixture.c");
-    std::fs::write(&source, include_str!("fixtures/ffi.c")).unwrap();
+    std::fs::write(&source, code).unwrap();
     let object = root.join("fixture.o");
     success(
         Command::new("cc")
@@ -764,6 +768,77 @@ def main() -> Result[(), IoError]:
                 optimize
             )),
             "42\n73"
+        );
+    }
+}
+
+// A GUI package deliberately cannot link a runtime-checks archive. Exercise
+// its real Plenty commit path against a deterministic changed-text producer.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn egui_text_edit_keeps_original_at_every_allocation_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = fixture_source(
+        temp.path(),
+        false,
+        r#"
+#include <stdint.h>
+#include <stddef.h>
+uint32_t pleg_v1_reject_edit(uint64_t token, uint32_t status) { (void)token; return status; }
+uint32_t pleg_v1_text_edit(uint64_t token, uint64_t id, const uint8_t *p, size_t len, int64_t *count) {
+    (void)token; (void)p; (void)len;
+    *count = id == 0 ? 0 : id == 1 ? -2 : 48;
+    return 1;
+}
+uint32_t pleg_v1_copy_edit(uint64_t token, uint8_t *p, size_t len, size_t stride) {
+    (void)token;
+    for (size_t i = 0; i < len; i++) p[i * stride] = 'x';
+    return 0;
+}
+"#,
+    );
+    for optimized in [false, true] {
+        let lines = visible(run_with_optimization(
+            temp.path(),
+            r#"
+import std.gui.immediate.egui as egui
+
+def main() -> Result[(), AllocError | IoError]:
+    mut original = "é"
+    ui = egui.Ui(1u64)
+    match ui.text_edit(1u64, &mut original):
+        case Err(egui.EguiError.NativeFailure):
+            print(original)?
+        case _:
+            print("bad negative length accepted")?
+    print(ui.text_edit(0u64, &mut original).is_ok(), len(original))?
+    for budget in range(16):
+        mut text = "original-é猫"
+        marker = f"__test_fail_allocations_after_{budget}__"?
+        print(marker)?
+        result = egui.Ui(1u64).text_edit(2u64, &mut text)
+        print("__test_restore_allocations__")?
+        match result:
+            case Err(egui.EguiError.OutOfMemory):
+                print(text)?
+            case Ok(True):
+                print(text)?
+                return Ok(())
+            case _:
+                print("unexpected status")?
+    Ok(())
+"#,
+            library.clone(),
+            optimized,
+        ));
+        let mut all = lines.lines();
+        assert_eq!(all.next(), Some("é"));
+        assert_eq!(all.next(), Some("True 0"));
+        let mut lines: Vec<_> = all.collect();
+        assert_eq!(lines.pop(), Some("x".repeat(48).as_str()));
+        assert!(
+            lines.len() >= 2 && lines.iter().all(|&s| s == "original-é猫"),
+            "{lines:?}"
         );
     }
 }

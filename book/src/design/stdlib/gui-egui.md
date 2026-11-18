@@ -2,7 +2,7 @@
 
 Import `std.gui.immediate.egui as egui` to evaluate widgets in the current
 UI pass. See [GUI source builds](gui-build.md) for the host requirements and
-counter package and the [signatures](signatures.md#stdguiimmediateegui).
+example packages and the [signatures](signatures.md#stdguiimmediateegui).
 The external toolkit supplies layout, input, text and graphics integration;
 there is no retained Plenty widget tree or event dispatcher.
 
@@ -38,6 +38,43 @@ callback ABI. `run` propagates a checked startup/draw
 error and calls the originating Plenty destructor exactly once if creation
 succeeded. It does not roll back completed mutations. Egui, fonts, GL and
 platform allocation can abort; there is no checked cleanup on process abort.
+
+## Editing a single line
+
+`ui.text_edit(id, &mut text)?` draws a `TextEdit` from the current Plenty
+`str`. A successful edit replaces that string **before the call returns**.
+The `bool` is a submission, not a change flag: the field processes this frame’s edits, then
+consumes an unmodified Enter press if it has keyboard focus and surrenders
+focus on submission. Modified Enter, unrelated focus loss, key release and
+idle redraw do not submit. Give each
+field a distinct `u64` ID and reuse it across draws, even if earlier widgets
+are inserted or removed. Don't use the changing query, result count, frame
+token or a filtered row number as its identity. Egui associates the caret,
+selection and focus with the field; Plenty need not keep a second editor model.
+
+The input and draft must each fit 4,096 UTF-8 bytes, not characters. A field
+counts as one widget and charges the larger of its input and output byte
+lengths against the pass budget. A draft may not grow beyond the remaining
+space. A CR or LF in the Plenty string is `InvalidArgument`. In a paste, egui
+replaces each CR and LF with one space. A limit violation is `LimitExceeded`,
+not truncation.
+
+These byte caps bound the model accepted by the field and its edit draft,
+not clipboard acquisition, platform events or toolkit scratch buffers. The
+bridge checks a routed paste’s borrowed byte length before drawing when the
+payload alone cannot fit even after deleting a selection. During a pointer
+transition that may redirect keyboard focus, it lets the editor route the
+keyboard paste and checks the draft insertion instead.
+
+The bridge edits a bounded temporary string. On change, Plenty allocates an
+exact-length byte list, copies through the call-scoped strided adapter, then
+validates and allocates the replacement `str`. Only then does it assign the
+new text. A checked rejection, including failed allocation, preserves the
+**original string**, even when the attempted edit replaced a selection.
+Neither the native editor state nor other successful widget calls or model
+updates in the frame are transactional. Toolkit/platform allocations have
+the same abort limitation as for labels and buttons. See the
+[command picker lesson](../../tutorial/special-purpose/gui-counters.md#filtering-commands-as-you-type).
 
 ## Acknowledgements
 

@@ -93,7 +93,7 @@
         - [Sets and different kinds of values](tutorial/heterogeneous-collections/sets.md)
         - [Dictionaries with different kinds of values](tutorial/heterogeneous-collections/dictionaries.md)
     - [8. Special-purpose data structures](tutorial/special-purpose/index.md)
-        - [Two windowed counters](tutorial/special-purpose/gui-counters.md)
+        - [Windowed counters and a command picker](tutorial/special-purpose/gui-counters.md)
         - [Dataframes with Polars](tutorial/special-purpose/dataframes.md)
             - [Types, nulls and schemas](tutorial/special-purpose/dataframe-types.md)
             - [Store binary payloads](tutorial/special-purpose/dataframe-binary.md)
