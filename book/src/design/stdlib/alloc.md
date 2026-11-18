@@ -121,6 +121,32 @@ Use `&xs[a:b]` to borrow a contiguous range without allocating. The two-bound
 [list method](../facilities/01-builtins/lists.md#slices) `temporary.slice(a, b)` can
 transfer affine elements with their existing storage instead of copying them.
 
+### Copy a slice view into a list
+
+`Allocator.copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]`
+borrows the allocator and reads the view in order. Pass `out.copy_view(v)?`
+when a helper has only the view, or `out.copy_view(&xs[a:b])?` to copy an
+adjacent range. The result contains exactly `len(source)` elements. A `&[u8]`
+over packed bytes (such as a `Bytes` buffer) and one over a `list[u8]` both
+produce `list[u8]`, not `Bytes`. Views have no step; for a strided list copy
+use [`out.slice`](#copy-a-list-slice-with-an-output-allocator) on the owner.
+
+Each element follows [`out.copy`](#copy-with-an-output-allocator): newly
+copied boxes and collections use `out` recursively, while immutable text and
+nested `Shared` handles can keep their backing. Elements must be storable,
+loan-free and eligible for explicit copy; they need not be `CopyType`.
+Unlike ordinary [`list(v)?` and `v[a:b]?`](../language/04-expressions/slices.md#operations-on-views),
+which call `share()` for a bare `Shared` element, `copy_view` rejects that
+element type. There is no `share_view` method.
+
+The result owns its list storage, even when empty, and retains the output
+provider for growth and cleanup. It carries no source loan: a named view still
+borrows its source until its last use, but the list can outlive both the source
+and the allocator handle. An unrepresentable capacity returns `CapacityOverflow`;
+a provider refusal returns the provider's `AllocError` without fallback. On
+failure the method drops any partial list and copied elements. The source is
+unchanged on either return.
+
 ### Dictionaries and sets
 
 | Signature | Result on success |
@@ -248,7 +274,8 @@ destruction cannot be duplicated. For a bare `Shared`, use `handle.share()`.
 Selected copy additionally requires that `T` cannot carry a loan. For example,
 a class with a `data: &[i64]` field is rejected: copying the field would copy
 the view, not its backing. Wrapping a borrowed value does not remove its loan.
-To copy the elements of a view, use a [slice-view materializer](../language/04-expressions/slices.md#operations-on-views).
+To copy the elements of a view into selected storage, use
+[`out.copy_view(view)`](#copy-a-slice-view-into-a-list).
 The ordinary worker borrow and transfer rules and the module's
 [actor exclusion](#current-boundaries) still apply.
 

@@ -30,8 +30,9 @@ record the retained-system/arena probes, generic owned-payload gate and public
 allocator selection for boxes, lists, dictionaries and sets, including
 [set algebra on sets and dictionary key views](completed-work/language-and-tooling.md#public-selected-set-algebra),
 [explicit copies](completed-work/language-and-tooling.md#public-selected-copy),
-[key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion) and
-[owning list slices](completed-work/language-and-tooling.md#public-selected-list-slices) with an output allocator.
+[key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion),
+[owning list slices](completed-work/language-and-tooling.md#public-selected-list-slices) and
+[view-to-list copies](completed-work/language-and-tooling.md#public-selected-view-to-list-copies) with an output allocator.
 B13 remains open.
 
 [Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)

@@ -24,6 +24,7 @@ mod test_std_alloc;
 mod test_std_alloc_consumers;
 #[path = "test_std_alloc_copy.rs"]
 mod test_std_alloc_copy;
+mod test_std_alloc_copy_view;
 #[path = "test_std_alloc_dict_set.rs"]
 mod test_std_alloc_dict_set;
 #[path = "test_std_alloc_key_view.rs"]

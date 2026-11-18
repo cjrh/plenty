@@ -299,6 +299,12 @@ and no step; copy every k-th element from the owner, `xs[a:b:k]?`. On a
 `Bytes` buffer: write `list(&v[a:b])?` for a list. `copy(v)` and `set(v)` are
 rejected with a pointer to `list(v)?`.
 
+To choose storage for the list and its recursively copied elements, pass the
+view to [`out.copy_view(v)?`](../../stdlib/alloc.md#copy-a-slice-view-into-a-list).
+This copies `&[u8]` to `list[u8]` regardless of the backing. It uses explicit
+copy for each element, so it cannot materialize a view of bare `Shared`
+handles the way `list(v)?` can.
+
 `v.get(i)` returns `Some` copy of element `i`, or `Nothing` outside the view,
 with [`list.get`](../../facilities/01-builtins/lists.md#lookup-and-removal)'s
 contract: a negative index counts from the view's end, and the element type
