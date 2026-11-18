@@ -137,14 +137,46 @@ pub(crate) fn dict_set_new_in(
     ty: &'static Type,
     capacity: usize,
 ) -> Result<*mut Header, AllocError> {
-    let collection = if ty.kind == b'S' && crate::entries::enum_bits::eligible(ty.key()) {
+    try_dict_set_new_in(allocator, ty, capacity).map(|set| set.cast())
+}
+
+fn try_dict_set_new_in(
+    allocator: &Allocator,
+    ty: &'static Type,
+    capacity: usize,
+) -> Result<*mut Collection, AllocError> {
+    if ty.kind == b'S' && crate::entries::enum_bits::eligible(ty.key()) {
         // The mask lives in the selected object itself. There are no row or
         // bucket blocks to reserve, nor a separate allocator handle for growth.
         try_collection_with_entries_in(allocator, ty, capacity, Entries::enum_set(ty.key()))
     } else {
         try_hash_new_in(allocator, ty, capacity)
-    }?;
-    Ok(collection.cast())
+    }
+}
+
+/// Both borrows must be ordinary sets of the same legal, copyable key type.
+/// Key views need a separate result descriptor. Affine keys are excluded:
+/// `try_push_members` calls `try_copy_into` for those, and recursive box and
+/// collection copies still allocate implicitly. Retaining a shared key does
+/// not relocate its existing backing storage to the result allocator.
+unsafe fn try_set_algebra_in(
+    allocator: &Allocator,
+    left: &Collection,
+    right: &Collection,
+    op: i64,
+) -> Result<u128, AllocError> {
+    let ty = unsafe { &*left.ty };
+    assert!(ty.kind == b'S' && right.ty().kind == b'S');
+    assert!(
+        !ty.key().affine,
+        "selected algebra requires non-affine keys"
+    );
+    assert!(matches!(op, SET_UNION..=SET_SYMMETRIC_DIFFERENCE));
+    unsafe {
+        try_set_algebra_with(left, right, op, ty, |ty, count| {
+            try_dict_set_new_in(allocator, ty, count)
+        })
+    }
 }
 
 pub(super) fn try_hash_new_in(

@@ -2368,20 +2368,41 @@ unsafe fn common_members(a: &Collection, b: &Collection) -> usize {
     }
 }
 
-/// Union, intersection, difference or symmetric difference of two borrowed
-/// set-like operands as a new set of `ty`, in `left` then `right` order.
-/// The result is counted and reserved before any member is copied; on
-/// failure the guard releases the copied prefix and both inputs are
-/// unchanged. Stored hash bits feed membership probes and the result's index
-/// where the tables' lengths allow, so each key is hashed at most once
-/// (issue #817).
 unsafe fn try_set_algebra(
     left: &Collection,
     right: &Collection,
     op: i64,
     ty: &'static Type,
 ) -> Result<u128, AllocError> {
+    unsafe { try_set_algebra_with(left, right, op, ty, try_collection_new) }
+}
+
+/// Union, intersection, difference or symmetric difference of two borrowed
+/// set-like operands as a new set of `ty`, in domain order for masks and
+/// `left` then `right` insertion order for hash sets.
+/// The result is counted and reserved before any member is copied; on
+/// failure the guard releases the copied prefix and both inputs are
+/// unchanged. Stored hash bits feed membership probes and the result's index
+/// where the tables' lengths allow, so each key is hashed at most once
+/// (issue #817).
+unsafe fn try_set_algebra_with(
+    left: &Collection,
+    right: &Collection,
+    op: i64,
+    ty: &'static Type,
+    new_set: impl FnOnce(&'static Type, usize) -> Result<*mut Collection, AllocError>,
+) -> Result<u128, AllocError> {
     unsafe {
+        if let (Some(l), Some(r)) = (left.entries.bits(), right.entries.bits()) {
+            let output = new_set(ty, 0)?;
+            (*output).entries.set_bits(match op {
+                SET_UNION => l | r,
+                SET_INTERSECTION => l & r,
+                SET_DIFFERENCE => l & !r,
+                _ => l ^ r,
+            });
+            return Ok(output as u128);
+        }
         let common = common_members(left, right);
         let (l, r) = (left.len(), right.len());
         let count = match op {
@@ -2390,7 +2411,7 @@ unsafe fn try_set_algebra(
             SET_DIFFERENCE => l - common,
             _ => l + r - 2 * common,
         };
-        let output = try_collection_new(ty, count)?;
+        let output = new_set(ty, count)?;
         let guard = OwnedValue {
             value: output as u128,
             ty,
@@ -4075,20 +4096,6 @@ pub(crate) unsafe fn collection_at(
                     KEY_VIEW_SYMMETRIC_DIFFERENCE => (SET_SYMMETRIC_DIFFERENCE, &*descriptor),
                     _ => (op, &*left.ty),
                 };
-                if let (Some(left), Some(right)) = (left.entries.bits(), right.entries.bits()) {
-                    return match try_collection_new(result_type, 0) {
-                        Ok(output) => {
-                            (*output).entries.set_bits(match op {
-                                SET_UNION => left | right,
-                                SET_INTERSECTION => left & right,
-                                SET_DIFFERENCE => left & !right,
-                                _ => left ^ right,
-                            });
-                            wrap(output as u128, 0)
-                        }
-                        Err(error) => wrap(wrap(0, error as u64), 1),
-                    };
-                }
                 match try_set_algebra(left, right, op, result_type) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),

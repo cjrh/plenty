@@ -7,6 +7,14 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Private selected set algebra
+
+The native runtime can build an independent result with a provider distinct
+from either input's provider. Tests cover failure during result construction,
+result lifetime after input destruction, and compact finite sets. This covers
+four operations on borrowed ordinary sets with non-affine keys, not public
+allocator bindings or recursive copying. See [independent set results](../design/toolchain/02-architecture/allocator-storage.md#independent-set-results).
+
 ### Public selected dictionaries and sets
 
 [`Allocator.empty_dict`, `dict_with_capacity`, `empty_set` and `set_with_capacity`](../design/stdlib/alloc.md#dictionaries-and-sets)
