@@ -30,6 +30,7 @@ mod test_std_alloc_dict_set;
 mod test_std_alloc_key_view;
 #[path = "test_std_alloc_set_algebra.rs"]
 mod test_std_alloc_set_algebra;
+mod test_std_alloc_slice;
 
 #[path = "test_pipelines.rs"]
 mod test_pipelines;

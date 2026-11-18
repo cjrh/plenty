@@ -818,9 +818,11 @@ impl Entries {
     }
     /// Append byte copies of `count` dense rows of `source`, starting at row
     /// `first`, in one copy. Both sides are dense lists of one element type
-    /// whose elements own nothing; the caller reserved the capacity.
+    /// whose elements own nothing and have no row-local payload to relocate;
+    /// the caller reserved the capacity. Use typed `push` for inline payloads.
     pub fn extend_rows(&mut self, source: &Self, first: usize, count: usize) {
         assert!(self.order.is_none() && source.order.is_none() && self.stride == source.stride);
+        assert!(self.key.payload_bytes() == 0 && source.key.payload_bytes() == 0);
         assert!(first + count <= source.len() && self.len() + count <= self.capacity());
         self.data.truncate(self.len() * self.stride);
         self.removed = false;

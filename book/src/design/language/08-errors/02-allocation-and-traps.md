@@ -32,9 +32,10 @@ not make allocations performed by user expressions or destructors disappear.
 Cleanup on an allocation-error path must still handle its own fallible work.
 [`std.alloc`](../../stdlib/alloc.md) offers an explicit allocator for builtin
 boxes, lists, dictionaries, sets, [algebra on sets or dictionary key views](../../stdlib/alloc.md#set-algebra-with-an-output-allocator),
-[key-view conversion](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set) and
-[explicit copies](../../stdlib/alloc.md#copy-with-an-output-allocator). Ordinary
-constructors, `copy` and set methods do not implicitly select that allocator. The separate
+[key-view conversion](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set),
+[explicit copies](../../stdlib/alloc.md#copy-with-an-output-allocator) and
+[owning list slices](../../stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator). Ordinary
+constructors, `copy`, bracket slices and set methods do not implicitly select that allocator. The separate
 [`std.experimental.alloc`](../../stdlib/experimental-alloc.md) probe supplies
 retained system/arena handles for its integer-only collection; it does not
 change allocation by builtin values or other std modules.

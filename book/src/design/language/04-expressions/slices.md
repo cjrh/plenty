@@ -87,6 +87,10 @@ own no storage, such as `list[i64]`, is one block copy. Every slice reserves its
 result storage once, before copying; allocation failure returns
 `Err(AllocError.OutOfMemory)` and leaves the receiver unchanged.
 
+List brackets do not inherit the source's allocator. To choose a provider for
+an owning list copy with the same bounds and step, use
+[`out.slice(&xs, ...)`](../../stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator).
+
 A list element type that `copy()` rejects, such as `std.bytes.Bytes`, is a
 compile error. Transfer such elements out of an owned temporary with the
 [`slice()` method](../../facilities/01-builtins/lists.md#slices) instead. A

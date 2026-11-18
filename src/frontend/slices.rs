@@ -278,7 +278,7 @@ impl Lower<'_> {
 
     /// Selected list elements are duplicated as `copy()` would, and `Shared`
     /// owners as `share()` would.
-    fn check_slice_element(&self, list: &Ty, element: &Ty, at: &Token) -> Result<()> {
+    pub(super) fn check_slice_element(&self, list: &Ty, element: &Ty, at: &Token) -> Result<()> {
         let Some(reason) = Self::uncopyable_element(element, at)? else {
             return Ok(());
         };

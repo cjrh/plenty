@@ -187,6 +187,33 @@ If allocation fails, `?` propagates the error; the call itself does not consume
 backing. See [copy with an output allocator](../../design/stdlib/alloc.md#copy-with-an-output-allocator)
 for which values can be copied.
 
+## Copy selected list elements
+
+To keep a reversed score list in storage chosen by the caller, use `out.slice`.
+It borrows the scores; the result can outlive them:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    scores = [70, 85, 90]?
+    out = alloc.system()
+    reversed_scores = out.slice(&scores, step=-1)?
+    print(out.slice(&scores, stop=-1, step=-1)?)?
+    drop(scores)
+    print(reversed_scores)?
+    Ok(())
+```
+```output
+[]
+[90, 85, 70]
+```
+
+Both calls start at the last score. With `stop=-1`, that same score is the
+exclusive stop, so nothing is copied. Omitting `stop` lets the reverse walk
+include the first score. If you just need to read adjacent scores in place,
+borrow `&scores[a:b]` instead. See the [list slice allocation contract](../../design/stdlib/alloc.md#copy-a-list-slice-with-an-output-allocator).
+
 ## Box a value and collect a generator
 
 `owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the
@@ -313,7 +340,7 @@ callback traps, including cleanup traps, terminate the process.
 Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
 does not redirect element expressions, builtin `copy`, `view.to_set()`, ordinary
-set methods or owning slices to an input's allocator. The ordinary rules for storing, borrowing and moving
+set methods or bracket slices to an input's allocator. The ordinary rules for storing, borrowing and moving
 values to workers still apply. Ordinary constructors remain available during the explicit-allocation
 migration; selection does not remove implicit defaults or provide resettable
 arenas.

@@ -2584,16 +2584,18 @@ unsafe fn try_list_slice(
     }
 }
 
-/// `source[start:stop:step]` as a new list with exact capacity. Each element
+/// `source[start:stop:step]` reserves for the selected row count. Each element
 /// is duplicated as `copy()` would; a `Shared` owner gains another reference.
 /// The source is only read, whether it is borrowed or a temporary.
 unsafe fn try_list_slice_stepped(
     source: &Collection,
-    (first, step, count): (usize, i64, usize),
+    [start, stop, step, flags]: [i64; 4],
     ty: &'static Type,
+    destination: CopyDestination<'_>,
 ) -> Result<u128, AllocError> {
     unsafe {
-        let result = try_collection_new(ty, count)?;
+        let (first, step, count) = slice_positions(source.len(), start, stop, step, flags);
+        let result = destination.collection(ty, count)?;
         let owner = OwnedValue {
             value: result as u128,
             ty,
@@ -2601,8 +2603,9 @@ unsafe fn try_list_slice_stepped(
         let element = ty.key();
         let entries = &mut (*result).entries;
         if element.owns_nothing() {
-            // Byte copies are complete copies; a contiguous run is one copy.
-            if step == 1 {
+            // Even an ownerless range points into its row. Typed insertion
+            // copies inline payloads and repairs their addresses in the result.
+            if step == 1 && element.payload_bytes() == 0 {
                 entries.extend_rows(&source.entries, first, count);
             } else {
                 for k in 0..count {
@@ -2612,12 +2615,12 @@ unsafe fn try_list_slice_stepped(
             return Ok(owner.into_value());
         }
         for k in 0..count {
-            // Push a byte copy that still names the source, then replace it in
-            // place, so an inline payload is copied into the final row.
+            // Push re-homes inline payloads in the final row. Its managed
+            // children still name the source's owners until copied below.
             entries.push(source.entries.get(slice_position(first, step, k)));
             let key = entries.slot(entries.len() - 1, false);
             let mut copy = key.read();
-            if let Err(error) = try_copy_into(&mut copy, element, CopyDestination::Ordinary) {
+            if let Err(error) = try_copy_into(&mut copy, element, destination) {
                 key.write(0);
                 return Err(error);
             }
@@ -3435,7 +3438,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3541,12 +3544,20 @@ unsafe fn read_operands<const N: usize>(op: i64, args: *const u128) -> [u128; N]
 /// Runs operation `op`. Only the `plenty_op_<N>` entries call it, each with
 /// its own constant `op`.
 #[inline(always)]
-unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *const crate::Site) {
+pub(crate) unsafe fn operation(
+    op: i64,
+    args: *const u128,
+    descriptor: *const Type,
+    site: *const crate::Site,
+) {
     // SAFETY: generated code supplies three aligned inputs and an output slot
     // followed by 32 bytes of scratch range storage. `site` is null for
     // operations that cannot trap.
     unsafe {
-        if matches!(op, ALLOCATOR_COPY | ALLOCATOR_KEY_VIEW_TO_SET) {
+        if matches!(
+            op,
+            ALLOCATOR_COPY | ALLOCATOR_KEY_VIEW_TO_SET | ALLOCATOR_LIST_SLICE
+        ) {
             // Reject an ambient context before reading even the operand buffer.
             crate::allocator::bindings::require_supported_context();
         }
@@ -3622,13 +3633,31 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             out.write(text_ranges::call(op, operands, descriptor, site));
             return;
         }
+        if op == ALLOCATOR_LIST_SLICE {
+            let [handle, source, start, stop, step] = read_operands::<5>(op, args);
+            // An Option[i64] keeps its Some tag in bit 64 and its index in the low word.
+            let present = |bound: u128, flag| if (bound >> 64) & 1 != 0 { flag } else { 0 };
+            let flags = present(start, SLICE_START) | present(stop, SLICE_STOP);
+            let allocator = crate::allocator::bindings::borrow_handle(handle);
+            out.write(fallible(try_list_slice_stepped(
+                &*(source as *const Collection),
+                [start as i64, stop as i64, step as i64, flags],
+                &*descriptor,
+                CopyDestination::Selected(&allocator),
+            )));
+            return;
+        }
         if matches!(op, LIST_SLICE | TEXT_SLICE) {
             let [source, start, stop, step, flags] = read_operands::<5>(op, args);
             let (start, stop, step, flags) = (start as i64, stop as i64, step as i64, flags as i64);
             out.write(if op == LIST_SLICE {
                 let source = &*(source as *const Collection);
-                let positions = slice_positions(source.entries.len(), start, stop, step, flags);
-                fallible(try_list_slice_stepped(source, positions, &*descriptor))
+                fallible(try_list_slice_stepped(
+                    source,
+                    [start, stop, step, flags],
+                    &*descriptor,
+                    CopyDestination::Ordinary,
+                ))
             } else {
                 let text = source as *const Text;
                 let positions =
