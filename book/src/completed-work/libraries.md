@@ -677,7 +677,7 @@ GNU x86-64. Selection follows resolved imports; CLI packages build neither
 archive. The reviewed whole-interface guards and distinct programming models
 remain intact. No release/distribution support or changes to GPUI.
 
-The iced catalog includes Grid, Container, Pin, Scrollable and Tooltip. The snapshot builder rejects missing or excess children before publishing a fixed-child layout.
+The iced catalog includes Float (scale), Themer (light/dark), Grid, Container, Pin, Scrollable and Tooltip. The snapshot builder rejects missing or excess children before publishing a fixed-child layout.
 
 The iced catalog adds Checkbox, Toggler, Radio, ProgressBar, Rule, Space and Stack.
 Selection controls deliver action IDs through the validated snapshot; only the update

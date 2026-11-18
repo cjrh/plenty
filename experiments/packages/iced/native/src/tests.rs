@@ -96,6 +96,15 @@ fn malformed_layout_and_ignored_errors_discard_frame() {
 
 #[test]
 fn fixed_child_counts_and_grid_bounds() {
+    for n in [99, 401] {
+        assert_eq!(
+            build_scene(|t| {
+                plic_v1_float_scaled(t, n);
+                Ok(())
+            }),
+            Err(Error::InvalidArgument)
+        );
+    }
     for columns in [0, 257] {
         assert_eq!(
             build_scene(|t| {
@@ -107,6 +116,9 @@ fn fixed_child_counts_and_grid_bounds() {
     }
     for (expected, open) in [
         (1, (|t| plic_v1_container(t, 4)) as fn(u64) -> u32),
+        (1, |t| plic_v1_float_scaled(t, 100)),
+        (1, |t| plic_v1_float_scaled(t, 400)),
+        (1, |t| plic_v1_themer(t, false)),
         (1, |t| plic_v1_pin(t, 2, 4)),
         (1, |t| plic_v1_scrollable(t, 12)),
         (2, |t| plic_v1_tooltip(t)),

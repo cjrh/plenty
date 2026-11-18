@@ -18,6 +18,8 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Space](gui-iced-widgets/space.md)
 - [Rule](gui-iced-widgets/rule.md)
 - [Grid](gui-iced-widgets/grid.md)
+- [Float](gui-iced-widgets/float_scaled.md)
+- [Themer](gui-iced-widgets/themer.md)
 - [Container](gui-iced-widgets/container.md)
 - [Pin](gui-iced-widgets/pin.md)
 - [Scrollable](gui-iced-widgets/scrollable.md)

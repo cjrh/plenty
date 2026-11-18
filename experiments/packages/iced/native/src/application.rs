@@ -116,6 +116,18 @@ fn view(session: &Session) -> Element<'_, Pressed> {
         let child = |index: usize| element(scene, node.children[index]);
         match &node.kind {
             Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
+            Kind::FloatScaled(n) => iced::widget::float(child(0))
+                .scale(f32::from(*n) / 100.0)
+                .into(),
+            Kind::Themer(dark) => iced::widget::themer(
+                Some(if *dark {
+                    iced::Theme::Dark
+                } else {
+                    iced::Theme::Light
+                }),
+                child(0),
+            )
+            .into(),
             Kind::Container(p) => container(child(0)).padding(*p).into(),
             Kind::Pin(x, y) => iced::widget::pin(child(0))
                 .x(f32::from(*x))

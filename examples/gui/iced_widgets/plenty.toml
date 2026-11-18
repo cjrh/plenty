@@ -57,6 +57,14 @@ name = "container"
 path = "src/container.plenty"
 
 [[bin]]
+name = "float_scaled"
+path = "src/float_scaled.plenty"
+
+[[bin]]
+name = "themer"
+path = "src/themer.plenty"
+
+[[bin]]
 name = "pin"
 path = "src/pin.plenty"
 
