@@ -146,6 +146,16 @@ and registers a compiled provider, checked segments that may grow or release
 a clist have no finite stack budget. Reading the count or a scalar field
 does not itself invoke a callback.
 
+For [task joins and pool waits](../facilities/03-concurrency/channels.md#which-workers-can-wait),
+constructing a selected clist can wait. When both the slice method and a
+compiled provider are present, growing or dropping a clist can wait too,
+including cleanup of a field, local, or queued message. The owner type does
+not distinguish ordinary from selected storage. If a worker can construct the
+slice through an allocator it receives, or grow or release a clist reachable
+from its inputs, the [join-under-lock check](../facilities/03-concurrency/mutex.md#waits-the-compiler-rejects)
+includes the mutex types held by compiled provider state. A shared borrow used
+only to inspect a count or a scalar field does not call the provider.
+
 ### Copy a slice view into a list
 
 `Allocator.copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]`

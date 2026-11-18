@@ -26,13 +26,9 @@ fn signature(mut sig: Signature, allocate: bool) -> Signature {
 /// after their factory returns. Only needed when a compiled provider exists.
 pub(super) fn selected_owners(ops: &[Op]) -> ProviderEffects {
     use crate::collection_opcodes::{ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE};
-    use crate::foreign::{Intrinsic, Target};
     let mut effects = ProviderEffects::default();
     crate::threading::walk(ops, &mut |op| {
-        if let Op::ForeignCall { declaration, .. } = op
-            && let Target::Intrinsic(intrinsic) = &declaration.target
-            && let Intrinsic::Allocator { opcode, .. } = **intrinsic
-        {
+        if let Some(opcode) = crate::foreign::allocator_opcode(op) {
             effects.bytes |= opcode == ALLOCATOR_BYTES_SLICE;
             effects.clists |= opcode == ALLOCATOR_CLIST_SLICE;
         }

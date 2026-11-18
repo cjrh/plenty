@@ -2,7 +2,10 @@
 //! shutdowns it reaches, directly or through further calls (issue #349), and
 //! the jobs it can submit (issue #352), and whether a worker can wait at all
 //! (issue #793).
-use super::{Hazard, Site};
+use super::{
+    Hazard, Site,
+    providers::{Providers, WorkerEffects},
+};
 use crate::diagnostic::Position;
 use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
@@ -20,13 +23,14 @@ pub struct Program<'p> {
     jobs: Mutex<HashMap<&'p str, Arc<[Job<'p>]>>>,
     /// Effects and their witness are cached together, per specialized name.
     effects: Mutex<HashMap<&'p str, Arc<Effects>>>,
-    /// Every function body by name, for `waits`. Separate from `table`,
+    /// Every function body by name, for `worker_effects`. Separate from `table`,
     /// whose construction asks what each submitted job can block on.
     definitions: OnceLock<HashMap<&'p str, &'p CompiledFn>>,
-    /// `waits` by worker and closure names and input types. The names fix
+    /// Worker effects by worker and closure names and input types. The names fix
     /// the inputs today, since generic workers are named per instance; the
     /// types are part of the key so a reused name cannot reuse a stale answer.
-    waits: Mutex<HashMap<(String, Vec<Ty>), bool>>,
+    workers: Mutex<HashMap<(String, Vec<Ty>), WorkerEffects>>,
+    providers: OnceLock<Providers>,
 }
 
 /// What a submitted job can block on, with the job's result type.
@@ -206,7 +210,8 @@ impl<'p> Program<'p> {
             jobs: Mutex::default(),
             effects: Mutex::default(),
             definitions: OnceLock::new(),
-            waits: Mutex::default(),
+            workers: Mutex::default(),
+            providers: OnceLock::new(),
         }
     }
 
@@ -234,17 +239,17 @@ impl<'p> Program<'p> {
         })
     }
 
-    /// Whether calling `function` can wait; see [`Self::waits`].
+    /// Whether calling `function` can wait; see [`Self::worker_effects`].
     pub(super) fn can_wait(&self, function: &str) -> bool {
-        self.waits(&[function], &[])
+        self.worker_effects(&[function], &[]).waits
     }
 
     /// Whether a scoped task's worker can wait for anything.
-    pub(super) fn task_waits(&self, task: &crate::threading::Task) -> bool {
+    pub(super) fn task_effects(&self, task: &crate::threading::Task) -> WorkerEffects {
         let roots: Vec<&str> = std::iter::once(task.worker.as_str())
             .chain(task.closure.iter().map(|closure| closure.name.as_str()))
             .collect();
-        self.waits(&roots, &task.inputs)
+        self.worker_effects(&roots, &task.inputs)
     }
 
     /// What a pool job can block on: the senders it can hold, unless it
@@ -264,8 +269,10 @@ impl<'p> Program<'p> {
     }
 
     fn own_hazards(&self, job: &Submitted) -> Vec<Hazard> {
-        let mut sends = crate::threading::endpoints([job.input.clone()], true, true);
-        if !sends.is_empty() {
+        let inputs = std::slice::from_ref(&job.input);
+        let mut sends = crate::threading::endpoints(inputs.iter().cloned(), true, true);
+        let mut locks = crate::threading::mutexes(inputs.iter().cloned());
+        if !sends.is_empty() || self.providers().sources(inputs).any() {
             let roots: Vec<&str> = std::iter::once(job.worker.as_str())
                 .chain(
                     job.closure
@@ -274,19 +281,31 @@ impl<'p> Program<'p> {
                         .map(|c| c.name.as_str()),
                 )
                 .collect();
-            if !self.waits(&roots, std::slice::from_ref(&job.input)) {
+            let effects = self.worker_effects(&roots, inputs);
+            if !effects.waits {
                 sends.clear();
+            }
+            if effects.provider_lock {
+                self.providers().extend_mutexes(&mut locks);
             }
         }
         sends
             .into_iter()
             .map(Hazard::Sends)
-            .chain(
-                crate::threading::mutexes([job.input.clone()])
-                    .into_iter()
-                    .map(Hazard::Locks),
-            )
+            .chain(locks.into_iter().map(Hazard::Locks))
             .collect()
+    }
+
+    fn providers(&self) -> &Providers {
+        self.providers.get_or_init(|| Providers::new(self.ops))
+    }
+
+    pub(super) fn worker_mutexes(&self, inputs: &[Ty], effects: WorkerEffects) -> Vec<Ty> {
+        let mut locks = crate::threading::mutexes(inputs.iter().cloned());
+        if effects.provider_lock {
+            self.providers().extend_mutexes(&mut locks);
+        }
+        locks
     }
 
     /// Whether code started at `roots`, holding values of `inputs`, can wait
@@ -308,9 +327,9 @@ impl<'p> Program<'p> {
         clippy::mutable_key_type,
         reason = "nominal identities exclude definition cells"
     )]
-    fn waits(&self, roots: &[&str], inputs: &[Ty]) -> bool {
+    fn worker_effects(&self, roots: &[&str], inputs: &[Ty]) -> WorkerEffects {
         let key = (roots.join("\n"), inputs.to_vec());
-        if let Some(&cached) = self.waits.lock().unwrap().get(&key) {
+        if let Some(&cached) = self.workers.lock().unwrap().get(&key) {
             return cached;
         }
         let definitions = self.definitions();
@@ -318,7 +337,14 @@ impl<'p> Program<'p> {
         let mut types = inputs.to_vec();
         let mut seen_functions = HashSet::default();
         let mut seen_types = HashSet::default();
-        let waits = 'search: loop {
+        let providers = self.providers();
+        let sources = providers.sources(inputs);
+        let mut effects = WorkerEffects::default();
+        loop {
+            providers.cleanup(&types, &sources, &mut effects);
+            if effects.waits && (!sources.any() || effects.provider_lock) {
+                break;
+            }
             while let Some(ty) = types.pop() {
                 if !seen_types.insert(ty.clone()) {
                     continue;
@@ -327,40 +353,39 @@ impl<'p> Program<'p> {
                     Ty::Class(class) => functions.extend(class.get().destructor.iter().cloned()),
                     // Their destructors and calls are erased.
                     Ty::BoxedCallable(..) | Ty::BoxedProtocol(_) | Ty::Generator(_) => {
-                        break 'search true;
+                        effects.waits = true;
                     }
                     _ => {}
                 }
                 crate::threading::contained(&ty, &mut types);
             }
             let Some(name) = functions.pop() else {
-                break false;
+                break;
             };
             if !seen_functions.insert(name.clone()) {
                 continue;
             }
             // A function compiled elsewhere has no body to inspect.
             let Some(function) = definitions.get(name.as_str()) else {
-                break true;
+                effects.waits = true;
+                effects.provider_lock |= sources.any();
+                break;
             };
             // Only the types and calls matter here; worker eligibility
             // reports the error separately.
             let mut calls = Vec::new();
             let _ = crate::threading::inspect(function, &mut types, &mut calls);
             functions.extend(calls);
-            let mut waits = false;
             crate::threading::walk(&function.body, &mut |op| {
                 crate::threading::function_references(op, &mut |name| {
                     functions.push(name.to_owned())
                 });
-                waits |= super::blocking::blocks(op);
+                effects.waits |= super::blocking::blocks(op);
+                providers.operation(op, &sources, &mut effects, &mut functions);
             });
-            if waits {
-                break true;
-            }
-        };
-        self.waits.lock().unwrap().insert(key, waits);
-        waits
+        }
+        self.workers.lock().unwrap().insert(key, effects);
+        effects
     }
 
     /// Visit the body of every function a call to `callee` can reach, or
@@ -529,7 +554,10 @@ impl<'p> Program<'p> {
             .chain(captures.iter().cloned())
             .collect();
         let sends = crate::threading::endpoints(roots.iter().cloned(), true, true);
-        let locks = crate::threading::mutexes(roots);
+        let mut locks = crate::threading::mutexes(roots.iter().cloned());
+        if self.providers().sources(&roots).any() {
+            self.providers().extend_mutexes(&mut locks);
+        }
         if sends.is_empty() && locks.is_empty() {
             return Vec::new();
         }
@@ -728,7 +756,10 @@ fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
             }
             Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
                 body.indirect = true;
-                if callable_may_shut_down(signature) && body.unknown_shutdown.is_none() {
+                if body.unknown_shutdown.is_none()
+                    && (callable_may_shut_down(signature)
+                        || program.providers().signature_carries_lock(signature))
+                {
                     body.unknown_shutdown = Some(Cause::unknown(
                         "indirect Callable call; its input/result types may expose pool authority or job hazards",
                         at(),

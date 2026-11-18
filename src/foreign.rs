@@ -119,6 +119,18 @@ pub enum Intrinsic {
     },
 }
 
+/// The emitted std allocator primitive (not a function name or a source import).
+pub(crate) fn allocator_opcode(op: &crate::op::Op) -> Option<i64> {
+    if let crate::op::Op::ForeignCall { declaration, .. } = op
+        && let Target::Intrinsic(intrinsic) = &declaration.target
+        && let Intrinsic::Allocator { opcode, .. } = **intrinsic
+    {
+        Some(opcode)
+    } else {
+        None
+    }
+}
+
 /// Explicit native object layout, admitted only by trusted interface modules.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportObject {

@@ -213,3 +213,311 @@ def main() -> Result[(), AllocError | IoError]:
         "__test_fail_allocations_after_0__\n__test_begin_no_allocations__\n__test_end_no_allocations__\n__test_restore_allocations__\n2 3.25\n",
     );
 }
+
+// Compile only. Policy can wait for the caller's lock or for a FIFO peer.
+const JOIN_POLICY: &str = r#"import std.alloc as alloc
+from std.sync import Mutex
+
+pub class Policy:
+    root: alloc.Allocator
+    guard: Shared[Mutex[i64]]
+    pub def allocate(self: &mut Policy, request: &alloc.Layout) -> Result[alloc.ByteBlock, AllocError]:
+        with self.guard.lock():
+            return self.root.block(request)
+    pub def release(self: &mut Policy, storage: alloc.ByteBlock) -> ():
+        with self.guard.lock():
+            drop(open("provider.fifo"))
+            drop(storage)
+
+class Row:
+    n: i64
+
+class Bundle:
+    saved: Option[Box[clist[Row]]]
+
+WORKER
+
+def main() -> ():
+    guard = Shared(Mutex(0)).unwrap()
+    root = alloc.system()
+    out = PROVIDER
+    rows = clist[Row]()
+    mut picked = OWNER
+    CALLER
+"#;
+
+fn check_join(
+    worker: &str,
+    caller: &str,
+    selected: bool,
+    registered: bool,
+    expected: Option<&str>,
+) {
+    let program = JOIN_POLICY
+        .replace("WORKER", worker)
+        .replace("CALLER", caller)
+        .replace(
+            "PROVIDER",
+            if registered {
+                "alloc.allocator(&root, Policy(root.share(), guard.share())).unwrap()"
+            } else {
+                "root.share()"
+            },
+        )
+        .replace(
+            "OWNER",
+            if selected {
+                "out.slice_clist(&rows).unwrap()"
+            } else {
+                "clist[Row]()"
+            },
+        );
+    let result = plenty::check_source(&program);
+    match expected {
+        Some(message) => {
+            let err = result.expect_err(&program).to_string();
+            assert!(err.contains(message), "{program}\n{err}");
+        }
+        None => result.unwrap_or_else(|err| panic!("{program}\n{err}")),
+    }
+}
+
+#[test]
+fn selected_clist_worker_joins_account_for_retained_provider_state() {
+    const LOCK: &str = "worker can lock a `Mutex[i64]`";
+    let join = "with spawn(work, ARG).drop_job().unwrap() as task:\n        with guard.lock():\n            task.join()";
+    // The last owner can be cleaned up implicitly inside a nested payload.
+    for (worker, arg) in [
+        (
+            "def work(rows: clist[Row]) -> ():\n    drop(rows)",
+            "picked",
+        ),
+        (
+            "def work(bundle: Bundle) -> ():\n    pass",
+            "Bundle(Some(Box(picked).unwrap()))",
+        ),
+        (
+            "def work(rows: &mut clist[Row]) -> ():\n    drop(rows.reserve(32))",
+            "&mut picked",
+        ),
+    ] {
+        for (selected, registered) in [(false, true), (true, false), (true, true)] {
+            check_join(
+                worker,
+                &join.replace("ARG", arg),
+                selected,
+                registered,
+                (selected && registered).then_some(LOCK),
+            );
+        }
+    }
+    // Allocation itself can wait, before a clist has crossed the boundary.
+    let factory = "def build(out: &alloc.Allocator) -> ():\n    rows = clist[Row]()\n    drop(out.slice_clist(&rows))\ndef work(out: &alloc.Allocator) -> ():\n    build(out)";
+    check_join(
+        factory,
+        &join.replace("ARG", "&out"),
+        false,
+        true,
+        Some(LOCK),
+    );
+    check_join(
+        factory,
+        &join.replace("ARG", "&out").replace(
+            "with guard.lock():",
+            "other = Mutex(True)\n        with other.lock():",
+        ),
+        true,
+        true,
+        None,
+    );
+    // An allocator argument alone doesn't make a provider's locks reachable.
+    check_join(
+        "def work(out: &alloc.Allocator) -> ():\n    drop(out.share())",
+        &join.replace("ARG", "&out"),
+        true,
+        true,
+        None,
+    );
+    check_join(
+        "def work(rows: &clist[Row]) -> ():\n    drop(rows[0].n)",
+        &join.replace("ARG", "&picked"),
+        true,
+        true,
+        None,
+    );
+}
+
+#[test]
+fn selected_clist_callbacks_change_worker_waits_but_borrowed_reads_do_not() {
+    let join = "sender, receiver = channel[i64](1).unwrap()\n    with spawn(work, sender, ARG).drop_job().unwrap():\n        pass";
+    check_join(
+        "def work(sender: Sender[i64], out: &alloc.Allocator) -> ():\n    rows = clist[Row]()\n    drop(out.slice_clist(&rows))",
+        &join.replace("ARG", "&out"),
+        false,
+        true,
+        Some("could block the worker's send"),
+    );
+    for (param, body, arg, waits) in [
+        (
+            "rows: &mut clist[Row]",
+            "drop(rows.append(Row(1)))",
+            "&mut picked",
+            true,
+        ),
+        (
+            "rows: &mut clist[Row]",
+            "drop(rows.reserve(1))",
+            "&mut picked",
+            true,
+        ),
+        ("rows: clist[Row]", "drop(rows)", "picked", true),
+        (
+            "bundle: Bundle",
+            "pass",
+            "Bundle(Some(Box(picked).unwrap()))",
+            true,
+        ),
+        (
+            "bundle: &mut Bundle",
+            "bundle.saved = Nothing",
+            "&mut bundle",
+            true,
+        ),
+        ("rows: &clist[Row]", "drop(rows.len())", "&picked", false),
+    ] {
+        let worker = format!("def work(sender: Sender[i64], {param}) -> ():\n    {body}");
+        let mut caller = join.replace("ARG", arg);
+        if arg == "&mut bundle" {
+            caller = format!("mut bundle = Bundle(Some(Box(picked).unwrap()))\n    {caller}");
+        }
+        for (selected, registered) in [(false, true), (true, false), (true, true)] {
+            check_join(
+                &worker,
+                &caller,
+                selected,
+                registered,
+                (waits && selected && registered).then_some("could block the worker's send"),
+            );
+        }
+    }
+}
+
+#[test]
+fn selected_clist_pool_jobs_record_callback_waits_and_hidden_mutexes() {
+    let factory = "def build(out: &alloc.Allocator) -> ():\n    rows = clist[Row]()\n    drop(out.slice_clist(&rows))\ndef work(out: alloc.Allocator) -> ():\n    build(&out)";
+    let future = "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        future = pool.submit(work, ARG).unwrap()\n        with guard.lock():\n            drop(future.result())";
+    let lock = "this result() waits for a job that can lock a `Mutex[i64]`";
+    check_join(
+        factory,
+        &future.replace("ARG", "out"),
+        false,
+        true,
+        Some(lock),
+    );
+    let worker = "def work(bundle: Bundle) -> ():\n    pass";
+    let arg = "Bundle(Some(Box(picked).unwrap()))";
+    check_join(worker, &future.replace("ARG", arg), true, true, Some(lock));
+    check_join(
+        worker,
+        &future
+            .replace("ARG", arg)
+            .replace("drop(future.result())", "pool.shutdown()"),
+        true,
+        true,
+        Some("a job that can lock a `Mutex[i64]` was submitted"),
+    );
+    let helper = "def helper(bundle: Bundle) -> ():\n    with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        drop(pool.submit(work, bundle))";
+    check_join(
+        &format!("{worker}\n{helper}"),
+        &format!("with guard.lock():\n        helper({arg})"),
+        true,
+        true,
+        Some("a job that can lock a `Mutex[i64]`"),
+    );
+    let sender = "def work(sender: Sender[i64], bundle: Bundle) -> ():\n    pass";
+    let caller = format!(
+        "sender, receiver = channel[i64](1).unwrap()\n    with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        drop(pool.submit(work, sender, {arg}))"
+    );
+    check_join(
+        sender,
+        &caller,
+        true,
+        true,
+        Some("could block the job's send"),
+    );
+    check_join(sender, &caller, false, true, None);
+}
+
+#[test]
+fn indirect_selected_clist_construction_and_data_only_controls() {
+    let worker = "def target(out: &alloc.Allocator) -> ():\n    BODY\ndef work(f: Callable[[&alloc.Allocator], ()], out: &alloc.Allocator) -> ():\n    f(out)";
+    let caller = "with spawn(work, target, &out).drop_job().unwrap() as task:\n        with guard.lock():\n            task.join()";
+    check_join(
+        &worker.replace(
+            "BODY",
+            "rows = clist[Row]()\n    drop(out.slice_clist(&rows))",
+        ),
+        caller,
+        true,
+        true,
+        Some("worker can lock a `Mutex[i64]`"),
+    );
+    check_join(
+        &worker.replace("BODY", "drop(out.share())"),
+        caller,
+        true,
+        true,
+        None,
+    );
+}
+
+#[test]
+fn selected_clist_opaque_pool_calls_distinguish_owning_inputs_and_results() {
+    let body = "def work(bundle: Bundle) -> ():\n    pass\ndef callback(SIGNATURE) -> RESULT:\n    BODY\ndef helper(f: Callable[[TYPES], RESULT], submitter: Submitter, bundle: Bundle, values: clist[Row]) -> ():\n    mut rows = values\n    drop(f(ARG))\n    drop(submitter.submit_nowait(work, bundle).drop_job())";
+    let caller = "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        with guard.lock():\n            helper(callback, pool.submitter(), Bundle(Some(Box(picked).unwrap())), rows)";
+    for (params, types, result, code, arg, capable) in [
+        (
+            "input: clist[Row]",
+            "clist[Row]",
+            "()",
+            "drop(input)",
+            "rows",
+            true,
+        ),
+        ("", "", "clist[Row]", "clist[Row]()", "", true),
+        (
+            "input: &clist[Row]",
+            "&clist[Row]",
+            "()",
+            "drop(input.len())",
+            "&rows",
+            false,
+        ),
+        (
+            "input: &mut clist[Row]",
+            "&mut clist[Row]",
+            "()",
+            "drop(input.reserve(5))",
+            "&mut rows",
+            true,
+        ),
+        ("", "", "()", "pass", "", false),
+    ] {
+        let helper = body
+            .replace("SIGNATURE", params)
+            .replace("TYPES", types)
+            .replace("RESULT", result)
+            .replace("BODY", code)
+            .replace("ARG", arg);
+        for selected in [false, true] {
+            check_join(
+                &helper,
+                caller,
+                selected,
+                true,
+                (selected && capable)
+                    .then_some("this call to `helper` is assumed capable of shutting down a pool"),
+            );
+        }
+    }
+}
