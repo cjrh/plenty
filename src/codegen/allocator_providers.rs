@@ -22,26 +22,18 @@ fn signature(mut sig: Signature, allocate: bool) -> Signature {
     }
     sig
 }
-/// Selected byte owners have one trusted producer. Search the whole emitted
-/// IR: the owner can enter a callee long after the producer has returned.
-pub(super) fn creates_selected_bytes(ops: &[Op]) -> bool {
-    use crate::foreign::{Intrinsic, Target};
-    let mut found = false;
+/// Search all emitted functions: selected owners can reach other callees long
+/// after their factory returns. Only needed when a compiled provider exists.
+pub(super) fn selected_owners(ops: &[Op]) -> ProviderEffects {
+    use crate::collection_opcodes::{ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE};
+    let mut effects = ProviderEffects::default();
     crate::threading::walk(ops, &mut |op| {
-        if let Op::ForeignCall { declaration, .. } = op
-            && let Target::Intrinsic(intrinsic) = &declaration.target
-            && matches!(
-                **intrinsic,
-                Intrinsic::Allocator {
-                    opcode: crate::collection_opcodes::ALLOCATOR_BYTES_SLICE,
-                    ..
-                }
-            )
-        {
-            found = true;
+        if let Some(opcode) = crate::foreign::allocator_opcode(op) {
+            effects.bytes |= opcode == ALLOCATOR_BYTES_SLICE;
+            effects.clists |= opcode == ALLOCATOR_CLIST_SLICE;
         }
     });
-    found
+    effects
 }
 
 pub(super) fn declare_adapters(

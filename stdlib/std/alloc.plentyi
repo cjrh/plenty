@@ -114,6 +114,9 @@ pub class Allocator:
     pub def slice[T](self, source: &list[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[list[T], AllocError]:
         __allocator_list_slice[T](self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def slice_clist[T](self, source: &clist[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[clist[T], AllocError]:
+        __allocator_clist_slice[T](self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
+
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 

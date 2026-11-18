@@ -32,7 +32,8 @@ allocator selection for boxes, lists, dictionaries and sets, including
 [explicit copies](completed-work/language-and-tooling.md#public-selected-copy),
 [key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion),
 [owning list slices](completed-work/language-and-tooling.md#public-selected-list-slices),
-[view-to-list copies](completed-work/language-and-tooling.md#public-selected-view-to-list-copies) and
+[view-to-list copies](completed-work/language-and-tooling.md#public-selected-view-to-list-copies),
+[columnar list slices](completed-work/language-and-tooling.md#public-selected-columnar-list-slices) and
 [packed byte slices](completed-work/language-and-tooling.md#public-selected-packed-byte-slices) with an output allocator.
 B13 remains open.
 

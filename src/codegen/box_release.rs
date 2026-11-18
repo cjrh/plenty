@@ -54,7 +54,7 @@ pub(super) fn heap_payload(ty: &Ty) -> Option<(usize, Ty)> {
 
 /// A box content slot's owned children, as byte offsets from the record and
 /// their types, when the adapter can release them; see the module comment.
-fn children(content: &Ty, providers: ByteProviders) -> Option<Children> {
+fn children(content: &Ty, providers: ProviderEffects) -> Option<Children> {
     if !content.managed() || content.release_runs_code(providers) {
         return None;
     }
@@ -102,7 +102,7 @@ pub(super) fn declare_adapters(
     workers: usize,
     module: &mut ObjectModule,
     releasers: &mut HashMap<Ty, FuncId>,
-    providers: ByteProviders,
+    providers: ProviderEffects,
 ) -> Result<Vec<(Ty, FuncId)>> {
     let found: std::collections::BTreeMap<_, _> =
         crate::threading::find(ops, workers, |op| match op {
@@ -141,7 +141,7 @@ pub(super) fn build_adapter(
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
-    let children = children(content, runtime.byte_providers)
+    let children = children(content, runtime.provider_effects)
         .ok_or("box release adapter for unsupported content")?;
     let mut module = out.symbols();
     let signature = signature(module.make_signature());

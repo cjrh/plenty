@@ -347,12 +347,13 @@ fn check_with_exports(
 /// only one apparently suitable target would make a conditional or forwarded
 /// callback an effect escape. Signature-wide sets deliberately remain
 /// conservative when unrelated main-thread code takes an unsafe address.
-struct CallableTargets {
+#[derive(Default)]
+pub(crate) struct CallableTargets {
     by_signature: HashMap<String, Vec<String>>,
 }
 
 impl CallableTargets {
-    fn new<'a>(
+    pub(crate) fn new<'a>(
         addresses: impl IntoIterator<Item = (&'a str, &'a Arc<crate::op::CallableSig>)>,
     ) -> Self {
         let mut by_signature: HashMap<String, Vec<String>> = HashMap::default();
@@ -367,6 +368,12 @@ impl CallableTargets {
             names.dedup();
         }
         Self { by_signature }
+    }
+
+    pub(crate) fn names(&self, signature: &Arc<crate::op::CallableSig>) -> Option<&[String]> {
+        self.by_signature
+            .get(&Ty::Callable(signature.clone()).identity_name())
+            .map(Vec::as_slice)
     }
 }
 
@@ -481,7 +488,7 @@ fn check_type(
             _ => {}
         },
         Ty::Callable(signature) if seen.insert(format!("callable:{}", ty.identity_name())) => {
-            let Some(names) = targets.by_signature.get(&ty.identity_name()) else {
+            let Some(names) = targets.names(signature) else {
                 return Err(format!("indirect callable effects are not certified for worker threads: no statically known targets for {ty}"));
             };
             functions.extend(names.iter().cloned());
