@@ -130,21 +130,25 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
-            "__allocator_bytes_slice" => {
+            "__allocator_bytes_slice" | "__allocator_text_slice" => {
+                let (opcode, source, result) = if name == "__allocator_text_slice" {
+                    (
+                        code::ALLOCATOR_TEXT_SLICE,
+                        Ty::View(Arc::new(Ty::Text), false),
+                        Ty::Str,
+                    )
+                } else {
+                    (
+                        code::ALLOCATOR_BYTES_SLICE,
+                        crate::bytes::byte_view(),
+                        Ty::ByteStorage,
+                    )
+                };
                 let bound = crate::sum::option(Ty::I64);
                 (
-                    code::ALLOCATOR_BYTES_SLICE,
-                    vec![
-                        handle,
-                        crate::bytes::byte_view(),
-                        bound.clone(),
-                        bound,
-                        Ty::I64,
-                    ],
-                    Some(crate::sum::result(
-                        Ty::ByteStorage,
-                        crate::sum::alloc_error(),
-                    )),
+                    opcode,
+                    vec![handle, source, bound.clone(), bound, Ty::I64],
+                    Some(crate::sum::result(result, crate::sum::alloc_error())),
                     None,
                 )
             }

@@ -129,8 +129,7 @@ pub(crate) struct Plan {
     /// including those of flat class fields.
     pub(crate) strings: &'static [u32],
     /// Releasing the record only frees `strings`: it has no `__del__` at any
-    /// depth and owns nothing else. Freeing a string runs no user code, so
-    /// doing them all at once is indistinguishable from the field walk.
+    /// depth and owns nothing else. Selected text can run a provider callback.
     pub(crate) only_strings: bool,
     /// The record holds no addresses into its own bytes, so moving them
     /// needs no repair.
@@ -764,8 +763,22 @@ unsafe fn release_strings(base: *mut u128, strings: &[u32]) {
         let text = unsafe { base.add(word as usize).read() } as u64;
         // A moved-out field is clear.
         if text != 0 {
-            unsafe { strings::release_leaf(text as *mut Text) };
+            unsafe { strings::release_text(text as *mut Text) };
         }
+    }
+}
+
+/// As in release_next_fields, clear completed fields before returning a child
+/// that may run user code. The parent resumes at the first still-live word.
+unsafe fn release_next_string(base: *mut u128, strings: &[u32]) -> Option<*mut Header> {
+    unsafe {
+        for &word in strings {
+            let text = base.add(word as usize).replace(0) as *mut Text;
+            if !strings::release_plain(text) {
+                return Some(text.cast());
+            }
+        }
+        None
     }
 }
 
@@ -795,7 +808,9 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
         } else if let Some(strings) = ty.only_strings()
             && value as u64 != 0
         {
-            release_strings(value as u64 as *mut u128, strings);
+            if let Some(child) = release_next_string(value as u64 as *mut u128, strings) {
+                return Some(child);
+            }
         } else if let Some(record) = ty.record(value) {
             if !record.begin_release(ty) {
                 slot.write(0);
@@ -816,11 +831,8 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
         } else if ty.kind == b'G' && ty.inline_bytes != 0 {
             crate::generators::release_inline(value as *mut Generator);
         } else if ty.kind == b's' {
-            // A string owns nothing and runs no user code, so freeing it now
-            // is unobservable and spares the owner a restart of its walk.
             slot.write(0);
-            strings::release_leaf(value as *mut Text);
-            return None;
+            return (!strings::release_plain(value as *mut Text)).then_some(value as *mut Header);
         } else if ty.managed() {
             slot.write(0);
             return Some(value as *mut Header);
@@ -862,7 +874,9 @@ unsafe fn release_next_field(field: Field, ty: &'static Type) -> Option<*mut Hea
             return None;
         }
         if let Some(strings) = ty.only_strings() {
-            release_strings(field.at, strings);
+            if let Some(child) = release_next_string(field.at, strings) {
+                return Some(child);
+            }
             field.clear(ty);
             return None;
         }
@@ -2906,7 +2920,7 @@ unsafe fn format(adapter: Format, value: u128, ty: &Type, out: &mut crate::rende
         let text = result as u64 as *mut Text;
         unsafe {
             out.extend_from_slice(strings::bytes(&(text as *const Text)));
-            strings::release_leaf(text);
+            strings::release_text(text);
         }
     } else {
         out.fail_hook(result);
@@ -3438,7 +3452,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666 667
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666 667 668
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3560,6 +3574,7 @@ pub(crate) unsafe fn operation(
                 | ALLOCATOR_KEY_VIEW_TO_SET
                 | ALLOCATOR_LIST_SLICE
                 | ALLOCATOR_BYTES_SLICE
+                | ALLOCATOR_TEXT_SLICE
         ) {
             // Reject an ambient context before reading even the operand buffer.
             crate::allocator::bindings::require_supported_context();
@@ -3636,7 +3651,10 @@ pub(crate) unsafe fn operation(
             out.write(text_ranges::call(op, operands, descriptor, site));
             return;
         }
-        if matches!(op, ALLOCATOR_LIST_SLICE | ALLOCATOR_BYTES_SLICE) {
+        if matches!(
+            op,
+            ALLOCATOR_LIST_SLICE | ALLOCATOR_BYTES_SLICE | ALLOCATOR_TEXT_SLICE
+        ) {
             let [handle, source, start, stop, step] = read_operands::<5>(op, args);
             // An Option[i64] keeps its Some tag in bit 64 and its index in the low word.
             let present = |bound: u128, flag| if (bound >> 64) & 1 != 0 { flag } else { 0 };
@@ -3652,6 +3670,11 @@ pub(crate) unsafe fn operation(
                     flags,
                     Some(&allocator),
                 )
+            } else if op == ALLOCATOR_TEXT_SLICE {
+                let source = text_views::text(source);
+                let positions = slice_positions(source.chars().count(), start, stop, step, flags);
+                strings::try_stepped_slice_range_in(source, positions, Some(&allocator))
+                    .map(|text| text as u128)
             } else {
                 try_list_slice_stepped(
                     &*(source as *const Collection),
@@ -3769,11 +3792,11 @@ pub(crate) unsafe fn collection_at(
     unsafe {
         // Reject unsupported allocator contexts before even inspecting the type
         // descriptor: it may belong to storage the context cannot safely use.
-        if op == ALLOCATOR_BYTES_SLICE {
+        if matches!(op, ALLOCATOR_BYTES_SLICE | ALLOCATOR_TEXT_SLICE) {
             // This five-input operation must enter through `operation`. Never
             // inspect a descriptor/operand if a host uses the wrong entry.
             crate::allocator::bindings::require_supported_context();
-            crate::fail("allocator byte slice requires five operands");
+            crate::fail("allocator slice requires five operands");
         }
         if op == ALLOCATOR_COPY {
             let allocator = crate::allocator::bindings::borrow_handle(a);

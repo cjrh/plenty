@@ -188,6 +188,13 @@ impl StorageBarrier {
     }
 }
 
+/// Whole-program facts about erased provider callbacks behind builtin leaves.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ProviderEffects {
+    pub bytes: bool,
+    pub text: bool,
+}
+
 impl Ty {
     /// Range payloads also occur inside standard sums. Tags remain in the
     /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
@@ -690,15 +697,15 @@ impl Ty {
     /// Whether releasing a value of this type can run compiled code: a class
     /// `__del__`, a generator's cleanup, or whatever a closure, channel or
     /// executor owns. Only such code can trap in std or read the caller
-    /// location. Strings, ordinary byte storage, and collections, boxes and records of
+    /// location. Ordinary strings and byte storage, and collections, boxes and records of
     /// them are freed by the runtime alone, which neither traps nor reads the
     /// caller. A release destroys only what it reaches, since the destruction
     /// queue is empty whenever a release starts a drain. So a user-code
     /// release of any other type needs no caller site (issue #750). An
     /// undefined forward reference counts as code.
-    pub(crate) fn release_runs_code(&self, providers: crate::bytes::ByteProviders) -> bool {
+    pub(crate) fn release_runs_code(&self, providers: ProviderEffects) -> bool {
         let facts = self.facts();
-        if facts.complete && !facts.destructor {
+        if !providers.text && facts.complete && !facts.destructor {
             return false;
         }
         let mut work = vec![self.clone()];
@@ -706,8 +713,8 @@ impl Ty {
         while let Some(ty) = work.pop() {
             match &ty {
                 _ if !ty.managed() => {}
-                Self::Str => {}
-                Self::ByteStorage if !providers.0 => {}
+                Self::Str if !providers.text => {}
+                Self::ByteStorage if !providers.bytes => {}
                 Self::List(t)
                 | Self::Array(t, _)
                 | Self::Set(t)

@@ -414,7 +414,7 @@ impl Lowerer<'_, '_> {
 pub(super) fn mark_context_preserving(
     bodies: &[(String, Arc<[Op]>)],
     fns: &mut HashMap<String, UserFn>,
-    providers: ByteProviders,
+    providers: ProviderEffects,
 ) {
     let index: HashMap<&str, usize> = bodies
         .iter()
@@ -541,7 +541,7 @@ fn safe_caller_body(
     sig: &FnSig,
     locals: &[Ty],
     allow_traps: bool,
-    providers: ByteProviders,
+    providers: ProviderEffects,
     callees: &mut impl FnMut(&str) -> bool,
 ) -> bool {
     use crate::collection::CollectionOp as C;
@@ -572,7 +572,9 @@ fn safe_caller_body(
                         if !primitive.signature().1.release_runs_code(providers)
                 ),
                 Op::Call(callee) | Op::TailCall(callee) => callees(callee),
-                Op::Collection(C::Bytes(primitive)) if providers.0 && primitive.may_grow() => false,
+                Op::Collection(C::Bytes(primitive)) if providers.bytes && primitive.may_grow() => {
+                    false
+                }
                 _ if allow_traps => primitive_reads_no_caller(op, providers),
                 Op::Collection(C::Trap)
                 | Op::Enum(crate::sum::EnumOp::Unwrap(_))
@@ -594,7 +596,7 @@ fn safe_caller_body(
 
 /// Whether `op`, outside a nested body, can read the caller context only
 /// through a trap site; see [`safe_caller_body`].
-fn primitive_reads_no_caller(op: &Op, providers: ByteProviders) -> bool {
+fn primitive_reads_no_caller(op: &Op, providers: ProviderEffects) -> bool {
     use crate::collection::CollectionOp as C;
     match op {
         Op::ReadRef(ty) => !ty.release_runs_code(providers),

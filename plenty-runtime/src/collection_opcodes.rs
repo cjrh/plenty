@@ -29,6 +29,8 @@ pub const ALLOCATOR_LIST_SLICE: i64 = 666;
 /// Same bounds as ALLOCATOR_LIST_SLICE, but source is a packed byte view
 /// (first byte address, byte count), not a collection handle. No descriptor.
 pub const ALLOCATOR_BYTES_SLICE: i64 = 667;
+/// As above, with a scalar-aligned UTF-8 view and an owning text result.
+pub const ALLOCATOR_TEXT_SLICE: i64 = 668;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;
@@ -127,7 +129,7 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         DICT_LAZY_FINISH | ALLOCATOR_BLOCK | ALLOCATOR_REGISTER => 1,
         // Slices: receiver, start, stop, step and the bound flags.
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
-        ALLOCATOR_LIST_SLICE | ALLOCATOR_BYTES_SLICE => 2,
+        ALLOCATOR_LIST_SLICE | ALLOCATOR_BYTES_SLICE | ALLOCATOR_TEXT_SLICE => 2,
         // A text view's source, start, stop and the bound flags.
         TEXT_VIEW_SUBVIEW | TEXT_VIEW_OF_STR => 1,
         // Child spawn: separate redirected files and explicit inherited files.

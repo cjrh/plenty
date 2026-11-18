@@ -142,7 +142,17 @@ such a segment; if reporting the fault may itself call a provider, compilation
 fails. This is a type-based check, not a test of the actual allocator or spare
 capacity. In a mixed program even an ordinary buffer may be refused. Borrowed
 indexing and scans of a byte view do not themselves grow or destroy an owner.
-Programs lacking either allocator feature retain their ordinary stack budgets.
+This rule applies independently to [selected text slices](alloc.md#copy-a-text-slice-with-an-output-allocator).
+If both `slice_text` and compiled provider registration are emitted, cleanup of
+an owned `str` (including inside a sum, record or collection) may invoke the
+provider. Reading the length of a borrowed string or `&strview` does not itself
+release an owner. However, the rejection bridge takes `Fault` by value, and
+several variants, including `UnknownField(str)`, own text. The type-based check
+therefore cannot bound that bridge even for an adapter that just returns its
+fault. Such a checked codec call fails to compile in the mixed program; it
+does not call the adapter on an unknown stack budget. Calling `slice_text` with
+only a system allocator in the emitted program, or registering a provider
+without emitting `slice_text`, does not enable this text restriction.
 
 Call `encode` and `decode` directly. To pass codec work as a function value,
 write an ordinary wrapper with concrete adapter types, keeping the checked

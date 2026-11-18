@@ -8,7 +8,8 @@
 //! `match` on an owned parameter and a payload binding read once are the
 //! common cases.
 //!
-//! Only copyable types qualify. They have no destructor, so ending their last
+//! Only copyable types without observable cleanup qualify. In particular, a
+//! selected text can run a compiled provider on final release. Ending an ordinary last
 //! owner earlier changes no observable cleanup, and the ownership checker has
 //! already accepted the frontend's operations, so diagnostics are unchanged.
 //! A reference reads the slot without naming it, so a read of a borrowed
@@ -19,7 +20,7 @@
 use std::sync::Arc;
 
 use crate::hash::{HashMap, HashSet};
-use crate::op::{CompiledFn, ElifArm, MatchArm, Op, Ty};
+use crate::op::{CompiledFn, ElifArm, MatchArm, Op, ProviderEffects, Ty};
 
 /// A set of local slots, which are numbered by `u8`.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -44,10 +45,10 @@ impl Slots {
 }
 
 /// Rewrite every function defined in `ops`, nested definitions included.
-pub(super) fn prepare(ops: &mut [Op], workers: usize) {
+pub(super) fn prepare(ops: &mut [Op], workers: usize, providers: ProviderEffects) {
     let rewrites: Vec<Option<Op>> =
         crate::parallel::map(ops.len(), workers, |index| match &ops[index] {
-            Op::DefineFn(name, f) => function(f).map(|f| Op::DefineFn(name.clone(), f)),
+            Op::DefineFn(name, f) => function(f, providers).map(|f| Op::DefineFn(name.clone(), f)),
             _ => None,
         });
     for (op, rewrite) in ops.iter_mut().zip(rewrites) {
@@ -59,7 +60,7 @@ pub(super) fn prepare(ops: &mut [Op], workers: usize) {
 
 /// `f` with its last-use loads turned into moves, or `None` when nothing
 /// changes.
-fn function(f: &CompiledFn) -> Option<Box<CompiledFn>> {
+fn function(f: &CompiledFn, providers: ProviderEffects) -> Option<Box<CompiledFn>> {
     let types: Vec<&Ty> = f
         .sig
         .inputs
@@ -69,10 +70,17 @@ fn function(f: &CompiledFn) -> Option<Box<CompiledFn>> {
         .collect();
     let mut borrowed = vec![false; types.len()];
     super::mark_borrowed_locals(&f.body, &mut borrowed);
-    let mut liveness = Liveness::default();
+    let mut liveness = Liveness {
+        providers,
+        ..Liveness::default()
+    };
     if f.generator.is_none() {
         for (slot, ty) in types.iter().enumerate() {
-            if ty.managed() && ty.can_copy() && !ty.has_destructor() {
+            if ty.managed()
+                && ty.can_copy()
+                && !ty.has_destructor()
+                && (!providers.text || !ty.release_runs_code(providers))
+            {
                 liveness.eligible.insert(slot as u8);
                 if borrowed[slot] {
                     liveness.borrowed.insert(slot as u8);
@@ -94,6 +102,7 @@ fn function(f: &CompiledFn) -> Option<Box<CompiledFn>> {
 
 #[derive(Default)]
 struct Liveness {
+    providers: ProviderEffects,
     /// Copyable, managed slots.
     eligible: Slots,
     /// Eligible slots that some operation borrows. A read of one is its last
@@ -313,7 +322,9 @@ impl Liveness {
                     self.nested(condition, exit.union(body_start), true, &mut changed);
                 changed.then_some(Op::Loop { condition, body })
             }
-            Op::DefineFn(name, f) if rewrite => function(f).map(|f| Op::DefineFn(name.clone(), f)),
+            Op::DefineFn(name, f) if rewrite => {
+                function(f, self.providers).map(|f| Op::DefineFn(name.clone(), f))
+            }
             _ => None,
         };
         (live, rewritten)

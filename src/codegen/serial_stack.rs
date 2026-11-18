@@ -40,7 +40,7 @@ impl Budgets {
         functions: &HashMap<String, UserFn>,
         protected: &HashSet<String>,
         box_releasers: &[(Ty, FuncId)],
-        providers: ByteProviders,
+        providers: ProviderEffects,
     ) {
         if protected.is_empty() {
             return;
@@ -197,7 +197,7 @@ struct Graph<'a> {
     box_releasers: &'a [(Ty, FuncId)],
     targets: &'a HashMap<String, Vec<String>>,
     edges: Vec<Edge>,
-    providers: ByteProviders,
+    providers: ProviderEffects,
     arguments: u64,
     unknown: bool,
     released: HashSet<(u8, Arc<str>)>,
@@ -208,7 +208,7 @@ impl<'a> Graph<'a> {
         functions: &'a HashMap<String, UserFn>,
         box_releasers: &'a [(Ty, FuncId)],
         targets: &'a HashMap<String, Vec<String>>,
-        providers: ByteProviders,
+        providers: ProviderEffects,
     ) -> Self {
         Self {
             functions,
@@ -347,7 +347,7 @@ impl<'a> Graph<'a> {
                 // These operations materialize an owned temporary, or release the
                 // old value of a borrowed place without storing it in a local.
                 Op::ReadRef(ty) | Op::WriteRef(ty) | Op::ReplaceRef(ty)
-                    if self.providers.0 && may_own_byte_storage(ty) =>
+                    if may_own_provider_leaf(ty, self.providers) =>
                 {
                     self.unknown = true;
                 }
@@ -359,7 +359,7 @@ impl<'a> Graph<'a> {
                             collection,
                             CollectionOp::Net(crate::net::NetOp::ReceiveFrom)
                         );
-                    if self.providers.0 && grows_bytes
+                    if self.providers.bytes && grows_bytes
                         || matches!(
                             collection,
                             CollectionOp::ListSortBy(_) | CollectionOp::Formatted(_)
@@ -472,8 +472,8 @@ impl<'a> Graph<'a> {
     clippy::mutable_key_type,
     reason = "type identity excludes definition cells"
 )]
-fn may_own_byte_storage(ty: &Ty) -> bool {
-    if !ty.managed() {
+fn may_own_provider_leaf(ty: &Ty, providers: ProviderEffects) -> bool {
+    if !(providers.text || providers.bytes) || !ty.managed() {
         return false;
     }
     let mut pending = vec![ty.clone()];
@@ -481,7 +481,9 @@ fn may_own_byte_storage(ty: &Ty) -> bool {
     while let Some(ty) = pending.pop() {
         match &ty {
             // An erased owning payload can hide the buffer from a type walk.
-            Ty::ByteStorage | Ty::BoxedCallable(..) | Ty::BoxedProtocol(_) => return true,
+            Ty::ByteStorage if providers.bytes => return true,
+            Ty::Str if providers.text => return true,
+            Ty::BoxedCallable(..) | Ty::BoxedProtocol(_) => return true,
             Ty::Class(t) if t.try_get().is_none() => return true,
             Ty::Enum(t) if t.try_get().is_none() => return true,
             _ if ty.managed() && seen.insert(ty.clone()) => {
@@ -638,12 +640,12 @@ mod tests {
             },
         )]);
         let targets = HashMap::default();
-        let mut graph = Graph::new(&functions, &[], &targets, ByteProviders(false));
+        let mut graph = Graph::new(&functions, &[], &targets, ProviderEffects::default());
         graph.call("callee", false);
         assert_eq!(graph.arguments, native_arguments);
         let identity = Ty::Callable(callable.clone()).identity_name();
         let targets = HashMap::from_iter([(identity.clone(), vec!["callee".into()])]);
-        let mut graph = Graph::new(&functions, &[], &targets, ByteProviders(false));
+        let mut graph = Graph::new(&functions, &[], &targets, ProviderEffects::default());
         graph.body(&[Op::CallIndirect(callable.clone())]);
         assert!(!graph.unknown);
         assert_eq!(graph.arguments, native_arguments);
@@ -652,7 +654,7 @@ mod tests {
         // All matching targets must be inspected; a safe first target cannot
         // hide an unavailable or recursive target with the same signature.
         let targets = HashMap::from_iter([(identity, vec!["callee".into(), "missing".into()])]);
-        let mut graph = Graph::new(&functions, &[], &targets, ByteProviders(false));
+        let mut graph = Graph::new(&functions, &[], &targets, ProviderEffects::default());
         graph.body(&[Op::CallIndirect(callable)]);
         assert!(graph.unknown);
     }
@@ -661,10 +663,10 @@ mod tests {
     fn runtime_callback_operations_fail_closed() {
         let functions = HashMap::default();
         let targets = HashMap::default();
-        let mut graph = Graph::new(&functions, &[], &targets, ByteProviders(false));
+        let mut graph = Graph::new(&functions, &[], &targets, ProviderEffects::default());
         graph.body(&[Op::Next(0)]);
         assert!(graph.unknown);
-        let mut graph = Graph::new(&functions, &[], &targets, ByteProviders(false));
+        let mut graph = Graph::new(&functions, &[], &targets, ProviderEffects::default());
         graph.body(&[Op::CallIndirect(Arc::new(crate::op::CallableSig {
             inputs: vec![],
             output: None,
