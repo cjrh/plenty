@@ -15,11 +15,35 @@ def run(command, *, success=True):
     return result
 
 
-def build(compiler, source, fast=False):
+def build(compiler, source, fast=False, *, success=True):
     command = ["python3", "-B", str(PACKAGE / "build.py"), "--plenty", str(compiler), str(source)]
     if fast:
         command.append("--fast-compile")
-    run(command)
+    return run(command, success=success)
+
+
+def check_contract_rejection(compiler, app, source, fast):
+    # These are valid Plenty but incompatible with the native owner. Only build
+    # them: executing a consuming event would invalidate the retained handle.
+    start = source.index("export def event(")
+    end = source.index("def main()", start)
+    event_signature = source[start:source.index("\n", start)].replace("&mut State", "State")
+    consuming_event = source[:start] + event_signature + "\n    Ok(())\n\n" + source[end:]
+    extra_export = source + '\nexport def extra() -> u32 = "gpui_app_extra":\n    0u32\n'
+    profile = "fast-compile" if fast else "optimized"
+    header = PACKAGE / "target" / profile / "gpui_app.h"
+    good_header = header.read_text().splitlines()
+    [event_prototype] = [line for line in good_header if line.startswith("uint32_t gpui_app_event(")]
+    [guard] = [line.removeprefix("void ").removesuffix("(void);") for line in good_header
+               if line.startswith("void gpui_app_plenty_contract_v1_")]
+    for name, variant in [("consuming event", consuming_event), ("extra export", extra_export)]:
+        app.write_text(variant)
+        result = build(compiler, app, fast, success=False)
+        candidate = header.read_text()
+        assert event_prototype in candidate.splitlines() and guard not in candidate
+        missing = [line for line in result.stderr.splitlines() if "undefined" in line and guard in line]
+        assert missing, result.stderr
+        print(f"PASS {profile}: {name}, same C event prototype: {missing[0]}")
 
 
 def main():
@@ -83,6 +107,7 @@ def main():
             result = run([runner, "--headless"], success=False)
             assert "Plenty create failed: AllocError code 1" in result.stderr
             assert "STATE_DESTROYED" not in result.stdout
+            check_contract_rejection(compiler, app, source, fast)
             app.write_text(source)
         if args.smoke:
             build(compiler, app)
@@ -106,7 +131,7 @@ def main():
         assert "thread" in result.stderr.lower(), result.stderr
     # Leave the useful uninstrumented counter selected for subsequent smoke tests.
     build(compiler, counter)
-    print("PASS: optimized/fast-compile state, events, errors, originating destructor, package, worker rejection")
+    print("PASS: optimized/fast-compile state, events, errors, originating destructor, ownership contract, package, worker rejection")
 
 
 if __name__ == "__main__":

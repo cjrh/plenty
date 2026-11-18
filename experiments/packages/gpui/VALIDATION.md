@@ -7,6 +7,53 @@ AMD Radeon 780M Graphics / RADV PHOENIX / Mesa 26.2.6,
 `is_software_emulated: false`. No test renderer or virtual desktop substituted.
 Artifacts and detailed logs stay in ignored `target/` and `/tmp/gpui-*`.
 
+## Expected ownership contract guard (issue #998, 2026-11-18)
+
+The native C shim now independently pins the reviewed GPUI callback contract
+`gpui_app_plenty_contract_v1_c4cde5ceb35056fbcff67de31ddbfbe2c497b3eaab6b858d848b85e284258f72`
+on the live factory path, before owner creation. It never takes the expected
+fingerprint from a candidate header. Callback C prototypes/error constants stay
+unchanged. The checked-in pin covers the whole exported interface: an unrelated
+extra export is also rejected, while private layout/body changes alone need not
+change the guard. Intentional ABI changes require ownership/error-contract review
+before updating the pin; this is not native-code authenticity checking.
+
+Actual focused validation:
+
+- Before the correction, a valid Plenty by-value `event(state: State, ...)`
+  variant linked in both compilation modes despite the same C event prototype
+  as the borrowed callback. These unsafe fixtures were **only built, never
+  executed**. `/tmp/gpui-ownership-before/` retains source, build logs, headers
+  and link commands.
+- `make test` passed: six native boundary tests, zero doctests, and the full
+  package's optimized/fast-compile headless counter suite. New build-only
+  negatives reject consuming event ownership and an unrelated additional
+  export in each mode. They require the unchanged C event prototype, changed
+  candidate fingerprint and final link's undefined *expected* guard, proving
+  rejection is not merely a frontend/type error. Neither mismatch is run.
+  Existing Count0→1→2→0, exactly-once originating destruction, error/factory,
+  package and worker checks remain passing. `/tmp/gpui-ownership-package-tests.log`.
+- Independent instrumented valid-counter runs in each mode produced
+  Count0→1→2→0 and exactly one `STATE_DESTROYED`. Captured headers, link/build
+  commands and output: `/tmp/gpui-ownership-evidence/{optimized,fast-compile}/`;
+  summary `/tmp/gpui-ownership-valid-controls.log`. Both output profiles were
+  restored to the uninstrumented valid counter afterward.
+- Application-feature/all-target native tests: seven passed;
+  package Rust fmt and strict application-feature/all-target Clippy passed.
+  `/tmp/gpui-ownership-{native-application-tests,fmt,clippy}.log`.
+  Existing upstream future-incompat warnings remain; no dependency changed.
+- Four helper Python regressions passed with outer `CARGO_TERM_QUIET=true`:
+  `/tmp/gpui-ownership-helper-tests.log`.
+- Package-local Markdown targets: two pages/three targets/zero missing, checked
+  with repository root and package scope:
+  `/tmp/gpui-ownership-package-links-final.log`.
+
+Actual GUI-package commands unset `DISPLAY` and `WAYLAND_DISPLAY` and used the
+installed-system-library symlink in `/tmp/gpui-native-libs` through `LIBRARY_PATH`.
+No desktop input/smoke, iced edits, compiler/book changes or new platform/release/
+redistribution qualification. Earlier qualification below is historical evidence
+for its recorded candidates, not a new hardware run for this correction.
+
 ## Cargo artifact and diagnostic correction (issue #995, 2026-11-18)
 
 Review of `a3a7637c` found that the helper and nested Cargo-runtime proof guessed

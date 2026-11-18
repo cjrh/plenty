@@ -40,9 +40,9 @@ other distributions. No system packages are installed by the helper.
 `--plenty /absolute/path/to/plenty` selects a matching compiler.
 `--fast-compile` changes Plenty compilation; `--release` also optimizes the
 Rust native support archive. `build.py FILE`
-accepts a **single-file** application following `examples/counter.plenty`'s
-exports. Its only local imports may be `gpui` and `std`; application module-tree
-staging is not supported. Other Plenty projects can depend on this source
+accepts a **single-file** application with `examples/counter.plenty`'s exact
+reviewed `gpui_app` export contract. Its only local imports may be `gpui` and
+`std`; application module-tree staging is not supported. Other Plenty projects can depend on this source
 package by path for checking, but native linking is always explicit.
 
 The helper stages `gpui.plenty`, its trusted declarations and the application
@@ -61,9 +61,11 @@ The default compiler/runtime graph and ordinary CLI programs do not acquire GPUI
 or its platform libraries. The explicit helper, Cargo/rustc sources and native
 prerequisites are needed **only for this opt-in build**; automatic package native
 build selection is not implemented. Build with the matching compiler and runtime
-source revision. The generated header is compiled by `native/app.c`, so incompatible
-application exports fail the native build. `native-build.log`, `link-command.txt`
-and `native-link-args.txt` beside the executable record the actual build/link.
+source revision. The generated header is compiled by `native/app.c` for C shape
+checks; the shim also pins the expected ownership contract as described below.
+Incompatible application exports fail the native build or final link.
+`native-build.log`, `link-command.txt` and `native-link-args.txt` beside the
+executable record the actual build/link.
 No runtime Rust compiler or package output layout is needed when running it.
 
 ## API and lifecycle
@@ -77,6 +79,18 @@ names under executable callback namespace `gpui_app`:
   -> Result[(), gpui.GpuiError] = "gpui_app_render"`.
 - `event(state: &mut State, action: u64) -> Result[(), gpui.GpuiError]
   = "gpui_app_event"`.
+
+The [C shim](native/app.c) calls an independently **pinned contract guard** on
+its live factory path before creating the owner. It does not select the expected
+guard from each candidate's header. This distinguishes an exclusive loan from
+ownership transfer even though `event(state: &mut State, ...)` and
+`event(state: State, ...)` have identical C pointer prototypes: the latter fails
+the final link. The guard checks the [whole generated interface](../../../book/src/design/facilities/04-interop/contracts.md#compatibility-fingerprints),
+not just callbacks used by GPUI; even an unrelated additional export is rejected.
+Private state layout and function bodies do not by themselves change the guard.
+Intentional interface changes require reviewing the generated contract against
+the bridge's ownership/error assumptions before updating the checked-in pin.
+This is compatibility checking, not validation of native code's trustworthiness.
 
 `State` is the owned exported Plenty class; Rust calls its generated originating
 destructor exactly once after callback cessation. All native code remains
@@ -142,8 +156,10 @@ See [the measured qualification record](VALIDATION.md) for actual results and co
 The deterministic suite checks copied UTF-8/NUL/empty text, limits and malformed
 input, thread/phase/stale tokens, callback errors, original Plenty destruction,
 null callback configuration, failed factories, package resolution and worker
-rejection. Both Plenty compilation modes are tested. It leaves the uninstrumented
-counter selected. `target/optimized/plenty-gpui --headless 1 1 2` runs real
+rejection. Build-only negative fixtures reject consuming event ownership despite
+its identical C prototype, and reject an unrelated extra export; neither
+mismatched application is executed. Both Plenty compilation modes are tested.
+It leaves the uninstrumented counter selected. `target/optimized/plenty-gpui --headless 1 1 2` runs real
 Plenty/native ABI and model tests, **not** a GPUI window or test renderer.
 
 The X11 smoke uses XTest clicks and rendered Count-region pixels, restores the

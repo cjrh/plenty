@@ -10,7 +10,13 @@ _Static_assert(gpui_app_GpuiError_InvalidLayout == 4, "error ABI");
 _Static_assert(gpui_app_GpuiError_InvalidArgument == 5, "error ABI");
 _Static_assert(gpui_app_GpuiError_NativeFailure == 6, "error ABI");
 
+/* Pin the reviewed counter contract, not the fingerprint of the current input.
+ * C prototypes alone cannot distinguish State from &mut State. */
+#define REQUIRE_GPUI_APP_CONTRACT gpui_app_plenty_contract_v1_c4cde5ceb35056fbcff67de31ddbfbe2c497b3eaab6b858d848b85e284258f72
+extern void REQUIRE_GPUI_APP_CONTRACT(void);
+
 void *plgp_app_create(uint32_t *error) {
+    REQUIRE_GPUI_APP_CONTRACT();
     gpui_app_State *state = NULL;
     if (gpui_app_create(&state, error) != 0) return NULL;
     return state;
