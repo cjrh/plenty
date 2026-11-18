@@ -24,7 +24,7 @@ run from the checkout root:
 (cd examples/gui/iced_counter && plenty run)
 ```
 
-```plenty fragment
+```plenty build
 {{#include ../../../../examples/gui/iced_counter/src/main.plenty}}
 ```
 

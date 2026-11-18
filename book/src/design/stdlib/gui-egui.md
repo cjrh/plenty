@@ -24,7 +24,7 @@ run from the checkout root:
 (cd examples/gui/egui_counter && plenty run)
 ```
 
-```plenty fragment
+```plenty build
 {{#include ../../../../examples/gui/egui_counter/src/main.plenty}}
 ```
 

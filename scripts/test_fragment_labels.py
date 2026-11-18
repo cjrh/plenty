@@ -25,20 +25,21 @@ function code(classes) {
         labels: [],
         before(label) { this.labels.push(label); this.previousElementSibling = label; },
     };
-    return { classes, pre, textContent: 'source text', closest() { return pre; } };
+    return { classes, classList: {contains: c => classes.includes(c)}, pre, textContent: 'source text', closest() { return pre; } };
 }
 const fragment = code(['language-plenty', 'fragment']);
 const runnable = code(['language-plenty']);
 const error = code(['language-plenty-error']);
 const companion = code(['language-plenty-file']);
-const blocks = [fragment, runnable, error, companion];
+const build = code(['language-plenty', 'build']);
+const blocks = [fragment, build, runnable, error, companion];
 for (const version of ['10.7.3', '11.0.0']) {
     const context = {
         document: {
             createElement: element,
             querySelectorAll(selector) {
-                const classes = selector.slice('code.'.length).split('.');
-                return blocks.filter(block => classes.every(c => block.classes.includes(c)));
+                const patterns = selector.split(', ').map(s => s.slice('code.'.length).split('.'));
+                return blocks.filter(block => patterns.some(classes => classes.every(c => block.classes.includes(c))));
             },
         },
         hljs: {
@@ -52,6 +53,8 @@ for (const version of ['10.7.3', '11.0.0']) {
     vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
 }
 assert.equal(fragment.pre.labels.length, 1);
+assert.equal(build.pre.labels.length, 1);
+assert.equal(build.pre.labels[0].children[0].textContent, 'Build only · linked, not run');
 const label = fragment.pre.labels[0];
 assert.equal(label.className, 'plenty-fragment-label');
 assert.equal(label.children[0].textContent, 'Fragment · not executed');

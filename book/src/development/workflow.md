@@ -276,6 +276,14 @@ appear in `SUMMARY.md`. The examples run as 16 tests in parallel, each taking
 every 16th example in reading order; a failure names the example's page and
 line.
 
+A `plenty build` fence is a complete executable with no expected-output fence.
+The **Link build-only book examples** CI job compiles and links it without
+running it. Inline source gets a temporary package. A fence containing only
+an mdBook file include must name an executable entry in a real package;
+all binaries in that package build together. On a [GUI build host](../design/stdlib/gui-build.md),
+run `python3 -B scripts/build_book_examples.py --plenty target/debug/plenty`
+with a matching normal compiler (not `runtime-checks`) and cached dependencies.
+
 `book/theme/plenty-highlight.js` registers the highlight.js grammars for these
 fences: Plenty source for `plenty`, `plenty fragment`, `plenty-error` and `plenty-file`, compiler
 diagnostics with highlighted `` `code` `` for `error`, and plain text for
