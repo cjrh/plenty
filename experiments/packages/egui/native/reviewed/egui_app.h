@@ -15,7 +15,7 @@ extern "C" {
  * Keep the originating shared library loaded while calling its functions.
  */
 
-typedef struct egui_app_State egui_app_State;
+typedef struct egui_app_Driver egui_app_Driver;
 /* Requires: null or one live owned handle from this library instance.
  * Use its creating thread, with no outstanding borrows or concurrent/reentrant access.
  * Keep the originating library loaded through this call.
@@ -23,11 +23,7 @@ typedef struct egui_app_State egui_app_State;
  * running its destructor and field cleanup. All aliases become invalid.
  * Call exactly once per owned handle; never use free() or another library's destroy.
  */
-void egui_app_State_destroy(egui_app_State *value);
-
-/* AllocError codes, written to *out_error when a call returns 1. */
-#define egui_app_AllocError_OutOfMemory UINT32_C(0)
-#define egui_app_AllocError_CapacityOverflow UINT32_C(1)
+void egui_app_Driver_destroy(egui_app_Driver *value);
 
 /* EguiError codes, written to *out_error when a call returns 1. */
 #define egui_app_EguiError_OutOfMemory UINT32_C(0)
@@ -37,26 +33,10 @@ void egui_app_State_destroy(egui_app_State *value);
 #define egui_app_EguiError_InvalidArgument UINT32_C(4)
 #define egui_app_EguiError_NativeFailure UINT32_C(5)
 
-/* Plenty declaration: create.
- * Guarantees: scalar values are copied; borrowed storage is never retained.
- * On Ok, out_ok receives one non-null owned handle from this library.
- * Release it exactly once with egui_app_State_destroy; never use free().
- * On Err no handle is transferred and out_ok is unchanged.
- */
-/* Returns 0 for Ok, 1 for Err; no other status is returned.
- * Output pointers must be non-null, aligned, writable, mutually disjoint,
- * and disjoint from all input borrows for the whole call.
- * Output storage need not be initialized. Only the selected output is written;
- * the other output is unchanged. No old output value is released.
- * Err does not promise to undo mutations to borrowed inputs.
- */
-/* On Err, *out_error is one of the egui_app_AllocError_* codes. */
-uint32_t egui_app_create(egui_app_State * *out_ok, uint32_t *out_error);
-
-/* Plenty declaration: draw.
+/* Plenty declaration: draw_frame.
  * Guarantees: scalar values are copied; borrowed storage is never retained.
  * No ownership crosses this interface.
- * Requires p0: a live non-null egui_app_State handle from this library instance,
+ * Requires p0: a live non-null egui_app_Driver handle from this library instance,
  * used on its creating thread, with the library kept loaded.
  * Exclusive borrow: no other argument or alias may access this owner or
  * its fields during this call, including concurrent/reentrant access.
@@ -71,14 +51,14 @@ uint32_t egui_app_create(egui_app_State * *out_ok, uint32_t *out_error);
  * Err does not promise to undo mutations to borrowed inputs.
  */
 /* On Err, *out_error is one of the egui_app_EguiError_* codes. */
-uint32_t egui_app_draw(egui_app_State * p0, uint64_t p1, uint32_t *out_error);
+uint32_t egui_app_draw_frame(egui_app_Driver * p0, uint64_t p1, uint32_t *out_error);
 
-/* Interface SHA-256: 89958b2fdbfd0d0f069c1bc193892a0a85ea81d6e227fd12a11fe40d3950d06f
+/* Interface SHA-256: 8ea305e9b850cf50caae7e3b1870a3072a4bb551cb5f22e515bd5707dcd36a11
  * Optional C compatibility guard: calling this no-op requires the exact
  * generated contract at link/symbol resolution. Does not allocate.
  * A fingerprint checks compatibility, not authenticity or implementation safety.
  */
-void egui_app_plenty_contract_v1_89958b2fdbfd0d0f069c1bc193892a0a85ea81d6e227fd12a11fe40d3950d06f(void);
+void egui_app_plenty_contract_v1_8ea305e9b850cf50caae7e3b1870a3072a4bb551cb5f22e515bd5707dcd36a11(void);
 
 /* Requires: length points to writable, aligned size_t storage (not null).
  * Writes the byte length; returns immutable UTF-8 metadata, without a NUL

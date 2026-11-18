@@ -13,7 +13,7 @@ REPO = PACKAGE.parents[2]
 
 
 # Reviewed ownership contract, independent of the header generated for this build.
-GUARD = (PACKAGE / "native/expected-contract.txt").read_text().strip()
+GUARD = (PACKAGE / "native/legacy/expected-contract.txt").read_text().strip()
 
 
 def main():
@@ -42,7 +42,7 @@ def main():
     executable = out / "plenty-egui"
     link = [sys.executable, REPO / "scripts/link_native_executable.py",
             "--manifest-path", PACKAGE / "native/Cargo.toml", "--lib-name", "plenty_egui",
-            "--target-dir", PACKAGE / "native/target", "--features", "application",
+            "--target-dir", PACKAGE / "native/target", "--features", "legacy-application",
             "--require-contract", GUARD, "-o", executable, out / "application.o"]
     if args.release:
         link.append("--release")

@@ -1780,7 +1780,7 @@ class Ui
     def label(self, text: &str) -> Result[(), EguiError]
     def button(self, text: &str) -> Result[bool, EguiError]
     def text_edit(self, id: u64, text: &mut str) -> Result[bool, EguiError]
-def run() -> Result[(), EguiError]
+def run[S](create: Callable[[], Result[S, AllocError]], draw: Callable[[&mut S, &Ui], Result[(), EguiError]]) -> Result[(), EguiError]
 ```
 
 ## `std.gui.retained.iced`

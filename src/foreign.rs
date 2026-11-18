@@ -14,6 +14,8 @@ pub enum Argument {
     /// byte stride). Views have stride 1. A mutable list loan permits scalar
     /// writes only; no form permits retention/resizing.
     Strided,
+    /// Loan an existing boxed class to a synchronous checked export adapter.
+    ScopedBox,
 }
 
 #[derive(Clone, Debug, PartialEq)]

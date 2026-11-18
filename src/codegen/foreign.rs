@@ -202,7 +202,7 @@ impl Lowerer<'_, '_> {
                 continue;
             }
             match mode {
-                Argument::Direct => signature.params.push(parameter(ty)),
+                Argument::Direct | Argument::ScopedBox => signature.params.push(parameter(ty)),
                 Argument::Utf8 => signature
                     .params
                     .extend([AbiParam::new(PTR_TY), AbiParam::new(types::I64)]),
@@ -248,6 +248,16 @@ impl Lowerer<'_, '_> {
                         bool_outputs.push(argument);
                     }
                     native_arguments.push(argument)
+                }
+                Argument::ScopedBox => {
+                    // The exclusive reference points at the Box owner slot. Lend
+                    // its allocation, not the slot or a pointer to its fields.
+                    native_arguments.push(self.bcx.ins().load(
+                        PTR_TY,
+                        MemFlagsData::trusted(),
+                        argument,
+                        0,
+                    ));
                 }
                 Argument::Errno => errno_output = Some(argument),
                 Argument::Strided if matches!(sig.inputs[index].1, Ty::View(..)) => {

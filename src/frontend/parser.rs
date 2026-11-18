@@ -947,6 +947,8 @@ impl Parser {
                     crate::foreign::Argument::CStrings
                 } else if token.is("errno") {
                     crate::foreign::Argument::Errno
+                } else if self.standard && token.is("scoped_box") {
+                    crate::foreign::Argument::ScopedBox
                 } else if token.is("strided") {
                     crate::foreign::Argument::Strided
                 } else {
