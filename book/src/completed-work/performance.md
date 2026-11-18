@@ -1835,6 +1835,24 @@ local implementation and qualification, not publication or production backend
 adoption: no lockfile changes ship here. Issue #977 remains open for those
 steps; the fork needs user-authorized publication before its production pin.
 
+## Mandelbrot scalar-copy investigation (issue #978)
+
+The x86-64 escape kernel and benchmark use 20 instructions per pass, including
+six scalar copies. The scalar GCC kernel uses 15 instructions, including three
+copies. Commuting only the second imaginary multiply lets its SSE2 result
+reuse the loop's existing imaginary register and removes one backedge copy.
+The experimental benchmark reaches 19 instructions per pass and retires 4.57%
+fewer instructions at size 4000. All output bytes match the original and C.
+The C/CLIF oracle passes 480,000 comparisons per profile, including unordered
+inputs. AVX reduces the original loop to one scalar copy. Prioritizing
+loop-edge coalescing in an allocator probe leaves the original loop unchanged
+and increases the count in a rotated control.
+
+The probes and measurements live in `experiments/kernels/escape-copies/`.
+The fixed benchmark remains the compiler regression input. Adopting a general
+lowering improvement for the imaginary multiply and avoiding the two real-value
+backedge copies remain open under issue #978.
+
 ## Rejected declared-vector adoption (issue #967)
 
 The source-level Vec3 prototype in local PR #1274 implemented the initial f64

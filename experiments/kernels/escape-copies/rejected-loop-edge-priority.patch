@@ -1,0 +1,40 @@
+diff --git a/src/ion/merge.rs b/src/ion/merge.rs
+index d130bff8..e7802e54 100644
+--- a/src/ion/merge.rs
++++ b/src/ion/merge.rs
+@@ -393,2 +393,35 @@ impl<'a, F: Function> Env<'a, F> {
+
++        // Attempt to merge blockparams with their inputs.
++        for i in 0..self.blockparam_outs.len() {
++            let BlockparamOut {
++                from_vreg,
++                to_vreg,
++                to_block,
++                from_block,
++                ..
++            } = self.blockparam_outs[i];
++            if self.cfginfo.approx_loop_depth[from_block.index()] == 0 {
++                continue;
++            }
++            // Keep a loop's values out of a loop-exit block's bundles.
++            if self.cfginfo.loop_exit_block[to_block.index()] {
++                continue;
++            }
++            trace!(
++                "trying to merge blockparam v{} with input v{}",
++                to_vreg.index(),
++                from_vreg.index()
++            );
++            let to_bundle = self.ranges[self.vregs[to_vreg].ranges[0].index].bundle;
++            debug_assert!(to_bundle.is_valid());
++            let from_bundle = self.ranges[self.vregs[from_vreg].ranges[0].index].bundle;
++            debug_assert!(from_bundle.is_valid());
++            trace!(
++                " -> from bundle{} to bundle{}",
++                from_bundle.index(),
++                to_bundle.index()
++            );
++            self.merge_bundles(from_bundle, to_bundle);
++        }
++
+         for inst in 0..self.func.num_insts() {
