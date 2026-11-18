@@ -912,6 +912,12 @@ two-word view representation are unchanged. This delivers the byte-access slice
 of issue #864; broader read-only inputs are covered by the reader records above. The [Text reference](../design/facilities/01-builtins/text.md) and
 [byte views](../design/stdlib/bytes.md#byte-views) describe the contracts.
 
+Ordinary `Bytes` slices and cached loop accesses use separate shared and
+exclusive native address helpers (issue #1013). A loop with a cached write
+borrows its buffer exclusively for setup and uses that address for both reads
+and writes. If an earlier loan may still be live at entry, the setter borrows
+at its original call site. See the [collection lowering](../design/toolchain/02-architecture/collections.md).
+
 Builtin text operations now accept substring views directly: scalar lookup,
 search, classification, transformations, splitting/joining, copying slices
 (including steps), repetition, numeric parsing and `ord`. String and view

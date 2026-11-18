@@ -193,9 +193,12 @@ impl Lowerer<'_, '_> {
             }
             _ => {
                 let bytes = self.reference_word(owner);
-                let helper = self
-                    .module
-                    .declare_func_in_func(self.runtime.byte_view, self.bcx.func);
+                let entry = if mutable {
+                    self.runtime.byte_view_mut
+                } else {
+                    self.runtime.byte_view
+                };
+                let helper = self.module.declare_func_in_func(entry, self.bcx.func);
                 let call = self.bcx.ins().call(helper, &[bytes]);
                 let words = self.bcx.inst_results(call);
                 (words[0], words[1])

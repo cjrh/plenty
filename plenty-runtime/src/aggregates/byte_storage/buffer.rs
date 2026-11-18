@@ -150,16 +150,28 @@ impl Storage {
         bytes
     }
 
-    /// A generated view holds the owner's loan and may not outlive or resize
-    /// it. Writable views require an exclusive Plenty loan. Keep the legacy
-    /// Vec path unchanged; selected rows retain the backing pointer's provenance.
+    /// Borrow only metadata when acquiring view pointers: a disjoint range
+    /// of the payload may already have an exclusive view.
     pub(super) fn view_parts(&self) -> (*const u8, usize) {
         match &self.bytes {
-            Buffer::Ordinary(bytes) => (bytes.as_slice().as_ptr(), bytes.len()),
+            Buffer::Ordinary(bytes) => (bytes.as_ptr(), bytes.len()),
             Buffer::Selected(data) => (
                 data.backing
                     .as_ref()
                     .map_or(std::ptr::dangling::<u8>(), Block::as_ptr),
+                data.len,
+            ),
+        }
+    }
+    pub(super) fn view_parts_mut(&mut self) -> (*mut u8, usize) {
+        match &mut self.bytes {
+            Buffer::Ordinary(bytes) => (bytes.as_mut_ptr(), bytes.len()),
+            Buffer::Selected(data) => (
+                data.backing.as_mut().map_or(ptr::dangling_mut(), |block| {
+                    // SAFETY: this private block holds only packed bytes; the
+                    // generated view is limited by its length and payload loan.
+                    unsafe { block.as_mut_ptr() }
+                }),
                 data.len,
             ),
         }

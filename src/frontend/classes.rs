@@ -1641,7 +1641,7 @@ impl Lower<'_> {
         };
         // Before the receiver's borrow, which the cache's own reads precede.
         let bytes_view = match (name, *mutable) {
-            ("get", false) | ("set", true) => self.indexed_bytes_view(base, receiver)?,
+            ("get", false) | ("set", true) => self.indexed_bytes_view(base, receiver, *mutable)?,
             _ => None,
         };
         let start = ops.len();

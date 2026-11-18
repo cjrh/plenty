@@ -1039,6 +1039,7 @@ impl Lower<'_> {
     ) -> Result<bool> {
         self.indexed_lists.push(collections::IndexedLists::new(
             self.parameters + self.locals.len(),
+            self.loans.len(),
         ));
         let mut test = Vec::new();
         self.forget_condition(condition);
@@ -1220,7 +1221,7 @@ struct Lower<'a> {
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
-    range_stop: Option<((u8, Vec<usize>), u8)>,
+    range_stop: Option<collections::RangeStop>,
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,

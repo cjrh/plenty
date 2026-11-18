@@ -58,11 +58,16 @@ fn reversed_slice_owns_exact_destination_and_grows_after_both_sources_drop() {
     unsafe {
         assert_eq!(run(172, [dst.0, 0, 0, 0, 0]), 3);
         assert_eq!(plenty_bytes_push(dst.0 as *mut u8, b'!' as u64), 0);
-        let view = plenty_byte_view(dst.0 as *const u8);
+        let owner = dst.0 as *mut u8;
+        let view = plenty_byte_view_mut(owner);
         assert_eq!(view.1, 4);
-        assert_eq!(view.0, plenty_byte_view_rows(dst.0 as *const u8) as u64);
+        let tail = plenty_byte_view(owner);
+        assert_eq!(tail.1, 4);
         (view.0 as *mut u8).add(1).write(b'X');
-        assert_eq!(bytes(&dst), b"cXa!");
+        assert_eq!((tail.0 as *const u8).add(2).read(), b'a');
+        plenty_byte_view_rows_mut(owner).add(3).write(b'?');
+        assert_eq!(plenty_byte_view_rows(owner).add(3).read(), b'?');
+        assert_eq!(bytes(&dst), b"cXa?");
     }
     assert_eq!(output_counts.lock().unwrap().calls, 3);
     assert_eq!(output_counts.lock().unwrap().live, 2);

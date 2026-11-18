@@ -93,20 +93,6 @@ pub(super) unsafe fn source<'a>(value: u128) -> &'a [u8] {
     }
 }
 
-/// Unlike `source`, a view's raw address can also be passed to generated
-/// writers. Never derive a selected writable address from a shared slice.
-unsafe fn view_parts(owner: *const u8) -> (*const u8, usize) {
-    // SAFETY: compiler operands are live storage or read-only immortal text.
-    unsafe {
-        if (*owner.cast::<Header>()).destroy.is_none() {
-            let bytes = strings::heap_bytes(owner.cast());
-            (bytes.as_ptr(), bytes.len())
-        } else {
-            (*owner.cast::<Storage>()).view_parts()
-        }
-    }
-}
-
 /// The bytes of a `&[u8]` view operand: the address of its first byte in the
 /// low word and its length in the high word, as slice views lower. The
 /// caller's loan keeps the viewed owner in place through the call.
@@ -491,13 +477,19 @@ pub(crate) unsafe extern "C" fn plenty_bytes_set(owner: *mut u8, index: i64, val
     );
 }
 
-/// The address of the first byte of a live buffer or `bytes` literal, for a
-/// slice view. Its loan keeps the storage from growing while the view exists;
-/// a shared view of a literal only reads it.
+/// The first byte of a buffer, cached by a read-only loop.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *const u8 {
-    // SAFETY: the compiler keeps the owner alive through the call.
-    unsafe { view_parts(owner).0 }
+    // SAFETY: the compiler holds a shared loan of a live storage owner.
+    unsafe { (*owner.cast::<Storage>()).view_parts().0 }
+}
+
+/// The first byte of a buffer, cached by a loop that can write it.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_rows_mut(owner: *mut u8) -> *mut u8 {
+    // SAFETY: cache setup exclusively borrows the live storage owner. The
+    // loop preserves the allocation and checks a receiver loan at each use.
+    unsafe { (*owner.cast::<Storage>()).view_parts_mut().0 }
 }
 
 /// Two result words in the two return registers of the C ABI.
@@ -511,12 +503,28 @@ impl Words {
     }
 }
 
-/// The first byte address and byte count of a live buffer or `bytes`
-/// literal, for a slice view: one call for both words (issue #931).
+/// The first byte address and count for a shared slice of a buffer or literal.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_byte_view(owner: *const u8) -> Words {
-    // SAFETY: the compiler keeps the owner alive through the call.
-    let (address, len) = unsafe { view_parts(owner) };
+    // SAFETY: either layout starts with a live header. The caller's loan
+    // keeps a buffer in place, and a literal is immutable and immortal.
+    let (address, len) = unsafe {
+        if (*owner.cast::<Header>()).destroy.is_none() {
+            let bytes = strings::heap_bytes(owner.cast());
+            (bytes.as_ptr(), bytes.len())
+        } else {
+            (*owner.cast::<Storage>()).view_parts()
+        }
+    };
+    Words(address as u64, len as u64)
+}
+
+/// The first byte address and count for an exclusive slice of a buffer.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_mut(owner: *mut u8) -> Words {
+    // SAFETY: the caller lends a live buffer for the selected range and
+    // keeps it in place. No reference to disjoint bytes is formed here.
+    let (address, len) = unsafe { (*owner.cast::<Storage>()).view_parts_mut() };
     Words(address as u64, len as u64)
 }
 

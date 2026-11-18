@@ -1347,12 +1347,16 @@ struct Runtime {
     /// `plenty_view_sort_stable_by(...)`, as `view_sort_by`, returning the
     /// high word of `Result[(), AllocError]`.
     view_sort_stable_by: FuncId,
-    /// `plenty_byte_view_rows(owner) -> first byte address`, for an index
-    /// into a buffer or `bytes` literal.
+    /// `plenty_byte_view_rows(owner) -> first byte address`, for a read-only
+    /// cache of a byte buffer.
     byte_view_rows: FuncId,
+    /// The writable address for a cache that serves a write.
+    byte_view_rows_mut: FuncId,
     /// `plenty_byte_view(owner) -> (first byte address, byte count)`, for
-    /// slice views of a buffer or `bytes` literal.
+    /// shared slice views of a buffer or `bytes` literal.
     byte_view: FuncId,
+    /// The corresponding writable address and count for a buffer.
+    byte_view_mut: FuncId,
     /// `plenty_bytes_to_text(address, count) -> the two words of
     /// Result[Option[str], AllocError]`.
     bytes_to_text: FuncId,
@@ -1693,7 +1697,9 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(types::I64),
         )?,
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
+        byte_view_rows_mut: helper(module, "plenty_byte_view_rows_mut", &[PTR_TY], Some(PTR_TY))?,
         byte_view: pair_helper(module, "plenty_byte_view", &[PTR_TY])?,
+        byte_view_mut: pair_helper(module, "plenty_byte_view_mut", &[PTR_TY])?,
         bytes_to_text: pair_helper(module, "plenty_bytes_to_text", &[PTR_TY, types::I64])?,
         dict_get_or_insert: pair_helper(
             module,

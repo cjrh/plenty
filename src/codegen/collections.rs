@@ -370,7 +370,7 @@ impl Lowerer<'_, '_> {
 
     /// A runtime helper that answers `operation` directly: no argument block,
     /// descriptor, or caller frame, because it never calls back into Plenty
-    /// (issue #364). It takes the receiver word (`true`: read through the shared
+    /// (issue #364). It takes the receiver word (`true`: read through the
     /// reference the frontend keeps under its loan; `false`: owned and released
     /// here), or a view's address/count, the remaining inputs as words, and
     /// then the site, if any.
@@ -415,6 +415,7 @@ impl Lowerer<'_, '_> {
                 let helper = match query {
                     Query::BytesLen => runtime.bytes_len,
                     Query::BytesRows => runtime.byte_view_rows,
+                    Query::BytesRowsMut => runtime.byte_view_rows_mut,
                     Query::TextLen => runtime.text_len,
                     Query::TextByteLen => runtime.text_byte_len,
                     Query::TextIsAscii => runtime.text_is_ascii,
