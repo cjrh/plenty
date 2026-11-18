@@ -223,7 +223,7 @@ h1 span {
 }
 
 .example-notes ul {
-  margin: 16px 0 0;
+  margin: 0;
   padding-inline-start: 1.25em;
   color: var(--muted);
   line-height: 1.6;

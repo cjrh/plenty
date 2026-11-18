@@ -55,7 +55,7 @@
           </p>
         </article>
       </section>
-      <section class="language-example" aria-labelledby="example-title">
+      <section class="language-example" id="example-title" aria-label="Plenty code example">
         <pre class="example-code" tabindex="0" aria-label="Plenty source code"><code class="language-plenty"><span class="code-keyword">def</span> main() -&gt; Result[(), AllocError | IoError]:
     lines: array[str, 3] = [
         <span class="code-string">"INFO Ready"</span>, <span class="code-string">"&gt; &gt; WARN Disk almost full"</span>, <span class="code-string">"WARN High CPU"</span>,
@@ -78,7 +78,6 @@
         <span class="code-keyword">return</span> is_warning(&amp;line[2:])
     line.startswith(<span class="code-string">"WARN "</span>)</code></pre>
         <div class="example-notes">
-          <h2 id="example-title">Find warnings in forwarded logs</h2>
           <ul>
             <li><strong>Pythonic syntax.</strong> Indented blocks and a list comprehension keep the filtering readable.</li>
             <li><strong>Rust-style sum types.</strong> <code>match</code> handles both cases of <code>Option</code>. The anonymous sum <code>AllocError | IoError</code> lets <code>Result</code> carry either error type.</li>
@@ -86,7 +85,7 @@
             <li><strong>Allocation-free generators.</strong> <code>yield</code> produces one warning at a time without allocating a generator frame on the heap.</li>
             <li><strong>Fallible allocation.</strong> The fixed array is stored inline. The comprehension builds a heap list and <code>?</code> propagates allocation failure.</li>
             <li><strong>Checked borrowing.</strong> <code>&amp;lines</code> lends the array to the generator. The compile-time <code>N</code> lets the same function accept arrays of any length.</li>
-            <li>And <a href="@DOCS_PREFIX@design/language/index.html" target="_blank" rel="noopener">much more</a>.</li>
+            <li>And <a href="@DOCS_PREFIX@design/language/index.html" target="_blank" rel="noopener">plenty more</a>.</li>
           </ul>
         </div>
       </section>
