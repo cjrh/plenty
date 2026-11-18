@@ -15,6 +15,7 @@ pub const ALLOCATOR_BLOCK_SET: i64 = 655;
 pub const ALLOCATOR_BLOCK_SPLIT: i64 = 656;
 pub const ALLOCATOR_REGISTER: i64 = 657;
 pub const ALLOCATOR_BOX: i64 = 658;
+pub const ALLOCATOR_DICT_SET: i64 = 659;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

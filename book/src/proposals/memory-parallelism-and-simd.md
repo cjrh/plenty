@@ -8,7 +8,8 @@
 > - **Recoverable allocation: implemented.** Allocating operations expose
 >   allocation errors through `Result`, and `?` propagates; see
 >   [allocation and traps](../design/language/08-errors/02-allocation-and-traps.md).
->   Public allocator selection, budgets, and bounded containers remain B13.
+>   [`std.alloc`](../design/stdlib/alloc.md) selects storage for builtin boxes,
+>   lists, dictionaries and sets; comprehensive allocator routing remains B13.
 > - **Parallel execution: implemented.** See
 >   [concurrency](../design/facilities/03-concurrency/index.md). Automatic
 >   parallelization is B24.
@@ -32,8 +33,8 @@
 > `CapacityOverflow`. Class, tuple, enum, generator, and range storage is inline
 > and needs no allocation; component expressions and fallible class initializers
 > retain their own errors. `.unwrap()` exists; `.expect(...)` does
-> not. Builtin objects and container buffers use the global allocator; the former
-> object allocator prefix was removed (issue #814). Threads start through a
+> not. Ordinary constructors retain global allocation; selected owners record
+> their allocator without changing ordinary object headers. Threads start through a
 > scoped `with` manager, and a pool is
 > `ThreadPoolExecutor(max_workers, queue_capacity)` with `map`, `map_result`,
 > and `reduce_tree`.
@@ -45,14 +46,11 @@ have shipped. [B23's delivery record](../completed-work/performance.md#b23-simd)
 describes the initial explicit and automatic SIMD subsets. Generic collections
 are not packed numeric arrays, and ordinary loops remain serial.
 
-General builtin allocator selection, per-container handles, scoped allocator
-lifetimes and buffer provenance remain unimplemented; the separate
-[experimental library](allocator-experiments.md) exercises retained handles for
-its own integer-only collection. Objects and container buffers use the
-global allocator; objects no longer carry an allocator prefix (issue #814), so
-allocator selection must record provenance without enlarging global objects. Fixed inline arrays and constant value parameters are separately
-[accepted but unimplemented](value-generics.md) under B83; bounded containers
-build on that design. These remaining contracts keep this proposal partly
+Public selected owners retain allocator provenance for their own backing; see
+[retained allocator storage](../design/toolchain/02-architecture/allocator-storage.md).
+Independent copies, set-algebra results and nested allocations do not inherit
+the selection. Scoped/resettable arenas are a separate lifetime question.
+Bounded containers can build on [fixed inline arrays](../design/language/03-types/arrays.md). These remaining contracts keep this proposal partly
 implemented. Scope and priorities belong in [B13/B23/B24/B83](../backlog.md).
 
 The allocation, concurrency and SIMD sections preserve the original rationale

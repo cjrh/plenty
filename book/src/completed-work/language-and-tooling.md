@@ -7,6 +7,17 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected dictionaries and sets
+
+[`Allocator.empty_dict`, `dict_with_capacity`, `empty_set` and `set_with_capacity`](../design/stdlib/alloc.md#dictionaries-and-sets)
+construct ordinary builtin owners. Hash-backed owners retain the selected
+allocator for the object, rows, order links and buckets through growth and drop.
+Finite-domain sets keep their inline bitset in one selected owner allocation.
+Selection does not change key admission, borrowing or worker transfer, or choose
+an allocator for nested strings, independent copies or set-algebra results.
+`tests/test_std_alloc_dict_set.rs` covers the public constructors; see the
+[runnable allocation lesson](../tutorial/04-collections/allocation.md#select-collection-storage-explicitly).
+
 ### Private selected hash-table storage
 
 Hash-backed dictionaries and sets can retain an explicit allocator for their
@@ -15,7 +26,7 @@ links and buckets used ordinary vectors even though dense lists already
 supported selected rows. Native tests exercise growth with ambient allocation
 refused, sparse relocation, failed rehash and cross-provider cleanup. See
 [native hash-table storage](../design/toolchain/02-architecture/allocator-storage.md#native-hash-table-storage)
-for the failure contract. No Plenty constructor or public opcode changed.
+for the failure contract. This earlier runtime increment did not expose Plenty constructors.
 
 ### Public selected boxes and generator collection
 
@@ -43,9 +54,8 @@ registration's two bootstrap allocations are unchanged. Issue #994 fixes native
 allocator dispatch to reject unsupported contexts before reading descriptors;
 ten bounded arena subprocess probes exercise both actual dispatcher entry paths.
 
-Coverage is in `tests/test_std_alloc_consumers.rs`. Dictionaries, sets, strings,
-formatting, copying, owning slices, scratch buffers, other std APIs and implicit
-defaults remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+Coverage is in `tests/test_std_alloc_consumers.rs`. The [B13 migration](../backlog.md#b13-explicit-allocator-implementation-sequence)
+extends beyond these constructors and the collector.
 
 ### Public compiled custom providers
 

@@ -558,7 +558,9 @@ fn selected_box_binding_preserves_failure_input_and_encodes_success() {
 ))]
 #[test]
 fn allocator_dispatch_rejects_arena_before_operand_access() {
-    use crate::collection_opcodes::{ALLOCATOR_BOX, ALLOCATOR_LIST, ALLOCATOR_SYSTEM};
+    use crate::collection_opcodes::{
+        ALLOCATOR_BOX, ALLOCATOR_DICT_SET, ALLOCATOR_LIST, ALLOCATOR_SYSTEM,
+    };
     const PROBE: &str = "PLENTY_SELECTED_BOX_ARENA_PROBE";
     if let Ok(probe) = std::env::var(PROBE) {
         let (op, entry) = probe.split_once(':').unwrap();
@@ -576,7 +578,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
         });
         panic!("allocator arena guard did not terminate");
     }
-    for op in (ALLOCATOR_SYSTEM..=ALLOCATOR_LIST).chain([ALLOCATOR_BOX]) {
+    for op in (ALLOCATOR_SYSTEM..=ALLOCATOR_LIST).chain([ALLOCATOR_BOX, ALLOCATOR_DICT_SET]) {
         for entry in ["operation", "collection_at"] {
             let probe = format!("{op}:{entry}");
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
@@ -610,4 +612,5 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
     }
 }
 
+mod finite_sets;
 mod hash_storage;

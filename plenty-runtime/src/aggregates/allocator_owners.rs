@@ -132,6 +132,21 @@ fn try_list_new_in(
     try_collection_with_entries_in(allocator, ty, capacity, entries)
 }
 
+pub(crate) fn dict_set_new_in(
+    allocator: &Allocator,
+    ty: &'static Type,
+    capacity: usize,
+) -> Result<*mut Header, AllocError> {
+    let collection = if ty.kind == b'S' && crate::entries::enum_bits::eligible(ty.key()) {
+        // The mask lives in the selected object itself. There are no row or
+        // bucket blocks to reserve, nor a separate allocator handle for growth.
+        try_collection_with_entries_in(allocator, ty, capacity, Entries::enum_set(ty.key()))
+    } else {
+        try_hash_new_in(allocator, ty, capacity)
+    }?;
+    Ok(collection.cast())
+}
+
 pub(super) fn try_hash_new_in(
     allocator: &Allocator,
     ty: &'static Type,
