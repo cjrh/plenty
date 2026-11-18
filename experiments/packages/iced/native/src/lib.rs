@@ -261,6 +261,11 @@ mod tests;
 mod application;
 
 #[cfg(feature = "application")]
+fn loop_outcome(native: Result<(), Error>, callback: Option<Error>) -> Result<(), Error> {
+    callback.map_or(native, Err)
+}
+
+#[cfg(feature = "application")]
 static MAIN_THREAD: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 
 #[cfg(feature = "application")]

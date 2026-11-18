@@ -50,6 +50,21 @@ def qualify(compiler, toolkit, package):
             assert [s for s in result.stdout.splitlines() if s.startswith('DROP ')] == ['DROP 0']
         failure = run([exe], package, expected=1)
         assert 'NativeFailure' in failure.stderr and failure.stdout.splitlines().count('DROP 0') == 1
+        error = f'{toolkit}.{toolkit.capitalize()}Error'
+        path.write_text(base.split('def main()')[0] + f'''def main() -> i32:
+    match {toolkit}.run():
+        case Err({error}.InvalidArgument):
+            match {toolkit}.run():
+                case Err({error}.InvalidContext):
+                    42i32
+                case _:
+                    43i32
+        case _:
+            44i32
+''')
+        run(build, package)
+        rejected = run([exe, 'document.txt'], package, expected=42)
+        assert 'DROP ' not in rejected.stdout  # invalid mode precedes factory
         # Failure on a real click reaches the Plenty caller even when diagnostics fail.
         limit = 2**63-1 if egui else 1000000
         source = base.replace('self.count = 0', f'self.count = {limit}').split('def main()')[0]
@@ -65,15 +80,15 @@ def qualify(compiler, toolkit, package):
             failure = run([exe, '--headless', clicks[0]], package, expected=42, stderr=sink)
         assert [s for s in failure.stdout.splitlines() if s.startswith('DROP ')] == [f'DROP {limit}']
         # This is valid Plenty with the same C prototype but different ownership.
-        # Remove the previous valid executable first; never run the mismatch.
+        # A failed staged link must not replace the last good executable.
         callback = 'draw' if egui else 'event'
         prefix, rest = base.split(f'export def {callback}(', 1)
         signature = rest.split('\n', 1)[0].replace('&mut State', 'State')
         path.write_text(prefix + f'export def {callback}(' + signature + '\n    Ok(())\n\ndef main()' + rest.split('def main()', 1)[1])
-        exe.unlink()
+        good = exe.read_bytes()
         failed = run(build, package, expected=1)
         assert guard in failed.stderr and ('undefined' in failed.stderr or 'not defined' in failed.stderr), failed.stderr
-        assert not exe.exists()
+        assert exe.read_bytes() == good
         print(f'{toolkit} {profile}: repeated builds, click trace {expected}, owner drop, startup/checked errors, ownership mismatch rejected at final link')
 
 

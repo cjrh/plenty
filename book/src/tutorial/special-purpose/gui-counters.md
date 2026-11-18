@@ -30,5 +30,7 @@ ui.label(&label)
 `plenty run -- --headless 20,15 20,15 20,36` feeds real pointer events to
 egui and prints the painted labels. The same value appears on several frames:
 redrawing is not another click. In either package `plenty run` without the
-headless arguments opens the native window on your own display. Never store
+headless arguments opens the native window on your own display. The runners
+read all process arguments themselves: passing a filename instead of
+`--headless` returns an error, not a window for that file. Never store
 a frame/UI token for a later callback.
