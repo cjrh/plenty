@@ -66,7 +66,7 @@ Legal affine keys need not be `@copy`; keys with custom cleanup are rejected.
 and bitsets, mixed operands and argument order, partial provider failure,
 worker borrows, result lifetime and type restrictions. The [allocation lesson](../tutorial/04-collections/allocation.md#choose-storage-for-a-set-result)
 shows how to select an allocator for a difference. Other independent collection
-results and implicit allocation paths remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
+results and the storage-policy audit remain in [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
 
 ### Private selected set algebra
 
@@ -159,8 +159,7 @@ ignored tests and timing evidence.
 This delivers public compiled custom providers, not comprehensive allocation
 control. Selected boxes and generator collection were then still outstanding; the
 [public selected-box milestone](#public-selected-boxes-and-generator-collection)
-later delivered them. Allocating language/std migration and removal of implicit
-defaults remained in
+later delivered them. Broader language/std allocator coverage remains in
 [B13](../backlog.md#b13-explicit-allocator-implementation-sequence).
 Scoped/resettable arenas and thread-confined experiments stay separate.
 

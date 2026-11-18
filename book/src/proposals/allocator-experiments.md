@@ -8,8 +8,11 @@ It does not migrate existing allocation sites. Outstanding work remains in
 
 ## Agreed direction
 
-- Allocating Plenty mechanics and APIs specify an allocator. A system allocator
-  is an ordinary obtainable value, not an implicit fallback.
+- Ordinary allocating forms use the system policy. Callers who need control
+  can choose a provider through an allocator-aware form. Both remain fallible.
+  This replaces the original explicit-only goal: a fixed system shorthand is
+  simpler for ordinary code without introducing a mutable ambient allocator.
+  A selected operation never retries a refusal against the system allocator.
 - Multiple allocators coexist. Containers retain their selected allocator for
   growth and automatic destruction.
 - Package functions can accept allocators; this is not a security boundary.
@@ -243,10 +246,9 @@ owner uses static provider dispatch, not the public retained-handle bridge.
 Those experiments do not migrate builtin allocation or establish worker safety.
 The separate public bridge supports blocks, boxes, lists (including generator
 collection), dictionaries and sets, but not full language/std allocation routing,
-removal of implicit defaults, resettable arenas or actor integration. The
+resettable arenas or actor integration. The
 experimental C allocator bypasses the
 runtime's small-block pool and ordinary allocation-failure accounting.
 
-These are prototype boundaries, not arguments for retaining implicit allocation
-in the final language. The experiment does not change existing program behavior
-or advertise B13 as complete.
+The experiment does not change existing program behavior. Keeping ordinary
+system forms is a design choice, not an unfinished migration step.

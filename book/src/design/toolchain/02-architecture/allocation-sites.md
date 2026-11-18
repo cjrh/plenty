@@ -6,8 +6,10 @@ value. It is **not** an inventory of all language or std allocation. In
 particular it excludes allocations made by expressions that produce the
 operands, and allocations internal to user provider callbacks.
 
-**Ordinary** means the runtime policy of the operation, not necessarily system
-`malloc`, and not an allocator inherited from an input. **Selected** means the
+**Ordinary** independent results use the system interface, not a caller-set
+ambient allocator or a provider inherited from an input. This describes the
+storage policy, not a guarantee of a `malloc` call; runtime pools, inline
+representations and actor-specific storage rules are distinct. **Selected** means the
 caller supplies the output allocator; see [retained storage](allocator-storage.md)
 for object, backing and release contracts. A retained leaf keeps its existing
 provenance in either kind of result. Paths below are relative to the repository

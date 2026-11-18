@@ -341,9 +341,11 @@ Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
 does not redirect element expressions, builtin `copy`, `view.to_set()`, ordinary
 set methods or bracket slices to an input's allocator. The ordinary rules for storing, borrowing and moving
-values to workers still apply. Ordinary constructors remain available during the explicit-allocation
-migration; selection does not remove implicit defaults or provide resettable
-arenas.
+values to workers still apply. Ordinary constructors remain available by design. Use `xs[1:4]?` for a new
+list with ordinary system storage, or `out.slice(&xs, 1, 4)?` to charge the
+copy to `out`. Both can fail. If `out` refuses, the copy does not retry with
+system storage. Appending to an existing list uses that list’s allocator.
+Resettable arenas are not part of this interface.
 
 Use [capacity and reservation](../../design/examples/collections/capacity.md)
 to obtain storage before inserting values you want to keep if reservation

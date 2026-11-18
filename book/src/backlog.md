@@ -459,16 +459,16 @@ Implement the remaining work in staged PRs:
    beyond the audited copy, key-view result and slice paths. Verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable
    examples together; package APIs must accept caller-provided allocators.
-4. **Remove implicit allocation paths.** Audit compiler/runtime lowering and the
-   allocation-site inventory. Add tests that allocating language mechanics and
-   APIs cannot silently select an allocator or fall back to another provider.
-   Retained provenance supplies the allocator for growth and destruction; it
-   need not be passed again for every mutation. B13's migration is not complete
-   until the supported allocating operations satisfy this contract.
+4. **Audit storage policies, not the absence of shorthand.** Every allocating
+   operation must document where its storage comes from. Provide a selectable
+   path wherever callers need control. Test that ordinary independent results
+   use the system policy, selected results and their scratch use the requested
+   provider without fallback, and owners grow and release through their retained
+   provider. Both interfaces keep allocation failure explicit.
 
-Intermediate branches may temporarily support both allocation models. The final
-language must not retain implicit allocation for compatibility. Explicitly
-obtaining a system allocator remains allowed. This is a language/API contract,
+Ordinary system allocation and explicit selection are both permanent choices.
+There is no ambient allocator, and neither input chooses the allocator for an
+independent result. Callers can also obtain the system allocator explicitly. This is a language/API contract,
 not a security boundary preventing foreign or third-party code from obtaining
 its own allocator.
 
