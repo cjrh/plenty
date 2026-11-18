@@ -78,9 +78,9 @@ pub class Ui:
         status = native_edit(self.token, id, text, &mut count)
         if status > 1u32:
             return Err(failure(status))
+        if count < -1 or count > 4096:
+            return Err(failure(reject_edit(self.token, 7u32)))
         if count >= 0:
-            if count > 4096:
-                return Err(failure(reject_edit(self.token, 7u32)))
             mut data = match [0u8 for _ in range(count)]:
                 case Ok(value):
                     value

@@ -1,5 +1,5 @@
 use super::{Error, MAX_PASS_BYTES, MAX_TEXT, text_widget, widget};
-use egui::{TextBuffer, text::CharIndex};
+use egui::{Event, Key, TextBuffer, text::CharIndex};
 use std::{any::TypeId, ops::Range};
 
 // A deletion followed by a rejected insertion (paste over a selection) must
@@ -39,6 +39,46 @@ impl TextBuffer for Draft {
     }
 }
 
+// Inspect event strings by reference: TextEdit's filtered event list clones
+// them, and single-line paste replaces each CR/LF byte with one space.
+fn oversized_paste(ui: &egui::Ui, field: egui::Id, limit: usize) -> bool {
+    let focused = ui.memory(|m| m.has_focus(field));
+    let under_pointer = ui
+        .ctx()
+        .interaction_snapshot(|s| s.contains_pointer.contains(&field));
+    ui.input(|i| {
+        // When a pointer transition can redirect keyboard focus, let TextEdit
+        // route the paste and let Draft check it. Never reject a sibling's input.
+        let keyboard = focused && !i.pointer.any_pressed() && !i.pointer.any_released();
+        i.events.iter().any(|event| match event {
+            Event::Paste(text) => keyboard && text.len() > limit,
+            Event::MiddleClickPaste { text, .. } => under_pointer && text.len() > limit,
+            _ => false,
+        })
+    })
+}
+
+fn submit(response: &egui::Response) -> bool {
+    if !response.has_focus() {
+        return false;
+    }
+    // consume_key(NONE, Enter) also accepts Shift/Alt. Consume only bare
+    // Enter presses and only for the field that owns focus after interaction.
+    let submitted = response.ctx.input_mut(|i| {
+        let before = i.events.len();
+        i.events.retain(|e| {
+            !matches!(e, Event::Key {
+            key: Key::Enter, pressed: true, modifiers, ..
+        } if modifiers.is_none())
+        });
+        i.events.len() != before
+    });
+    if submitted {
+        response.surrender_focus();
+    }
+    submitted
+}
+
 // SAFETY: same input span contract as label. `count` is a disjoint writable
 // i64. -1 means unchanged; zero means a replacement with the empty string.
 #[unsafe(no_mangle)]
@@ -66,13 +106,18 @@ unsafe extern "C" fn pleg_v1_text_edit(
             }
             let ui = pass.ui();
             let field = ui.make_persistent_id(("plenty.text_edit", id));
-            let focused = ui.memory(|m| m.has_focus(field));
-            let response = ui.add(egui::TextEdit::singleline(&mut draft).id(field));
+            if oversized_paste(ui, field, limit) {
+                return Err(Error::LimitExceeded);
+            }
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut draft)
+                    .id(field)
+                    .return_key(None),
+            );
             if let Some(e) = draft.failure {
                 return Err(e);
             }
-            let submitted =
-                focused && response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let submitted = submit(&response);
             let changed = response.changed() && draft.text != original;
             let size = if changed { draft.text.len() as i64 } else { -1 };
             pass.bytes += draft.text.len().saturating_sub(len);
@@ -111,102 +156,4 @@ extern "C" fn pleg_v1_reject_edit(token: u64, status: u32) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::with_ui;
-    use egui::{Event, Key, Modifiers, RawInput};
-
-    fn press(key: Key, modifiers: Modifiers) -> Event {
-        Event::Key {
-            key,
-            modifiers,
-            pressed: true,
-            physical_key: None,
-            repeat: false,
-        }
-    }
-
-    #[test]
-    fn caret_selection_and_submission_follow_the_field_not_the_widget_ordinal() {
-        let ctx = egui::Context::default();
-        ctx.options_mut(|o| o.max_passes = std::num::NonZeroUsize::MIN);
-        let mut model = String::from("éA猫!");
-        let mut redraw = 0;
-        let mut frame = |events, focus: bool| {
-            let mut status = 99;
-            let mut count = -99;
-            let mut output = ctx.run_ui(
-                RawInput {
-                    events,
-                    ..Default::default()
-                },
-                |ui| {
-                    if redraw % 2 == 0 {
-                        ui.label("other widget");
-                    }
-                    if focus {
-                        let id = ui.make_persistent_id(("plenty.text_edit", 7u64));
-                        ui.memory_mut(|m| m.request_focus(id));
-                    }
-                    let result = with_ui(ui, |token| {
-                        status = unsafe {
-                            pleg_v1_text_edit(token, 7, model.as_ptr(), model.len(), &mut count)
-                        };
-                        if count >= 0 {
-                            // The byte adapter is strided, not a Rust Vec or C string.
-                            let mut out = vec![0xFF; 2 * count as usize];
-                            assert_eq!(
-                                unsafe {
-                                    pleg_v1_copy_edit(token, out.as_mut_ptr(), count as usize, 2)
-                                },
-                                0
-                            );
-                            assert!(out.iter().skip(1).step_by(2).all(|b| *b == 0xFF));
-                            model =
-                                String::from_utf8(out.into_iter().step_by(2).collect()).unwrap();
-                        }
-                        Ok(())
-                    });
-                    assert_eq!(result.is_err(), status > 1);
-                },
-            );
-            output.textures_delta.clear();
-            redraw += 1;
-            (model.clone(), status, count)
-        };
-        frame(vec![], true);
-        frame(
-            vec![
-                press(Key::End, Modifiers::NONE),
-                press(Key::ArrowLeft, Modifiers::NONE),
-            ],
-            false,
-        );
-        frame(vec![], false);
-        frame(vec![press(Key::ArrowLeft, Modifiers::SHIFT)], false);
-        frame(vec![], false);
-        // TextEdit replaces the selected 猫, rather than appending or splitting UTF-8.
-        assert_eq!(
-            frame(vec![Event::Text("界".into())], false),
-            ("éA界!".into(), 0, 7)
-        );
-        assert_eq!(frame(vec![press(Key::Enter, Modifiers::NONE)], false).1, 1);
-        for _ in 0..4 {
-            assert_eq!(frame(vec![], false), ("éA界!".into(), 0, -1));
-        }
-        frame(vec![], true);
-        frame(
-            vec![
-                press(Key::End, Modifiers::NONE),
-                press(Key::ArrowLeft, Modifiers::SHIFT),
-            ],
-            false,
-        );
-        // egui deletes the selection before the insertion fails. No changed
-        // extent (not even zero) may escape to trigger a partial writeback.
-        assert_eq!(
-            frame(vec![Event::Paste("é".repeat(MAX_TEXT))], false),
-            ("éA界!".into(), Error::LimitExceeded as u32, -99)
-        );
-    }
-}
+mod tests;

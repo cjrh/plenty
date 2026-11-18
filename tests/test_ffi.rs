@@ -786,8 +786,9 @@ fn egui_text_edit_keeps_original_at_every_allocation_failure() {
 #include <stddef.h>
 uint32_t pleg_v1_reject_edit(uint64_t token, uint32_t status) { (void)token; return status; }
 uint32_t pleg_v1_text_edit(uint64_t token, uint64_t id, const uint8_t *p, size_t len, int64_t *count) {
-    (void)token; (void)id; (void)p; (void)len;
-    *count = 48; return 1;
+    (void)token; (void)p; (void)len;
+    *count = id == 0 ? 0 : id == 1 ? -2 : 48;
+    return 1;
 }
 uint32_t pleg_v1_copy_edit(uint64_t token, uint8_t *p, size_t len, size_t stride) {
     (void)token;
@@ -803,6 +804,14 @@ uint32_t pleg_v1_copy_edit(uint64_t token, uint8_t *p, size_t len, size_t stride
 import std.gui.immediate.egui as egui
 
 def main() -> Result[(), AllocError | IoError]:
+    mut original = "é"
+    ui = egui.Ui(1u64)
+    match ui.text_edit(1u64, &mut original):
+        case Err(egui.EguiError.NativeFailure):
+            print(original)?
+        case _:
+            print("bad negative length accepted")?
+    print(ui.text_edit(0u64, &mut original).is_ok(), len(original))?
     for budget in range(16):
         mut text = "original-é猫"
         marker = f"__test_fail_allocations_after_{budget}__"?
@@ -822,7 +831,10 @@ def main() -> Result[(), AllocError | IoError]:
             library.clone(),
             optimized,
         ));
-        let mut lines: Vec<_> = lines.lines().collect();
+        let mut all = lines.lines();
+        assert_eq!(all.next(), Some("é"));
+        assert_eq!(all.next(), Some("True 0"));
+        let mut lines: Vec<_> = all.collect();
         assert_eq!(lines.pop(), Some("x".repeat(48).as_str()));
         assert!(
             lines.len() >= 2 && lines.iter().all(|&s| s == "original-é猫"),

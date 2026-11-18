@@ -43,8 +43,10 @@ platform allocation can abort; there is no checked cleanup on process abort.
 
 `ui.text_edit(id, &mut text)?` draws a `TextEdit` from the current Plenty
 `str`. A successful edit replaces that string **before the call returns**.
-The `bool` is a submission, not a change flag: it is true when the focused
-field loses focus on Enter, not on typing, release or idle redraw. Give each
+The `bool` is a submission, not a change flag: the field processes this frame’s edits, then
+consumes an unmodified Enter press if it has keyboard focus and surrenders
+focus on submission. Modified Enter, unrelated focus loss, key release and
+idle redraw do not submit. Give each
 field a distinct `u64` ID and reuse it across draws, even if earlier widgets
 are inserted or removed. Don't use the changing query, result count, frame
 token or a filtered row number as its identity. Egui associates the caret,
@@ -53,8 +55,16 @@ selection and focus with the field; Plenty need not keep a second editor model.
 The input and draft must each fit 4,096 UTF-8 bytes, not characters. A field
 counts as one widget and charges the larger of its input and output byte
 lengths against the pass budget. A draft may not grow beyond the remaining
-space. Input containing CR or LF is `InvalidArgument`; this is not a
-multiline editor. A limit violation is `LimitExceeded`, not truncation.
+space. A CR or LF in the Plenty string is `InvalidArgument`. In a paste, egui
+replaces each CR and LF with one space. A limit violation is `LimitExceeded`,
+not truncation.
+
+These byte caps bound the model accepted by the field and its edit draft,
+not clipboard acquisition, platform events or toolkit scratch buffers. The
+bridge checks a routed paste’s borrowed byte length before drawing when the
+payload alone cannot fit even after deleting a selection. During a pointer
+transition that may redirect keyboard focus, it lets the editor route the
+keyboard paste and checks the draft insertion instead.
 
 The bridge edits a bounded temporary string. On change, Plenty allocates an
 exact-length byte list, copies through the call-scoped strided adapter, then

@@ -39,7 +39,7 @@ a frame/UI token for a later callback.
 
 Run `plenty run` in `examples/gui/egui_command_picker` using the same
 [source setup](../../design/stdlib/gui-build.md). Click the field and type
-`file`: only **Open file** and **Save file** remain. Press Enter to display
+`file`: only **Open file** and **Save file** remain. Press Enter without modifiers to display
 **Selected: Open file**. Nothing is executed. A case-sensitive substring
 filter and the original command order make the first match predictable;
 submitting an empty result leaves the previous selection alone.
