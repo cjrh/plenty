@@ -67,7 +67,7 @@ prefix; repeat those checks on the public site after deployment.
 ## Homepage and documentation paths
 
 `website/index.html` and `website/assets/site.css` provide the homepage at `/`.
-The heptagon artwork lives in `logos/`. The builder publishes its SVG and PNG
+The rounded-square artwork lives in `logos/`. The builder publishes its SVG and PNG
 under `assets/`. The book uses the same mark and a matching dark-blue palette
 for its default Plenty theme. Readers can select any bundled mdBook theme
 from the theme menu. When updating the logo, keep the mdBook favicon copies
