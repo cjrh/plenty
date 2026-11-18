@@ -654,3 +654,12 @@ not Plenty state. Headless callback tests and native clicks on a private X11
 display exercise the same counter. The package README describes building,
 bounds, ownership and validation. Only this Linux x86-64 software-rendered
 slice is qualified; it does not select a framework or change `std` or the CLI.
+
+## Experimental egui counter
+
+`experiments/packages/egui/` uses egui/eframe 0.37.0 and the opt-in
+[native executable callbacks](language-and-tooling.md#native-executable-callbacks).
+In one exclusive UI pass, Plenty reads each button response, updates its own
+counter and paints the resulting label. This Linux x86-64 X11/Glow experiment
+is not a std GUI API or a qualified binary distribution. See the package README
+for build commands, tests and ownership limits.
