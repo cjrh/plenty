@@ -188,6 +188,14 @@ impl StorageBarrier {
     }
 }
 
+/// Owner kinds whose allocator may call compiled code in this program.
+/// Provenance is erased in each public owner type.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ProviderEffects {
+    pub bytes: bool,
+    pub clists: bool,
+}
+
 impl Ty {
     /// Range payloads also occur inside standard sums. Tags remain in the
     /// ordinary 128-bit representation; slot_bytes includes owner-local payloads.
@@ -696,7 +704,7 @@ impl Ty {
     /// queue is empty whenever a release starts a drain. So a user-code
     /// release of any other type needs no caller site (issue #750). An
     /// undefined forward reference counts as code.
-    pub(crate) fn release_runs_code(&self, providers: crate::bytes::ByteProviders) -> bool {
+    pub(crate) fn release_runs_code(&self, providers: ProviderEffects) -> bool {
         let facts = self.facts();
         if facts.complete && !facts.destructor {
             return false;
@@ -707,7 +715,8 @@ impl Ty {
             match &ty {
                 _ if !ty.managed() => {}
                 Self::Str => {}
-                Self::ByteStorage if !providers.0 => {}
+                Self::ByteStorage if !providers.bytes => {}
+                Self::Clist(_) if !providers.clists => {}
                 Self::List(t)
                 | Self::Array(t, _)
                 | Self::Set(t)

@@ -46,11 +46,6 @@ pub enum BytesOp {
     RFindBytes,
 }
 
-/// Whether the emitted program can put compiled provider callbacks behind a
-/// byte owner. Backing identity does not appear in the public `Bytes` type.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct ByteProviders(pub bool);
-
 impl BytesOp {
     pub(crate) fn may_grow(self) -> bool {
         matches!(

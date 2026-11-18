@@ -1338,11 +1338,25 @@ impl Lower<'_> {
             modules::check_member(self.access, name, "__new__", at)?;
         }
         self.sync_data()?;
+        // Check at every source call, including cache hits and named/default
+        // argument wrappers. Their synthesized forward has no separate caller
+        // (and its token can belong to the first module to request the wrapper).
+        const SLICE_CLIST: &str = "__plenty_class_std.alloc.Allocator.slice_clist";
+        let wrapper = self.generics.wrapped(name) == Some(SLICE_CLIST);
+        if (wrapper
+            || name == SLICE_CLIST && !self.sigs.clist_slice_wrappers.contains(&self.symbol))
+            && let [Argument::Type(row)] = actual.as_slice()
+        {
+            self.check_clist_row_access(row, at)?;
+        }
         let (symbol, function) =
             self.generics
                 .instantiate(name, actual, at, self.aliases, self.access, self.symbol)?;
         if let Some(new) = function {
             let symbol_id = self.sigs.intern(&new.function.name);
+            if wrapper {
+                self.sigs.clist_slice_wrappers.insert(symbol_id);
+            }
             self.generics
                 .specialization_depths
                 .insert(symbol_id, new.depth);

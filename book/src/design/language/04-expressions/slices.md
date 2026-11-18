@@ -128,6 +128,8 @@ copy the components instead.
 
 A clist receiver must be a named place, and the slice is subject to the same
 borrow checks as other [clist](../../facilities/01-builtins/clists.md) reads.
+The brackets create ordinary storage. To choose the allocator for the result,
+use [`out.slice_clist(&rows, start, stop, step)`](../../stdlib/alloc.md#copy-a-columnar-list-slice).
 
 ## Slice views
 

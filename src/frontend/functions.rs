@@ -25,6 +25,9 @@ pub(super) struct Functions {
     returned_fields: HashMap<Symbol, Vec<usize>>,
     /// Only concrete instances of the loader-authenticated std.alloc conversion.
     pub(super) allocator_to_set: HashSet<Symbol>,
+    /// Named/default forwarding wrappers whose callers have already checked
+    /// visibility of every slice_clist row field in their own module.
+    pub(super) clist_slice_wrappers: HashSet<Symbol>,
     /// Declared functions, counted for generated names.
     declared: usize,
 }

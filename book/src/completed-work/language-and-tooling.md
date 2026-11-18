@@ -7,6 +7,15 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Public selected columnar list slices
+
+[`Allocator.slice_clist`](../design/stdlib/alloc.md#copy-a-columnar-list-slice)
+copies primitive row fields into their final columns without heap scratch.
+The result keeps the output allocator for growth and release, even for an
+empty selection. Bracket slicing remains ordinary. The [sampled readings
+example](../tutorial/04-collections/allocation.md#keep-a-sample-of-columnar-rows)
+shows source independence. This selects owning slices, not all clist constructors.
+
 ### Public selected packed byte slices
 
 [`Allocator.slice_bytes`](../design/stdlib/alloc.md#copy-a-byte-slice-into-packed-storage)

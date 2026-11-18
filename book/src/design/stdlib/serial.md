@@ -144,6 +144,15 @@ capacity. In a mixed program even an ordinary buffer may be refused. Borrowed
 indexing and scans of a byte view do not themselves grow or destroy an owner.
 Programs lacking either allocator feature retain their ordinary stack budgets.
 
+The same rule applies independently to [`clist` slices in selected storage](alloc.md#copy-a-columnar-list-slice).
+In a program that emits `Allocator.slice_clist` and registers a compiled
+provider, `reserve` or `append` on a borrowed clist can call that provider.
+Destroying or replacing an owner, including one nested in an adapter field,
+can call its release method. A checked segment with such effects reports
+`Fault.StackLimit`; a rejection helper with them cannot safely report the
+fault. Borrowed row counts and indexed field reads do not themselves invoke
+the provider. Creating selected bytes does not turn on the clist rule, or vice versa.
+
 Call `encode` and `decode` directly. To pass codec work as a function value,
 write an ordinary wrapper with concrete adapter types, keeping the checked
 codec call inside that wrapper.

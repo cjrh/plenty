@@ -65,9 +65,9 @@ use cranelift_frontend::{FunctionBuilder, Variable};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 
-use crate::bytes::ByteProviders;
 use crate::cache::{Cache, Lookup, ProgramKey};
 use crate::frontend::Sources;
+use crate::op::ProviderEffects;
 mod atomic;
 mod bounded_division;
 mod box_release;
@@ -899,9 +899,10 @@ fn object_module(
         }
     });
     let providers = allocator_providers::declare_adapters(&ops, workers, &mut out.module)?;
-    runtime.byte_providers =
-        ByteProviders(!providers.is_empty() && allocator_providers::creates_selected_bytes(&ops));
-    sites::mark_context_preserving(&bodies, &mut user_fns, runtime.byte_providers);
+    if !providers.is_empty() {
+        runtime.provider_effects = allocator_providers::selected_owners(&ops);
+    }
+    sites::mark_context_preserving(&bodies, &mut user_fns, runtime.provider_effects);
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
         for name in &protected {
@@ -934,14 +935,14 @@ fn object_module(
         workers,
         &mut out.module,
         &mut runtime.box_releasers,
-        runtime.byte_providers,
+        runtime.provider_effects,
     )?;
     out.serial_stack.prepare(
         &bodies,
         &user_fns,
         &protected,
         &box_releasers,
-        runtime.byte_providers,
+        runtime.provider_effects,
     );
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
@@ -1289,7 +1290,7 @@ struct Runtime {
     serial_stack_budgets: std::sync::Arc<std::sync::Mutex<HashMap<(FuncId, FuncId), DataId>>>,
     serial_stack_ready: FuncId,
     standard_calls: bool,
-    byte_providers: ByteProviders,
+    provider_effects: ProviderEffects,
     caller_enter: FuncId,
     caller_leave: FuncId,
     thread_start: FuncId,
@@ -1514,7 +1515,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(types::I8),
         )?,
         standard_calls: false,
-        byte_providers: ByteProviders::default(),
+        provider_effects: ProviderEffects::default(),
         caller_enter: {
             let mut sig = module.make_signature();
             sig.call_conv = crate::target::native_call_conv();
@@ -2879,7 +2880,7 @@ impl Lowerer<'_, '_> {
             // after destructors. A release that runs no compiled code cannot
             // trap or read the context, so it needs no site (issue #750).
             let user = !self.in_standard_library() && self.runtime.standard_calls;
-            let bookkeeping = user && ty.release_runs_code(self.runtime.byte_providers);
+            let bookkeeping = user && ty.release_runs_code(self.runtime.provider_effects);
             // An empty slot owns nothing, and the runtime returns at once.
             // In user code, testing here keeps the call, and any caller
             // bookkeeping, off that path; a loop's moved-out locals take it

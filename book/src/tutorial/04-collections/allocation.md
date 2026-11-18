@@ -272,6 +272,35 @@ payload no longer borrows the frame, and `push` uses its retained provider.
 Use [`copy_view`](../../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)
 instead when you want all the viewed bytes in a `list[u8]`.
 
+## Keep a sample of columnar rows
+
+Use `slice_clist` to save every other reading in the caller's allocator. The
+saved readings have their own columns, so you can clear the original rows:
+
+```plenty
+import std.alloc as alloc
+
+class Reading:
+    sequence: i64
+    level: f64
+
+def main() -> Result[(), AppendError[Reading] | AllocError | IoError]:
+    mut readings = clist[Reading]()
+    readings.append(Reading(10, 1.5))?
+    readings.append(Reading(11, 2.0))?
+    readings.append(Reading(12, 2.5))?
+    out = alloc.system()
+    sample = out.slice_clist(&readings, step=2)?
+    readings.clear()
+    print(sample[0].sequence, sample[1].level)?
+    Ok(())
+```
+```output
+10 2.5
+```
+
+For the same rows in ordinary storage, write `readings[::2]?` instead.
+
 ## Box a value and collect a generator
 
 `owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the
