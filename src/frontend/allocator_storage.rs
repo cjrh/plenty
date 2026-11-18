@@ -17,9 +17,49 @@ pub(super) fn set_result_opcode(name: &str) -> Option<i64> {
 
 pub(super) fn to_set_template(template: &Function, engine: &generics::Engine) -> bool {
     template.name == "__plenty_class_std.alloc.Allocator.to_set"
-        && template.at.source().as_ref().is_some_and(|source| {
-            source.as_ref() == "std/alloc.plentyi" && engine.standard_sources.contains(source)
-        })
+        && allocator_source(template, engine)
+}
+
+fn allocator_source(template: &Function, engine: &generics::Engine) -> bool {
+    template.at.source().as_ref().is_some_and(|source| {
+        source.as_ref() == "std/alloc.plentyi" && engine.standard_sources.contains(source)
+    })
+}
+
+pub(super) fn algebra_template(template: &Function, engine: &generics::Engine) -> bool {
+    matches!(
+        template
+            .name
+            .strip_prefix("__plenty_class_std.alloc.Allocator."),
+        Some("union" | "intersection" | "difference" | "symmetric_difference")
+    ) && allocator_source(template, engine)
+}
+
+pub(super) fn algebra_signature(inputs: &[Ty], output: &Type) -> bool {
+    let [Ty::Ref(owner, false), left, right] = inputs else {
+        return false;
+    };
+    let Some(key) = algebra_key(left) else {
+        return false;
+    };
+    matches!(&**owner, Ty::Class(class) if class.name.as_ref() == "std.alloc.Allocator")
+        && algebra_key(right) == Some(key)
+        && *output
+            == Some(crate::sum::result(
+                Ty::Set(key.clone()),
+                crate::sum::alloc_error(),
+            ))
+}
+
+pub(super) fn algebra_key(ty: &Ty) -> Option<&Arc<Ty>> {
+    match ty {
+        Ty::KeyView(key) => Some(key),
+        Ty::Ref(set, false) => match &**set {
+            Ty::Set(key) => Some(key),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 pub(super) fn to_set_signature(inputs: &[Ty], output: &Type) -> bool {

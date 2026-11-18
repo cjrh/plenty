@@ -2352,8 +2352,8 @@ unsafe fn common_members(a: &Collection, b: &Collection) -> usize {
             };
             return walk
                 .entries
-                .iter()
-                .filter(|entry| probe.find(entry.key).is_some())
+                .indices()
+                .filter(|&slot| probe.find(walk.entries.key(slot)).is_some())
                 .count();
         }
         if a.len() == 0 || b.len() == 0 {
@@ -2368,7 +2368,7 @@ unsafe fn common_members(a: &Collection, b: &Collection) -> usize {
             .references()
             .filter(|&(slot, mut known)| {
                 probe
-                    .find_known(walk.entries.get(slot).key, &mut known)
+                    .find_known(walk.entries.key(slot), &mut known)
                     .is_some()
             })
             .count()
@@ -3756,6 +3756,7 @@ pub(crate) unsafe fn collection_at(
                 &*(b as *const Collection),
                 &*(value as *const Collection),
                 algebra,
+                &*descriptor,
             ));
         }
         if matches!(

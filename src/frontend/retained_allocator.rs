@@ -18,7 +18,7 @@ impl Lower<'_> {
         let storage = Ty::Array(Arc::new(Ty::U64), 3);
         let shared = Ty::Ref(Arc::new(storage.clone()), false);
         let exclusive = Ty::Ref(Arc::new(storage.clone()), true);
-        let (opcode, inputs, output, descriptor) = match name {
+        let (opcode, mut inputs, output, descriptor) = match name {
             "__allocator_system" => (code::ALLOCATOR_SYSTEM, vec![], Some(handle.clone()), None),
             "__allocator_share" => (
                 code::ALLOCATOR_SHARE,
@@ -184,9 +184,20 @@ impl Lower<'_> {
         if args.len() != inputs.len() {
             return Err(at.error(format!("`{name}` requires {} arguments", inputs.len())));
         }
-        for (arg, expected) in args.iter().zip(&inputs) {
+        for (index, (arg, expected)) in args.iter().zip(&mut inputs).enumerate() {
             let actual = self.value(arg, ops)?;
-            self.same(Some(actual), Some(expected.clone()), &arg.at)?;
+            if matches!(
+                opcode,
+                code::ALLOCATOR_SET_UNION..=code::ALLOCATOR_SET_SYMMETRIC_DIFFERENCE
+            ) && matches!(index, 1 | 2)
+                && matches!(actual, Ty::KeyView(_))
+                && allocator_storage::algebra_key(&actual)
+                    == allocator_storage::algebra_key(expected)
+            {
+                *expected = actual;
+            } else {
+                self.same(Some(actual), Some(expected.clone()), &arg.at)?;
+            }
         }
         ops.push(Op::Thread(crate::threading::ThreadOp::AllocatorUse));
         ops.push(Op::ForeignCall {

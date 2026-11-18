@@ -264,8 +264,10 @@ moving a named set or view.
 To choose the allocator for a set of just the keys, use
 [`out.to_set(view)` or `out.to_set(dictionary.keys())`](../../stdlib/alloc.md#copy-dictionary-keys-into-a-set).
 Unlike `view.to_set()`, this trusted method builds the set in the caller's
-chosen storage. Neither form copies dictionary values. The allocator's binary
-set methods still require two sets.
+chosen storage. For a binary operation, pass the view directly to the
+[allocator's algebra method](../../stdlib/alloc.md#set-algebra-with-an-output-allocator):
+`out.difference(view, &set_of_replies)?` does not make a temporary set of all
+keys. Either or both operands can be key views. None of these calls copy values.
 
 `set(view)` and `list(view)` are not supported. Use `view.to_set()`,
 `dictionary.keys_snapshot()`, or `[*key for key in view]?` to choose the owned

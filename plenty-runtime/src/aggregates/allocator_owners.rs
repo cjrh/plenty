@@ -213,18 +213,21 @@ pub(super) unsafe fn try_key_view_to_set_in(
 }
 
 /// As for the selected constructors, the caller must be outside actor/arena
-/// contexts. Both borrows must be local sets of the same legal, copyable key
-/// type. Key views need a separate result descriptor.
+/// contexts. Each borrow is a set or the dictionary behind a key view, with
+/// the same legal, copyable key type as `set`. Dictionary values need not
+/// match or be copyable; neither operand describes the output.
 pub(super) unsafe fn try_set_algebra_in(
     allocator: &Allocator,
     left: &Collection,
     right: &Collection,
     op: i64,
+    set: &'static Type,
 ) -> Result<u128, AllocError> {
-    let ty = unsafe { &*left.ty };
-    assert!(ty.kind == b'S' && right.ty().kind == b'S');
+    assert!(set.kind == b'S');
+    assert!(matches!(left.ty().kind, b'S' | b'D'));
+    assert!(matches!(right.ty().kind, b'S' | b'D'));
     assert!(matches!(op, SET_UNION..=SET_SYMMETRIC_DIFFERENCE));
-    unsafe { try_set_algebra_with(left, right, op, ty, CopyDestination::Selected(allocator)) }
+    unsafe { try_set_algebra_with(left, right, op, set, CopyDestination::Selected(allocator)) }
 }
 
 pub(super) fn try_hash_new_in(

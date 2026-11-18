@@ -27,7 +27,7 @@ uses checked executable callbacks and a separately selected native archive.
 [Explicit allocator experiments](completed-work/language-and-tooling.md#b13-explicit-allocator-experiments)
 record the retained-system/arena probes, generic owned-payload gate and public
 allocator selection for boxes, lists, dictionaries and sets, including
-[set algebra](completed-work/language-and-tooling.md#public-selected-set-algebra),
+[set algebra on sets and dictionary key views](completed-work/language-and-tooling.md#public-selected-set-algebra),
 [explicit copies](completed-work/language-and-tooling.md#public-selected-copy) and
 [key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion) with an output allocator.
 B13 remains open.

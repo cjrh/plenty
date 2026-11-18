@@ -1,4 +1,6 @@
 //! Cached monomorphization shared by explicit and inferred calls during lowering.
+mod allocator_algebra;
+
 use super::*;
 use crate::ownership::Instantiation;
 use std::collections::VecDeque;
@@ -1377,6 +1379,10 @@ impl Lower<'_> {
                 self.sigs,
                 SignatureContext {
                     parameter_order: self.generics.wrapper_positions(&new.function.name),
+                    allocator_algebra: allocator_storage::algebra_template(
+                        &new.template,
+                        self.generics,
+                    ),
                     allocator_to_set: allocator_storage::to_set_template(
                         &new.template,
                         self.generics,
@@ -1529,6 +1535,14 @@ impl Lower<'_> {
             ty,
             open_error: *open_error,
         });
+        if allocator_storage::algebra_template(&self.generics.templates[name], self.generics)
+            && args
+                .iter()
+                .skip(1)
+                .any(|arg| self.possible_algebra_view(arg))
+        {
+            return self.allocator_algebra_call(name, types, args, at, expected, ops);
+        }
         self.generic_call_inner(name, types, args, at, true, expected, ops)
     }
 
