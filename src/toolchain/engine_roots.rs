@@ -11,9 +11,12 @@ pub(super) struct EngineRoots {
 }
 
 impl EngineRoots {
-    pub(super) fn for_link(options: &CompileOptions) -> Self {
+    pub(super) fn for_link(options: &CompileOptions, format: object::BinaryFormat) -> Self {
         let mut roots = Self::default();
-        if !cfg!(target_os = "linux") || options.executable_exports.is_none() {
+        if !cfg!(target_os = "linux")
+            || format != object::BinaryFormat::Elf
+            || options.executable_exports.is_none()
+        {
             return roots;
         }
         roots.restrict_globals = options.linker == Path::new("cc");

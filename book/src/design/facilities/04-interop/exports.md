@@ -148,7 +148,12 @@ protection remains, but that specialized diagnostic is not promised.
 This initial mode is qualified on Linux GNU x86-64, requires the baseline CPU
 level and excludes test hooks,
 fuzzing, distribution output and CLI package-graph builds. Invalid modes/names
-or output/header collisions are errors. Object/header and executable/header sets
+or output/header collisions (including ASCII case variants) are errors. On macOS
+and Windows, `--compile --executable-exports` rejects selection of an engine
+that would need a dylib or DLL beside the executable: the staged pair does not
+include sidecars. Object emission does not install engines; external build
+systems must manage native linking and deployment themselves. Object/header
+and executable/header sets
 use the [library publication guarantees](../../toolchain/01-building/artifacts.md#publication-guarantees).
 Whole-program caching is bypassed in this explicit mode so header and adapters
 come from one checked frontend result; compiled-function caching remains active.
