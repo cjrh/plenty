@@ -85,7 +85,7 @@ class GpuiBuildMain(unittest.TestCase):
                             "input='extern int support_value(void); int main(void) { return support_value() == 37 ? 0 : 99; }', "
                             "text=True, check=True)\n")
         compiler.chmod(0o755)
-        env = {"CARGO_NET_OFFLINE": "true", "CARGO_TERM_COLOR": "always"}
+        env = {"CARGO_NET_OFFLINE": "true", "CARGO_TERM_COLOR": "always", "CARGO_TERM_QUIET": "false"}
         subprocess.run(["cargo", "generate-lockfile", "--offline", "--manifest-path", str(manifest)],
                        check=True, capture_output=True, env={**os.environ, **env})
         version = subprocess.check_output(["rustc", "-vV"], text=True)
@@ -115,6 +115,17 @@ class GpuiBuildMain(unittest.TestCase):
                         command = shlex.split((out / "link-command.txt").read_text())
                         self.assertIn(command[2], artifacts[0]["filenames"])
                         self.assertTrue(command[2].endswith(".a"))
+                        reports = [record["message"]["message"] for record in records
+                                   if record["reason"] == "compiler-message"
+                                   and record["manifest_path"] == str(manifest.resolve())
+                                   and record["target"]["name"] == "plenty_gpui"
+                                   and "staticlib" in record["target"]["crate_types"]
+                                   and record["message"]["message"].startswith("native-static-libs: ")]
+                        self.assertEqual(len(reports), 1)
+                        expected_args = shlex.split(reports[0].removeprefix("native-static-libs: "))
+                        self.assertEqual(command[3], "-Wl,--gc-sections")
+                        self.assertEqual(command[-2:], ["-o", str(out / "plenty-gpui")])
+                        self.assertEqual(command[4:-2], expected_args)
                         self.assertNotIn("\x1b", (out / "native-link-args.txt").read_text())
                         if target is not None:
                             self.assertNotEqual(Path(command[2]), stale)
