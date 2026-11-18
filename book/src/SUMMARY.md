@@ -672,6 +672,7 @@
     - [Generated library contracts and C headers](proposals/ffi-export-contracts.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
         - [Explicit allocator experiments](proposals/allocator-experiments.md)
+        - [Package-declared allocators](proposals/package-allocators.md)
     - [Declared vectors for floating components](proposals/declared-vectors.md)
         - [Numeric and layout contract](proposals/declared-vectors/contract.md)
         - [Evidence and prototype gates](proposals/declared-vectors/evidence.md)
