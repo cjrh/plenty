@@ -649,6 +649,7 @@ impl Lower<'_> {
         }
         let fields = t.get().variants[0].fields.clone();
         let n = fields.len();
+        self.restore_observation_slots(); // The parts need consecutive fresh slots.
         if n != values.len()
             || fields.iter().any(Ty::carries_loan)
             || self.parameters + self.locals.len() + n > usize::from(u8::MAX)

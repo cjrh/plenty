@@ -177,6 +177,105 @@ def main() -> ():
 }
 
 #[test]
+fn observed_tuple_and_record_owners_drop_after_print_in_reverse_order() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+class Record:
+    item: (str, i64)
+
+def pair(label: str) -> (str, i64):
+    out = budget(label, 1)
+    (out.slice_text("same selected text").unwrap(), 1)
+
+def record(label: str) -> Record:
+    Record(pair(label))
+
+def main() -> ():
+    print(pair("left") == pair("right")).unwrap()
+    print(record("first") == record("second")).unwrap()
+    print(record("projection").item[0]).unwrap()
+    print("done").unwrap()
+"#
+        ),
+        "True\nright 0 1\nleft 0 1\nTrue\nsecond 0 1\nfirst 0 1\nsame selected text\nprojection 0 1\ndone\n",
+    );
+}
+
+#[test]
+fn observed_borrowed_records_and_fields_leave_the_owner_intact() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+class Record:
+    text: str
+
+def inspect(records: &list[Record], index: i64) -> ():
+    print(records[index] == records[0], records[index].text).unwrap()
+
+def main() -> ():
+    out = budget("owner", 1)
+    records = [Record(out.slice_text("selected field").unwrap())].unwrap()
+    drop(out)
+    inspect(&records, 0)
+    print(records[0].text).unwrap()
+    drop(records)
+    print("done").unwrap()
+"#
+        ),
+        "True selected field\nselected field\nowner 0 1\ndone\n",
+    );
+}
+
+#[test]
+fn observed_slot_reuse_preserves_checked_failure_cleanup() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def make(label: str) -> str:
+    out = budget(label, 1)
+    out.slice_text("selected text").unwrap()
+
+def exercise(n: i64) -> ():
+    drop(make("warm") == make("up"))
+    failed = checked:
+        make("left") == make("right") and n + 1 == 0
+    print(failed.is_err()).unwrap()
+
+def main() -> ():
+    exercise(i64.MAX)
+"#
+        ),
+        "up 0 1\nwarm 0 1\nright 0 1\nleft 0 1\nTrue\n",
+    );
+}
+
+#[test]
+fn observed_ordinary_temporaries_reuse_typed_slots_across_statements() {
+    // More observations than a function has slots. Alternate types, include
+    // a conditional store, and need two distinct string slots at once.
+    let statements = "    drop(make() == \"x\")\n    drop(pair() == pair())\n    if flag and make() == make():\n        pass\n".repeat(100);
+    assert_stdout(
+        &format!(
+            r#"def make() -> str:
+    return "x"
+
+def pair() -> (str, i64):
+    (make(), 1)
+
+def observe_all(flag: bool) -> ():
+{statements}    print("done").unwrap()
+
+def main() -> ():
+    observe_all(False)
+    observe_all(True)
+"#
+        ),
+        "done\ndone\n",
+    );
+}
+
+#[test]
 fn unread_channel_message_and_untaken_job_result_release_selected_fields_in_order() {
     assert_stdout(
         &format!(

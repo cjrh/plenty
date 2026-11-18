@@ -1568,6 +1568,7 @@ impl Lower<'_> {
     }
 
     pub(super) fn slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
+        self.restore_observation_slots();
         let slot = u8::try_from(self.parameters + self.locals.len())
             .map_err(|_| at.error("at most 256 parameter/local slots are supported"))?;
         self.locals.push(ty);
