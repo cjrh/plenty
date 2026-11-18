@@ -171,10 +171,13 @@ The same analysis caches a `std.bytes.Bytes` place (a local, a reference
 parameter, or a field path such as `holder.data`) for `data.get(i)` and
 `data.set(i, value)` (issue #843). Before the loop the frontend reads the
 buffer's length with `plenty_bytes_len`, or reuses the range's stop when it is
-`data.len()`, and its first-byte address with `plenty_byte_view_rows`. In the
-loop the methods lower to `BytesGetView` and `BytesSetView`. When the range
-proves the index in bounds, the access
-is one byte load or store. Otherwise one unsigned comparison with the cached
+`data.len()`. It uses `plenty_byte_view_rows` for read-only caches and
+`plenty_byte_view_rows_mut` for caches that serve a write. The writable helper
+requires an exclusive setup borrow. If an earlier loan of the same owner may
+still be live at loop entry, the setter keeps its method call and borrows at
+the original call site (issue #1013). In the loop the cached methods lower to
+`BytesGetView` and `BytesSetView`. When the range proves the index in bounds,
+the access is one byte load or store. Otherwise one unsigned comparison with the cached
 length guards it, and a failing index calls the method in a cold block. The
 method traps there with its own message, std position and caller note, since
 the length it reads is the cached one. Any operation in the loop that could
@@ -308,9 +311,11 @@ rows meanwhile, which is what makes the cached length and address valid. Element
 values keep reference semantics: writes through `&mut` land in the list, and an
 element can be passed on or returned under the list's loan.
 
-A slice view of a `Bytes` buffer or `bytes` value reads its first-byte address
-and length with one `plenty_byte_view` call, which returns both in the two
-return registers. A slice of any source with a written bound first tests
+A shared slice view of a `Bytes` buffer or `bytes` value reads its first-byte
+address and length with `plenty_byte_view`. An exclusive `Bytes` slice uses
+`plenty_byte_view_mut`, which derives the writable address from the backing
+vector's mutable pointer (issue #1013). Both helpers return the address and
+length in registers. A slice of any source with a written bound first tests
 `start <= stop <= len` with two unsigned comparisons and, when they hold, takes
 the bounds as written; a negative or out-of-range bound fails a comparison and
 runs the clamps in a cold block, with the same result as before (issue #931).

@@ -1,7 +1,7 @@
 //! Contiguous byte storage behind `std.bytes`: one byte per element, with every
 //! buffer acquisition fallible. `std.bytes` validates ranges and reports them as
 //! values; a violated precondition here is a library bug and stops the process.
-//! No pointer into the buffer crosses the ABI, so growth can relocate freely.
+//! Byte views keep the buffer in place under the caller's loan.
 use super::{Collection, OwnedValue, Type, byte_scan, wrap};
 use crate::memory::{self, AllocError, Header};
 use crate::strings;
@@ -447,13 +447,19 @@ pub(crate) unsafe extern "C" fn plenty_bytes_set(owner: *mut u8, index: i64, val
     );
 }
 
-/// The address of the first byte of a live buffer or `bytes` literal, for a
-/// slice view. Its loan keeps the storage from growing while the view exists;
-/// a shared view of a literal only reads it.
+/// The first byte of an ordinary buffer, cached by a read-only loop.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *const u8 {
-    // SAFETY: the compiler keeps the owner alive through the call.
-    unsafe { source(owner as usize as u128).as_ptr() }
+    // SAFETY: the compiler holds a shared loan of a live storage owner.
+    unsafe { (*owner.cast::<Storage>()).bytes.as_ptr() }
+}
+
+/// The first byte of an ordinary buffer, cached by a loop that can write it.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_rows_mut(owner: *mut u8) -> *mut u8 {
+    // SAFETY: cache setup exclusively borrows the live storage owner. The
+    // loop preserves the allocation and checks a receiver loan at each use.
+    unsafe { (*owner.cast::<Storage>()).bytes.as_mut_ptr() }
 }
 
 /// Two result words in the two return registers of the C ABI.
@@ -467,13 +473,32 @@ impl Words {
     }
 }
 
-/// The first byte address and byte count of a live buffer or `bytes`
-/// literal, for a slice view: one call for both words (issue #931).
+/// The first byte address and count for a shared slice of a buffer or literal.
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_byte_view(owner: *const u8) -> Words {
-    // SAFETY: the compiler keeps the owner alive through the call.
-    let bytes = unsafe { source(owner as usize as u128) };
-    Words(bytes.as_ptr() as u64, bytes.len() as u64)
+    // SAFETY: either owner layout starts with a live header. The caller's
+    // loan keeps a buffer in place, and a literal is immutable and immortal.
+    unsafe {
+        if (*owner.cast::<Header>()).destroy.is_none() {
+            let bytes = strings::heap_bytes(owner.cast());
+            Words(bytes.as_ptr() as u64, bytes.len() as u64)
+        } else {
+            let bytes = &(*owner.cast::<Storage>()).bytes;
+            // Avoid a reference covering the allocation: another slice of
+            // this buffer may hold a disjoint exclusive loan.
+            Words(bytes.as_ptr() as u64, bytes.len() as u64)
+        }
+    }
+}
+
+/// The first byte address and count for an exclusive slice of a buffer.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_byte_view_mut(owner: *mut u8) -> Words {
+    // SAFETY: the compiler lends a live buffer for the selected range and
+    // keeps it in place. This briefly borrows the Vec header, and as_mut_ptr
+    // leaves any disjoint views of the allocation valid.
+    let bytes = unsafe { &mut (*owner.cast::<Storage>()).bytes };
+    Words(bytes.as_mut_ptr() as u64, bytes.len() as u64)
 }
 
 /// `__bytes_to_text` without the dispatcher's argument block (issue #931):

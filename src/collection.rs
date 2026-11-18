@@ -131,9 +131,11 @@ pub enum Query {
     TextPrevByte,
     /// `ord(text)`: the code point of a one-scalar text, or a `ParseError`.
     TextOrd,
-    /// The address of a byte buffer's first byte, which stays valid while
-    /// the buffer is neither resized nor replaced (issue #843).
+    /// A byte buffer's shared first-byte address, valid until the buffer is
+    /// resized or replaced (issue #843).
     BytesRows,
+    /// The corresponding writable address, acquired under an exclusive loan.
+    BytesRowsMut,
 }
 
 impl Query {
@@ -149,17 +151,16 @@ impl Query {
         })
     }
 
-    /// The type of the first operand, which the query reads through a
-    /// shared reference.
+    /// The referent type of the first operand.
     pub fn operand(self) -> Ty {
         match self {
-            Self::BytesLen | Self::BytesRows => Ty::ByteStorage,
+            Self::BytesLen | Self::BytesRows | Self::BytesRowsMut => Ty::ByteStorage,
             _ => Ty::Str,
         }
     }
 
     pub fn inputs(self) -> Vec<Ty> {
-        let operand = Ty::Ref(Arc::new(self.operand()), false);
+        let operand = Ty::Ref(Arc::new(self.operand()), matches!(self, Self::BytesRowsMut));
         match self {
             Self::TextAt | Self::TextAtByte | Self::TextNextByte | Self::TextPrevByte => {
                 vec![operand, Ty::I64]
@@ -176,6 +177,7 @@ impl Query {
             Self::TextOrd => crate::sum::result(Ty::U32, crate::sum::parse_error()),
             Self::BytesLen
             | Self::BytesRows
+            | Self::BytesRowsMut
             | Self::TextLen
             | Self::TextByteLen
             | Self::TextNextByte
@@ -362,7 +364,7 @@ pub enum CollectionOp {
     /// `Bytes.set` with the loop's cached length and first-byte address:
     /// `&mut Bytes`, index, value, length, address -> ().
     BytesSetView(Ty),
-    /// A [`Query`] of the value behind a shared reference, which the
+    /// A [`Query`] of the value behind a reference, which the
     /// frontend keeps alive under its loan; nothing is retained or released.
     QueryRef(Query),
     /// Borrowed iteration's row cursor: the first row's address and the row
