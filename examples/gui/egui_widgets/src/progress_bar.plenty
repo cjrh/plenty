@@ -1,0 +1,16 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    fraction: f32
+    def __init__(self) -> ():
+        self.fraction = 0.65f32
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    ui.progress_bar(state.fraction)
+
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)

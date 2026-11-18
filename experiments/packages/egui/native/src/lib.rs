@@ -101,6 +101,7 @@ fn widget(token: u64, add: impl FnOnce(&mut Pass) -> Result<bool, Error>) -> u32
     result.map_or_else(|e| e as u32, u32::from)
 }
 
+mod controls;
 mod text_edit;
 
 // SAFETY: non-null input points to `len` readable bytes for this call.

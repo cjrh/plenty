@@ -1,0 +1,20 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    enabled: bool
+    def __init__(self) -> ():
+        self.enabled = False
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    if ui.checkbox(&"Show details", &mut state.enabled)?:
+        ui.label(&"Changed")?
+    if state.enabled:
+        ui.label(&"Details")?
+    Ok(())
+
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)

@@ -15,3 +15,35 @@ path = "src/button.plenty"
 [[bin]]
 name = "text_edit"
 path = "src/text_edit.plenty"
+
+[[bin]]
+name = "checkbox"
+path = "src/checkbox.plenty"
+
+[[bin]]
+name = "radio"
+path = "src/radio.plenty"
+
+[[bin]]
+name = "link"
+path = "src/link.plenty"
+
+[[bin]]
+name = "separator"
+path = "src/separator.plenty"
+
+[[bin]]
+name = "spinner"
+path = "src/spinner.plenty"
+
+[[bin]]
+name = "progress_bar"
+path = "src/progress_bar.plenty"
+
+[[bin]]
+name = "slider"
+path = "src/slider.plenty"
+
+[[bin]]
+name = "drag_value"
+path = "src/drag_value.plenty"
