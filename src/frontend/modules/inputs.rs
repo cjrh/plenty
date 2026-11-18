@@ -141,6 +141,17 @@ impl Inputs {
         })
     }
 
+    /// Resolved imports, including imports from other packages in the graph.
+    pub(crate) fn standard_imports(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.files
+            .iter()
+            .flat_map(|file| &file.imports)
+            .filter_map(|import| match import.source {
+                ModuleSource::Standard(name) => Some(name),
+                ModuleSource::File(_) => None,
+            })
+    }
+
     /// The canonical path of each source file read, excluding included files.
     pub(crate) fn sources(&self) -> impl Iterator<Item = &Path> {
         self.files

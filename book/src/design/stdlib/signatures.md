@@ -18,98 +18,100 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 114-191
-- [`std.actor.net`](#stdactornet): 193-256
-- [`std.actor.tls`](#stdactortls): 258-287
-- [`std.actor.http.server`](#stdactorhttpserver): 289-352
-- [`std.alloc`](#stdalloc): 354-398
-- [`std.archive`](#stdarchive): 400-466
-- [`std.atomic`](#stdatomic): 468-477
-- [`std.bigint`](#stdbigint): 479-513
-- [`std.bytes`](#stdbytes): 515-587
-- [`std.cache.lru`](#stdcachelru): 589-611
-- [`std.channel`](#stdchannel): 613-617
-- [`std.cli`](#stdcli): 619-649
-- [`std.cli.fileinput`](#stdclifileinput): 651-660
-- [`std.cli.progress`](#stdcliprogress): 662-686
-- [`std.collections`](#stdcollections): 688-715
-- [`std.complex`](#stdcomplex): 717-743
-- [`std.compress`](#stdcompress): 745-775
-- [`std.concurrent`](#stdconcurrent): 777-781
-- [`std.crypto`](#stdcrypto): 783-864
-- [`std.csv`](#stdcsv): 866-929
-- [`std.dataframe`](#stddataframe): 931-1130
-- [`std.db.kv`](#stddbkv): 1132-1164
-- [`std.db.sqlite`](#stddbsqlite): 1166-1230
-- [`std.deque`](#stddeque): 1232-1246
-- [`std.experimental.alloc`](#stdexperimentalalloc): 1248-1294
-- [`std.diff`](#stddiff): 1296-1325
-- [`std.encoding`](#stdencoding): 1327-1394
-- [`std.env`](#stdenv): 1396-1410
-- [`std.error`](#stderror): 1412-1433
-- [`std.fmt`](#stdfmt): 1435-1502
-- [`std.fs`](#stdfs): 1504-1605
-- [`std.fs.dirs`](#stdfsdirs): 1607-1617
-- [`std.fs.lock`](#stdfslock): 1619-1634
-- [`std.fs.watch`](#stdfswatch): 1636-1671
-- [`std.graph`](#stdgraph): 1673-1761
-- [`std.http`](#stdhttp): 1763-1834
-- [`std.http.decoder`](#stdhttpdecoder): 1836-1853
-- [`std.http.body`](#stdhttpbody): 1855-1890
-- [`std.http.client`](#stdhttpclient): 1892-2002
-- [`std.http.cookie`](#stdhttpcookie): 2004-2036
-- [`std.http.files`](#stdhttpfiles): 2038-2051
-- [`std.http.https`](#stdhttphttps): 2053-2067
-- [`std.http.proxy`](#stdhttpproxy): 2069-2090
-- [`std.http.server`](#stdhttpserver): 2092-2193
-- [`std.http.sse`](#stdhttpsse): 2195-2214
-- [`std.http.tls`](#stdhttptls): 2216-2233
-- [`std.http.typed`](#stdhttptyped): 2235-2268
-- [`std.http.websocket`](#stdhttpwebsocket): 2270-2305
-- [`std.http.wss`](#stdhttpwss): 2307-2313
-- [`std.image`](#stdimage): 2315-2361
-- [`std.io`](#stdio): 2363-2469
-- [`std.io.typed`](#stdiotyped): 2471-2509
-- [`std.serial`](#stdserial): 2511-2577
-- [`std.json`](#stdjson): 2579-2731
-- [`std.jwt`](#stdjwt): 2733-2780
-- [`std.log`](#stdlog): 2782-2849
-- [`std.markdown`](#stdmarkdown): 2851-2885
-- [`std.template`](#stdtemplate): 2887-2924
-- [`std.math`](#stdmath): 2926-2997
-- [`std.mime`](#stdmime): 2999-3025
-- [`std.net`](#stdnet): 3027-3109
-- [`std.path`](#stdpath): 3111-3128
-- [`std.process`](#stdprocess): 3130-3189
-- [`std.random`](#stdrandom): 3191-3212
-- [`std.ready`](#stdready): 3214-3245
-- [`std.regex`](#stdregex): 3247-3300
-- [`std.report`](#stdreport): 3302-3313
-- [`std.secrets`](#stdsecrets): 3315-3341
-- [`std.shlex`](#stdshlex): 3343-3352
-- [`std.sketch`](#stdsketch): 3354-3392
-- [`std.sketch.xor`](#stdsketchxor): 3394-3405
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3407-3422
-- [`std.signal`](#stdsignal): 3424-3441
-- [`std.simd`](#stdsimd): 3443-3602
-- [`std.stat`](#stdstat): 3604-3637
-- [`std.plot`](#stdplot): 3639-3728
-- [`std.linalg`](#stdlinalg): 3730-3771
-- [`std.sync`](#stdsync): 3773-3805
-- [`std.system`](#stdsystem): 3807-3866
-- [`std.tempfile`](#stdtempfile): 3868-3900
-- [`std.test`](#stdtest): 3902-3944
-- [`std.text`](#stdtext): 3946-3989
-- [`std.thread`](#stdthread): 3991-3995
-- [`std.time`](#stdtime): 3997-4041
-- [`std.tls`](#stdtls): 4043-4125
-- [`std.toml`](#stdtoml): 4127-4226
-- [`std.unicode`](#stdunicode): 4228-4240
-- [`std.units`](#stdunits): 4242-4479
-- [`std.units.catalogue`](#stdunitscatalogue): 4481-5259
-- [`std.url`](#stdurl): 5261-5289
-- [`std.uuid`](#stduuid): 5291-5314
-- [`std.xml`](#stdxml): 5316-5349
+- [`std.actor`](#stdactor): 116-193
+- [`std.actor.net`](#stdactornet): 195-258
+- [`std.actor.tls`](#stdactortls): 260-289
+- [`std.actor.http.server`](#stdactorhttpserver): 291-354
+- [`std.alloc`](#stdalloc): 356-400
+- [`std.archive`](#stdarchive): 402-468
+- [`std.atomic`](#stdatomic): 470-479
+- [`std.bigint`](#stdbigint): 481-515
+- [`std.bytes`](#stdbytes): 517-589
+- [`std.cache.lru`](#stdcachelru): 591-613
+- [`std.channel`](#stdchannel): 615-619
+- [`std.cli`](#stdcli): 621-651
+- [`std.cli.fileinput`](#stdclifileinput): 653-662
+- [`std.cli.progress`](#stdcliprogress): 664-688
+- [`std.collections`](#stdcollections): 690-717
+- [`std.complex`](#stdcomplex): 719-745
+- [`std.compress`](#stdcompress): 747-777
+- [`std.concurrent`](#stdconcurrent): 779-783
+- [`std.crypto`](#stdcrypto): 785-866
+- [`std.csv`](#stdcsv): 868-931
+- [`std.dataframe`](#stddataframe): 933-1132
+- [`std.db.kv`](#stddbkv): 1134-1166
+- [`std.db.sqlite`](#stddbsqlite): 1168-1232
+- [`std.deque`](#stddeque): 1234-1248
+- [`std.experimental.alloc`](#stdexperimentalalloc): 1250-1296
+- [`std.diff`](#stddiff): 1298-1327
+- [`std.encoding`](#stdencoding): 1329-1396
+- [`std.env`](#stdenv): 1398-1412
+- [`std.error`](#stderror): 1414-1435
+- [`std.fmt`](#stdfmt): 1437-1504
+- [`std.fs`](#stdfs): 1506-1607
+- [`std.fs.dirs`](#stdfsdirs): 1609-1619
+- [`std.fs.lock`](#stdfslock): 1621-1636
+- [`std.fs.watch`](#stdfswatch): 1638-1673
+- [`std.graph`](#stdgraph): 1675-1763
+- [`std.gui.immediate.egui`](#stdguiimmediateegui): 1765-1778
+- [`std.gui.retained.iced`](#stdguiretainediced): 1780-1796
+- [`std.http`](#stdhttp): 1798-1869
+- [`std.http.decoder`](#stdhttpdecoder): 1871-1888
+- [`std.http.body`](#stdhttpbody): 1890-1925
+- [`std.http.client`](#stdhttpclient): 1927-2037
+- [`std.http.cookie`](#stdhttpcookie): 2039-2071
+- [`std.http.files`](#stdhttpfiles): 2073-2086
+- [`std.http.https`](#stdhttphttps): 2088-2102
+- [`std.http.proxy`](#stdhttpproxy): 2104-2125
+- [`std.http.server`](#stdhttpserver): 2127-2228
+- [`std.http.sse`](#stdhttpsse): 2230-2249
+- [`std.http.tls`](#stdhttptls): 2251-2268
+- [`std.http.typed`](#stdhttptyped): 2270-2303
+- [`std.http.websocket`](#stdhttpwebsocket): 2305-2340
+- [`std.http.wss`](#stdhttpwss): 2342-2348
+- [`std.image`](#stdimage): 2350-2396
+- [`std.io`](#stdio): 2398-2504
+- [`std.io.typed`](#stdiotyped): 2506-2544
+- [`std.serial`](#stdserial): 2546-2612
+- [`std.json`](#stdjson): 2614-2766
+- [`std.jwt`](#stdjwt): 2768-2815
+- [`std.log`](#stdlog): 2817-2884
+- [`std.markdown`](#stdmarkdown): 2886-2920
+- [`std.template`](#stdtemplate): 2922-2959
+- [`std.math`](#stdmath): 2961-3032
+- [`std.mime`](#stdmime): 3034-3060
+- [`std.net`](#stdnet): 3062-3144
+- [`std.path`](#stdpath): 3146-3163
+- [`std.process`](#stdprocess): 3165-3224
+- [`std.random`](#stdrandom): 3226-3247
+- [`std.ready`](#stdready): 3249-3280
+- [`std.regex`](#stdregex): 3282-3335
+- [`std.report`](#stdreport): 3337-3348
+- [`std.secrets`](#stdsecrets): 3350-3376
+- [`std.shlex`](#stdshlex): 3378-3387
+- [`std.sketch`](#stdsketch): 3389-3427
+- [`std.sketch.xor`](#stdsketchxor): 3429-3440
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3442-3457
+- [`std.signal`](#stdsignal): 3459-3476
+- [`std.simd`](#stdsimd): 3478-3637
+- [`std.stat`](#stdstat): 3639-3672
+- [`std.plot`](#stdplot): 3674-3763
+- [`std.linalg`](#stdlinalg): 3765-3806
+- [`std.sync`](#stdsync): 3808-3840
+- [`std.system`](#stdsystem): 3842-3901
+- [`std.tempfile`](#stdtempfile): 3903-3935
+- [`std.test`](#stdtest): 3937-3979
+- [`std.text`](#stdtext): 3981-4024
+- [`std.thread`](#stdthread): 4026-4030
+- [`std.time`](#stdtime): 4032-4076
+- [`std.tls`](#stdtls): 4078-4160
+- [`std.toml`](#stdtoml): 4162-4261
+- [`std.unicode`](#stdunicode): 4263-4275
+- [`std.units`](#stdunits): 4277-4514
+- [`std.units.catalogue`](#stdunitscatalogue): 4516-5294
+- [`std.url`](#stdurl): 5296-5324
+- [`std.uuid`](#stduuid): 5326-5349
+- [`std.xml`](#stdxml): 5351-5384
 
 ## `std.actor`
 
@@ -1758,6 +1760,39 @@ class UnGraph[N, E]
     def astar[F: Callable[[&E], f64], H: Callable[[NodeId], f64]](self, start: NodeId, goal: NodeId, weight: &F, estimate: &H) -> Result[Option[(f64, list[NodeId])], GraphError]
     def bellman_ford[F: Callable[[&E], f64]](self, start: NodeId, weight: &F) -> Result[Paths, GraphError]
     def minimum_spanning_tree[F: Callable[[&E], f64]](self, weight: &F) -> Result[list[EdgeId], GraphError]
+```
+
+## `std.gui.immediate.egui`
+
+Immediate-mode single-pass buttons and labels with checked click responses. Errors: `EguiError`. [Reference](gui-egui.md).
+
+```text
+enum EguiError
+    OutOfMemory | CapacityOverflow | InvalidContext | LimitExceeded | InvalidArgument | NativeFailure
+def allocation(error: AllocError) -> EguiError
+class Ui
+    def __init__(self, token: u64) -> ()
+    def label(self, text: &str) -> Result[(), EguiError]
+    def button(self, text: &str) -> Result[bool, EguiError]
+def run() -> Result[(), EguiError]
+```
+
+## `std.gui.retained.iced`
+
+Retained model updates and validated row, column, text and button snapshots. Errors: `IcedError`. [Reference](gui-iced.md).
+
+```text
+enum IcedError
+    OutOfMemory | CapacityOverflow | InvalidContext | LimitExceeded | InvalidLayout | InvalidArgument | NativeFailure
+def allocation(error: AllocError) -> IcedError
+class Frame
+    def __init__(self, token: u64) -> ()
+    def row(self) -> Result[(), IcedError]
+    def column(self) -> Result[(), IcedError]
+    def end(self) -> Result[(), IcedError]
+    def text(self, text: &str) -> Result[(), IcedError]
+    def button(self, text: &str, action: u64) -> Result[(), IcedError]
+def run() -> Result[(), IcedError]
 ```
 
 ## `std.http`

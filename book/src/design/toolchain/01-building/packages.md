@@ -608,3 +608,5 @@ Relative paths are relative to the file. `--package-graph` works with `FILE`,
 `--check`, `--check-module`, and `--compile`. It lets another build system
 compile a package without `plenty.toml`, and makes the compiler's input visible
 when debugging resolution.
+
+A package executable may opt into one of the two [source-built GUI backends](../../stdlib/gui-build.md) by a resolved `std.gui` import. This needs the specified Linux source toolchain, not a `[dependencies]` entry, and is not a package-native plugin mechanism.

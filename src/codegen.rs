@@ -276,7 +276,7 @@ fn compile_graph(
         appendix: None,
         script: false,
     };
-    compile_sources_to_executable(&sources, output, options, test_hooks)
+    compile_application(&sources, output, options, test_hooks, true)
 }
 
 /// Compile a test file that defines `main` for `plenty test`, with the
@@ -306,7 +306,7 @@ pub(crate) fn compile_tests_to_executable(
         appendix: Some(crate::frontend::test_appendix(tests)),
         script: false,
     };
-    compile_sources_to_executable(&sources, output, options, true)
+    compile_application(&sources, output, options, true, true)
 }
 
 /// Link an executable from already lowered operations, bypassing the program
@@ -343,6 +343,16 @@ fn compile_sources_to_executable(
     options: &crate::CompileOptions,
     test_hooks: bool,
 ) -> Result<crate::frontend::Inputs> {
+    compile_application(sources, output, options, test_hooks, false)
+}
+
+fn compile_application(
+    sources: &Sources,
+    output: &Path,
+    options: &crate::CompileOptions,
+    test_hooks: bool,
+    package: bool,
+) -> Result<crate::frontend::Inputs> {
     if options.executable_exports.is_some() {
         return executable_exports::compile(sources, output, options, test_hooks, true);
     }
@@ -351,20 +361,33 @@ fn compile_sources_to_executable(
     let obj_path = workspace.path().join("program.o");
     let build = Build::new(options, test_hooks).for_executable();
     let cache = build.cache.clone();
-    let inputs = program_object(sources, &obj_path, build)?;
+    let inputs = application_object(sources, &obj_path, build, package.then_some(options))?;
     report_cache(options, cache.as_deref());
-    link_object(&workspace, &obj_path, output, options, test_hooks)?;
+    if package && let Some(backend) = crate::toolchain::gui::Backend::selected(&inputs)? {
+        backend.link(&obj_path, output, options, &inputs)?;
+    } else {
+        link_object(&workspace, &obj_path, output, options, test_hooks)?;
+    }
     Ok(inputs)
 }
 
 /// Write the object for `sources` to `object`: the program cache's, when its
 /// entry for them is current, or else a new build's, which then becomes the
 /// entry (issue #317). Returns the inputs the object was built from.
-#[cfg_attr(feature = "profile", hotpath::measure)]
 fn program_object(
     sources: &Sources,
     object: &Path,
     build: Build,
+) -> Result<crate::frontend::Inputs> {
+    application_object(sources, object, build, None)
+}
+
+#[cfg_attr(feature = "profile", hotpath::measure)]
+fn application_object(
+    sources: &Sources,
+    object: &Path,
+    build: Build,
+    package: Option<&crate::CompileOptions>,
 ) -> Result<crate::frontend::Inputs> {
     let started = std::time::Instant::now();
     // Builds that check cache hits recompile every function; they are tests
@@ -375,7 +398,7 @@ fn program_object(
         .filter(|_| !build.check_cache_hits && !build.functions_only)
         .and_then(|cache| {
             let settings = format!(
-                "optimize {} cpu {} test hooks {} {} reloads {:?} {} coverage {} executable pruning {}",
+                "optimize {} cpu {} test hooks {} {} reloads {:?} {} coverage {} executable pruning {} package {}",
                 build.optimize,
                 build.cpu.name(),
                 build.test_hooks,
@@ -383,7 +406,8 @@ fn program_object(
                 reload_rewrites(),
                 std::env::var_os("PLENTY_REGALLOC_CHECKER").is_some(),
                 build.coverage,
-                build.prune_user
+                build.prune_user,
+                package.is_some()
             );
             Some((cache, ProgramKey::new(&sources.identity()?, &settings)))
         });
@@ -405,8 +429,28 @@ fn program_object(
     }
     let mut heap = Heap::default();
     let program = sources.compile(&mut heap)?;
-    op::check(&program.ops)?;
-    compile_to_object(program.ops, &heap, object, program.returns_status, build)?;
+    if let Some(options) = package
+        && let Some(backend) = crate::toolchain::gui::Backend::selected(&program.inputs)?
+    {
+        let interface = executable_exports::checked_interface(
+            backend.exports(),
+            &program,
+            options,
+            build.test_hooks,
+        )?;
+        emit_object(
+            program.ops,
+            &heap,
+            object,
+            Some(program.returns_status),
+            &program.exports,
+            Some(&interface),
+            build,
+        )?;
+    } else {
+        op::check(&program.ops)?;
+        compile_to_object(program.ops, &heap, object, program.returns_status, build)?;
+    }
     if let Some((cache, key)) = &cached {
         cache.store_program(key, &program.inputs, object, started.elapsed(), seen);
     }

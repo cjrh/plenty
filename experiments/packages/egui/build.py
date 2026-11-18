@@ -13,7 +13,7 @@ REPO = PACKAGE.parents[2]
 
 
 # Reviewed ownership contract, independent of the header generated for this build.
-GUARD = "egui_app_plenty_contract_v1_89958b2fdbfd0d0f069c1bc193892a0a85ea81d6e227fd12a11fe40d3950d06f"
+GUARD = (PACKAGE / "native/expected-contract.txt").read_text().strip()
 
 
 def main():

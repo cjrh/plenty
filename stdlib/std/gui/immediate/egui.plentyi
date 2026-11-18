@@ -1,0 +1,60 @@
+# egui/eframe 0.37.0 (Emil Ernerfeldt and contributors, MIT OR Apache-2.0):
+# synchronous widgets, default fonts and the X11/glow renderer. https://www.egui.rs/
+# Checked only on the synchronous GUI thread; no worker certification.
+extern def native_run() -> u32 = "pleg_v1_run"
+extern def native_label(token: u64, text: &str as utf8) -> u32 = "pleg_v1_label"
+extern def native_button(token: u64, text: &str as utf8) -> u32 = "pleg_v1_button"
+
+pub enum EguiError:
+    OutOfMemory
+    CapacityOverflow
+    InvalidContext
+    LimitExceeded
+    InvalidArgument
+    NativeFailure
+
+pub def allocation(error: AllocError) -> EguiError:
+    match error:
+        case AllocError.OutOfMemory:
+            EguiError.OutOfMemory
+        case AllocError.CapacityOverflow:
+            EguiError.CapacityOverflow
+
+# Status 1 is reserved for a successful button click.
+def failure(status: u32) -> EguiError:
+    match status:
+        case 2u32:
+            EguiError.OutOfMemory
+        case 3u32:
+            EguiError.CapacityOverflow
+        case 4u32:
+            EguiError.InvalidContext
+        case 5u32:
+            EguiError.LimitExceeded
+        case 6u32:
+            EguiError.InvalidArgument
+        case _:
+            EguiError.NativeFailure
+
+def checked(status: u32) -> Result[(), EguiError]:
+    if status == 0u32:
+        return Ok(())
+    Err(failure(status))
+
+pub class Ui:
+    token: u64
+    pub def __init__(self, token: u64) -> ():
+        self.token = token
+    pub def label(self, text: &str) -> Result[(), EguiError]:
+        checked(native_label(self.token, text))
+    pub def button(self, text: &str) -> Result[bool, EguiError]:
+        match native_button(self.token, text):
+            case 0u32:
+                Ok(False)
+            case 1u32:
+                Ok(True)
+            case _ as status:
+                Err(failure(status))
+
+pub def run() -> Result[(), EguiError]:
+    checked(native_run())

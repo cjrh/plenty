@@ -1,0 +1,28 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    count: i64
+    def __init__(self) -> ():
+        self.count = 0
+
+    def increment(self: &mut State) -> Result[(), OverflowError[i64]]:
+        self.count += 1
+        Ok(())
+
+def count_limit(error: OverflowError[i64]) -> egui.EguiError:
+    egui.EguiError.LimitExceeded
+
+export def create() -> Result[State, AllocError] = "egui_app_create":
+    Ok(State())
+
+export def draw(state: &mut State, token: u64) -> Result[(), egui.EguiError] = "egui_app_draw":
+    ui = egui.Ui(token)
+    if ui.button(&"Increment")?:
+        state.increment().map_error(count_limit)?
+    if ui.button(&"Reset")?:
+        state.count = 0
+    label = f"Count: {state.count}".map_error(egui.allocation)?
+    ui.label(&label)
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run()

@@ -346,3 +346,8 @@ Containers are labelled `org.plenty.release-build` and
 
 See [release archive licenses](release-licenses.md) for inventories and
 maintenance requirements.
+
+[Source-built GUI packages](../design/stdlib/gui-build.md) are not compiler
+release components. Their runtime, renderer crates and font assets require
+a separate selected-graph notice audit; do not use the compiler notices to
+redistribute a GUI executable.

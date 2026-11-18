@@ -14,7 +14,7 @@ Every listed crate must provide its license text in its source package or
 have a reviewed fallback below. A crate without one fails the build, so a
 new dependency cannot ship without its notice being reviewed.
 
-Usage: third_party_notices.py --repo DIR --out FILE [--component compiler|dataframe|linalg|gpui] [--list]
+Usage: third_party_notices.py --repo DIR --out FILE [--component compiler|dataframe|linalg|gpui|iced|egui] [--list]
 """
 
 import argparse
@@ -38,6 +38,9 @@ COMPONENTS = {
     "compiler": ("Cargo.toml", ROOTS),
     "dataframe": ("plenty-dataframe/Cargo.toml", ("plenty-dataframe-engine",)),
     "linalg": ("plenty-linalg/Cargo.toml", ("plenty-linalg-engine",)),
+    # Source-only GUI executables, never compiler release components.
+    "iced": ("experiments/packages/iced/native/Cargo.toml", ("plenty-iced",)),
+    "egui": ("experiments/packages/egui/native/Cargo.toml", ("plenty-egui",)),
     "gpui": ("experiments/packages/gpui/native/Cargo.toml", ("plenty-gpui",)),
 }
 # RustCrypto hybrid-array, ctutils and cmov are covered by Cargo metadata,
@@ -345,20 +348,26 @@ def license_files(package, include_nested=False):
         found.extend(f for f in sorted(directory.rglob("*"))
                      if f.is_file() and f.parent != directory
                      and f.name.upper().startswith(LICENSE_PREFIXES) and f not in found)
+    if include_nested and package["name"] == "epaint_default_fonts" and package["version"] == "0.37.0":
+        # default_fonts without monochrome_emoji_fonts: Hack, Ubuntu, and
+        # the five-glyph egui-icons subset of emoji-icon-font.
+        found.extend(directory / "fonts" / name for name in
+                     ("Hack-Regular.txt", "UFL.txt", "egui-icons.txt", "emoji-icon-font-mit-license.txt"))
     return found
 
 
 def render(packages, component="compiler"):
     out = [
         "# Third-party notices\n",
-        "Plenty release archives contain the following third-party software.",
+        ("Source-build inventory, not a qualified GUI redistribution bundle." if component in ("iced", "egui")
+         else "Plenty release archives contain the following third-party software."),
         "Each entry gives the package, its declared license, and the license",
         "and notice files from its source package or a reviewed upstream source.\n",
-        VENDORED if component == "compiler" else "",
+        VENDORED if component in ("compiler", "egui", "iced") else "",
         ("## Brotli 1.2.1 (vendored reference C codec)\n\nLicense: MIT\n\n"
          + (REPO / "plenty-runtime/native/brotli-1.2.1/LICENSE").read_text()
-         if component == "compiler" else ""),
-        vendored_source_notices() if component == "compiler" else "",
+         if component in ("compiler", "egui", "iced") else ""),
+        vendored_source_notices() if component in ("compiler", "egui", "iced") else "",
         embedded_notices() if component == "compiler" else "",
         RUST_STD,
     ]
@@ -417,6 +426,7 @@ def main():
                 "cargo", "metadata", "--locked", "--format-version", "1",
                 "--filter-platform", args.target,
                 "--manifest-path", str(manifest),
+                *(["--features", "application"] if args.component in ("iced", "egui") else []),
             ],
             check=True,
             capture_output=True,
