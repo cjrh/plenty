@@ -1,7 +1,7 @@
 # `std.alloc` — explicit retained allocators and safe byte blocks
 
 `std.alloc` exposes an explicit system allocator and compiled custom providers.
-It constructs ordinary `Box[T]`, `list[T]`, `dict[K, V]` and `set[T]` owners.
+It constructs ordinary `Box[T]`, `list[T]`, `dict[K, V]`, `set[T]` and packed [`Bytes`](bytes.md) owners.
 Each retains the selected allocator for its own storage, so growth and cleanup
 do not require the caller to keep the allocator handle. This is not comprehensive allocation control; see the
 [remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
@@ -146,6 +146,42 @@ and the allocator handle. An unrepresentable capacity returns `CapacityOverflow`
 a provider refusal returns the provider's `AllocError` without fallback. On
 failure the method drops any partial list and copied elements. The source is
 unchanged on either return.
+
+### Copy a byte slice into packed storage
+
+`Allocator.slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]`
+reads a byte view and returns an independent `std.bytes.Bytes`, not the
+`list[u8]` that [`copy_view`](#copy-a-slice-view-into-a-list) returns.
+Pass a `bytes` literal, a borrowed `Bytes` or `list[u8]`, or a subview. Bounds
+apply to **the view**, not the underlying owner. For example,
+`out.slice_bytes(&buf[2:6], step=-1)?` reverses just those four bytes if
+`buf` is at least six bytes long.
+
+As with [list slices](#copy-a-list-slice-with-an-output-allocator), negative
+bounds count from the end, bounds clamp, and the stop is exclusive. Omit a
+bound or pass `alloc.Unset.Unset` (with `import std.alloc as alloc`). For a
+reverse step, an omitted stop lies *before* index zero; `stop=-1` names the
+last byte instead. A nonzero literal step is accepted directly; convert a computed
+`i64` with `NonZero.try_from(k)?` before the call.
+
+The owner and its packed payload use `out`; an empty result still allocates
+its owner. Only the selected bytes are copied (at most `len(source)`), directly
+into their final storage without a temporary list.
+The result carries no source loan and keeps the output provider for growth and
+cleanup after both source and allocator handle are dropped. Unrepresentable
+storage returns `CapacityOverflow`; a refusal returns the provider's `AllocError`
+without fallback. Partial storage is released and the source is unchanged.
+
+A [checked serializer](serial.md) cannot bound the stack used by a compiled
+provider behind a `Bytes`. If the program emits both `slice_bytes` and compiled
+provider registration, a segment that may grow or release byte storage can
+return `Fault.StackLimit` before the segment runs, even for an ordinary buffer
+or one with spare capacity. If the adapter's rejection path cannot be bounded
+either, the compiler rejects the program instead.
+
+By contrast, `buf[a:b:k]?` uses the same bounds but ordinary output storage,
+regardless of `buf`'s provider. `buf.slice(a, b)?` also uses ordinary storage,
+but takes no step and traps unless `0 <= a <= b <= buf.len()`.
 
 ### Dictionaries and sets
 

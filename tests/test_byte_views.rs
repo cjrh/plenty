@@ -69,6 +69,7 @@ fn range_loop_reads_bytes_directly() {
 }
 
 const ACCESS_MODES: &str = r#"
+import std.alloc as alloc
 from std.bytes import Bytes, from_text
 
 def shared_slice(data: &Bytes) -> u8:
@@ -105,13 +106,18 @@ def branch_rows(data: &mut Bytes, read: bool) -> u8:
         return 0u8
     0u8
 
-def main() -> Result[(), AllocError | IoError]:
-    mut data = from_text("abc")?
+def exercise(buffer: Bytes) -> Result[(), AllocError | IoError]:
+    mut data = buffer
     print(shared_slice(&data), exclusive_slice(&mut data), literal_slice(b"xyz"))?
     print(shared_rows(&mut data))?
     mixed_rows(&mut data)
     print(branch_rows(&mut data, True), branch_rows(&mut data, False), data)?
     Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    exercise(from_text("abc")?)?
+    out = alloc.system()
+    exercise(out.slice_bytes(b"cba", step=-1)?)
 "#;
 
 #[test]
@@ -137,8 +143,8 @@ fn byte_view_helpers_preserve_the_access_mode() {
         assert_eq!(calls, expected, "{function}");
     }
     assert_eq!(
-        support::run_file_stdout(ACCESS_MODES).trim(),
-        "98 (120, 98) 121\n121\n88 0 b\"zBC\""
+        support::run_file_stdout(ACCESS_MODES),
+        ["98 (120, 98) 121\n121\n88 0 b\"zBC\""; 2].join("\n")
     );
 }
 

@@ -303,7 +303,9 @@ To choose storage for the list and its recursively copied elements, pass the
 view to [`out.copy_view(v)?`](../../stdlib/alloc.md#copy-a-slice-view-into-a-list).
 This copies `&[u8]` to `list[u8]` regardless of the backing. It uses explicit
 copy for each element, so it cannot materialize a view of bare `Shared`
-handles the way `list(v)?` can.
+handles the way `list(v)?` can. For a selected packed `Bytes` rather than a
+list, use [`out.slice_bytes(v, start, stop, step)?`](../../stdlib/alloc.md#copy-a-byte-slice-into-packed-storage);
+its bounds and step select bytes relative to `v`.
 
 `v.get(i)` returns `Some` copy of element `i`, or `Nothing` outside the view,
 with [`list.get`](../../facilities/01-builtins/lists.md#lookup-and-removal)'s

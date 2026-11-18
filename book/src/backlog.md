@@ -443,8 +443,9 @@ safe byte blocks, selected boxes and lists (including generator collection),
 [set algebra on sets and dictionary key views](completed-work/language-and-tooling.md#public-selected-set-algebra),
 [explicit copies](completed-work/language-and-tooling.md#public-selected-copy),
 [key-view conversion](completed-work/language-and-tooling.md#public-selected-key-view-conversion),
-[owning list slices](completed-work/language-and-tooling.md#public-selected-list-slices) and
-[view-to-list copies](completed-work/language-and-tooling.md#public-selected-view-to-list-copies) with an output allocator.
+[owning list slices](completed-work/language-and-tooling.md#public-selected-list-slices),
+[view-to-list copies](completed-work/language-and-tooling.md#public-selected-view-to-list-copies) and
+[packed byte slices](completed-work/language-and-tooling.md#public-selected-packed-byte-slices) with an output allocator.
 The [design record](proposals/allocator-experiments.md) preserves the direction
 and experimental evidence. The bounded stage-1 ownership gate delivered safe
 external block providers, a generic owned collection, typed relocation, returned
@@ -454,8 +455,8 @@ and private slot ABI remain experimental, not builtin representations.
 Implement the remaining work in staged PRs:
 
 3. **Complete the migration.** Migrate remaining independent collection results,
-   strings, formatting, other owning slice paths (including packed `Bytes`
-   results, columnar lists and materializing views of `Shared` handles), scratch buffers
+   strings, formatting, other owning slice paths (including columnar lists and
+   materializing views of `Shared` handles), scratch buffers
    and allocating std APIs. Extend the [allocation-site inventory](design/toolchain/02-architecture/allocation-sites.md)
    beyond the audited copy, key-view result and slice paths. Verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable

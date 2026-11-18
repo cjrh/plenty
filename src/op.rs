@@ -690,13 +690,13 @@ impl Ty {
     /// Whether releasing a value of this type can run compiled code: a class
     /// `__del__`, a generator's cleanup, or whatever a closure, channel or
     /// executor owns. Only such code can trap in std or read the caller
-    /// location. Strings, byte storage, and collections, boxes and records of
+    /// location. Strings, ordinary byte storage, and collections, boxes and records of
     /// them are freed by the runtime alone, which neither traps nor reads the
     /// caller. A release destroys only what it reaches, since the destruction
     /// queue is empty whenever a release starts a drain. So a user-code
     /// release of any other type needs no caller site (issue #750). An
     /// undefined forward reference counts as code.
-    pub fn release_runs_code(&self) -> bool {
+    pub(crate) fn release_runs_code(&self, providers: crate::bytes::ByteProviders) -> bool {
         let facts = self.facts();
         if facts.complete && !facts.destructor {
             return false;
@@ -706,7 +706,8 @@ impl Ty {
         while let Some(ty) = work.pop() {
             match &ty {
                 _ if !ty.managed() => {}
-                Self::Str | Self::ByteStorage => {}
+                Self::Str => {}
+                Self::ByteStorage if !providers.0 => {}
                 Self::List(t)
                 | Self::Array(t, _)
                 | Self::Set(t)

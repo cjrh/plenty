@@ -2,6 +2,8 @@
 # runtime ABI; construction wrappers and policy-independent adapters use Plenty.
 # Explicit allocator passing is modelled on Zig (https://ziglang.org/).
 # No Zig code is included.
+from std.bytes import Bytes
+
 @thread_shareable
 opaque Handle
 
@@ -111,6 +113,9 @@ pub class Allocator:
 
     pub def slice[T](self, source: &list[T], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[list[T], AllocError]:
         __allocator_list_slice[T](self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
+
+    pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
+        __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
     pub def copy_view[T](self, source: &[T]) -> Result[list[T], AllocError]:
         mut output = self.list_with_capacity[T](len(source))?

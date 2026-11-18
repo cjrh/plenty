@@ -63,7 +63,7 @@ unsafe extern "C" fn destroy(pointer: *mut Header) {
     unsafe {
         let state = pointer.cast::<State>();
         release(state);
-        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage));
         memory::free::<State, u8>(state, 0);
     }
 }
@@ -119,10 +119,7 @@ fn create(kind: u128, level: i64, capacity: usize) -> Result<u128, AllocError> {
     // written, `destroy` releases whatever was obtained.
     unsafe {
         owner.write(State {
-            storage: Storage {
-                header: Header::new(destroy),
-                bytes,
-            },
+            storage: Storage::ordinary(destroy, bytes),
             stream: z_stream::default(),
             role,
             phase: Phase::Unstarted,
@@ -170,7 +167,7 @@ unsafe fn run(state: *mut State, input: &[u8], flush: i32) -> (usize, ReturnCode
     // SAFETY: `state` is a live, started codec; `input` lies in another
     // buffer; the output pointer covers reserved, unused capacity only.
     unsafe {
-        let bytes = &mut (*state).storage.bytes;
+        let bytes = (*state).storage.codec_bytes_mut();
         let filled = bytes.len();
         let room = (*state)
             .capacity
@@ -275,14 +272,14 @@ unsafe fn flush(value: u128, mode: i64) -> i64 {
         if (*state).phase != Phase::Live {
             return FINISHED;
         }
-        let bytes = &(*state).storage.bytes;
-        if bytes.len() >= (*state).capacity.min(bytes.capacity()) {
+        let bytes = &(*state).storage;
+        if bytes.as_slice().len() >= (*state).capacity.min(bytes.capacity()) {
             return 0;
         }
         let (_, code) = run(state, &[], mode as i32);
         let full = (*state).stream.avail_out == 0 && {
-            let bytes = &(*state).storage.bytes;
-            bytes.len() >= (*state).capacity.min(bytes.capacity())
+            let bytes = &(*state).storage;
+            bytes.as_slice().len() >= (*state).capacity.min(bytes.capacity())
         };
         match code {
             ReturnCode::StreamEnd => {
@@ -360,12 +357,12 @@ mod tests {
     use super::*;
 
     unsafe fn output(value: u128) -> Vec<u8> {
-        unsafe { std::mem::take(&mut (*(value as *mut Storage)).bytes) }
+        unsafe { std::mem::take((*(value as *mut Storage)).codec_bytes_mut()) }
     }
 
     unsafe fn drain(value: u128) -> Vec<u8> {
         unsafe {
-            let bytes = &mut (*(value as *mut Storage)).bytes;
+            let bytes = (*(value as *mut Storage)).codec_bytes_mut();
             let out = bytes.clone();
             bytes.clear();
             out

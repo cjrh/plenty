@@ -54,8 +54,8 @@ pub(super) fn heap_payload(ty: &Ty) -> Option<(usize, Ty)> {
 
 /// A box content slot's owned children, as byte offsets from the record and
 /// their types, when the adapter can release them; see the module comment.
-fn children(content: &Ty) -> Option<Children> {
-    if !content.managed() || content.release_runs_code() {
+fn children(content: &Ty, providers: ByteProviders) -> Option<Children> {
+    if !content.managed() || content.release_runs_code(providers) {
         return None;
     }
     if heap_handle(content) || heap_payload(content).is_some() {
@@ -102,10 +102,11 @@ pub(super) fn declare_adapters(
     workers: usize,
     module: &mut ObjectModule,
     releasers: &mut HashMap<Ty, FuncId>,
+    providers: ByteProviders,
 ) -> Result<Vec<(Ty, FuncId)>> {
     let found: std::collections::BTreeMap<_, _> =
         crate::threading::find(ops, workers, |op| match op {
-            Op::Box(BoxOp::New(t) | BoxOp::Share(t)) if children(t).is_some() => {
+            Op::Box(BoxOp::New(t) | BoxOp::Share(t)) if children(t, providers).is_some() => {
                 Some((t.identity_name(), t.clone()))
             }
             _ => None,
@@ -140,7 +141,8 @@ pub(super) fn build_adapter(
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
-    let children = children(content).ok_or("box release adapter for unsupported content")?;
+    let children = children(content, runtime.byte_providers)
+        .ok_or("box release adapter for unsupported content")?;
     let mut module = out.symbols();
     let signature = signature(module.make_signature());
     let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);

@@ -559,9 +559,9 @@ fn selected_box_binding_preserves_failure_input_and_encodes_success() {
 #[test]
 fn allocator_dispatch_rejects_arena_before_operand_access() {
     use crate::collection_opcodes::{
-        ALLOCATOR_BOX, ALLOCATOR_COPY, ALLOCATOR_DICT_SET, ALLOCATOR_KEY_VIEW_TO_SET,
-        ALLOCATOR_LIST, ALLOCATOR_LIST_SLICE, ALLOCATOR_SET_SYMMETRIC_DIFFERENCE,
-        ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
+        ALLOCATOR_BOX, ALLOCATOR_BYTES_SLICE, ALLOCATOR_COPY, ALLOCATOR_DICT_SET,
+        ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_LIST, ALLOCATOR_LIST_SLICE,
+        ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
     };
     const PROBE: &str = "PLENTY_SELECTED_BOX_ARENA_PROBE";
     if let Ok(probe) = std::env::var(PROBE) {
@@ -575,7 +575,10 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
                 let mut args = [1u128; 6];
                 let args = if matches!(
                     op,
-                    ALLOCATOR_COPY | ALLOCATOR_KEY_VIEW_TO_SET | ALLOCATOR_LIST_SLICE
+                    ALLOCATOR_COPY
+                        | ALLOCATOR_KEY_VIEW_TO_SET
+                        | ALLOCATOR_LIST_SLICE
+                        | ALLOCATOR_BYTES_SLICE
                 ) {
                     // Reject before loading even the allocator handle.
                     ptr::dangling()
@@ -596,10 +599,12 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
             ALLOCATOR_COPY,
             ALLOCATOR_KEY_VIEW_TO_SET,
             ALLOCATOR_LIST_SLICE,
+            ALLOCATOR_BYTES_SLICE,
         ])
         .chain(ALLOCATOR_SET_UNION..=ALLOCATOR_SET_SYMMETRIC_DIFFERENCE)
     {
-        // Five-operand slices have no three-operand collection_at entry.
+        // List slicing has no collection_at entry; byte slicing defensively
+        // rejects that entry before reading a descriptor.
         let entries: &[_] = if op == ALLOCATOR_LIST_SLICE {
             &["operation"]
         } else {

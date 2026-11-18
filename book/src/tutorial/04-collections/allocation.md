@@ -243,6 +243,35 @@ so the saved scores stay the same when the caller updates the original. For a
 helper that just reads the scores, use the view directly and skip the copy.
 See [copy a slice view into a list](../../design/stdlib/alloc.md#copy-a-slice-view-into-a-list).
 
+## Keep part of a byte frame
+
+Suppose a frame wraps its payload in brackets. To save the payload in reverse
+order, lend just the interior to `slice_bytes`. The result is a packed buffer
+you can grow, not a list of numbers:
+
+```plenty
+import std.alloc as alloc
+import std.bytes as binary
+
+def main() -> Result[(), AllocError | IoError]:
+    frame = binary.from_bytes(b"[abc]")?
+    out = alloc.system()
+    mut payload = out.slice_bytes(&frame[1:4], step=-1)?
+    drop(frame)
+    drop(out)
+    payload.push(33u8)?
+    print(payload)?
+    Ok(())
+```
+```output
+b"cba!"
+```
+
+The reverse step starts at the last byte of the **view**, `c`. The saved
+payload no longer borrows the frame, and `push` uses its retained provider.
+Use [`copy_view`](../../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)
+instead when you want all the viewed bytes in a `list[u8]`.
+
 ## Box a value and collect a generator
 
 `owner.box(value)` moves a value into an ordinary `Box[T]` allocated through the

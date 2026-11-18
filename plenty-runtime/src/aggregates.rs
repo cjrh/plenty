@@ -3438,7 +3438,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666 667
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3556,7 +3556,10 @@ pub(crate) unsafe fn operation(
     unsafe {
         if matches!(
             op,
-            ALLOCATOR_COPY | ALLOCATOR_KEY_VIEW_TO_SET | ALLOCATOR_LIST_SLICE
+            ALLOCATOR_COPY
+                | ALLOCATOR_KEY_VIEW_TO_SET
+                | ALLOCATOR_LIST_SLICE
+                | ALLOCATOR_BYTES_SLICE
         ) {
             // Reject an ambient context before reading even the operand buffer.
             crate::allocator::bindings::require_supported_context();
@@ -3633,18 +3636,30 @@ pub(crate) unsafe fn operation(
             out.write(text_ranges::call(op, operands, descriptor, site));
             return;
         }
-        if op == ALLOCATOR_LIST_SLICE {
+        if matches!(op, ALLOCATOR_LIST_SLICE | ALLOCATOR_BYTES_SLICE) {
             let [handle, source, start, stop, step] = read_operands::<5>(op, args);
             // An Option[i64] keeps its Some tag in bit 64 and its index in the low word.
             let present = |bound: u128, flag| if (bound >> 64) & 1 != 0 { flag } else { 0 };
             let flags = present(start, SLICE_START) | present(stop, SLICE_STOP);
             let allocator = crate::allocator::bindings::borrow_handle(handle);
-            out.write(fallible(try_list_slice_stepped(
-                &*(source as *const Collection),
-                [start as i64, stop as i64, step as i64, flags],
-                &*descriptor,
-                CopyDestination::Selected(&allocator),
-            )));
+            let (start, stop, step) = (start as i64, stop as i64, step as i64);
+            out.write(fallible(if op == ALLOCATOR_BYTES_SLICE {
+                byte_storage::slice(
+                    byte_storage::view_bytes(source),
+                    start,
+                    stop,
+                    step,
+                    flags,
+                    Some(&allocator),
+                )
+            } else {
+                try_list_slice_stepped(
+                    &*(source as *const Collection),
+                    [start, stop, step, flags],
+                    &*descriptor,
+                    CopyDestination::Selected(&allocator),
+                )
+            }));
             return;
         }
         if matches!(op, LIST_SLICE | TEXT_SLICE) {
@@ -3754,6 +3769,12 @@ pub(crate) unsafe fn collection_at(
     unsafe {
         // Reject unsupported allocator contexts before even inspecting the type
         // descriptor: it may belong to storage the context cannot safely use.
+        if op == ALLOCATOR_BYTES_SLICE {
+            // This five-input operation must enter through `operation`. Never
+            // inspect a descriptor/operand if a host uses the wrong entry.
+            crate::allocator::bindings::require_supported_context();
+            crate::fail("allocator byte slice requires five operands");
+        }
         if op == ALLOCATOR_COPY {
             let allocator = crate::allocator::bindings::borrow_handle(a);
             return fallible(try_copy(

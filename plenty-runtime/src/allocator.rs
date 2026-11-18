@@ -309,6 +309,12 @@ impl Block {
         // SAFETY: exclusive borrow of an affine, disjoint range.
         unsafe { std::slice::from_raw_parts_mut(self.data.as_ptr(), self.len) }
     }
+    /// Base address without deriving the pointer through a shared byte slice.
+    /// The owning ABI client bounds and loans access to the initialized extent;
+    /// writing through the returned address requires an exclusive payload loan.
+    pub(crate) fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
     pub(crate) fn alignment(&self) -> usize {
         1usize << self.data.as_ptr().addr().trailing_zeros()
     }

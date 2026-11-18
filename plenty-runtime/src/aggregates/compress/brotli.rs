@@ -105,7 +105,7 @@ unsafe extern "C" fn destroy(pointer: *mut Header) {
         } else {
             BrotliDecoderDestroyInstance((*state).codec);
         }
-        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage.bytes));
+        ptr::drop_in_place(ptr::addr_of_mut!((*state).storage));
         memory::free::<State, u8>(state, 0);
     }
 }
@@ -127,10 +127,7 @@ pub(super) fn create(encoder: bool, quality: i64, capacity: usize) -> Result<u12
     // Neither this state nor its flag moves while the codec exists.
     unsafe {
         owner.write(State {
-            storage: Storage {
-                header: Header::new(destroy),
-                bytes,
-            },
+            storage: Storage::ordinary(destroy, bytes),
             codec: ptr::null_mut(),
             encoder,
             ended: false,
@@ -173,7 +170,7 @@ unsafe fn run(state: *mut State, input: &[u8], operation: c_int) -> i64 {
         if (*state).ended {
             return FINISHED;
         }
-        let bytes = &mut (*state).storage.bytes;
+        let bytes = (*state).storage.codec_bytes_mut();
         let filled = bytes.len();
         let room = (*state)
             .capacity
@@ -264,7 +261,7 @@ mod tests {
     unsafe fn drain(value: u128, output: &mut Vec<u8>) {
         // SAFETY: tests retain a live unique State until destroy below.
         unsafe {
-            let bytes = &mut (*(value as *mut State)).storage.bytes;
+            let bytes = (*(value as *mut State)).storage.codec_bytes_mut();
             output.extend_from_slice(bytes);
             bytes.clear();
         }
@@ -330,10 +327,10 @@ mod tests {
                     unsafe {
                         result = step(encoder, &input);
                         if result >= 0 {
-                            (*(encoder as *mut State)).storage.bytes.clear();
+                            (*(encoder as *mut State)).storage.codec_bytes_mut().clear();
                             loop {
                                 result = flush(encoder, 4);
-                                (*(encoder as *mut State)).storage.bytes.clear();
+                                (*(encoder as *mut State)).storage.codec_bytes_mut().clear();
                                 if result != 0 {
                                     break;
                                 }
@@ -386,7 +383,7 @@ mod tests {
                             break;
                         }
                         at += result as usize;
-                        let bytes = &mut (*(decoder as *mut State)).storage.bytes;
+                        let bytes = (*(decoder as *mut State)).storage.codec_bytes_mut();
                         produced += bytes.len();
                         bytes.clear();
                         if ended(decoder) {

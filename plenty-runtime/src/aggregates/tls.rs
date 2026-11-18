@@ -86,10 +86,7 @@ struct Session {
 }
 
 fn empty_storage(destroy: unsafe extern "C" fn(*mut Header)) -> Storage {
-    Storage {
-        header: Header::new(destroy),
-        bytes: Vec::new(),
-    }
+    Storage::ordinary(destroy, Vec::new())
 }
 
 unsafe extern "C" fn destroy_roots(pointer: *mut Header) {
@@ -643,7 +640,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
     unsafe {
         let view = |value: u128| super::byte_storage::view_bytes(value);
         let view_mut = |value: u128, start: u128, stop: u128| {
-            let bytes = &mut (*(value as *mut Storage)).bytes;
+            let bytes = (*(value as *mut Storage)).as_mut_slice();
             let range = range(start, stop, bytes.len());
             &mut bytes[range]
         };

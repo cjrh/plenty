@@ -132,6 +132,18 @@ cannot be budgeted is a compile error. Hosts embedding compiled Plenty code
 must keep the executing thread's stack mapping and stack resource limit
 unchanged; Unix stack bounds are cached per thread.
 
+If an emitted program both creates [`Bytes` in selected storage](alloc.md#copy-a-byte-slice-into-packed-storage)
+**and** registers a compiled allocator provider, a checked segment that may
+grow or destroy a byte owner has no finite stack budget. For example, `push`
+on an encoder's borrowed output can call the provider even if the caller
+created that buffer before encoding. Cleanup can also reach a buffer inside a
+record or collection. The caller reports `Fault.StackLimit` instead of entering
+such a segment; if reporting the fault may itself call a provider, compilation
+fails. This is a type-based check, not a test of the actual allocator or spare
+capacity. In a mixed program even an ordinary buffer may be refused. Borrowed
+indexing and scans of a byte view do not themselves grow or destroy an owner.
+Programs lacking either allocator feature retain their ordinary stack budgets.
+
 Call `encode` and `decode` directly. To pass codec work as a function value,
 write an ordinary wrapper with concrete adapter types, keeping the checked
 codec call inside that wrapper.
