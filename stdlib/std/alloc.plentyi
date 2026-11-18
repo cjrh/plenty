@@ -101,6 +101,18 @@ pub class Allocator:
     pub def list_with_capacity[T](self, capacity: i64) -> Result[list[T], AllocError]:
         __allocator_list[T](self._handle, capacity)
 
+    pub def empty_dict[K: KeyType, V](self) -> Result[dict[K, V], AllocError]:
+        __allocator_dict_set[dict[K, V]](self._handle, 0)
+
+    pub def dict_with_capacity[K: KeyType, V](self, capacity: i64) -> Result[dict[K, V], AllocError]:
+        __allocator_dict_set[dict[K, V]](self._handle, capacity)
+
+    pub def empty_set[T: KeyType](self) -> Result[set[T], AllocError]:
+        __allocator_dict_set[set[T]](self._handle, 0)
+
+    pub def set_with_capacity[T: KeyType](self, capacity: i64) -> Result[set[T], AllocError]:
+        __allocator_dict_set[set[T]](self._handle, capacity)
+
 pub def system() -> Allocator:
     Allocator(__allocator_system())
 

@@ -34,15 +34,20 @@ pub(crate) unsafe fn operation(op: i64, a: u128, b: u128, ty: *const Type) -> u1
                 Err(error) => (1 + 2 * error as u128) << 64,
             }
         }
-        ALLOCATOR_LIST => {
-            let result = if (b as i64) < 0 {
-                Err(AllocError::CapacityOverflow)
-            } else {
-                // SAFETY: compiler emits a static dense-list descriptor.
-                allocator_owners::list_new_in(&handle, unsafe { &*ty }, b as usize)
-            };
+        ALLOCATOR_LIST | ALLOCATOR_DICT_SET => {
+            let result = usize::try_from(b as i64)
+                .map_err(|_| AllocError::CapacityOverflow)
+                .and_then(|capacity| {
+                    // SAFETY: the compiler supplies the static collection descriptor for this opcode.
+                    let ty = unsafe { &*ty };
+                    if op == ALLOCATOR_LIST {
+                        allocator_owners::list_new_in(&handle, ty, capacity)
+                    } else {
+                        allocator_owners::dict_set_new_in(&handle, ty, capacity)
+                    }
+                });
             match result {
-                Ok(list) => list as u128,
+                Ok(collection) => collection as u128,
                 Err(error) => (1 + 2 * error as u128) << 64,
             }
         }

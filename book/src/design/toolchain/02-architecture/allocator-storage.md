@@ -2,8 +2,8 @@
 
 `plenty-runtime/src/allocator.rs` implements B13's native storage substrate.
 The [public `std.alloc` binding](../../stdlib/alloc.md) supports system roots,
-compiled custom-provider registration, selected boxes, builtin lists, generator
-collection and safe byte blocks. Providers receive validated `Layout` requests
+compiled custom-provider registration, safe byte blocks and selected builtin
+boxes, lists (including generator collection), dictionaries and sets. Providers receive validated `Layout` requests
 and return affine `ByteBlock` owners, without raw-pointer escape.
 `Allocator.box` calls the private intrinsic `__allocator_box` (opcode 658) with a
 borrowed source value. The std wrapper then commits that source with
@@ -16,9 +16,9 @@ remains separate.
 ## Thread contract decision
 
 Builtin allocator handles support safe cross-thread use from the outset,
-without allocator type parameters on `list[T]` and `Box[T]`. Their current worker
-checks inspect element types; hiding a thread-confined provider behind an
-otherwise worker-eligible list would bypass those checks.
+without allocator type parameters on builtin owners. Worker checks still inspect
+their contents; hiding a thread-confined provider inside an otherwise
+worker-eligible collection would bypass those checks.
 
 The native substrate therefore retains only `Send + 'static` Rust providers and
 serializes their allocation and release callbacks. Compiled Plenty providers
@@ -64,7 +64,7 @@ exclude incompatible provenance.
 
 These checks are paired with private compiled callback adapters and runtime
 block validation; they are not arbitrary foreign-provenance certification.
-Public system handles, providers, lists and blocks exclude actor/arena
+Public handles, providers and selected owners exclude actor/arena
 interoperability rather than imply that worker-safe fields survive abandonment.
 Native registration guards remain in place, and `std.alloc` binding entries reject
 ambient actor/arena contexts before allocation or ownership transfer. Trusted
@@ -224,7 +224,10 @@ a disjoint owner of existing backing.
 
 ## Native hash-table storage
 
-A private runtime constructor builds hash-backed dictionaries and sets whose
+The four public [dictionary and set constructors](../../stdlib/alloc.md#dictionaries-and-sets)
+share one std-only intrinsic, `__allocator_dict_set` (opcode 659). Lowering passes
+the complete builtin collection descriptor, allocator handle and requested entry
+count. The hash path builds ordinary dictionaries and sets whose
 object, bookkeeping, rows, insertion-order links and bucket table use the
 selected allocator. Empty owners retain the allocator before the first insert.
 Rehashing builds the replacement table through the same provider. If growth
@@ -237,8 +240,12 @@ the table does not redirect allocations inside its keys or values, including a
 new text key built from bytes. Copies and set algebra produce independent owners
 and are outside this construction path.
 
-There is no public dictionary or set allocator binding yet. Compact finite sets
-keep their bitset representation, and ordinary constructors are unchanged.
+The binding rejects negative capacity before calling a provider. For a compact
+finite set, reservation checks the ordinary entry-count overflow limit, not
+whether the hint fits the domain. The selected object itself holds the inline
+membership mask; valid hints above the domain need neither row nor bucket
+storage. Member insertion uses that mask, with the same canonical slots as an
+ordinary bitset. Only the owner block needs release.
 
 ## Native builtin owner paths
 
@@ -357,7 +364,9 @@ source, including native-only trap probes and directly traced Valgrind runs.
 
 `tests/test_std_alloc_consumers.rs` covers selected box ownership, failure and
 returned values, take and worker rules, collector failure cleanup and capture
-loans, and selected-list result inference.
+loans, and selected-list result inference. `tests/test_std_alloc_dict_set.rs`
+covers structural keys, selected hash growth and cleanup on a worker, capacity
+and provider errors (including finite sets), and ordinary admission restrictions.
 These are Linux x86-64 correctness results, not cross-platform qualification or
 performance measurements. The metadata and clearing costs are deliberately not
 optimized. Implementation priorities remain in

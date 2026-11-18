@@ -1,10 +1,9 @@
 # `std.alloc` — explicit retained allocators and safe byte blocks
 
 `std.alloc` exposes an explicit system allocator and compiled custom providers.
-It constructs ordinary `Box[T]` and `list[T]` values whose storage retains the
-selected allocator: a box's own storage, and a list's object, metadata and row
-storage. Growth, taking and destruction use that allocator after the caller's
-handle is dropped. This is not comprehensive allocation control; see the
+It constructs ordinary `Box[T]`, `list[T]`, `dict[K, V]` and `set[T]` owners.
+Each retains the selected allocator for its own storage, so growth and cleanup
+do not require the caller to keep the allocator handle. This is not comprehensive allocation control; see the
 [remaining B13 scope](../../backlog.md#b13-explicit-allocator-implementation-sequence).
 
 This module also provides validated memory-layout requests and affine
@@ -87,6 +86,37 @@ for invalid configuration rather than requiring a prevalidated integer domain.
 | `Allocator.empty_list[T](self) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with zero row capacity. Object and bookkeeping storage still allocate. |
 | `Allocator.list_with_capacity[T](self, capacity: i64) -> Result[list[T], AllocError]` | Borrows the allocator and creates an empty builtin list with at least the requested element capacity. Zero is valid; negative or unrepresentable capacity returns `CapacityOverflow`. |
 
+### Dictionaries and sets
+
+| Signature | Result on success |
+| --- | --- |
+| `Allocator.empty_dict[K: KeyType, V](self) -> Result[dict[K, V], AllocError]` | An empty dictionary; no entries are reserved. |
+| `Allocator.dict_with_capacity[K: KeyType, V](self, capacity: i64) -> Result[dict[K, V], AllocError]` | An empty dictionary with room for at least `capacity` entries. |
+| `Allocator.empty_set[T: KeyType](self) -> Result[set[T], AllocError]` | An empty set; no hash entries are reserved. |
+| `Allocator.set_with_capacity[T: KeyType](self, capacity: i64) -> Result[set[T], AllocError]` | An empty hash-backed set with room for at least `capacity` members, or a bitset with room for its whole domain. |
+
+All four methods borrow the allocator. Even an empty owner allocates. For a
+hash-backed collection, the object, bookkeeping, rows, insertion-order links
+and buckets all use the selected allocator, including later reserve and rehash.
+Partial construction releases any storage obtained. If growth fails, existing
+entries and their lookup behavior are unchanged. Provider errors propagate as
+`AllocError`, without retrying through the system allocator.
+
+Both capacity arguments count entries, not bytes. Zero is valid; a negative or
+unrepresentable request returns `AllocError.CapacityOverflow`. For a
+[finite-domain bitset](../facilities/01-builtins/sets.md#small-enum-bitsets),
+the constructor still checks the ordinary entry-count limit before calling the
+provider. A valid request larger than the domain is allowed: the owner allocates
+once, with room for every possible member regardless of the hint. Valid reserve
+and insertion need no further backing allocation.
+
+The [ordinary collection rules](../facilities/01-builtins/collections.md) apply:
+keys and members must satisfy `KeyType`; dictionary values must be heap-storable.
+For example, a reference or generator cannot be a stored value, and hidden task
+or channel ownership is rejected. Selecting a table does not select storage for
+nested values, even a string key constructed from bytes. Independent copies and
+set-algebra results do not inherit this selection.
+
 ### Selected boxes and collection
 
 | Signature | Ownership, allocation and errors |
@@ -159,7 +189,7 @@ On success, handles and outstanding owners retain the provider and its bootstrap
 storage until final cleanup. Provider callbacks are serialized. The compiler
 certifies state, transitive callback effects and destructors for worker use even
 when the program never spawns a worker; hidden task/channel ownership is rejected.
-This does not relax ordinary list or box element and borrow restrictions.
+This does not relax ordinary element or borrow restrictions.
 
 `allocate` receives the full backing request, including private metadata and
 alignment padding, not just the user's payload size. It must return a block with
@@ -216,10 +246,10 @@ stored or discarded without allocation.
 ## Workers
 
 Allocator handles and byte blocks may be moved to workers or shared through
-checked borrows. Lists keep their ordinary element-dependent worker and borrowing
-rules: selecting an allocator does **not** make every `list[T]` thread-shareable
-or permit concurrent mutation. Boxes follow their content's rules in the same
-way. No allocator type parameter is added to the list or box.
+checked borrows. Builtin boxes, lists, dictionaries and sets keep their ordinary
+content-dependent worker and borrow rules. For example, a dictionary with
+worker-local values cannot be moved to a worker just because its allocator can.
+Selection neither adds an allocator type parameter nor permits concurrent mutation.
 Byte blocks follow ordinary ownership and borrowing rules, allowing exclusive
 write access only through `&mut` and shared read access through `&`.
 
@@ -244,10 +274,10 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 ## Current boundaries
 
 There is no ambient selected allocator or fallback selection in this API.
-Existing allocating syntax and standard-library operations still use their
-legacy paths. Copying, owning slices, sorting scratch space, and allocations
-performed while producing elements or boxed content are not redirected by
-selecting storage for a box or list. This is not yet comprehensive explicit allocation control.
+Ordinary constructors keep their existing paths. Selecting an owner changes
+where it obtains its backing, not where the surrounding code allocates. For
+example, owning slices, sorting scratch space and allocations made while
+producing elements or boxed content are not redirected.
 
 `ByteBlock` is allocator backing, not a replacement for the general-purpose
 [`Bytes`](bytes.md) transport buffer. There is no general typed-storage consumer,

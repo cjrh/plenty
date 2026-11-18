@@ -46,12 +46,11 @@ its arguments, cleaning up any owned argument rather than returning it.
 allocator rejected a request. `CapacityOverflow` means its size cannot be
 represented. Neither variant needs allocation.
 
-## Select list storage and backing blocks explicitly
+## Select collection storage explicitly
 
-The [`std.alloc`](../../design/stdlib/alloc.md) API lets you select a system or
-custom allocator for a list or box. The list keeps that selection for growth and
-cleanup, even after the handle is dropped. The same allocator can also provide
-affine zero-initialized byte blocks:
+With [`std.alloc`](../../design/stdlib/alloc.md), you can choose a system or
+custom allocator when you construct a collection. The collection keeps that
+allocator for growth and cleanup, even after the handle is dropped:
 
 ```plenty
 import std.alloc as alloc
@@ -68,6 +67,34 @@ def main() -> Result[(), AllocError | IoError]:
 ```output
 [21, 42]
 ```
+
+The same choice is available for dictionaries and sets. Here the dictionary
+reserves space for two scores. The set of absent players starts empty and
+obtains its hash storage on demand:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    owner = alloc.system()
+    mut scores = owner.dict_with_capacity[str, i64](2)?
+    mut absent = owner.empty_set[str]()?
+    drop(owner)
+    scores.insert("Ada", 21)?
+    scores.insert("Lin", 42)?
+    absent.add("Jo")?
+    print(scores["Lin"], "Jo" in absent)?
+    Ok(())
+```
+```output
+42 True
+```
+
+Use `empty_dict` if the number of keys is unknown, or `set_with_capacity` to
+reserve for a known number of members. These constructors select the table's
+storage, not the storage used to build a string key. See the
+[dictionary and set allocation contract](../../design/stdlib/alloc.md#dictionaries-and-sets)
+for capacity errors and the fixed-size bitset case.
 
 ## Box a value and collect a generator
 
@@ -107,7 +134,7 @@ The generator expression yields each index in order; see
 The collector infers its element type from the generator and does not reserve
 capacity from the source. When the count is known, reserve it with
 `list_with_capacity` and append, as the
-[selection section](#select-list-storage-and-backing-blocks-explicitly) shows.
+[collection storage example](#select-collection-storage-explicitly) shows.
 The collector does not cap its input, so bound a generator that could run long
 before collecting it. A failed collection consumes the generator too: its
 captured values and partial list are dropped once, and the call returns the
@@ -194,9 +221,9 @@ callback traps, including cleanup traps, terminate the process.
 
 Retained allocator operations cannot coexist with actor operations anywhere in
 the lowered program, including unused imports and layout-only use. Selection
-does not redirect allocations made by element expressions, copies or other
-standard-library operations, and ordinary list and box element restrictions still
-apply. Ordinary constructors remain available during the explicit-allocation
+does not redirect allocations made by element expressions, independent copies
+or set-algebra results. The ordinary rules for storing, borrowing and moving
+values to workers still apply. Ordinary constructors remain available during the explicit-allocation
 migration; selection does not remove implicit defaults or provide resettable
 arenas.
 

@@ -1,6 +1,6 @@
 # Explicit allocators: narrow experiments
 
-**Status: experiment history and delivered public custom-provider, selected-box and collector bridge for B13.**
+**Status: experiment history and delivered `std.alloc` provider and builtin-owner support for B13.**
 This revises the default-allocator direction in the
 [earlier memory proposal](memory-parallelism-and-simd.md#custom-allocators-without-multiplying-everyday-types).
 It does not migrate existing allocation sites. Outstanding work remains in
@@ -63,8 +63,8 @@ provenance tracking. Private `ThreadOp::AllocatorUse` and
 `ThreadOp::AllocatorProvider` markers cannot coexist with actor execution,
 abandonment or heap operations in one lowered program. This includes unused and
 unrelated bodies and heap observation helpers. System-only retained allocation
-participates too: every private intrinsic for the public `std.alloc` system/list/block
-binding emits `AllocatorUse`. Registration lowering emits the private
+participates too: private `std.alloc` storage intrinsics, including dictionary
+and set construction, emit `AllocatorUse`. Registration lowering emits the private
 custom-provider marker. Unused imports and layout-only use do not bypass this
 gate. Existing allocation syntax is unchanged.
 
@@ -84,7 +84,9 @@ A [public binding](../design/stdlib/alloc.md) for `std.alloc` now delivers:
   validation.
 - `Allocator.block(layout) -> Result[ByteBlock, AllocError]` — zero-initialized
   affine byte blocks with checked access, disjoint splitting and no copying.
-- `system()` and selected builtin `list[T]` operations.
+- `system()` and selected builtin boxes and lists, including generator collection.
+- [Empty and capacity constructors for dictionaries and sets](../design/stdlib/alloc.md#dictionaries-and-sets),
+  with retained hash storage or the ordinary inline finite-domain bitset.
 - `allocator(bootstrap, provider)` — compiled custom-provider registration with
   an explicit bootstrap and `RegistrationError[P]` returning `P` on failure.
   `Provider.allocate` borrows a validated `Layout`; `release` consumes the full
@@ -235,8 +237,8 @@ tests are in `tests/test_std_alloc_consumers.rs`.
 The original experimental allocator remains a two-policy class; its generic
 owner uses static provider dispatch, not the public retained-handle bridge.
 Those experiments do not migrate builtin allocation or establish worker safety.
-The separate public bridge supports selected boxes, selected lists (including
-generator collection) and blocks, but not full language/std allocation routing,
+The separate public bridge supports blocks, boxes, lists (including generator
+collection), dictionaries and sets, but not full language/std allocation routing,
 removal of implicit defaults, resettable arenas or actor integration. The
 experimental C allocator bypasses the
 runtime's small-block pool and ordinary allocation-failure accounting.

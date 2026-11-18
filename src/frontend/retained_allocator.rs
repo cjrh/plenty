@@ -82,6 +82,30 @@ impl Lower<'_> {
                     Some(boxed),
                 )
             }
+            "__allocator_dict_set" => {
+                let [collection] = types else {
+                    return Err(at.error("allocator requires a dict or set type"));
+                };
+                // Resolve the complete builtin type so ordinary key admission and
+                // heap storage checks apply before crossing the native boundary.
+                let Some(collection @ (Ty::Dict(..) | Ty::Set(_))) =
+                    collection.resolve(self.aliases)?
+                else {
+                    return Err(at.error("allocator requires a dict or set type"));
+                };
+                if crate::boxed::erasure_barrier(&collection) {
+                    return Err(at.error(format!("allocator cannot construct `{collection}`: hidden task/channel ownership is unsupported")));
+                }
+                (
+                    code::ALLOCATOR_DICT_SET,
+                    vec![handle, Ty::I64],
+                    Some(crate::sum::result(
+                        collection.clone(),
+                        crate::sum::alloc_error(),
+                    )),
+                    Some(collection),
+                )
+            }
             "__allocator_list" => {
                 let [element] = types else {
                     return Err(at.error("allocator list requires one element type"));
