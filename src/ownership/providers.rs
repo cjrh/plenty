@@ -133,7 +133,6 @@ impl Providers {
         if self.mutexes.is_empty() {
             return sources;
         }
-        let mut transferable = Vec::new();
         visit_types(
             inputs,
             |_| true,
@@ -145,20 +144,30 @@ impl Providers {
                 {
                     sources.owners.push(kind);
                 }
-                // A shared loan pins ordinary fields, but messages can leave a
-                // borrowed queue, and a lock permits replacing its guarded value.
-                if self.state_owns_selected
-                    && (matches!(ty, Ty::Channel(..)) || crate::mutex::class(ty).is_some())
-                {
-                    threading::contained(ty, &mut transferable);
-                }
             },
         );
         if self.state_owns_selected && sources.allocator {
-            transferable.extend_from_slice(inputs);
+            // Even through a shared loan, a receiver can yield a message and a
+            // lock permits replacing its guarded value. A sender cannot yield
+            // or drain a message: stop at that edge in both ownership walks.
+            let mut transferable = inputs.to_vec();
+            visit_types(
+                inputs,
+                |ty| !matches!(ty, Ty::Channel(_, true)),
+                |ty| {
+                    if matches!(ty, Ty::Channel(_, false)) || crate::mutex::class(ty).is_some() {
+                        threading::contained(ty, &mut transferable);
+                    }
+                },
+            );
             visit_types(
                 &transferable,
-                |ty| !matches!(ty, Ty::Ref(_, false) | Ty::View(_, false)),
+                |ty| {
+                    !matches!(
+                        ty,
+                        Ty::Ref(_, false) | Ty::View(_, false) | Ty::Channel(_, true)
+                    )
+                },
                 |ty| {
                     sources.releasable_allocator |= is_allocator(ty);
                 },
