@@ -27,7 +27,7 @@ def cargo():
     args = sys.argv[1:]
     assert args[0] == 'rustc' and '--locked' in args and '--lib' in args
     for flag, expected in [('--target', TRIPLE), ('--target-dir', Path(env['REPO']) / 'target/std-gui' / backend),
-                           ('--manifest-path', native / 'Cargo.toml'), ('--features', env['EXPECTED_FEATURES'])]:
+                           ('--manifest-path', native / 'Cargo.toml'), ('--features', 'application')]:
         assert args.count(flag) == 1 and args[args.index(flag) + 1] == str(expected), args
     marker = env['MARKER']
     # Same pathname for successive invocations, but deliberately different bytes and args.
@@ -73,7 +73,7 @@ def member(parent, name, backend, binary):
     return directory
 
 
-def exercise(root, compiler, features):
+def exercise(root, compiler, runtime_checks):
     workspace = root / 'workspace'
     a = member(workspace, 'gui', 'iced', 'shared')
     cli = member(workspace, 'cli', '', 'shared')
@@ -85,7 +85,15 @@ def exercise(root, compiler, features):
         (root / tool).chmod(0o755)
     env = {**os.environ, 'CONTROL': str(root), 'REPO': str(REPO), 'PATH': str(root) + ':' + os.environ['PATH'],
            'CARGO_BUILD_TARGET': 'wasm32-unknown-unknown', 'CARGO_NET_OFFLINE': 'false',
-           'EXPECTED_FEATURES': features, 'PLENTY_CACHE_DIR': str(root / 'cache')}
+           'PLENTY_CACHE_DIR': str(root / 'cache')}
+    if runtime_checks:
+        for pkg, backend, binary in [(a, 'iced', 'shared'), (independent, 'egui', 'other')]:
+            attempt = subprocess.run([compiler, 'build'], cwd=pkg, text=True, capture_output=True, timeout=45,
+                                     env={**env, 'BACKEND': backend, 'MARKER': 'Rejected'})
+            assert attempt.returncode == 1 and 'unsupported with a runtime-checks compiler' in attempt.stderr, attempt
+            assert not (root / f'{backend}.a').exists() and not (workspace / 'target/optimized' / binary).exists()
+        print('PASS: runtime-checks compiler rejects both GUI backends before Cargo and publication')
+        return
     with ExitStack() as stack:
         def start(directory, backend, marker):
             log = root / f'{marker}.log'
@@ -131,7 +139,7 @@ def exercise(root, compiler, features):
         finished(start(a, 'iced', 'GUI'))
         assert output.read_text() == 'GUI'
         assert 'Fresh' not in finished(start(cli, '', 'CLI2')) and output.read_text() == 'CLI2'
-    print(f'PASS: archive bytes and argument order, output/fingerprint exclusion, independent builds; {features}, {TRIPLE}')
+    print(f'PASS: archive bytes and argument order, output/fingerprint exclusion, independent builds; application, {TRIPLE}')
 
 
 def main():
@@ -140,8 +148,7 @@ def main():
     parser.add_argument('--runtime-checks', action='store_true', help='expect a runtime-checks compiler')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as directory:
-        exercise(Path(directory), args.plenty.resolve(strict=True),
-                 'application,plenty-runtime/allocation-checks' if args.runtime_checks else 'application')
+        exercise(Path(directory), args.plenty.resolve(strict=True), args.runtime_checks)
 
 
 if __name__ == '__main__':

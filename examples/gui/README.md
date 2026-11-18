@@ -22,4 +22,5 @@ GUI dependencies or display). It pauses a driver before its archive read,
 observes contention for that backend and that workspace output, lets an
 independent build finish, then verifies the bytes, arguments and freshness of
 the competing outputs. Add `--runtime-checks` for a compiler built with that
-feature; the fixture checks the features actually passed to Cargo.
+feature; the fixture checks that both GUI package links explicitly reject it
+before Cargo runs or an executable is published.

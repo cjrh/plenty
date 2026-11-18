@@ -58,6 +58,12 @@ impl Backend {
                 "std.gui requires an ordinary baseline Linux GNU x86-64 package executable".into(),
             );
         }
+        // The accounting runtime expects all process-global Rust allocations
+        // back at its startup baseline. Native toolkit caches need not satisfy
+        // that contract, and substituting an unchecked runtime would hide it.
+        if cfg!(feature = "runtime-checks") {
+            return Err("std.gui package builds are unsupported with a runtime-checks compiler; build plenty without runtime-checks".into());
+        }
         let (name, include_var, guard) = match self {
             Self::Iced => (
                 "iced",
@@ -83,11 +89,6 @@ impl Backend {
         // archive. Hold this backend's lock across *both* commands so a
         // second consumer cannot replace its bytes under our link arguments.
         let _archive_lock = crate::build_lock::acquire(&cargo_target.join("plenty-link.lock"))?;
-        let features = if cfg!(feature = "runtime-checks") {
-            "application,plenty-runtime/allocation-checks"
-        } else {
-            "application"
-        };
         // Never discover Cargo configuration in the consumer package. Use a
         // reviewed *fixed* header, not C text generated from user exports.
         let inputs = Command::new("python3")
@@ -101,7 +102,7 @@ impl Backend {
             .args(["--target", native_target()])
             .arg("--lib-name")
             .arg(format!("plenty_{name}"))
-            .args(["--features", features])
+            .args(["--features", "application"])
             .env(include_var, native.join("reviewed"))
             .env("CARGO_NET_OFFLINE", "true")
             .current_dir("/")

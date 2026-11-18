@@ -54,8 +54,12 @@ different targets using different backends (or CLI targets) can overlap.
 This doesn't reserve a shared executable name after `build` returns.
 
 The Cargo invocation explicitly targets `x86_64-unknown-linux-gnu`, ignoring a
-conflicting Cargo default target. A `runtime-checks` compiler forwards
-`plenty-runtime/allocation-checks` to the archive. Native build inputs include
+conflicting Cargo default target. GUI package links reject compilers built
+with `runtime-checks` (including `--all-features`) before invoking Cargo. That
+instrumentation checks every process allocation against a startup baseline;
+third-party GUI caches can retain memory until process exit. Use the normal
+compiler build above. The build never silently substitutes an unchecked
+runtime for a checked one. Native build inputs include
 the installed Cargo/Rust/C toolchains, their configuration and environment
 (e.g. `RUSTFLAGS`, target-specific rustflags, `CC`, `CFLAGS` and `AR`). Use
 baseline-compatible flags; the lock fixes dependency versions, not native
