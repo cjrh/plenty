@@ -7,9 +7,11 @@ use iced::{
 use std::{cell::Cell, ffi::c_void, io::Write, ptr::NonNull};
 
 unsafe extern "C" {
+    #[cfg(feature = "legacy-application")]
     fn plic_app_create(error: *mut u32) -> *mut c_void;
     fn plic_app_render(state: *const c_void, token: u64, error: *mut u32) -> u32;
     fn plic_app_event(state: *mut c_void, action: u64, error: *mut u32) -> u32;
+    #[cfg(feature = "legacy-application")]
     fn plic_app_destroy(state: *mut c_void);
 }
 
@@ -33,12 +35,14 @@ fn checked(status: u32, tag: u32) -> Result<(), Error> {
 
 // NonNull is neither Send nor Sync. No callback loans survive a method return.
 struct StateOwner(NonNull<c_void>);
+#[cfg(feature = "legacy-application")]
 impl Drop for StateOwner {
     fn drop(&mut self) {
         unsafe { plic_app_destroy(self.0.as_ptr()) }
     }
 }
 impl StateOwner {
+    #[cfg(feature = "legacy-application")]
     fn create() -> Result<Self, Error> {
         let mut tag = 0;
         NonNull::new(unsafe { plic_app_create(&mut tag) })
@@ -52,7 +56,7 @@ impl StateOwner {
                 }
             })
     }
-    fn render(&self) -> Result<Scene, Error> {
+    fn render(&mut self) -> Result<Scene, Error> {
         build_scene(|token| {
             let mut tag = 0;
             let status = unsafe { plic_app_render(self.0.as_ptr(), token, &mut tag) };
@@ -72,8 +76,7 @@ struct Session {
     scene: Scene,
 }
 impl Session {
-    fn create() -> Result<Self, Error> {
-        let state = StateOwner::create()?;
+    fn new(mut state: StateOwner) -> Result<Self, Error> {
         let scene = state.render()?;
         Ok(Self { state, scene })
     }
@@ -128,15 +131,14 @@ fn show(scene: &Scene) {
     println!("---");
 }
 
-fn run() -> Result<(), Error> {
-    crate::begin_application()?;
+fn run(create: impl FnOnce() -> Result<StateOwner, Error>) -> Result<(), Error> {
     let mut args = std::env::args_os().skip(1);
     if let Some(mode) = args.next() {
         if mode != "--headless" {
             diagnostic(format_args!("usage: plenty-iced [--headless [ACTION...]]"));
             return Err(Error::InvalidArgument);
         }
-        let mut session = Session::create()?;
+        let mut session = Session::new(create()?)?;
         show(&session.scene);
         for arg in args {
             session.dispatch(
@@ -150,7 +152,7 @@ fn run() -> Result<(), Error> {
     }
 
     // boot is Fn, not FnOnce. Transfer the unique preflighted owner exactly once.
-    let initial = Cell::new(Some(Session::create()?));
+    let initial = Cell::new(Some(Session::new(create()?)?));
     let result = iced::application(
         move || initial.take().expect("one boot per run"),
         update,
@@ -166,9 +168,45 @@ fn run() -> Result<(), Error> {
     crate::loop_outcome(result, FAILURE.take())
 }
 
+#[cfg(feature = "legacy-application")]
 #[unsafe(no_mangle)]
 extern "C" fn plic_v1_run() -> u32 {
-    std::panic::catch_unwind(run)
+    status(|| {
+        crate::begin_application()?;
+        run(StateOwner::create)
+    })
+}
+
+#[cfg(not(feature = "legacy-application"))]
+#[unsafe(no_mangle)]
+extern "C" fn plic_v2_admit() -> u32 {
+    status(|| {
+        crate::begin_application()?;
+        if std::env::args_os()
+            .nth(1)
+            .is_some_and(|mode| mode != "--headless")
+        {
+            return Err(Error::InvalidArgument);
+        }
+        Ok(())
+    })
+}
+
+#[cfg(not(feature = "legacy-application"))]
+#[unsafe(no_mangle)]
+extern "C" fn plic_v2_drive(driver: *mut c_void) -> u32 {
+    // Borrowed only during this synchronous loop. Plenty drops its own driver.
+    status(|| {
+        run(|| {
+            NonNull::new(driver)
+                .map(StateOwner)
+                .ok_or(Error::InvalidArgument)
+        })
+    })
+}
+
+fn status(f: impl FnOnce() -> Result<(), Error> + std::panic::UnwindSafe) -> u32 {
+    std::panic::catch_unwind(f)
         .unwrap_or(Err(Error::NativeFailure))
         .err()
         .map_or(0, |e| e as u32)

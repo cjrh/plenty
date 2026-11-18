@@ -5,18 +5,14 @@ class State:
     def __init__(self) -> ():
         self.unit = "kg"
 
-export def create() -> Result[State, AllocError] = "iced_app_create":
+def create() -> Result[State, AllocError]:
     Ok(State())
 
-export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "iced_app_render":
-    frame = iced.Frame(token)
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
     frame.row()?
     frame.text(&"Mass:")?
     frame.text(&state.unit)?
     frame.end()
 
-export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] = "iced_app_event":
-    Err(iced.IcedError.InvalidArgument)
-
 def main() -> Result[(), iced.IcedError]:
-    iced.run()
+    iced.run(create=create, view=view)

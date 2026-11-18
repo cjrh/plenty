@@ -5,11 +5,10 @@ class State:
     def __init__(self) -> ():
         self.count = 0
 
-export def create() -> Result[State, AllocError] = "iced_app_create":
+def create() -> Result[State, AllocError]:
     Ok(State())
 
-export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "iced_app_render":
-    frame = iced.Frame(token)
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
     frame.column()?
     frame.text(&"Plenty + iced")?
     label = f"Count: {state.count}".map_error(iced.allocation)?
@@ -21,7 +20,7 @@ export def render(state: &State, token: u64) -> Result[(), iced.IcedError] = "ic
     frame.end()?
     Ok(())
 
-export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] = "iced_app_event":
+def update(state: &mut State, action: u64) -> Result[(), iced.IcedError]:
     match action:
         case 1u64:
             # Bound the teaching example's counter instead of allowing overflow.
@@ -37,4 +36,4 @@ export def event(state: &mut State, action: u64) -> Result[(), iced.IcedError] =
     Ok(())
 
 def main() -> Result[(), iced.IcedError]:
-    iced.run()
+    iced.run(create=create, view=view, update=update)

@@ -1798,7 +1798,7 @@ class Frame
     def end(self) -> Result[(), IcedError]
     def text(self, text: &str) -> Result[(), IcedError]
     def button(self, text: &str, action: u64) -> Result[(), IcedError]
-def run() -> Result[(), IcedError]
+def run[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, &Frame], Result[(), IcedError]], update: Callable[[&mut S, u64], Result[(), IcedError]] = reject_action[S]) -> Result[(), IcedError]
 ```
 
 ## `std.http`

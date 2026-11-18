@@ -16,7 +16,7 @@ handling, event loop and software renderer. See the [signatures](signatures.md#s
 
 ## Example: a counter
 
-Click **Increment** and the button sends action `1` to `event`. The next read-only `render` displays the new count; **Reset** sends action `2`.
+Click **Increment** and the button sends action `1` to `update`. The next read-only `view` displays the new count; **Reset** sends action `2`.
 After [setting up the source build](gui-build.md#source-installation-and-host),
 run from the checkout root:
 
@@ -30,7 +30,7 @@ run from the checkout root:
 
 ## Running the application
 
-`iced.run()` enters once on the process main thread and reads the original
+`iced.run(create=create, view=view, update=update)` enters once on the process main thread and reads the original
 process arguments after the executable name. No arguments opens a window;
 `--headless [ACTION ...]` renders the initial snapshot, then dispatches each
 decimal `u64` action against the current snapshot. A malformed or unknown ID
@@ -39,9 +39,7 @@ filename, return `InvalidArgument` **before** creating state. Parsing those
 arguments in Plenty does not remove them. Even rejected arguments consume
 the one main-thread entry: a second call returns `InvalidContext`.
 
-`create()` transfers one
-opaque `State` on success; failure transfers nothing. `render(&State, token)`
-constructs a `Frame(token)` (no allocation), opens `row()` or `column()`
+Pass ordinary function values or capture-free closures; callback variables can be selected at runtime. Display-only apps can omit `update`: an action delivered to the default handler returns `InvalidArgument`. After admission, Plenty calls `create` once and makes two checked setup allocations for its callback environment and driver. Native code borrows the driver only during `run`. The read-only `view` receives `&State` and `&Frame`, opens `row()` or `column()`
 containers, appends `text(&label)` and `button(&caption, action)` nodes and
 balances each container with `end()`. The bridge copies the borrowed UTF-8
 spans before returning. One balanced root, at most 16 open containers, 256
@@ -51,7 +49,7 @@ reviewed no-copy UTF-8 extern adapter, not a `&strview` conversion. Failures
 inside an admitted operation on the matching frame latch: no partial tree is published even if an error is ignored.
 
 The iced view reads the last validated snapshot. Its update validates the
-clicked action against that snapshot, calls `event(&mut State, action)`, then
+clicked action against that snapshot, calls `update(&mut State, action)`, then
 renders again after the exclusive loan ends. No widget keeps a Plenty loan.
 A stale/wrong-thread frame or repeated/nested entry returns `InvalidContext`.
 Invalid structure returns `InvalidLayout`; invalid input, exceeded caps and
