@@ -7,6 +7,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 ## B13 — explicit allocator experiments
 
+### Submitter checks allocator callbacks
+
+Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
+
 ### Public selected text slices
 
 [`Allocator.slice_text`](../design/stdlib/alloc.md#copy-a-text-slice-with-an-output-allocator)

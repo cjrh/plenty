@@ -36,7 +36,7 @@ allocator selection for boxes, lists, dictionaries and sets, including
 [columnar list slices](completed-work/language-and-tooling.md#public-selected-columnar-list-slices),
 [packed byte slices](completed-work/language-and-tooling.md#public-selected-packed-byte-slices) and
 [text slices](completed-work/language-and-tooling.md#public-selected-text-slices) with an output allocator.
-B13 remains open.
+The [submitting-worker callback check](completed-work/language-and-tooling.md#submitter-checks-allocator-callbacks) covers issue #1014. B13 remains open.
 
 [Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)
 records the shared-cursor lowering and retained instruction evidence for issue #888.

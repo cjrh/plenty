@@ -64,6 +64,8 @@ A `Submitter` job returns `()`, since there is no future to read a result
 from. Errors travel on the channel instead, so `main` still propagates an
 overflow from any part.
 
+When a job can submit more work, check its allocator too: releasing a list can call a provider that takes the same type of mutex its child job needs. Use a nonblocking provider or release that owner outside the submitting worker.
+
 There is no blocking `submit` on a `Submitter`: a worker waiting for space in
 its own queue could wait forever. When the queue is full, `submit_nowait`
 returns the whole job in `Full(job)`, and `submit_half` runs it inline. The

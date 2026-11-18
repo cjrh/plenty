@@ -454,6 +454,8 @@ external block providers, a generic owned collection, typed relocation, returned
 inputs on failed growth and exactly-once cleanup. Its static provider parameter
 and private slot ABI remain experimental, not builtin representations.
 
+The [submitting-worker callback check](completed-work/language-and-tooling.md#submitter-checks-allocator-callbacks) covers provider waits (#1014).
+
 Implement the remaining work in staged PRs:
 
 3. **Complete the migration.** Migrate remaining independent collection results,

@@ -2,6 +2,7 @@
 //! job from waiting for a job it queued (issue #789; reference:
 //! book/src/design/facilities/03-concurrency/executors.md, "Submit from
 //! workers").
+mod providers;
 use super::{ExecutorOp, Job};
 use crate::channel::{ChannelOp, SelectMode};
 use crate::control::ControlOp;
@@ -9,6 +10,7 @@ use crate::hash::{HashMap, HashSet};
 use crate::mutex::MutexOp;
 use crate::op::{CompiledFn, Op, Ty};
 use crate::threading::ThreadOp;
+use providers::Callbacks;
 use std::sync::Arc;
 
 /// Whether a value of one of `roots` can hold a value of type `wanted`.
@@ -45,6 +47,7 @@ fn roots(job: &Job) -> impl Iterator<Item = &str> {
 fn visit_reachable<'p>(
     definitions: &HashMap<&str, &'p CompiledFn>,
     job: &Job,
+    callbacks: Option<&Callbacks>,
     visit: &mut impl FnMut(&'p Op, &str, &'p CompiledFn),
 ) {
     let mut pending: Vec<String> = roots(job).map(str::to_owned).collect();
@@ -56,6 +59,9 @@ fn visit_reachable<'p>(
         let Some((&key, function)) = definitions.get_key_value(name.as_str()) else {
             continue;
         };
+        if let Some(callbacks) = callbacks {
+            callbacks.edges(function, &mut pending);
+        }
         crate::threading::walk(&function.body, &mut |op| {
             // A submitted job runs as its own job, not in this one, and a
             // closure runs where it is called, not where it is made: a named
@@ -92,7 +98,7 @@ pub fn descendants<'p>(
         if !reaches([parent.input.clone()], &Ty::Submitter) {
             continue;
         }
-        visit_reachable(definitions, parent, &mut |op, _, _| {
+        visit_reachable(definitions, parent, None, &mut |op, _, _| {
             if let Op::Executor(ExecutorOp::Submit(child, _)) = op
                 && child.handle
                 && !found.iter().any(|seen| Arc::ptr_eq(seen, child))
@@ -150,10 +156,12 @@ fn slot_type(function: &CompiledFn, slot: u8) -> Option<&Ty> {
 /// code, which counts as the job's own. Futures cannot enter workers.
 /// Nonblocking operations and other I/O are allowed.
 pub fn check(
+    ops: &[Op],
     jobs: &[&Arc<Job>],
     definitions: &HashMap<&str, &CompiledFn>,
     describe: impl Fn(&str) -> String,
 ) -> Result<(), String> {
+    let mut callbacks = None;
     let mut checked: Vec<&Arc<Job>> = Vec::new();
     for &job in jobs {
         if checked.iter().any(|seen| Arc::ptr_eq(seen, job)) {
@@ -164,13 +172,21 @@ pub fn check(
         if children.is_empty() {
             continue;
         }
-        let reach = Reach::of(children.iter().map(|child| child.input.clone()));
+        let callbacks = callbacks.get_or_insert_with(|| Callbacks::new(ops));
+        let mut inputs: Vec<_> = children.iter().map(|child| child.input.clone()).collect();
+        callbacks.extend_child_inputs(&mut inputs);
+        let reach = Reach::of(inputs.into_iter());
         let mut error = None;
-        visit_reachable(definitions, job, &mut |op, name, function| {
-            if error.is_none() {
-                error = conflict(&reach, op, function).map(|found| (found, name.to_owned()));
-            }
-        });
+        visit_reachable(
+            definitions,
+            job,
+            Some(callbacks),
+            &mut |op, name, function| {
+                if error.is_none() {
+                    error = conflict(&reach, op, function).map(|found| (found, name.to_owned()));
+                }
+            },
+        );
         if let Some(((reach, wait), function)) = error {
             let advice = if wait.starts_with("locks") {
                 "Keep the state in an atomic, or lock it on a thread that is not a pool worker"

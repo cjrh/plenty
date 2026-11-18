@@ -203,6 +203,8 @@ waits without a limit, so when a queued job holds the peer, use the stream's
 `read_before` or `write_before`, which end at a deadline or the token (see
 [networking](../../stdlib/net.md)).
 
+The same check follows retained allocator callbacks and final provider-state cleanup: dropping a selected owner may take a lock even if the worker has no explicit `lock()` call. Provider identity is erased, so a callback of a possible compiled provider can cause rejection even if this particular allocation came from a nonlocking provider. A provider with no conflicting wait is not itself a reason for rejection.
+
 Everything is matched by type, as the shutdown rules match it. A job may
 still send blocking on a queue whose receiver only another thread holds, as
 the [tutorial lesson](../../../tutorial/11-concurrency/submit-from-workers.md)
