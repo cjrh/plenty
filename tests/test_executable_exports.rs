@@ -340,6 +340,15 @@ fn executable_exports_validate_modes_names_abi_and_publication() {
             .to_string();
     assert!(error.contains("conflicts"), "{error}");
     std::fs::write(root.join("proof.h"), "old header").unwrap();
+    // On a case-insensitive filesystem these two paths already name one file.
+    let alias = root.join("Proof.H");
+    let old_alias = std::fs::read(&alias).ok();
+    let error = plenty::compile_file_to_object_with_options(&source, &alias, None, &options)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("conflicts"), "{error}");
+    assert_eq!(std::fs::read(&alias).ok(), old_alias);
+    assert_eq!(std::fs::read(root.join("proof.h")).unwrap(), b"old header");
     let invalid = CompileOptions {
         executable_exports: Some("bad-name".into()),
         ..options.clone()

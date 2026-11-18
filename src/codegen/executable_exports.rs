@@ -41,8 +41,13 @@ pub(super) fn compile(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let header = directory.join(format!("{name}.h"));
-    if output.file_name() == header.file_name() {
+    let header_name = format!("{name}.h");
+    let header = directory.join(&header_name);
+    // Both files have the same parent, which may be on a case-insensitive mount.
+    if output.file_name().is_some_and(|file| {
+        file.as_encoded_bytes()
+            .eq_ignore_ascii_case(header_name.as_bytes())
+    }) {
         return Err("application output conflicts with its executable exports header".into());
     }
     let destinations = [output, header.as_path()];
