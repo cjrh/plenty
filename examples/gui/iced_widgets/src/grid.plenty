@@ -1,0 +1,20 @@
+import std.gui.retained.iced as iced
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "Pears"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.grid(2u16)?
+    frame.text(&state.title)?
+    frame.text(&"12")?
+    frame.text(&"Apples")?
+    frame.text(&"8")?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)

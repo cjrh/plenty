@@ -95,6 +95,43 @@ fn malformed_layout_and_ignored_errors_discard_frame() {
 }
 
 #[test]
+fn fixed_child_counts_and_grid_bounds() {
+    for columns in [0, 257] {
+        assert_eq!(
+            build_scene(|t| {
+                plic_v1_grid(t, columns);
+                Ok(())
+            }),
+            Err(Error::InvalidArgument)
+        );
+    }
+    for (expected, open) in [
+        (1, (|t| plic_v1_container(t, 4)) as fn(u64) -> u32),
+        (1, |t| plic_v1_pin(t, 2, 4)),
+        (1, |t| plic_v1_scrollable(t, 12)),
+        (2, |t| plic_v1_tooltip(t)),
+    ] {
+        for count in [expected - 1, expected, expected + 1] {
+            let result = build_scene(|t| {
+                assert_eq!(plic_v1_grid(t, 2), 0);
+                assert_eq!(open(t), 0);
+                for _ in 0..count {
+                    text(t, b"item", 0);
+                }
+                plic_v1_end(t);
+                plic_v1_end(t);
+                Ok(())
+            });
+            if count == expected {
+                assert_eq!(result.unwrap().nodes[1].children.len(), count);
+            } else {
+                assert_eq!(result, Err(Error::InvalidLayout));
+            }
+        }
+    }
+}
+
+#[test]
 fn node_depth_and_text_limits() {
     assert_eq!(
         build_scene(|token| {

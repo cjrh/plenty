@@ -112,7 +112,22 @@ fn view(session: &Session) -> Element<'_, Pressed> {
     fn element(scene: &Scene, i: usize) -> Element<'_, Pressed> {
         let node = &scene.nodes[i];
         let children = node.children.iter().map(|&i| element(scene, i));
+        // The builder validates wrapper arity before publishing the snapshot.
+        let child = |index: usize| element(scene, node.children[index]);
         match &node.kind {
+            Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
+            Kind::Container(p) => container(child(0)).padding(*p).into(),
+            Kind::Pin(x, y) => iced::widget::pin(child(0))
+                .x(f32::from(*x))
+                .y(f32::from(*y))
+                .into(),
+            Kind::Scrollable(h) => iced::widget::scrollable(child(0))
+                .height(u32::from(*h))
+                .into(),
+            Kind::Tooltip => {
+                iced::widget::tooltip(child(0), child(1), iced::widget::tooltip::Position::Top)
+                    .into()
+            }
             Kind::Stack => iced::widget::stack(children).into(),
             Kind::Rule => iced::widget::rule::horizontal(1).into(),
             Kind::Space(w, h) => iced::widget::Space::new()

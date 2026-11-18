@@ -29,6 +29,11 @@ pub enum Kind {
     Row,
     Column,
     Stack,
+    Grid(u16),
+    Container(u16),
+    Pin(u16, u16),
+    Scrollable(u16),
+    Tooltip,
     Rule,
     Space(u16, u16),
     ProgressBar(f32),
@@ -37,6 +42,16 @@ pub enum Kind {
     Radio(String, bool, u64),
     Text(String),
     Button(String, u64),
+}
+
+impl Kind {
+    fn exact_children(&self) -> Option<usize> {
+        match self {
+            Self::Container(_) | Self::Pin(_, _) | Self::Scrollable(_) => Some(1),
+            Self::Tooltip => Some(2),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -82,6 +97,10 @@ impl Builder {
             .map_err(|_| Error::OutOfMemory)?;
         let index = self.scene.nodes.len();
         if let Some(&parent) = self.stack.last() {
+            let p = &self.scene.nodes[parent];
+            if p.kind.exact_children() == Some(p.children.len()) {
+                return Err(Error::InvalidLayout);
+            }
             self.scene.nodes[parent]
                 .children
                 .try_reserve(1)
@@ -183,8 +202,36 @@ pub extern "C" fn plic_v1_row(token: u64) -> u32 {
 pub extern "C" fn plic_v1_column(token: u64) -> u32 {
     group(token, Kind::Column)
 }
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_grid(token: u64, columns: u16) -> u32 {
+    group(token, Kind::Grid(columns))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_container(token: u64, padding: u16) -> u32 {
+    group(token, Kind::Container(padding))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_pin(token: u64, x: u16, y: u16) -> u32 {
+    group(token, Kind::Pin(x, y))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_scrollable(token: u64, height: u16) -> u32 {
+    group(token, Kind::Scrollable(height))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_tooltip(token: u64) -> u32 {
+    group(token, Kind::Tooltip)
+}
+
 fn group(token: u64, kind: Kind) -> u32 {
     command(token, |builder| {
+        if matches!(&kind, Kind::Grid(n) if *n == 0 || usize::from(*n) > MAX_NODES) {
+            return Err(Error::InvalidArgument);
+        }
         if builder.stack.len() == MAX_DEPTH {
             return Err(Error::LimitExceeded);
         }
@@ -205,7 +252,16 @@ fn group(token: u64, kind: Kind) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_end(token: u64) -> u32 {
     command(token, |builder| {
-        builder.stack.pop().map(|_| ()).ok_or(Error::InvalidLayout)
+        let i = builder.stack.pop().ok_or(Error::InvalidLayout)?;
+        let node = &builder.scene.nodes[i];
+        if node
+            .kind
+            .exact_children()
+            .is_some_and(|n| n != node.children.len())
+        {
+            return Err(Error::InvalidLayout);
+        }
+        Ok(())
     })
 }
 

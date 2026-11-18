@@ -1,0 +1,21 @@
+import std.gui.retained.iced as iced
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "Oranges"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.scrollable(48u16)?
+    frame.column()?
+    frame.text(&state.title)?
+    frame.text(&"Pears")?
+    frame.text(&"Apples")?
+    frame.end()?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)
