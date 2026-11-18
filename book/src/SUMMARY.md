@@ -519,6 +519,8 @@
                     - [Space](design/stdlib/gui-iced-widgets/space.md)
                     - [Rule](design/stdlib/gui-iced-widgets/rule.md)
                     - [Grid](design/stdlib/gui-iced-widgets/grid.md)
+                    - [Float](design/stdlib/gui-iced-widgets/float_scaled.md)
+                    - [Themer](design/stdlib/gui-iced-widgets/themer.md)
                     - [Container](design/stdlib/gui-iced-widgets/container.md)
                     - [Pin](design/stdlib/gui-iced-widgets/pin.md)
                     - [Scrollable](design/stdlib/gui-iced-widgets/scrollable.md)

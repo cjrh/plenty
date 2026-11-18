@@ -31,6 +31,8 @@ pub enum Kind {
     Stack,
     Grid(u16),
     Container(u16),
+    FloatScaled(u16),
+    Themer(bool),
     Pin(u16, u16),
     Scrollable(u16),
     Tooltip,
@@ -47,7 +49,11 @@ pub enum Kind {
 impl Kind {
     fn exact_children(&self) -> Option<usize> {
         match self {
-            Self::Container(_) | Self::Pin(_, _) | Self::Scrollable(_) => Some(1),
+            Self::Container(_)
+            | Self::Themer(_)
+            | Self::FloatScaled(_)
+            | Self::Pin(_, _)
+            | Self::Scrollable(_) => Some(1),
             Self::Tooltip => Some(2),
             _ => None,
         }
@@ -208,6 +214,14 @@ pub extern "C" fn plic_v1_grid(token: u64, columns: u16) -> u32 {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_float_scaled(token: u64, percent: u16) -> u32 {
+    group(token, Kind::FloatScaled(percent))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_themer(token: u64, dark: bool) -> u32 {
+    group(token, Kind::Themer(dark))
+}
+#[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_container(token: u64, padding: u16) -> u32 {
     group(token, Kind::Container(padding))
 }
@@ -229,6 +243,9 @@ pub extern "C" fn plic_v1_tooltip(token: u64) -> u32 {
 
 fn group(token: u64, kind: Kind) -> u32 {
     command(token, |builder| {
+        if matches!(kind, Kind::FloatScaled(n) if !(100..=400).contains(&n)) {
+            return Err(Error::InvalidArgument);
+        }
         if matches!(&kind, Kind::Grid(n) if *n == 0 || usize::from(*n) > MAX_NODES) {
             return Err(Error::InvalidArgument);
         }

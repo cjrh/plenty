@@ -15,6 +15,8 @@ extern def native_progress_bar(token: u64, fraction: f32) -> u32 = "plic_v1_prog
 extern def native_rule(token: u64) -> u32 = "plic_v1_rule"
 extern def native_space(token: u64, width: u16, height: u16) -> u32 = "plic_v1_space"
 extern def native_grid(token: u64, columns: u16) -> u32 = "plic_v1_grid"
+extern def native_float_scaled(token: u64, percent: u16) -> u32 = "plic_v1_float_scaled"
+extern def native_themer(token: u64, dark: bool) -> u32 = "plic_v1_themer"
 extern def native_container(token: u64, padding: u16) -> u32 = "plic_v1_container"
 extern def native_pin(token: u64, x: u16, y: u16) -> u32 = "plic_v1_pin"
 extern def native_scrollable(token: u64, height: u16) -> u32 = "plic_v1_scrollable"
@@ -76,6 +78,10 @@ pub class Frame:
         checked(native_space(self.token, width, height))
     pub def grid(self, columns: u16) -> Result[(), IcedError]:
         checked(native_grid(self.token, columns))
+    pub def float_scaled(self, percent: u16) -> Result[(), IcedError]:
+        checked(native_float_scaled(self.token, percent))
+    pub def themer(self, dark: bool) -> Result[(), IcedError]:
+        checked(native_themer(self.token, dark))
     pub def container(self, padding: u16) -> Result[(), IcedError]:
         checked(native_container(self.token, padding))
     pub def pin(self, x: u16, y: u16) -> Result[(), IcedError]:
