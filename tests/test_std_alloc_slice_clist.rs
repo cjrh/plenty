@@ -521,3 +521,100 @@ fn selected_clist_opaque_pool_calls_distinguish_owning_inputs_and_results() {
         }
     }
 }
+
+// Only the outer Allocator crosses the worker boundary. Its hidden state owns
+// the selected clist; the *inner* provider owns the lock used at clist drop.
+const HOLDING: &str = r#"pub class Holding:
+    root: alloc.Allocator
+    bundle: Bundle
+    pub def allocate(self: &mut Holding, request: &alloc.Layout) -> Result[alloc.ByteBlock, AllocError]:
+        self.root.block(request)
+    pub def release(self: &mut Holding, storage: alloc.ByteBlock) -> ():
+        drop(storage)
+
+class Wrapped:
+    value: Option[Box[alloc.Allocator]]
+"#;
+const OUTER: &str = "outer = alloc.allocator(&root, Holding(root.share(), Bundle(Some(Box(picked).unwrap())))).unwrap()";
+
+#[test]
+fn final_allocator_release_at_scoped_join_includes_hidden_clist_cleanup() {
+    let join = "with spawn(work, ARG).drop_job().unwrap() as task:\n        with guard.lock():\n            task.join()";
+    let lock = "worker can lock a `Mutex[i64]`";
+    for (signature, body, arg, final_release) in [
+        ("owner: alloc.Allocator", "drop(owner)", "outer", true),
+        (
+            "wrapped: Wrapped",
+            "pass",
+            "Wrapped(Some(Box(outer).unwrap()))",
+            true,
+        ),
+        (
+            "owner: &alloc.Allocator",
+            "drop(owner.share())",
+            "&outer",
+            false,
+        ),
+    ] {
+        let worker = format!("{HOLDING}\ndef work({signature}) -> ():\n    {body}");
+        let caller = format!("{OUTER}\n    {}", join.replace("ARG", arg));
+        for selected in [false, true] {
+            check_join(
+                &worker,
+                &caller,
+                selected,
+                true,
+                (selected && final_release).then_some(lock),
+            );
+        }
+    }
+    // Borrowing the carrier does not pin an allocator that the worker can
+    // receive or replace. Neither carrier itself contains a Mutex[i64].
+    for (signature, body, setup, arg) in [
+        (
+            "rx: &Receiver[alloc.Allocator]",
+            "drop(rx.recv_nowait())",
+            "tx, rx = channel[alloc.Allocator](1).unwrap()\n    tx.send(outer).unwrap()\n    drop(tx)",
+            "&rx",
+        ),
+        (
+            "slot: &Mutex[Wrapped]",
+            "with slot.lock() as wrapped:\n        wrapped.value = Nothing",
+            "slot = Mutex(Wrapped(Some(Box(outer).unwrap())))",
+            "&slot",
+        ),
+    ] {
+        let worker = format!("{HOLDING}\ndef work({signature}) -> ():\n    {body}");
+        let caller = format!("{OUTER}\n    {setup}\n    {}", join.replace("ARG", arg));
+        check_join(&worker, &caller, true, true, Some(lock));
+    }
+    // A producer alone doesn't make owning Allocator cleanup a clist release:
+    // the only *registered* state is Policy, not Holding.
+    check_join(
+        &format!("{HOLDING}\ndef work(owner: alloc.Allocator) -> ():\n    pass"),
+        &join.replace("ARG", "out"),
+        true,
+        true,
+        None,
+    );
+}
+
+#[test]
+fn final_allocator_release_in_pool_job_is_visible_at_result_and_shutdown() {
+    let worker = format!("{HOLDING}\ndef work(wrapped: Wrapped) -> ():\n    pass");
+    for (wait, diagnostic) in [
+        (
+            "drop(future.result())",
+            "this result() waits for a job that can lock a `Mutex[i64]`",
+        ),
+        (
+            "pool.shutdown()",
+            "a job that can lock a `Mutex[i64]` was submitted",
+        ),
+    ] {
+        let caller = format!(
+            "{OUTER}\n    with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        future = pool.submit(work, Wrapped(Some(Box(outer).unwrap()))).unwrap()\n        with guard.lock():\n            {wait}"
+        );
+        check_join(&worker, &caller, true, true, Some(diagnostic));
+    }
+}

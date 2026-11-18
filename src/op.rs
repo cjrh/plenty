@@ -1639,6 +1639,7 @@ pub struct CompiledFn {
 }
 
 mod check;
+pub(crate) mod reachability;
 
 pub use check::check;
 
