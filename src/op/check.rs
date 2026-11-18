@@ -518,10 +518,14 @@ fn step(
                 {
                     return Err("list length and rows require a list reference".into());
                 }
-                crate::collection::CollectionOp::ViewNew(
-                    Ty::List(_) | Ty::ByteStorage | Ty::ByteStr | Ty::View(..),
+                crate::collection::CollectionOp::ViewNew(Ty::ByteStr, false)
+                | crate::collection::CollectionOp::ViewNew(
+                    Ty::List(_) | Ty::ByteStorage | Ty::View(..),
                     _,
                 ) => {}
+                crate::collection::CollectionOp::ViewNew(Ty::ByteStr, true) => {
+                    return Err("a bytes literal cannot lend an exclusive slice view".into());
+                }
                 crate::collection::CollectionOp::ViewNew(..) => {
                     return Err("a slice view requires a list, byte, or view owner".into());
                 }
@@ -1752,6 +1756,31 @@ mod tests {
         malformed.variants[0].fields.clear();
         let result = Ty::Enum(crate::nominal::Nominal::new(malformed));
         assert!(checked_block_step(vec![], result, &mut vec![]).is_err());
+    }
+
+    #[test]
+    fn byte_view_queries_require_their_access_mode() {
+        use crate::collection::{CollectionOp, Query};
+
+        let check = |operation, mut stack| {
+            step(
+                &Op::Collection(operation),
+                &mut stack,
+                &[],
+                &Sigs::default(),
+                None,
+                None,
+                None,
+            )
+        };
+        for (query, mutable) in [(Query::BytesRows, false), (Query::BytesRowsMut, true)] {
+            let reference = |mutable| Ty::Ref(Arc::new(Ty::ByteStorage), mutable);
+            assert!(check(CollectionOp::QueryRef(query), vec![reference(mutable)]).is_ok());
+            assert!(check(CollectionOp::QueryRef(query), vec![reference(!mutable)]).is_err());
+        }
+        let literal = CollectionOp::ViewNew(Ty::ByteStr, true);
+        let (inputs, _) = literal.signature();
+        assert!(check(literal, inputs).is_err());
     }
 
     #[test]

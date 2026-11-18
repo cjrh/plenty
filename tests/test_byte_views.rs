@@ -58,6 +58,7 @@ fn range_loop_reads_bytes_directly() {
     };
     // One length and one address read before the loop; no access calls.
     assert_eq!(calls("plenty_bytes_len"), 1, "{body}");
+    assert_eq!(calls("plenty_byte_view_rows_mut"), 1, "{body}");
     assert_eq!(calls("plenty_byte_view_rows"), 1, "{body}");
     for symbol in ["plenty_bytes_get", "plenty_bytes_set", "plenty_trap"] {
         assert_eq!(calls(symbol), 0, "{symbol}:\n{body}");
@@ -65,6 +66,80 @@ fn range_loop_reads_bytes_directly() {
     // The hoisted `len()` names its call site in its own trap records
     // (issue #842), so the function sets no caller context.
     assert_eq!(calls("plenty_caller_enter"), 0, "{body}");
+}
+
+const ACCESS_MODES: &str = r#"
+from std.bytes import Bytes, from_text
+
+def shared_slice(data: &Bytes) -> u8:
+    view = &data[1:]
+    view[0]
+
+def exclusive_slice(data: &mut Bytes) -> (u8, u8):
+    view = &mut data[:1]
+    tail = &data[1:]
+    view[0] = 120u8
+    (view[0], tail[0])
+
+def literal_slice(data: bytes) -> u8:
+    view = &data[1:]
+    view[0]
+
+def shared_rows(data: &mut Bytes) -> u8:
+    mut total = 0u8
+    for i in range(data.len()):
+        total = total ^ data.get(i)
+    total
+
+def mixed_rows(data: &mut Bytes) -> ():
+    for i in range(data.len()):
+        old = data.get(i)
+        data.set(i, old ^ 32u8)
+
+def branch_rows(data: &mut Bytes, read: bool) -> u8:
+    earlier = &data
+    for i in range(1):
+        if read:
+            return earlier.get(i)
+        data.set(i, 122u8)
+        return 0u8
+    0u8
+
+def main() -> Result[(), AllocError | IoError]:
+    mut data = from_text("abc")?
+    print(shared_slice(&data), exclusive_slice(&mut data), literal_slice(b"xyz"))?
+    print(shared_rows(&mut data))?
+    mixed_rows(&mut data)
+    print(branch_rows(&mut data, True), branch_rows(&mut data, False), data)?
+    Ok(())
+"#;
+
+#[test]
+fn byte_view_helpers_preserve_the_access_mode() {
+    use crate::test_text_bytes_fast_paths::runtime_calls;
+
+    for (function, expected) in [
+        ("shared_slice", &["plenty_byte_view"][..]),
+        (
+            "exclusive_slice",
+            &["plenty_byte_view", "plenty_byte_view_mut"],
+        ),
+        ("literal_slice", &["plenty_byte_view"]),
+        ("shared_rows", &["plenty_byte_view_rows"]),
+        ("mixed_rows", &["plenty_byte_view_rows_mut"]),
+        // The get via the prior alias is cached, and the branch-local set
+        // cannot acquire a writable pointer at loop entry.
+        ("branch_rows", &["plenty_byte_view_rows"]),
+    ] {
+        let mut calls = runtime_calls(ACCESS_MODES, function);
+        calls.retain(|symbol| symbol.starts_with("plenty_byte_view"));
+        calls.sort();
+        assert_eq!(calls, expected, "{function}");
+    }
+    assert_eq!(
+        support::run_file_stdout(ACCESS_MODES).trim(),
+        "98 (120, 98) 121\n121\n88 0 b\"zBC\""
+    );
 }
 
 const RESIZING: &str = r#"

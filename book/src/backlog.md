@@ -243,7 +243,7 @@ dispatcher, the general key comparison and the streaming hasher
 `dict[str, V].get_or_insert_bytes` looks a key up by borrowed bytes and builds
 it only on a miss (issue #949), which k-nucleotide now uses; its remaining hit
 cost outside the hash is the cache miss on the bucket load. Its counting loops
-now use shared windows (issue #950); ordinary range slices constructed inside
+now use shared windows (issue #950); ordinary shared range slices constructed inside
 other loops still call `plenty_byte_view` on every pass. Not delivered:
 borrowed-key `get`, `get_ref`, `get_mut` and `in` for `str` keys, a `&strview`
 form, and a borrowed form for `dict[bytes, V]`.

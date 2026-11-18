@@ -27,6 +27,8 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 /// Otherwise the read stays where it is.
 pub(super) struct IndexedLists {
     before: usize,
+    /// Loans introduced before the loop, excluding its direct length read.
+    before_loans: usize,
     views: HashMap<(u8, Vec<usize>), [u8; 2]>,
     /// A cached clist's row count slot, by place.
     clist_lengths: HashMap<(u8, Vec<usize>), u8>,
@@ -37,7 +39,7 @@ pub(super) struct IndexedLists {
     /// counter's bound and each access's length are one value (issue #728).
     /// This is the length the setup would read: only the range's own count
     /// computation runs between the two.
-    stop: Option<((u8, Vec<usize>), u8)>,
+    stop: Option<RangeStop>,
     setup: Vec<Op>,
     provisional: Vec<Provisional>,
     /// Caches that finished inner loops kept and this loop may take over.
@@ -51,12 +53,22 @@ pub(super) struct IndexedLists {
     reaches: Vec<Reach>,
 }
 
+pub(super) struct RangeStop {
+    place: (u8, Vec<usize>),
+    slot: u8,
+    /// The final argument is a direct length read. Its temporary loans have
+    /// ended by the time the loop's setup runs.
+    before_len: usize,
+}
+
 /// What a cache's setup reads. Caches of one part hold equal values while
 /// nothing replaces, resizes or moves the place.
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum Part {
-    /// A list's or `Bytes` buffer's length and row address.
+    /// A list's length and row address.
     Rows((u8, Vec<usize>)),
+    /// A byte buffer's length and row address, with its write permission.
+    ByteRows((u8, Vec<usize>), bool),
     /// A clist's row count.
     Count((u8, Vec<usize>)),
     /// The address of a clist's column for one field.
@@ -114,9 +126,10 @@ pub(super) enum Reach {
 }
 
 impl IndexedLists {
-    pub(super) fn new(before: usize) -> Self {
+    pub(super) fn new(before: usize, before_loans: usize) -> Self {
         Self {
             before,
+            before_loans,
             views: HashMap::default(),
             clist_lengths: HashMap::default(),
             columns: HashMap::default(),
@@ -3626,7 +3639,10 @@ impl Lower<'_> {
         };
         let stop = self.range_stop.take();
         self.building(&iterable.at, iterable_start, ops, false);
-        let mut indexed = IndexedLists::new(self.parameters + start);
+        let before_loans = stop
+            .as_ref()
+            .map_or(self.loans.len(), |stop| stop.before_len);
+        let mut indexed = IndexedLists::new(self.parameters + start, before_loans);
         indexed.stop = stop;
         self.indexed_lists.push(indexed);
         self.loop_steps.push(step.clone());
@@ -3802,7 +3818,12 @@ impl Lower<'_> {
     /// `base.set(i, value)` on a `Bytes` place `base` of type `ty` inside the
     /// innermost loop, if it qualifies; see [`IndexedLists`]. Called before
     /// `base` is borrowed for the call, since caching borrows it.
-    pub(super) fn indexed_bytes_view(&mut self, base: &Expr, ty: &Ty) -> Result<Option<[u8; 2]>> {
+    pub(super) fn indexed_bytes_view(
+        &mut self,
+        base: &Expr,
+        ty: &Ty,
+        mutable: bool,
+    ) -> Result<Option<[u8; 2]>> {
         let Some(class) = byte_buffers::byte_buffer(ty) else {
             return Ok(None);
         };
@@ -3810,19 +3831,45 @@ impl Lower<'_> {
             return Ok(None);
         };
         let context = self.indexed_lists.last().unwrap();
-        if let Some(view) = context.views.get(&place.key) {
-            return Ok(Some(*view));
+        let existing = context.views.get(&place.key).copied();
+        let pending = existing.filter(|_| mutable).and_then(|[length, _]| {
+            context
+                .provisional
+                .iter()
+                .position(|entry| entry.length == length)
+        });
+        if let Some(view) = existing
+            && (!mutable
+                || pending.is_some_and(|i| {
+                    matches!(context.provisional[i].part, Part::ByteRows(_, true))
+                }))
+        {
+            return Ok(Some(view));
         }
-        let view = [self.slot(Ty::I64, &base.at)?, self.slot(Ty::I64, &base.at)?];
+        if mutable && (place.stable || self.prior_byte_loan(&place, context.before_loans)) {
+            // A write can be valid on its branch while an earlier loan is
+            // live on another. Keep the setter's loan at its actual call.
+            return Ok(None);
+        }
+        let view = match existing {
+            Some(view) => view,
+            None => [self.slot(Ty::I64, &base.at)?, self.slot(Ty::I64, &base.at)?],
+        };
         let mut setup = Vec::new();
         self.mark(&base.at, &mut setup);
-        let mut reads = vec![(Query::BytesLen, view[0]), (Query::BytesRows, view[1])];
+        let rows = if mutable {
+            Query::BytesRowsMut
+        } else {
+            Query::BytesRows
+        };
+        let mut reads = vec![(Query::BytesLen, view[0]), (rows, view[1])];
         if let Some(stop) = self.cached_stop(&place.key) {
             setup.extend([Op::LoadLocal(stop), Op::StoreLocal(view[0])]);
             reads.remove(0);
         }
         for (query, slot) in reads {
-            let loan = self.byte_storage_place(&class, base, false, &mut setup)?;
+            let loan =
+                self.byte_storage_place(&class, base, query == Query::BytesRowsMut, &mut setup)?;
             setup.extend([
                 Op::Collection(CollectionOp::QueryRef(query)),
                 Op::StoreLocal(slot),
@@ -3830,10 +3877,35 @@ impl Lower<'_> {
             ]);
         }
         let context = self.indexed_lists.last_mut().unwrap();
-        context.views.insert(place.key.clone(), view);
-        let part = Part::Rows(place.key.clone());
-        Self::cache_setup(context, &place, part, view, false, setup);
+        let part = Part::ByteRows(place.key.clone(), mutable);
+        if let Some(i) = pending {
+            // If a get was seen first, keep its slots and upgrade their
+            // setup so every access uses the same writable pointer.
+            context.provisional[i].part = part;
+            context.provisional[i].setup = setup;
+        } else {
+            context.views.insert(place.key.clone(), view);
+            Self::cache_setup(context, &place, part, view, false, setup);
+        }
         Ok(Some(view))
+    }
+
+    /// An earlier loan of the same root could still be live at loop entry.
+    /// The reference the cache would reborrow and its ancestors are allowed.
+    fn prior_byte_loan(&self, place: &CachedPlace, before: usize) -> bool {
+        self.loans[..before].iter().any(|loan| {
+            if loan.root != place.owner.unwrap_or(place.source) {
+                return false;
+            }
+            let mut parent = self.reference_locals.get(&place.source).copied();
+            while let Some(id) = parent {
+                if id == loan.id {
+                    return false;
+                }
+                parent = self.loans[id].parent;
+            }
+            true
+        })
     }
 
     /// The innermost loop's cacheable place for the list, clist or `Bytes`
@@ -3890,8 +3962,8 @@ impl Lower<'_> {
         context
             .stop
             .as_ref()
-            .filter(|(place, _)| place == key)
-            .map(|(_, stop)| *stop)
+            .filter(|stop| &stop.place == key)
+            .map(|stop| stop.slot)
     }
 
     /// Adds the `setup` of a cached list or `Bytes` place to the loop: at
@@ -6036,18 +6108,19 @@ impl Lower<'_> {
 
     /// Push `start stop step` for `range(args)`, filling the defaults, and
     /// mark the call for parameter failures. Returns the intervals of the
-    /// start and the stop.
+    /// start and the stop, and the loan count before evaluating the stop.
     fn range_operands(
         &mut self,
         args: &[Expr],
         element: &Ty,
         at: &Token,
         ops: &mut Vec<Op>,
-    ) -> Result<[Option<Interval>; 2]> {
+    ) -> Result<([Option<Interval>; 2], usize)> {
         if args.is_empty() || args.len() > 3 {
             return Err(at.error("range takes one to three arguments"));
         }
         let mut bounds = [Some(Interval::point(0)), None];
+        let mut before_stop = self.loans.len();
         if args.len() == 1 {
             ops.push(Op::PushInt(integer(&format!("0{element}"), false, at)?));
         }
@@ -6057,6 +6130,7 @@ impl Lower<'_> {
                 self.nonzero_step("range", arg, ops)?;
                 continue;
             }
+            before_stop = self.loans.len();
             self.interval = None;
             let actual = self.expr_expected(arg, Some(element.clone()), ops)?;
             self.same(actual, Some(element.clone()), &arg.at)?;
@@ -6066,7 +6140,7 @@ impl Lower<'_> {
             ops.push(Op::PushInt(Value::I64(1)));
         }
         self.mark(at, ops);
-        Ok(bounds)
+        Ok((bounds, before_stop))
     }
 
     /// The interval of the element of a `range` with these start and stop
@@ -6184,7 +6258,7 @@ impl Lower<'_> {
             }
             _ => None,
         };
-        let bounds = self.range_operands(args, &element, at, ops)?;
+        let (bounds, before_stop) = self.range_operands(args, &element, at, ops)?;
         // The loop variable is immutable, and each element the loop gives it
         // lies between the start and the stop (rule in `intervals.md`).
         if let Some(interval) = self.range_element_interval(bounds, args.get(2), &element) {
@@ -6195,7 +6269,11 @@ impl Lower<'_> {
             Some(place) => {
                 let saved = self.slot(Ty::I64, at)?;
                 ops.extend([Op::Dup, Op::StoreLocal(saved)]);
-                Some((place, saved))
+                Some(RangeStop {
+                    place,
+                    slot: saved,
+                    before_len: before_stop,
+                })
             }
             None => None,
         };
