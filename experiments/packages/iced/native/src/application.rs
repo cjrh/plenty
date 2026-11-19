@@ -108,6 +108,13 @@ fn update(session: &mut Session, Pressed(id): Pressed) -> Task<Pressed> {
     Task::none()
 }
 
+#[derive(Clone, Copy, PartialEq)]
+struct Choice<'a>(&'a str, u64);
+impl std::fmt::Display for Choice<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
 fn view(session: &Session) -> Element<'_, Pressed> {
     fn element(scene: &Scene, i: usize) -> Element<'_, Pressed> {
         let node = &scene.nodes[i];
@@ -129,6 +136,21 @@ fn view(session: &Session) -> Element<'_, Pressed> {
                 }
             })
             .into(),
+            Kind::PickList(selected) => {
+                let options: Vec<_> = node
+                    .children
+                    .iter()
+                    .map(|i| match &scene.nodes[*i].kind {
+                        Kind::Choice(s, a) => Choice(s, *a),
+                        _ => unreachable!("validated pick-list child"),
+                    })
+                    .collect();
+                let value = options.iter().find(|c| c.1 == *selected).copied();
+                iced::widget::pick_list(options, value, |c: Choice<'_>| Pressed(c.1))
+                    .placeholder("Select…")
+                    .into()
+            }
+            Kind::Choice(..) => unreachable!("choices render inside their list"),
             Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
             Kind::FloatScaled(n) => iced::widget::float(child(0))
                 .scale(f32::from(*n) / 100.0)

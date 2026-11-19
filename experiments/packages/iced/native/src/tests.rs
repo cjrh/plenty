@@ -175,6 +175,46 @@ fn wrapper_actions_share_the_button_namespace() {
 }
 
 #[test]
+fn choice_membership_and_selected_action_are_checked() {
+    let choice = |t, a| unsafe { plic_v1_choice(t, b"x".as_ptr(), 1, a) };
+    for selected in [0, 1, 2] {
+        let scene = build_scene(|t| {
+            plic_v1_pick_list(t, selected);
+            choice(t, 1);
+            plic_v1_end(t);
+            Ok(())
+        });
+        if selected == 2 {
+            assert_eq!(scene, Err(Error::InvalidArgument))
+        } else {
+            assert!(scene.unwrap().has_action(1))
+        }
+    }
+    assert_eq!(
+        build_scene(|t| {
+            choice(t, 1);
+            Ok(())
+        }),
+        Err(Error::InvalidLayout)
+    );
+    assert_eq!(
+        build_scene(|t| {
+            plic_v1_pick_list(t, 0);
+            text(t, b"x", 1);
+            Ok(())
+        }),
+        Err(Error::InvalidLayout)
+    );
+    assert_eq!(
+        build_scene(|t| {
+            plic_v1_pick_list(t, 0);
+            plic_v1_end(t);
+            Ok(())
+        }),
+        Err(Error::InvalidLayout)
+    );
+}
+#[test]
 fn node_depth_and_text_limits() {
     assert_eq!(
         build_scene(|token| {
