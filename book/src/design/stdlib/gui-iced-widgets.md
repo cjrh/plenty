@@ -17,6 +17,8 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [ProgressBar](gui-iced-widgets/progress_bar.md)
 - [Space](gui-iced-widgets/space.md)
 - [Rule](gui-iced-widgets/rule.md)
+- [Image](gui-iced-widgets/image.md)
+- [Responsive](gui-iced-widgets/responsive.md)
 - [Grid](gui-iced-widgets/grid.md)
 - [Float](gui-iced-widgets/float_scaled.md)
 - [MouseArea](gui-iced-widgets/mouse_area.md)

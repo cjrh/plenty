@@ -1,0 +1,18 @@
+import std.gui.retained.iced as iced
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "Inventory"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.responsive(row_min_width=360u16)?
+    frame.text(&state.title)?
+    frame.text(&"12 items in stock")?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)

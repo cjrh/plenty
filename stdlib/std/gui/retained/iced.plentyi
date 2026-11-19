@@ -14,6 +14,8 @@ extern def native_radio(token: u64, caption: &str as utf8, selected: bool, actio
 extern def native_progress_bar(token: u64, fraction: f32) -> u32 = "plic_v1_progress_bar"
 extern def native_rule(token: u64) -> u32 = "plic_v1_rule"
 extern def native_space(token: u64, width: u16, height: u16) -> u32 = "plic_v1_space"
+extern def native_responsive(token: u64, row_min_width: u16) -> u32 = "plic_v1_responsive"
+extern def native_image_rgba(token: u64, pixels: &[u8] as strided, width: u16, height: u16, scale: u16) -> u32 = "plic_v1_image_rgba"
 extern def native_grid(token: u64, columns: u16) -> u32 = "plic_v1_grid"
 extern def native_float_scaled(token: u64, percent: u16) -> u32 = "plic_v1_float_scaled"
 extern def native_mouse_area(token: u64, action: u64) -> u32 = "plic_v1_mouse_area"
@@ -78,6 +80,10 @@ pub class Frame:
         checked(native_rule(self.token))
     pub def space(self, width: u16, height: u16) -> Result[(), IcedError]:
         checked(native_space(self.token, width, height))
+    pub def responsive(self, row_min_width: u16) -> Result[(), IcedError]:
+        checked(native_responsive(self.token, row_min_width))
+    pub def image_rgba(self, pixels: &[u8], width: u16, height: u16, scale: u16 = 1u16) -> Result[(), IcedError]:
+        checked(native_image_rgba(self.token, pixels, width, height, scale))
     pub def grid(self, columns: u16) -> Result[(), IcedError]:
         checked(native_grid(self.token, columns))
     pub def float_scaled(self, percent: u16) -> Result[(), IcedError]:

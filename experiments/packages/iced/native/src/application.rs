@@ -115,6 +115,20 @@ fn view(session: &Session) -> Element<'_, Pressed> {
         // The builder validates wrapper arity before publishing the snapshot.
         let child = |index: usize| element(scene, node.children[index]);
         match &node.kind {
+            Kind::Image(handle, w, h) => iced::widget::image(handle.clone())
+                .width(*w)
+                .height(*h)
+                .filter_method(iced::widget::image::FilterMethod::Nearest)
+                .into(),
+            Kind::Responsive(min) => iced::widget::responsive(move |size| {
+                let items = node.children.iter().map(|&i| element(scene, i));
+                if size.width >= f32::from(*min) {
+                    row(items).spacing(8).into()
+                } else {
+                    column(items).spacing(8).into()
+                }
+            })
+            .into(),
             Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
             Kind::FloatScaled(n) => iced::widget::float(child(0))
                 .scale(f32::from(*n) / 100.0)

@@ -53,6 +53,14 @@ name = "grid"
 path = "src/grid.plenty"
 
 [[bin]]
+name = "image"
+path = "src/image.plenty"
+
+[[bin]]
+name = "responsive"
+path = "src/responsive.plenty"
+
+[[bin]]
 name = "container"
 path = "src/container.plenty"
 

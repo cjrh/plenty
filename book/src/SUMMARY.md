@@ -518,6 +518,8 @@
                     - [ProgressBar](design/stdlib/gui-iced-widgets/progress_bar.md)
                     - [Space](design/stdlib/gui-iced-widgets/space.md)
                     - [Rule](design/stdlib/gui-iced-widgets/rule.md)
+                    - [Image](design/stdlib/gui-iced-widgets/image.md)
+                    - [Responsive](design/stdlib/gui-iced-widgets/responsive.md)
                     - [Grid](design/stdlib/gui-iced-widgets/grid.md)
                     - [Float](design/stdlib/gui-iced-widgets/float_scaled.md)
                     - [MouseArea](design/stdlib/gui-iced-widgets/mouse_area.md)
