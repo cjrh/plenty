@@ -214,6 +214,7 @@ impl DataTypes {
                 at: declaration.at.clone(),
                 type_params: vec![],
                 methods: vec![method],
+                associated: vec![],
                 arguments: vec![],
             },
         ))

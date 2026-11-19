@@ -149,12 +149,14 @@ pub(super) fn prepare(
         {
             return Err(conflict(protocol));
         }
+        protocols::validate_associated(protocol)?;
         // Validate requirements even if no function uses this protocol. The
         // receiver placeholder is replaced by the implementing class at use.
         for method in &protocol.methods {
             aliases.probe(
                 std::iter::once(&protocol.name)
                     .chain(protocol.type_params.iter().map(|(n, _)| n))
+                    .chain(protocol.associated.iter().map(|member| &member.name))
                     .chain(method.type_params.iter().map(|(n, _)| n)),
                 |validation| protocols::signature(method, validation).map(drop),
             )?;
@@ -165,15 +167,18 @@ pub(super) fn prepare(
     for protocol in &protocols {
         for method in &protocol.methods {
             for bound in method.type_params.iter().filter_map(|(_, b)| b.as_ref()) {
-                if !bound
-                    .name
-                    .as_ref()
-                    .is_some_and(|name| declarations.contains_key(name))
-                {
+                let Some(declaration) = bound.name.as_ref().and_then(|name| declarations.get(name))
+                else {
                     return Err(bound
                         .at
                         .error("requirement parameters take only protocol constraints"));
+                };
+                if !declaration.associated.is_empty() {
+                    return Err(bound.at.error(
+                        "generic method requirements cannot use protocol bounds with associated types",
+                    ));
                 }
+                protocols::validate_application(declaration, bound)?;
             }
         }
     }
@@ -776,11 +781,16 @@ fn mentions_parameter(pattern: &TypeRef, template: &Function) -> bool {
     if pattern.concrete.is_some() {
         return false;
     }
-    template
-        .type_params
-        .iter()
-        .any(|(name, _)| pattern.name.as_ref() == Some(name))
+    pattern.projection()
+        || template
+            .type_params
+            .iter()
+            .any(|(name, _)| pattern.name.as_ref() == Some(name))
         || pattern.args.iter().any(|p| mentions_parameter(p, template))
+}
+
+fn contains_projection(pattern: &TypeRef) -> bool {
+    pattern.projection() || pattern.args.iter().any(contains_projection)
 }
 
 /// Infer from concrete argument types without searching for implementations.
@@ -1027,6 +1037,11 @@ fn infer_inner(
     if let Some(expected) = &pattern.concrete {
         return check_expected(expected, actual, coercible, at, aliases);
     }
+    // Projection occurrences carry no inference evidence from call arguments
+    // or results. Check them against the completed signature after specialization.
+    if pattern.projection() {
+        return Ok(());
+    }
     if let Some(name) = pattern
         .name
         .as_ref()
@@ -1107,6 +1122,9 @@ fn infer_inner(
         && pattern.args.len() == arguments.len()
     {
         for (pattern, argument) in pattern.args.iter().zip(&arguments) {
+            if pattern.projection() {
+                continue;
+            }
             match argument {
                 Argument::Type(t) => {
                     infer_inner(pattern, t, template, inferred, aliases, at, false)?
@@ -1254,6 +1272,66 @@ fn infer_inner(
     Ok(())
 }
 
+/// Match the parts of a requirement that can determine associated members.
+/// Other positions are checked exactly during ordinary conformance.
+pub(super) fn infer_associated(
+    protocol: &protocols::Protocol,
+    requirement: &Function,
+    found: &Signature,
+    evidence: &mut HashMap<String, Argument>,
+    aliases: &TypeAliases,
+    at: &Token,
+) -> Result<()> {
+    let mut pattern = requirement.clone();
+    pattern.name = format!("{}.{}", protocol.name, requirement.name);
+    pattern.type_params = protocol
+        .associated
+        .iter()
+        .map(|m| (m.name.clone(), None))
+        .collect();
+    if pattern.inputs.len() != found.0.len() {
+        return Err(at.error(format!(
+            "signature of `{}` does not match {}",
+            requirement.name, protocol.name
+        )));
+    }
+    fn keep_evidence(ty: &mut TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
+        let mut observable = false;
+        if !protocols::nonpositional(ty) {
+            observable = params
+                .iter()
+                .any(|(name, _)| ty.name.as_ref() == Some(name));
+            // Visit every child, including siblings that supply no evidence.
+            for arg in &mut ty.args {
+                observable |= keep_evidence(arg, params);
+            }
+        }
+        if !observable {
+            *ty = protocols::unknown_associated(&ty.at);
+        }
+        observable
+    }
+    let mut types: Vec<_> = requirement.inputs.iter().map(|(_, t)| t.clone()).collect();
+    types.push(requirement.output.clone());
+    for (mut ty, actual) in types.into_iter().zip(
+        found
+            .0
+            .iter()
+            .chain(std::iter::once(found.1.as_ref().unwrap_or(&Ty::Unit))),
+    ) {
+        if keep_evidence(&mut ty, &pattern.type_params) {
+            infer_inner(&ty, actual, &pattern, evidence, aliases, at, false).map_err(|error| {
+                let error = Diagnostic::from_boxed(error);
+                at.error(format!(
+                    "cannot determine associated types for `{}`: {}",
+                    pattern.name, error.message
+                ))
+            })?;
+        }
+    }
+    Ok(())
+}
+
 /// A callable argument carries concrete signature evidence. Follow that evidence
 /// to a fixed point; bounds never invent a type or search for an implementation.
 fn infer_callable_bounds(
@@ -1325,6 +1403,22 @@ impl Lower<'_> {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from the expected Callable; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
         let symbol = self.specialize(name, actual, at)?;
+        if template.inputs.iter().any(|(_, t)| contains_projection(t))
+            || contains_projection(&template.output)
+        {
+            let concrete = &self.sigs[&symbol];
+            if !concrete
+                .inputs
+                .iter()
+                .map(|(_, ty)| ty)
+                .eq(signature.inputs.iter())
+                || concrete.outputs.first() != signature.output.as_ref()
+            {
+                return Err(at.error(format!(
+                    "specialized function `{name}` does not match the expected Callable after resolving associated types"
+                )));
+            }
+        }
         self.function_value(&symbol, at, ops)
     }
 
@@ -1834,9 +1928,16 @@ impl Lower<'_> {
         if matches!(arguments.as_slice(), [_, Ty::KeyView(_)]) {
             loans.push(self.allocator_key_view_loan(&callee, &args[1], ops)?);
         }
-        for ((source, (_, target)), end) in
-            arguments.iter().zip(&sig.inputs).zip(argument_ends).rev()
+        for (index, ((source, (_, target)), end)) in arguments
+            .iter()
+            .zip(&sig.inputs)
+            .zip(argument_ends)
+            .enumerate()
+            .rev()
         {
+            if contains_projection(&template.inputs[index].1) {
+                check_expected(target, source, true, &args[index].at, self.aliases)?;
+            }
             if source != target && crate::sum::accepts(target, source) {
                 ops.insert(
                     end,
@@ -1914,10 +2015,12 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
             return Err(t.at.error("a type parameter cannot take type arguments"));
         }
         let value_parameter = t.value_parameter();
+        let associated_binding = t.associated_binding().map(str::to_owned);
         *t = replacement.clone();
         let metadata = t.metadata.get_or_insert_with(Default::default);
         metadata.parameter = true;
         metadata.value_parameter = value_parameter;
+        metadata.associated_binding = associated_binding;
     } else {
         for arg in &mut t.args {
             substitute(arg, replacements)?;
@@ -2089,7 +2192,9 @@ impl Engine {
             let before = inferred.len();
             infer_callable_bounds(template, inferred, aliases, at)?;
             for (parameter, bound) in &template.type_params {
-                let Some(bound) = bound.as_ref().filter(|b| mentions_parameter(b, template)) else {
+                let Some(bound) = bound.as_ref().filter(|b| {
+                    protocols::positional_arguments(b).any(|arg| mentions_parameter(arg, template))
+                }) else {
                     continue;
                 };
                 let Some(protocol) = bound.name.as_ref().and_then(|n| self.protocols.get(n)) else {
@@ -2100,8 +2205,12 @@ impl Engine {
                     continue;
                 };
                 if let Ty::BoxedProtocol(boxed) = &actual {
-                    if boxed.name == protocol.name && boxed.arguments.len() == bound.args.len() {
-                        for (pattern, value) in bound.args.iter().zip(&boxed.arguments) {
+                    if boxed.name == protocol.name
+                        && boxed.arguments.len() == protocol.type_params.len()
+                    {
+                        for (pattern, value) in
+                            protocols::positional_arguments(bound).zip(&boxed.arguments)
+                        {
                             infer(pattern, value, template, inferred, aliases, at)?;
                         }
                     }
@@ -2114,9 +2223,15 @@ impl Engine {
                     .type_params
                     .iter()
                     .map(|(n, _)| n.clone())
-                    .zip(bound.args.iter().cloned())
+                    .zip(protocols::positional_arguments(bound).cloned())
                     .collect();
                 substitutions.insert(protocol.name.clone(), type_ref(&actual, at));
+                for member in &protocol.associated {
+                    substitutions.insert(
+                        member.name.clone(),
+                        protocols::unknown_associated(&member.at),
+                    );
+                }
                 for requirement in &protocol.methods {
                     modules::check_member_at(access, owner, &requirement.name, &bound.at, at)?;
                     let (inputs, output) = self
@@ -2200,21 +2315,31 @@ impl Engine {
             .filter(|b| !b.value_parameter())
         {
             if callable_bound(bound) {
-                aliases.probe(f.type_params.iter().map(|(name, _)| name), |validation| {
-                    callable_pattern(bound).resolve(validation).map(drop)
-                })?;
+                fn add_projections<'a>(ty: &'a TypeRef, names: &mut Vec<&'a String>) {
+                    if ty.projection() {
+                        names.extend(&ty.name);
+                    }
+                    for argument in &ty.args {
+                        add_projections(argument, names);
+                    }
+                }
+                if contains_projection(bound) {
+                    let mut names: Vec<_> = f.type_params.iter().map(|(name, _)| name).collect();
+                    add_projections(bound, &mut names);
+                    aliases.probe(names, |validation| {
+                        callable_pattern(bound).resolve(validation).map(drop)
+                    })?;
+                } else {
+                    aliases.probe(f.type_params.iter().map(|(name, _)| name), |validation| {
+                        callable_pattern(bound).resolve(validation).map(drop)
+                    })?;
+                }
             } else if let Some(protocol) = bound
                 .name
                 .as_ref()
                 .and_then(|name| self.protocols.get(name))
             {
-                if bound.args.len() != protocol.type_params.len() {
-                    return Err(bound.at.error(format!(
-                        "protocol `{}` requires {} type arguments",
-                        protocol.name,
-                        protocol.type_params.len()
-                    )));
-                }
+                protocols::validate_application(protocol, bound)?;
             } else if builtin_bound(bound).is_none() || !bound.args.is_empty() {
                 return Err(bound.at.error("generic constraints require IntType, FloatType, CopyType, KeyType, Dimension, Callable, OnceCallable, or a declared protocol"));
             }
@@ -2222,23 +2347,78 @@ impl Engine {
         Ok(())
     }
 
+    /// Collect all projections before applying equality constraints, so
+    /// bounds can refer to each other's evidence in either direction.
+    fn projection_replacements(
+        &self,
+        template: &Function,
+        actual: &[Argument],
+        replacements: &mut Substitution,
+        aliases: &TypeAliases,
+        access: &modules::AccessMap,
+        at: &Token,
+    ) -> Result<Vec<(usize, Vec<Ty>)>> {
+        let mut evidence = Vec::new();
+        for (index, ((parameter, bound), argument)) in
+            template.type_params.iter().zip(actual).enumerate()
+        {
+            let Some(bound) = bound else { continue };
+            let Some(protocol) = bound
+                .name
+                .as_ref()
+                .and_then(|name| self.protocols.get(name))
+            else {
+                continue;
+            };
+            let Some(ty) = argument
+                .as_type()
+                .filter(|_| !protocol.associated.is_empty())
+            else {
+                continue;
+            };
+            let members = protocols::project(
+                protocol,
+                ty,
+                &self.methods,
+                &self.templates,
+                aliases,
+                access,
+                &bound.at,
+                at,
+            )?;
+            for (member, ty) in protocol.associated.iter().zip(&members) {
+                replacements.insert(format!("{parameter}.{}", member.name), type_ref(ty, at));
+            }
+            evidence.push((index, members));
+        }
+        Ok(evidence)
+    }
+
     pub(super) fn explicit_output(
         &self,
         name: &str,
         types: &[TypeRef],
         aliases: &TypeAliases,
+        access: &modules::AccessMap,
         at: &Token,
     ) -> Type {
         let template = self.templates.get(name)?;
         if types.len() != template.type_params.len() {
             return None;
         }
-        let replacements = template
+        let mut replacements = template
             .type_params
             .iter()
             .map(|(n, _)| n.clone())
             .zip(types.iter().cloned())
             .collect();
+        if contains_projection(&template.output) {
+            let actual =
+                value_generics::resolve_arguments(&template.type_params, types, aliases, at)
+                    .ok()?;
+            self.projection_replacements(template, &actual, &mut replacements, aliases, access, at)
+                .ok()?;
+        }
         let mut output = template.output.clone();
         substitute(&mut output, &replacements).ok()?;
         // The template's output is written at its declaration, but a data
@@ -2360,7 +2540,12 @@ impl Engine {
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
         let mut sum_bounds = Vec::new();
-        for ((_, bound), argument) in template.type_params.iter().zip(actual) {
+        let evidence =
+            self.projection_replacements(template, actual, &mut replacements, aliases, access, at)?;
+        let mut evidence = evidence.into_iter().peekable();
+        for (index, ((parameter, bound), argument)) in
+            template.type_params.iter().zip(actual).enumerate()
+        {
             let Some(ty) = argument.as_type() else {
                 continue;
             };
@@ -2389,12 +2574,43 @@ impl Engine {
                 } else {
                     let mut application = bound.clone();
                     substitute(&mut application, &replacements)?;
-                    let protocol = protocols::instantiate(
-                        &self.protocols[bound.name.as_ref().unwrap()],
-                        &application.args,
-                        aliases,
-                        at,
-                    )?;
+                    let declaration = &self.protocols[bound.name.as_ref().unwrap()];
+                    let arguments: Vec<_> = protocols::positional_arguments(&application)
+                        .cloned()
+                        .collect();
+                    let mut protocol =
+                        protocols::instantiate(declaration, &arguments, aliases, at)?;
+                    if evidence.peek().is_some_and(|(i, _)| *i == index) {
+                        let (_, members) = evidence.next().unwrap();
+                        for argument in &application.args {
+                            let Some(member) = argument.associated_binding() else {
+                                continue;
+                            };
+                            let member_index = protocol
+                                .associated
+                                .iter()
+                                .position(|m| m.name == member)
+                                .unwrap();
+                            let actual = &members[member_index];
+                            let expected = argument.resolve(aliases)?.unwrap_or(Ty::Unit);
+                            if actual != &expected {
+                                let rhs = bound
+                                    .args
+                                    .iter()
+                                    .find(|arg| arg.associated_binding() == Some(member))
+                                    .unwrap();
+                                let rhs = if rhs.projection() {
+                                    format!("`{}` = {expected}", rhs.name.as_deref().unwrap())
+                                } else {
+                                    expected.to_string()
+                                };
+                                return Err(at.error(format!(
+                                    "associated type equality for `{parameter}.{member}` requires {rhs}, but `{parameter}.{member}` is {actual}"
+                                )));
+                            }
+                        }
+                        protocols::bind_associated(&mut protocol, &members)?;
+                    }
                     protocols::check(
                         &protocol,
                         ty,

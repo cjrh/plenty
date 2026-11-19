@@ -32,6 +32,7 @@ pub(super) struct Parser {
     /// Stands in for a token past the buffered items.
     pub(super) end: Token,
     pub(super) type_depth: usize,
+    bound_type_depth: usize,
     pub(super) standard: bool,
     /// Blocks and expressions open around the one being parsed.
     pub(super) depth: usize,
@@ -78,6 +79,7 @@ impl Parser {
                 file: origin,
             },
             type_depth: 0,
+            bound_type_depth: 0,
             standard: false,
             depth: 0,
             deepest: 0,
@@ -460,7 +462,18 @@ impl Parser {
         self.exact_list(
             |p| &mut p.scratch_type_args,
             |p| loop {
-                let ty = if matches!(p.peek().kind, Kind::Number(_))
+                let ty = if p.type_depth == p.bound_type_depth
+                    && p.bound_type_depth != 0
+                    && p.token(p.pos + 1).is_some_and(|token| token.is("="))
+                {
+                    let name = p.name()?;
+                    p.expect("=")?;
+                    let mut ty = p.ty()?;
+                    ty.metadata
+                        .get_or_insert_with(Default::default)
+                        .associated_binding = Some(name);
+                    ty
+                } else if matches!(p.peek().kind, Kind::Number(_))
                     || p.peek().is("-")
                     || p.peek().is("True")
                     || p.peek().is("False")
@@ -562,7 +575,14 @@ impl Parser {
                     {
                         return Err(at.error("duplicate or builtin type parameter"));
                     }
-                    let mut bound = if p.eat(":") { Some(p.ty()?) } else { None };
+                    let mut bound = if p.eat(":") {
+                        let previous = std::mem::replace(&mut p.bound_type_depth, p.type_depth + 1);
+                        let bound = p.ty();
+                        p.bound_type_depth = previous;
+                        Some(bound?)
+                    } else {
+                        None
+                    };
                     if value {
                         let Some(b) = &mut bound else {
                             return Err(at.error("a const parameter requires a type"));

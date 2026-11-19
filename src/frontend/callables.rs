@@ -362,7 +362,7 @@ impl Lower<'_> {
                 .map(crate::atomic::ty),
             Expression::GenericCall(name, types, _) => {
                 self.generics
-                    .explicit_output(name, types, self.aliases, &e.at)
+                    .explicit_output(name, types, self.aliases, self.access, &e.at)
             }
             Expression::GenericMethod(base, name, types, _, _) => {
                 let Ty::Class(class) = self.place_type(base)? else {
@@ -372,6 +372,7 @@ impl Lower<'_> {
                     &crate::record::method(&class.name, name),
                     types,
                     self.aliases,
+                    self.access,
                     &e.at,
                 )
             }
