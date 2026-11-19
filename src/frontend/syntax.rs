@@ -59,6 +59,8 @@ pub(super) struct TypeMetadata {
     pub(super) associated_binding: Option<String>,
     /// A lexically scoped `Parameter.Member` type projection.
     pub(super) projection: bool,
+    /// A protocol member used as a type, including after substitution.
+    pub(super) associated_type: bool,
     /// Std-only check of a statically known argument; resolved types and
     /// layout are unchanged.
     pub(super) check: Option<StaticCheck>,
@@ -81,6 +83,12 @@ impl TypeRef {
 
     pub(super) fn projection(&self) -> bool {
         self.metadata.as_ref().is_some_and(|m| m.projection)
+    }
+
+    pub(super) fn associated_type(&self) -> bool {
+        self.metadata
+            .as_ref()
+            .is_some_and(|m| m.associated_type || m.projection)
     }
 
     pub(super) fn static_check(&self) -> Option<StaticCheck> {

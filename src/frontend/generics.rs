@@ -2038,11 +2038,13 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
         }
         let value_parameter = t.value_parameter();
         let associated_binding = t.associated_binding().map(str::to_owned);
+        let associated_type = t.associated_type();
         *t = replacement.clone();
         let metadata = t.metadata.get_or_insert_with(Default::default);
         metadata.parameter = true;
         metadata.value_parameter = value_parameter;
         metadata.associated_binding = associated_binding;
+        metadata.associated_type |= associated_type;
     } else {
         for arg in &mut t.args {
             substitute(arg, replacements)?;

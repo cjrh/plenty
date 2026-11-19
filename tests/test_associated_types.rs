@@ -380,6 +380,109 @@ def accept[S: Source](source: &S, value: Atomic[S.Item]) -> Atomic[S.Item]:
 }
 
 #[test]
+fn exported_atomic_signatures_keep_their_type_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("api.plenty"),
+        r#"
+from std.atomic import Atomic
+
+pub protocol Source:
+    type Item: IntType
+
+    def read(self) -> Atomic[Item]:
+        pass
+
+pub def read[S: Source](source: &S) -> Atomic[S.Item]:
+    source.read()
+
+pub def accept[S: Source](source: &S, value: Atomic[S.Item]) -> Atomic[S.Item]:
+    value
+
+pub def pass_atomic[T: IntType](value: Atomic[T]) -> Atomic[T]:
+    value
+"#,
+    )
+    .unwrap();
+    let main = dir.path().join("main.plenty");
+    std::fs::write(
+        &main,
+        r#"
+import api
+from std.atomic import Atomic
+
+class Counter:
+    pub def read(self) -> Atomic[i64]:
+        Atomic[i64](42)
+
+def main() -> ():
+    counter = Counter()
+    drop(api.accept(&counter, api.read(&counter)))
+    drop(api.accept[Counter](&counter, api.pass_atomic(Atomic[i64](1))))
+"#,
+    )
+    .unwrap();
+    plenty::check_file(&main, None).unwrap();
+}
+
+#[test]
+fn const_arguments_cannot_use_associated_type_members() {
+    for written in [
+        "array[i64, Item]",
+        "Bounded[i64, 0, Item]",
+        "Count[Item]",
+        "Mode[Item]",
+    ] {
+        let protocol = format!(
+            r#"
+class Count[const N: i64]:
+    value: i64
+
+enum Mode[const N: i64]:
+    Empty
+
+protocol Source:
+    type Item
+
+    def read(self) -> {written}:
+        pass
+"#
+        );
+        assert_error(
+            &protocol,
+            "pass",
+            "an associated type cannot be used as a const argument",
+        );
+    }
+    let source = r#"
+const count: i64 = 2
+
+protocol Source:
+    type Item
+
+    def read(self) -> array[Item, count]:
+        pass
+
+class Pair:
+    def read(self) -> array[i64, 2]:
+        [1, 2]
+
+def read[S: Source](source: &S) -> array[S.Item, count]:
+    source.read()
+
+def main() -> ():
+    drop(read(&Pair()))
+"#;
+    check_source(source).unwrap();
+    let invalid = source.replace("array[S.Item, count]", "array[i64, S.Item]");
+    let error = check_source(&invalid).unwrap_err().to_string();
+    assert!(
+        error.contains("an associated type cannot be used as a const argument"),
+        "{error}"
+    );
+}
+
+#[test]
 fn private_module_members_keep_their_diagnostic_with_a_shadowing_type_parameter() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("api.plenty"), "class Hidden:\n    pass\n").unwrap();

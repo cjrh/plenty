@@ -2003,6 +2003,7 @@ struct Scope {
     /// Type parameters in scope: a declaration has few, so a scan beats
     /// building a hash set per function (issue #436).
     type_params: Vec<String>,
+    associated_parameters: Vec<String>,
     associated_members: Arc<HashMap<String, HashSet<String>>>,
     projection_bounds: Vec<(String, String)>,
     dimension_bindings: dimension_diagnostics::Bindings,
@@ -2148,6 +2149,11 @@ impl Scope {
                 return Ok(());
             }
             if self.type_param(name) {
+                if self.associated_parameters.contains(name) {
+                    ty.metadata
+                        .get_or_insert_with(Default::default)
+                        .associated_type = true;
+                }
                 return Ok(());
             }
             // Imports can bind a builtin spelling only to that same identity.
@@ -3205,6 +3211,7 @@ fn resolve(
             captures: HashSet::default(),
             uncaptured: HashSet::default(),
             type_params: Vec::new(),
+            associated_parameters: Vec::new(),
             associated_members: Arc::clone(&associated_members),
             projection_bounds: Vec::new(),
             module: m.name.clone(),
@@ -3446,6 +3453,7 @@ fn resolve(
                     scope.ty(bound)?;
                 }
                 scope.type_params.push(member.name.clone());
+                scope.associated_parameters.push(member.name.clone());
                 parameters.push((member.name.clone(), member.bound.clone()));
             }
             result.access.protocols.insert(p.name.clone());
@@ -3756,6 +3764,7 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
     } else {
         if t.name.as_ref().is_some_and(|n| {
             !builtin(n)
+                && n != crate::atomic::ATOMIC
                 && !dimensions::syntax(n)
                 && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
         }) {
