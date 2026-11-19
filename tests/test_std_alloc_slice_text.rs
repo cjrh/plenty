@@ -110,6 +110,35 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn replace_text_matches_scalar_boundaries_and_copies_unmatched_text() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("replace", 1)
+    print(out.replace_text("界", "", "·")?, out.replace_text("aaaaa", "aa", "X")?, out.replace_text("abc", "abc", "")?.byte_len())?
+    source = ("x🙂" + "🙂y")?
+    old = "q??q"
+    new = "x界x"
+    saved = out.replace_text(&source[1:3], &old[1:3], &new[1:2])?
+    match out.replace_text(source, old, new):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(source, old, new)?
+    drop(source)
+    drop(out)
+    print(saved, len(saved), saved.byte_len())?
+    drop(saved)
+    Ok(())
+"#
+        ),
+        "·界· XXa 0\nrefused replace\nAllocError.OutOfMemory\nx🙂🙂y q??q x界x\n🙂🙂 2 8\nreplace 0 1\n",
+    );
+}
+
+#[test]
 fn repeat_text_checks_size_before_requesting_selected_storage() {
     assert_stdout(
         &format!(

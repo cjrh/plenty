@@ -42,6 +42,8 @@ pub const ALLOCATOR_TEXT_JOIN: i64 = 671;
 pub const ALLOCATOR_TEXT_FINISH: i64 = 672;
 /// Repeat borrowed UTF-8 directly into the selected result.
 pub const ALLOCATOR_TEXT_REPEAT: i64 = 673;
+/// Literal replacement across three borrowed text ranges.
+pub const ALLOCATOR_TEXT_REPLACE: i64 = 674;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;
@@ -137,7 +139,7 @@ pub const fn scratch_operand_count(op: i64) -> usize {
     match op {
         // Float formatting; datagram receive.
         281 | 417 => 2,
-        DICT_LAZY_FINISH | ALLOCATOR_BLOCK | ALLOCATOR_REGISTER => 1,
+        DICT_LAZY_FINISH | ALLOCATOR_BLOCK | ALLOCATOR_REGISTER | ALLOCATOR_TEXT_REPLACE => 1,
         // Slices: receiver, start, stop, step and the bound flags.
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         ALLOCATOR_LIST_SLICE | ALLOCATOR_BYTES_SLICE | ALLOCATOR_TEXT_SLICE | ALLOCATOR_CLIST_SLICE => 2,

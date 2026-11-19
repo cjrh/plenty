@@ -512,6 +512,7 @@ pub(crate) unsafe fn try_replace(
             utf8(&old),
             utf8(&new),
             (scalar_len(text), scalar_len(old), scalar_len(new)),
+            None,
         )
     }
 }
@@ -520,6 +521,7 @@ pub(crate) fn try_replace_range(
     source: &str,
     old: &str,
     new: &str,
+    allocator: Option<&Allocator>,
 ) -> Result<*mut Text, AllocError> {
     replace_range(
         source,
@@ -530,6 +532,7 @@ pub(crate) fn try_replace_range(
             old.chars().count() as u64,
             new.chars().count() as u64,
         ),
+        allocator,
     )
 }
 
@@ -538,6 +541,7 @@ fn replace_range(
     old: &str,
     new: &str,
     scalars: (u64, u64, u64),
+    allocator: Option<&Allocator>,
 ) -> Result<*mut Text, AllocError> {
     let matches = source.match_indices(old);
     let count = matches.clone().count() as u64;
@@ -549,7 +553,7 @@ fn replace_range(
     )?;
     let scalars = replacement_length(scalars.0, scalars.1, scalars.2, count)?;
     let replacement = new.as_bytes();
-    try_build(total, scalars, |out| {
+    try_build_in(allocator, total, scalars, |out| {
         let mut offset = 0;
         let mut append = |data: &[u8]| offset = put(out, offset, data);
         let mut previous = 0;
