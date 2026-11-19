@@ -1644,8 +1644,9 @@ signatures. Generic functions can project the type through a bound and require
 exact equality between projections without exposing another type parameter.
 The compiler resolves the projection during specialization. The
 [reference](../design/language/07-generics/protocols.md#associated-types)
-documents the inference and visibility rules. The executable tutorial
-covers both reading and transferring through a bound. Integration tests cover
+documents the inference and visibility rules. The [executable tutorial](../tutorial/09-generics/associated-types.md)
+applies projections to device readings, configuration parsing, catalog lookup,
+and alert delivery. Integration tests cover
 explicit and inferred calls, equality conflicts, unused requirements, built-in
 bounds, and cross-module visibility.
 

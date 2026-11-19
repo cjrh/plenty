@@ -191,6 +191,7 @@
         - [Parameterize a class](tutorial/09-generics/generic-classes.md)
         - [Parameterize an enum](tutorial/09-generics/generic-enums.md)
         - [Parameterize a protocol](tutorial/09-generics/generic-protocols.md)
+        - [Use associated types in generic code](tutorial/09-generics/associated-types.md)
         - [Store different implementations of a protocol](tutorial/09-generics/boxed-protocols.md)
         - [Give a method its own type parameters](tutorial/09-generics/generic-methods.md)
         - [Keep a numeric bound in the type](tutorial/09-generics/value-parameters.md)

@@ -151,7 +151,8 @@ anonymous sums, or declare generic method requirements. A generic method
 requirement also cannot use a bound whose protocol declares associated types.
 Associated type defaults and explicit class bindings are unsupported.
 The [protocol tutorial](../../../tutorial/09-generics/generic-protocols.md#name-a-type-determined-by-a-method)
-shows two bounds that share an item type.
+shows two bounds that share an item type. The [associated-types lesson](../../../tutorial/09-generics/associated-types.md)
+shows how to apply projections, bounds, and equalities in small programs.
 
 ## Anonymous sums
 

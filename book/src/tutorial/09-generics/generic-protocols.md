@@ -90,3 +90,7 @@ A sink whose `put` takes `str` fails at the call. Conformance is structural,
 so the classes only define their methods. See the
 [associated-type reference](../../design/language/07-generics/protocols.md#associated-types)
 for the permitted bounds and where projections can be used.
+
+[Use associated types in generic code](associated-types.md) shows when to
+reach for this pattern in device monitoring, configuration, stock lookup,
+and alert delivery.
