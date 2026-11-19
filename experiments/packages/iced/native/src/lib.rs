@@ -93,6 +93,7 @@ pub enum Kind {
     Toggler(String, bool, u64),
     Radio(String, bool, u64),
     Text(String),
+    Svg(String),
     Button(String, u64),
 }
 
@@ -478,6 +479,13 @@ pub extern "C" fn plic_v1_end(token: u64) -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn plic_v1_text(token: u64, text: *const u8, len: usize) -> u32 {
     unsafe { leaf(token, text, len, None, Kind::Text) }
+}
+
+/// # Safety
+/// Same call-scoped UTF-8 buffer contract as `plic_v1_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_svg(token: u64, source: *const u8, len: usize) -> u32 {
+    unsafe { leaf(token, source, len, None, Kind::Svg) }
 }
 
 /// # Safety

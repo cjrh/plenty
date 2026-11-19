@@ -81,6 +81,10 @@ name = "image"
 path = "src/image.plenty"
 
 [[bin]]
+name = "svg"
+path = "src/svg.plenty"
+
+[[bin]]
 name = "responsive"
 path = "src/responsive.plenty"
 

@@ -689,6 +689,8 @@ Iced Canvas paints checked rectangle commands from the immutable view snapshot.
 
 Iced PaneGrid splits two child subtrees at a model-supplied ratio.
 
+Iced Svg renders trusted inline SVG markup at its intrinsic size.
+
 Iced Image copies borrowed RGBA pixels into the immutable snapshot. Responsive lays out the same children horizontally or vertically according to available width.
 
 The iced catalog includes Float (scale), Themer (light/dark), Grid, Container, Pin, Scrollable and Tooltip. The snapshot builder rejects missing or excess children before publishing a fixed-child layout.

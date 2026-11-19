@@ -227,6 +227,24 @@ fn choice_membership_and_selected_action_are_checked() {
     }
 }
 #[test]
+fn svg_copies_markup_and_rejects_oversize_before_reading() {
+    let scene = build_scene(|t| {
+        let mut markup = String::from("<svg/>");
+        unsafe { plic_v1_svg(t, markup.as_ptr(), markup.len()) };
+        markup.clear();
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(scene.nodes[0].kind, Kind::Svg("<svg/>".into()));
+    assert_eq!(
+        build_scene(|t| {
+            unsafe { plic_v1_svg(t, std::ptr::null(), MAX_TEXT + 1) };
+            Ok(())
+        }),
+        Err(Error::LimitExceeded)
+    );
+}
+#[test]
 fn canvas_checks_commands_and_dimensions() {
     let rect = |t, rgb| plic_v1_fill_rect(t, 0, 0, 1, 1, rgb);
     assert_eq!(

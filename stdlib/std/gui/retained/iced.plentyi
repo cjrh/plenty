@@ -5,6 +5,7 @@ extern def drive(driver: &mut Box[Driver] as scoped_box) -> u32 = "plic_v2_drive
 extern def native_row(token: u64) -> u32 = "plic_v1_row"
 extern def native_column(token: u64) -> u32 = "plic_v1_column"
 extern def native_end(token: u64) -> u32 = "plic_v1_end"
+extern def native_svg(token: u64, source: &str as utf8) -> u32 = "plic_v1_svg"
 extern def native_text(token: u64, text: &str as utf8) -> u32 = "plic_v1_text"
 extern def native_button(token: u64, text: &str as utf8, action: u64) -> u32 = "plic_v1_button"
 
@@ -134,6 +135,8 @@ pub class Frame:
         checked(native_column(self.token))
     pub def end(self) -> Result[(), IcedError]:
         checked(native_end(self.token))
+    pub def svg(self, source: &str) -> Result[(), IcedError]:
+        checked(native_svg(self.token, source))
     pub def text(self, text: &str) -> Result[(), IcedError]:
         checked(native_text(self.token, text))
     pub def button(self, text: &str, action: u64) -> Result[(), IcedError]:
