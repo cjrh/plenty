@@ -73,6 +73,10 @@ name = "pick_list"
 path = "src/pick_list.plenty"
 
 [[bin]]
+name = "combo_box"
+path = "src/combo_box.plenty"
+
+[[bin]]
 name = "image"
 path = "src/image.plenty"
 

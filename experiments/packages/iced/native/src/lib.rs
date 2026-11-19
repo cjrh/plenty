@@ -24,6 +24,18 @@ pub enum Error {
     NativeFailure = 7,
 }
 
+#[derive(Debug, Default)]
+pub struct ComboCache {
+    #[cfg(all(feature = "application", not(test)))]
+    state: std::cell::OnceCell<iced::widget::combo_box::State<application::ComboChoice>>,
+}
+// Cached toolkit state does not participate in snapshot equality.
+impl PartialEq for ComboCache {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 #[derive(Debug)]
 pub struct PaneSplit {
     side_by_side: bool,
@@ -61,6 +73,7 @@ pub enum Kind {
         rgb: u32,
     },
     PickList(u64),
+    ComboBox(u64, ComboCache),
     Choice(String, u64),
     Responsive(u16),
     #[cfg(feature = "application")]
@@ -150,10 +163,12 @@ impl Builder {
         if in_canvas != matches!(node.kind, Kind::FillRect { .. }) {
             return Err(Error::InvalidLayout);
         }
-        let in_list = self
-            .stack
-            .last()
-            .is_some_and(|i| matches!(self.scene.nodes[*i].kind, Kind::PickList(_)));
+        let in_list = self.stack.last().is_some_and(|i| {
+            matches!(
+                self.scene.nodes[*i].kind,
+                Kind::PickList(_) | Kind::ComboBox(..)
+            )
+        });
         if in_list != matches!(node.kind, Kind::Choice(..)) {
             return Err(Error::InvalidLayout);
         }
@@ -277,6 +292,10 @@ pub extern "C" fn plic_v1_column(token: u64) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_responsive(token: u64, row_min_width: u16) -> u32 {
     group(token, Kind::Responsive(row_min_width))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_combo_box(token: u64, selected: u64) -> u32 {
+    group(token, Kind::ComboBox(selected, Default::default()))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_pick_list(token: u64, selected: u64) -> u32 {
@@ -429,7 +448,7 @@ pub extern "C" fn plic_v1_end(token: u64) -> u32 {
     command(token, |builder| {
         let i = builder.stack.pop().ok_or(Error::InvalidLayout)?;
         let node = &builder.scene.nodes[i];
-        if let Kind::PickList(selected) = node.kind {
+        if let Kind::PickList(selected) | Kind::ComboBox(selected, _) = node.kind {
             if node.children.is_empty() {
                 return Err(Error::InvalidLayout);
             }
