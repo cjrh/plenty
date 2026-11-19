@@ -1,0 +1,21 @@
+import std.gui.retained.iced as iced
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "Weekly totals"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.text(&state.title)?
+    frame.canvas(144u16, 64u16)?
+    frame.fill_rect(0u16, 0u16, 120u16, 18u16, 0x3278b4u32)?
+    frame.fill_rect(0u16, 24u16, 72u16, 18u16, 0xe58a31u32)?
+    frame.end()?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)

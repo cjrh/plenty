@@ -20,6 +20,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Image](gui-iced-widgets/image.md)
 - [Responsive](gui-iced-widgets/responsive.md)
 - [PickList](gui-iced-widgets/pick_list.md)
+- [Canvas](gui-iced-widgets/canvas.md)
 - [Grid](gui-iced-widgets/grid.md)
 - [Float](gui-iced-widgets/float_scaled.md)
 - [MouseArea](gui-iced-widgets/mouse_area.md)

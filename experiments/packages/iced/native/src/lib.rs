@@ -30,6 +30,14 @@ pub enum Kind {
     Column,
     Stack,
     Grid(u16),
+    Canvas(u16, u16),
+    FillRect {
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+        rgb: u32,
+    },
     PickList(u64),
     Choice(String, u64),
     Responsive(u16),
@@ -112,6 +120,13 @@ struct Builder {
 
 impl Builder {
     fn add(&mut self, node: Node) -> Result<(), Error> {
+        let in_canvas = self
+            .stack
+            .last()
+            .is_some_and(|i| matches!(self.scene.nodes[*i].kind, Kind::Canvas(..)));
+        if in_canvas != matches!(node.kind, Kind::FillRect { .. }) {
+            return Err(Error::InvalidLayout);
+        }
         let in_list = self
             .stack
             .last()
@@ -251,6 +266,22 @@ pub unsafe extern "C" fn plic_v1_choice(token: u64, p: *const u8, len: usize, ac
     unsafe { leaf(token, p, len, Some(action), |s| Kind::Choice(s, action)) }
 }
 #[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_canvas(token: u64, w: u16, h: u16) -> u32 {
+    group(token, Kind::Canvas(w, h))
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_fill_rect(token: u64, x: u16, y: u16, w: u16, h: u16, rgb: u32) -> u32 {
+    command(token, |b| {
+        if w == 0 || h == 0 || rgb > 0xffffff {
+            return Err(Error::InvalidArgument);
+        }
+        b.add(Node {
+            kind: Kind::FillRect { x, y, w, h, rgb },
+            children: vec![],
+        })
+    })
+}
+#[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_grid(token: u64, columns: u16) -> u32 {
     group(token, Kind::Grid(columns))
 }
@@ -298,6 +329,14 @@ fn group(token: u64, kind: Kind) -> u32 {
             .is_some_and(|a| a == 0 || builder.scene.has_action(a))
         {
             return Err(Error::InvalidArgument);
+        }
+        if let Kind::Canvas(w, h) = kind {
+            if w == 0 || h == 0 {
+                return Err(Error::InvalidArgument);
+            }
+            if w > 2048 || h > 2048 {
+                return Err(Error::LimitExceeded);
+            }
         }
         if matches!(kind, Kind::FloatScaled(n) if !(100..=400).contains(&n)) {
             return Err(Error::InvalidArgument);
