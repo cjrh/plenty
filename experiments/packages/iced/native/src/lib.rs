@@ -30,6 +30,13 @@ pub enum Kind {
     Column,
     Stack,
     Grid(u16),
+    Slider {
+        vertical: bool,
+        value: u16,
+        min: u16,
+        max: u16,
+        id: u64,
+    },
     Canvas(u16, u16),
     FillRect {
         x: u16,
@@ -64,7 +71,8 @@ pub enum Kind {
 impl Kind {
     fn action(&self) -> Option<u64> {
         match self {
-            Self::Choice(_, a)
+            Self::Slider { id: a, .. }
+            | Self::Choice(_, a)
             | Self::MousePress(a)
             | Self::SensorShow(a)
             | Self::Button(_, a)
@@ -277,6 +285,31 @@ pub extern "C" fn plic_v1_fill_rect(token: u64, x: u16, y: u16, w: u16, h: u16, 
         }
         b.add(Node {
             kind: Kind::FillRect { x, y, w, h, rgb },
+            children: vec![],
+        })
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_slider(
+    token: u64,
+    vertical: bool,
+    value: u16,
+    min: u16,
+    max: u16,
+    id: u64,
+) -> u32 {
+    command(token, |b| {
+        if min >= max || !(min..=max).contains(&value) || id == 0 || b.scene.has_action(id) {
+            return Err(Error::InvalidArgument);
+        }
+        b.add(Node {
+            kind: Kind::Slider {
+                vertical,
+                value,
+                min,
+                max,
+                id,
+            },
             children: vec![],
         })
     })

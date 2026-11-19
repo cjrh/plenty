@@ -21,6 +21,8 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Responsive](gui-iced-widgets/responsive.md)
 - [PickList](gui-iced-widgets/pick_list.md)
 - [Canvas](gui-iced-widgets/canvas.md)
+- [Slider](gui-iced-widgets/slider.md)
+- [VerticalSlider](gui-iced-widgets/vertical_slider.md)
 - [Grid](gui-iced-widgets/grid.md)
 - [Float](gui-iced-widgets/float_scaled.md)
 - [MouseArea](gui-iced-widgets/mouse_area.md)

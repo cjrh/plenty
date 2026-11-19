@@ -54,64 +54,64 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fs.watch`](#stdfswatch): 1649-1684
 - [`std.graph`](#stdgraph): 1686-1774
 - [`std.gui.immediate.egui`](#stdguiimmediateegui): 1776-1801
-- [`std.gui.retained.iced`](#stdguiretainediced): 1803-1841
-- [`std.http`](#stdhttp): 1843-1914
-- [`std.http.decoder`](#stdhttpdecoder): 1916-1933
-- [`std.http.body`](#stdhttpbody): 1935-1970
-- [`std.http.client`](#stdhttpclient): 1972-2082
-- [`std.http.cookie`](#stdhttpcookie): 2084-2116
-- [`std.http.files`](#stdhttpfiles): 2118-2131
-- [`std.http.https`](#stdhttphttps): 2133-2147
-- [`std.http.proxy`](#stdhttpproxy): 2149-2170
-- [`std.http.server`](#stdhttpserver): 2172-2273
-- [`std.http.sse`](#stdhttpsse): 2275-2294
-- [`std.http.tls`](#stdhttptls): 2296-2313
-- [`std.http.typed`](#stdhttptyped): 2315-2348
-- [`std.http.websocket`](#stdhttpwebsocket): 2350-2385
-- [`std.http.wss`](#stdhttpwss): 2387-2393
-- [`std.image`](#stdimage): 2395-2441
-- [`std.io`](#stdio): 2443-2549
-- [`std.io.typed`](#stdiotyped): 2551-2589
-- [`std.serial`](#stdserial): 2591-2657
-- [`std.json`](#stdjson): 2659-2811
-- [`std.jwt`](#stdjwt): 2813-2860
-- [`std.log`](#stdlog): 2862-2929
-- [`std.markdown`](#stdmarkdown): 2931-2965
-- [`std.template`](#stdtemplate): 2967-3004
-- [`std.math`](#stdmath): 3006-3077
-- [`std.mime`](#stdmime): 3079-3105
-- [`std.net`](#stdnet): 3107-3189
-- [`std.path`](#stdpath): 3191-3208
-- [`std.process`](#stdprocess): 3210-3269
-- [`std.random`](#stdrandom): 3271-3292
-- [`std.ready`](#stdready): 3294-3325
-- [`std.regex`](#stdregex): 3327-3380
-- [`std.report`](#stdreport): 3382-3393
-- [`std.secrets`](#stdsecrets): 3395-3421
-- [`std.shlex`](#stdshlex): 3423-3432
-- [`std.sketch`](#stdsketch): 3434-3472
-- [`std.sketch.xor`](#stdsketchxor): 3474-3485
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3487-3502
-- [`std.signal`](#stdsignal): 3504-3521
-- [`std.simd`](#stdsimd): 3523-3682
-- [`std.stat`](#stdstat): 3684-3717
-- [`std.plot`](#stdplot): 3719-3808
-- [`std.linalg`](#stdlinalg): 3810-3851
-- [`std.sync`](#stdsync): 3853-3885
-- [`std.system`](#stdsystem): 3887-3946
-- [`std.tempfile`](#stdtempfile): 3948-3980
-- [`std.test`](#stdtest): 3982-4024
-- [`std.text`](#stdtext): 4026-4069
-- [`std.thread`](#stdthread): 4071-4075
-- [`std.time`](#stdtime): 4077-4121
-- [`std.tls`](#stdtls): 4123-4205
-- [`std.toml`](#stdtoml): 4207-4306
-- [`std.unicode`](#stdunicode): 4308-4320
-- [`std.units`](#stdunits): 4322-4559
-- [`std.units.catalogue`](#stdunitscatalogue): 4561-5339
-- [`std.url`](#stdurl): 5341-5369
-- [`std.uuid`](#stduuid): 5371-5394
-- [`std.xml`](#stdxml): 5396-5429
+- [`std.gui.retained.iced`](#stdguiretainediced): 1803-1846
+- [`std.http`](#stdhttp): 1848-1919
+- [`std.http.decoder`](#stdhttpdecoder): 1921-1938
+- [`std.http.body`](#stdhttpbody): 1940-1975
+- [`std.http.client`](#stdhttpclient): 1977-2087
+- [`std.http.cookie`](#stdhttpcookie): 2089-2121
+- [`std.http.files`](#stdhttpfiles): 2123-2136
+- [`std.http.https`](#stdhttphttps): 2138-2152
+- [`std.http.proxy`](#stdhttpproxy): 2154-2175
+- [`std.http.server`](#stdhttpserver): 2177-2278
+- [`std.http.sse`](#stdhttpsse): 2280-2299
+- [`std.http.tls`](#stdhttptls): 2301-2318
+- [`std.http.typed`](#stdhttptyped): 2320-2353
+- [`std.http.websocket`](#stdhttpwebsocket): 2355-2390
+- [`std.http.wss`](#stdhttpwss): 2392-2398
+- [`std.image`](#stdimage): 2400-2446
+- [`std.io`](#stdio): 2448-2554
+- [`std.io.typed`](#stdiotyped): 2556-2594
+- [`std.serial`](#stdserial): 2596-2662
+- [`std.json`](#stdjson): 2664-2816
+- [`std.jwt`](#stdjwt): 2818-2865
+- [`std.log`](#stdlog): 2867-2934
+- [`std.markdown`](#stdmarkdown): 2936-2970
+- [`std.template`](#stdtemplate): 2972-3009
+- [`std.math`](#stdmath): 3011-3082
+- [`std.mime`](#stdmime): 3084-3110
+- [`std.net`](#stdnet): 3112-3194
+- [`std.path`](#stdpath): 3196-3213
+- [`std.process`](#stdprocess): 3215-3274
+- [`std.random`](#stdrandom): 3276-3297
+- [`std.ready`](#stdready): 3299-3330
+- [`std.regex`](#stdregex): 3332-3385
+- [`std.report`](#stdreport): 3387-3398
+- [`std.secrets`](#stdsecrets): 3400-3426
+- [`std.shlex`](#stdshlex): 3428-3437
+- [`std.sketch`](#stdsketch): 3439-3477
+- [`std.sketch.xor`](#stdsketchxor): 3479-3490
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3492-3507
+- [`std.signal`](#stdsignal): 3509-3526
+- [`std.simd`](#stdsimd): 3528-3687
+- [`std.stat`](#stdstat): 3689-3722
+- [`std.plot`](#stdplot): 3724-3813
+- [`std.linalg`](#stdlinalg): 3815-3856
+- [`std.sync`](#stdsync): 3858-3890
+- [`std.system`](#stdsystem): 3892-3951
+- [`std.tempfile`](#stdtempfile): 3953-3985
+- [`std.test`](#stdtest): 3987-4029
+- [`std.text`](#stdtext): 4031-4074
+- [`std.thread`](#stdthread): 4076-4080
+- [`std.time`](#stdtime): 4082-4126
+- [`std.tls`](#stdtls): 4128-4210
+- [`std.toml`](#stdtoml): 4212-4311
+- [`std.unicode`](#stdunicode): 4313-4325
+- [`std.units`](#stdunits): 4327-4564
+- [`std.units.catalogue`](#stdunitscatalogue): 4566-5344
+- [`std.url`](#stdurl): 5346-5374
+- [`std.uuid`](#stduuid): 5376-5399
+- [`std.xml`](#stdxml): 5401-5434
 
 ## `std.actor`
 
@@ -1822,6 +1822,8 @@ class Frame
     def choice(self, label: &str, action: u64) -> Result[(), IcedError]
     def canvas(self, width: u16, height: u16) -> Result[(), IcedError]
     def fill_rect(self, x: u16, y: u16, width: u16, height: u16, rgb: u32) -> Result[(), IcedError]
+    def slider(self, value: u16, minimum: u16, maximum: u16, id: u64) -> Result[(), IcedError]
+    def vertical_slider(self, value: u16, minimum: u16, maximum: u16, id: u64) -> Result[(), IcedError]
     def grid(self, columns: u16) -> Result[(), IcedError]
     def float_scaled(self, percent: u16) -> Result[(), IcedError]
     def mouse_area(self, on_press: u64) -> Result[(), IcedError]
@@ -1838,6 +1840,9 @@ class Frame
     def text(self, text: &str) -> Result[(), IcedError]
     def button(self, text: &str, action: u64) -> Result[(), IcedError]
 def run[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, &Frame], Result[(), IcedError]], update: Callable[[&mut S, u64], Result[(), IcedError]] = reject_action[S]) -> Result[(), IcedError]
+enum Event
+    Action(u64) | SliderChanged(u64, u16)
+def run_events[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, &Frame], Result[(), IcedError]], update: Callable[[&mut S, Event], Result[(), IcedError]]) -> Result[(), IcedError]
 ```
 
 ## `std.http`

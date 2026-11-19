@@ -681,6 +681,8 @@ MouseArea presses and Sensor visibility notifications send validated actions to 
 
 Iced PickList choices send distinct validated action IDs; the model owns the selection.
 
+Iced Slider and VerticalSlider deliver checked `u16` values to `run_events`; the original `run` keeps its action-only update signature.
+
 Iced Canvas paints checked rectangle commands from the immutable view snapshot.
 
 Iced Image copies borrowed RGBA pixels into the immutable snapshot. Responsive lays out the same children horizontally or vertically according to available width.
