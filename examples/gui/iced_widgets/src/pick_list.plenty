@@ -1,0 +1,30 @@
+import std.gui.retained.iced as iced
+
+class State:
+    selected: u64
+    def __init__(self) -> ():
+        self.selected = 1u64
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.pick_list(state.selected)?
+    frame.choice(&"Celsius", 1u64)?
+    frame.choice(&"Fahrenheit", 2u64)?
+    frame.end()?
+    if state.selected == 1u64:
+        frame.text(&"Water freezes at 0 °C")?
+    else:
+        frame.text(&"Water freezes at 32 °F")?
+    frame.end()
+
+def update(state: &mut State, action: u64) -> Result[(), iced.IcedError]:
+    if action != 1u64 and action != 2u64:
+        return Err(iced.IcedError.InvalidArgument)
+    state.selected = action
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view, update=update)

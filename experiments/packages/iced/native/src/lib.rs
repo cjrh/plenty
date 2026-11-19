@@ -30,6 +30,8 @@ pub enum Kind {
     Column,
     Stack,
     Grid(u16),
+    PickList(u64),
+    Choice(String, u64),
     Responsive(u16),
     #[cfg(feature = "application")]
     Image(iced::widget::image::Handle, u32, u32),
@@ -54,7 +56,8 @@ pub enum Kind {
 impl Kind {
     fn action(&self) -> Option<u64> {
         match self {
-            Self::MousePress(a)
+            Self::Choice(_, a)
+            | Self::MousePress(a)
             | Self::SensorShow(a)
             | Self::Button(_, a)
             | Self::Checkbox(_, _, a)
@@ -109,6 +112,13 @@ struct Builder {
 
 impl Builder {
     fn add(&mut self, node: Node) -> Result<(), Error> {
+        let in_list = self
+            .stack
+            .last()
+            .is_some_and(|i| matches!(self.scene.nodes[*i].kind, Kind::PickList(_)));
+        if in_list != matches!(node.kind, Kind::Choice(..)) {
+            return Err(Error::InvalidLayout);
+        }
         if self.scene.nodes.len() == MAX_NODES {
             return Err(Error::LimitExceeded);
         }
@@ -231,6 +241,16 @@ pub extern "C" fn plic_v1_responsive(token: u64, row_min_width: u16) -> u32 {
     group(token, Kind::Responsive(row_min_width))
 }
 #[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_pick_list(token: u64, selected: u64) -> u32 {
+    group(token, Kind::PickList(selected))
+}
+/// # Safety
+/// Same call-scoped UTF-8 caption contract as `plic_v1_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_choice(token: u64, p: *const u8, len: usize, action: u64) -> u32 {
+    unsafe { leaf(token, p, len, Some(action), |s| Kind::Choice(s, action)) }
+}
+#[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_grid(token: u64, columns: u16) -> u32 {
     group(token, Kind::Grid(columns))
 }
@@ -307,6 +327,19 @@ pub extern "C" fn plic_v1_end(token: u64) -> u32 {
     command(token, |builder| {
         let i = builder.stack.pop().ok_or(Error::InvalidLayout)?;
         let node = &builder.scene.nodes[i];
+        if let Kind::PickList(selected) = node.kind {
+            if node.children.is_empty() {
+                return Err(Error::InvalidLayout);
+            }
+            if selected != 0
+                && !node
+                    .children
+                    .iter()
+                    .any(|i| builder.scene.nodes[*i].kind.action() == Some(selected))
+            {
+                return Err(Error::InvalidArgument);
+            }
+        }
         if node
             .kind
             .exact_children()

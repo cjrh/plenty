@@ -53,6 +53,10 @@ name = "grid"
 path = "src/grid.plenty"
 
 [[bin]]
+name = "pick_list"
+path = "src/pick_list.plenty"
+
+[[bin]]
 name = "image"
 path = "src/image.plenty"
 
