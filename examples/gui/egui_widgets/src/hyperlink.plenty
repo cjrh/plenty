@@ -1,0 +1,18 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    status: str
+    def __init__(self) -> ():
+        self.status = "Ready"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    if ui.hyperlink(&"https://www.egui.rs/")?:
+        state.status = "Browser requested"
+    ui.label(&state.status)
+
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)

@@ -1,5 +1,7 @@
 # Themer
 
+![iced Themer example window](screenshots/themer.png)
+
 Apply iced’s built-in dark (`True`) or light (`False`) theme to one subtree. Siblings keep their enclosing theme. Close the group with `end()`.
 
 From `examples/gui/iced_widgets`, run `plenty run --bin themer`.

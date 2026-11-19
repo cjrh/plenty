@@ -685,6 +685,8 @@ The iced catalog adds Checkbox, Toggler, Radio, ProgressBar, Rule, Space and Sta
 Selection controls deliver action IDs through the validated snapshot; only the update
 callback changes the model.
 
+The egui Hyperlink widget asks the desktop browser to open an absolute web URL.
+
 The egui Image widget accepts bounded borrowed RGBA pixels and integer magnification without requiring file or network loaders.
 
 The egui catalog adds Checkbox, RadioButton, Link, Separator, Spinner, ProgressBar,

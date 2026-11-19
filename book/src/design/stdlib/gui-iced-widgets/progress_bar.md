@@ -1,5 +1,7 @@
 # ProgressBar
 
+![iced ProgressBar example window](screenshots/progress_bar.png)
+
 Displays a finite fraction from 0 through 1. Invalid input returns InvalidArgument rather than silently clamping.
 
 From `examples/gui/iced_widgets`, run `plenty run --bin progress_bar`.

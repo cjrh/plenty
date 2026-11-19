@@ -68,6 +68,26 @@ unsafe extern "C" fn pleg_v1_link(token: u64, p: *const u8, len: usize) -> u32 {
     }
 }
 
+// Accept only absolute web URLs, never file paths or custom protocol handlers.
+fn web_url(text: &str) -> bool {
+    !text
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
+        && (text.starts_with("https://") || text.starts_with("http://"))
+        && url::Url::parse(text)
+            .is_ok_and(|u| u.has_host() && u.username().is_empty() && u.password().is_none())
+}
+#[unsafe(no_mangle)]
+unsafe extern "C" fn pleg_v1_hyperlink(token: u64, p: *const u8, len: usize) -> u32 {
+    unsafe {
+        text_widget(token, p, len, |pass, url| {
+            if !web_url(url) {
+                return Err(Error::InvalidArgument);
+            }
+            Ok(pass.ui().hyperlink(url).clicked())
+        })
+    }
+}
 fn control(token: u64, draw: impl FnOnce(&mut egui::Ui) -> Result<bool, Error>) -> u32 {
     widget(token, |pass| {
         if pass.widgets == MAX_WIDGETS {
@@ -140,6 +160,19 @@ unsafe extern "C" fn pleg_v1_drag_value(token: u64, value: *mut f32, min: f32, m
 #[cfg(test)]
 mod range_tests {
     use super::*;
+    #[test]
+    fn web_links_only() {
+        assert!(web_url("https://example.org/manual?q=2"));
+        for url in [
+            "file:///etc",
+            "example.org",
+            "https://user@example.org/",
+            "javascript:alert(1)",
+            "https://example.org/\n",
+        ] {
+            assert!(!web_url(url));
+        }
+    }
     #[test]
     fn invalid_endpoints_latch_without_changing_either_value() {
         egui::__run_test_ui(|ui| {
