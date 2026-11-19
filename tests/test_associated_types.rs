@@ -296,6 +296,135 @@ def main() -> ():
     plenty::check_file(&main, None).unwrap();
 }
 
+#[test]
+fn projections_do_not_replace_qualified_types_or_constructors() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("api.plenty"),
+        r#"
+pub class Item:
+    value: i64
+
+    pub def __init__(self: &mut Item, value: i64) -> ():
+        self.value = value
+        drop(print(self.value))
+"#,
+    )
+    .unwrap();
+    let main = dir.path().join("main.plenty");
+    std::fs::write(
+        &main,
+        r#"
+import api as other
+
+protocol Source:
+    type Item
+
+    def read(self) -> Item:
+        pass
+
+class Counter:
+    def read(self) -> i64:
+        1
+
+def use[api: Source](source: &api, record: &other.Item) -> api.Item:
+    drop(other.Item(2))
+    source.read()
+
+def main() -> ():
+    record = other.Item(9)
+    drop(use(&Counter(), &record))
+    drop(use[Counter](&Counter(), &record))
+"#,
+    )
+    .unwrap();
+    let executable = dir.path().join("program");
+    plenty::compile_file_to_executable(&main, &executable, None).unwrap();
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"9\n2\n2\n");
+}
+
+#[test]
+fn atomic_types_supply_and_accept_associated_evidence() {
+    let source = r#"
+from std.atomic import Atomic
+
+protocol Source:
+    type Item: IntType
+
+    def read(self) -> Atomic[Item]:
+        pass
+
+    def fallback(self) -> Item:
+        pass
+
+class Counter:
+    def read(self) -> Atomic[i64]:
+        Atomic[i64](42)
+
+    def fallback(self) -> i64:
+        42
+
+def accept[S: Source](source: &S, value: Atomic[S.Item]) -> Atomic[S.Item]:
+    value
+"#;
+    let main = "drop(accept(&Counter(), Atomic[i64](1)))\n    drop(accept[Counter](&Counter(), Atomic[i64](2)))";
+    check_source(&format!("{source}\ndef main() -> ():\n    {main}\n")).unwrap();
+    let conflict = source.replace("def fallback(self) -> i64:", "def fallback(self) -> u64:");
+    assert_error(
+        &conflict,
+        "drop(accept(&Counter(), Atomic[i64](1)))",
+        "conflicting types for `Item`",
+    );
+}
+
+#[test]
+fn private_module_members_keep_their_diagnostic_with_a_shadowing_type_parameter() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("api.plenty"), "class Hidden:\n    pass\n").unwrap();
+    let main = dir.path().join("main.plenty");
+    std::fs::write(
+        &main,
+        "import api as S\ndef use[S](value: S, secret: &S.Hidden) -> ():\n    pass\ndef main() -> ():\n    pass\n",
+    )
+    .unwrap();
+    let error = plenty::check_file(&main, None).unwrap_err().to_string();
+    assert!(
+        error.contains("`S.Hidden` is private or is not a declared export"),
+        "{error}"
+    );
+}
+
+#[test]
+fn public_associated_equalities_cannot_expose_private_array_elements() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("api.plenty"),
+        r#"
+class Secret:
+    id: i64
+
+pub protocol Source:
+    type Item
+
+    def read(self) -> Item:
+        pass
+
+pub def read[S: Source[Item = array[Secret, 2]]](source: &S) -> S.Item:
+    source.read()
+"#,
+    )
+    .unwrap();
+    let main = dir.path().join("main.plenty");
+    std::fs::write(&main, "import api\ndef main() -> ():\n    pass\n").unwrap();
+    let error = plenty::check_file(&main, None).unwrap_err().to_string();
+    assert!(
+        error.contains("public signature exposes private type `api.Secret`"),
+        "{error}"
+    );
+}
+
 fn assert_error(prefix: &str, main: &str, expected: &str) {
     let program = format!("{prefix}\ndef main() -> ():\n    {main}\n");
     let error = check_source(&program).unwrap_err().to_string();

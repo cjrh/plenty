@@ -2159,8 +2159,7 @@ impl Scope {
                 return Ok(());
             }
             let symbol = match (self.symbol(name, &ty.at), projection) {
-                (Ok(Some(symbol)), _) => Some(symbol),
-                (_, Some((parameter, member, protocol))) => {
+                (Ok(None), Some((parameter, member, protocol))) => {
                     let message = if let Some(protocol) = protocol {
                         format!("protocol `{protocol}` has no associated type `{member}`")
                     } else {
@@ -2170,7 +2169,7 @@ impl Scope {
                     };
                     return Err(ty.at.error(message));
                 }
-                (result, None) => result?,
+                (result, _) => result?,
             };
             if let Some(symbol) = symbol {
                 // The implicit `self` type is anchored at the `def` keyword,
@@ -3841,7 +3840,8 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                     visible(ty, at, access, aliases)?;
                 }
             }
-            Ty::List(t)
+            Ty::Array(t, _)
+            | Ty::List(t)
             | Ty::Clist(t)
             | Ty::Set(t)
             | Ty::Ref(t, _)

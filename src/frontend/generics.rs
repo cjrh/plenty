@@ -663,20 +663,40 @@ impl Engine {
 /// parameters, so a scan beats allocating a hash table per instance and
 /// hashing every name substitution probes (issue #428).
 #[derive(Default)]
-pub(super) struct Substitution(Vec<(String, TypeRef)>);
+pub(super) struct Substitution {
+    parameters: Vec<(String, TypeRef)>,
+    // Only a resolved projection may use these keys. A qualified module
+    // declaration can have the same spelling.
+    projections: Vec<(String, TypeRef)>,
+}
 
 impl Substitution {
     pub(super) fn get(&self, name: &str) -> Option<&TypeRef> {
-        self.0
+        self.parameters
             .iter()
             .find_map(|(parameter, t)| (parameter == name).then_some(t))
     }
 
     /// Adds a replacement, or replaces the one `name` has.
     pub(super) fn insert(&mut self, name: String, replacement: TypeRef) {
-        match self.0.iter_mut().find(|(parameter, _)| *parameter == name) {
+        match self
+            .parameters
+            .iter_mut()
+            .find(|(parameter, _)| *parameter == name)
+        {
             Some((_, t)) => *t = replacement,
-            None => self.0.push((name, replacement)),
+            None => self.parameters.push((name, replacement)),
+        }
+    }
+
+    fn lookup_type(&self, ty: &TypeRef) -> Option<&TypeRef> {
+        let name = ty.name.as_deref()?;
+        if ty.projection() {
+            self.projections
+                .iter()
+                .find_map(|(projection, t)| (projection == name).then_some(t))
+        } else {
+            self.get(name)
         }
     }
 }
@@ -734,6 +754,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         Ty::List(t) => (Some("list".into()), vec![t]),
         Ty::Clist(t) => (Some("clist".into()), vec![t]),
         Ty::Future(t) => (Some("Future".into()), vec![t]),
+        Ty::Atomic(t) => (Some(crate::atomic::ATOMIC.into()), vec![t]),
         Ty::Channel(t, sender) => (
             Some(if *sender { "Sender" } else { "Receiver" }.into()),
             vec![t],
@@ -1206,7 +1227,8 @@ fn infer_inner(
         | (Some("range"), Ty::Range(t))
         | (Some("Iter"), Ty::Iter(t, _)) => Some(vec![t]),
         (Some("Generator"), Ty::Generator(t)) => Some(vec![&t.element]),
-        (Some("Future"), Ty::Future(t))
+        (Some(crate::atomic::ATOMIC), Ty::Atomic(t))
+        | (Some("Future"), Ty::Future(t))
         | (Some("Box"), Ty::Box(t))
         | (Some("Shared"), Ty::Shared(t)) => Some(vec![t]),
         (Some("Sender"), Ty::Channel(t, true)) | (Some("Receiver"), Ty::Channel(t, false)) => {
@@ -2010,7 +2032,7 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
     if t.concrete.is_some() {
         return Ok(());
     }
-    if let Some(replacement) = t.name.as_ref().and_then(|n| replacements.get(n)) {
+    if let Some(replacement) = replacements.lookup_type(t) {
         if !t.args.is_empty() {
             return Err(t.at.error("a type parameter cannot take type arguments"));
         }
@@ -2387,7 +2409,9 @@ impl Engine {
                 at,
             )?;
             for (member, ty) in protocol.associated.iter().zip(&members) {
-                replacements.insert(format!("{parameter}.{}", member.name), type_ref(ty, at));
+                replacements
+                    .projections
+                    .push((format!("{parameter}.{}", member.name), type_ref(ty, at)));
             }
             evidence.push((index, members));
         }
