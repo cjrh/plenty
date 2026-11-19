@@ -73,6 +73,7 @@ impl Callbacks {
                     || has(ALLOCATOR_TEXT_CONCAT)
                     || has(ALLOCATOR_TEXT_JOIN)
                     || has(ALLOCATOR_TEXT_FINISH)
+                    || has(ALLOCATOR_TEXT_REPEAT)
             }
             Ty::ByteStorage => has(ALLOCATOR_BYTES_SLICE),
             Ty::Box(_) => has(ALLOCATOR_BOX) || has(ALLOCATOR_COPY) || has(ALLOCATOR_LIST_SLICE),
@@ -114,7 +115,7 @@ impl Callbacks {
                     ALLOCATOR_BLOCK_RELEASE => release = true,
                     ALLOCATOR_LIST
                     | ALLOCATOR_BLOCK
-                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_FINISH => {
+                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_REPEAT => {
                         alloc = true;
                         release = true;
                     }

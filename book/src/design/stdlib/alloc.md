@@ -232,6 +232,10 @@ Both the scratch buffer and any non-inline result use `out`. Even an empty strea
 
 `out.join_text(separator, parts)` borrows a `&strview` and a `&[str]`, returning `Result[str, AllocError]`. The separator goes **between** elements, including empty elements. An empty view yields empty text. Even a single long element is copied into `out`, not retained from the input. The method measures the borrowed pieces, then writes directly into inline text (up to seven UTF-8 bytes) or one selected block. It uses no scratch buffer or system fallback. Failure leaves both inputs unchanged. This method does not accept one-pass generators; ordinary `separator.join(parts)` is unchanged.
 
+### Repeat text with an output allocator
+
+`out.repeat_text(source, count)` borrows a whole string or substring (`&strview`) and returns `Result[str, AllocError]`. A nonpositive `i64` count or an empty source yields empty text. If the repeated length exceeds `i64.MAX`, it returns `AllocError.CapacityOverflow` before calling the provider. Up to seven UTF-8 bytes fit inline. Longer results use one block from `out`, even when `count` is one. No scratch storage or fallback is needed; refusal leaves the source usable. Ordinary `source.repeat(count)` keeps its system-storage policy.
+
 ### Concatenate text with an output allocator
 
 `out.concat_text(left, right)` borrows two text views (`&strview`), including whole strings, and returns `Result[str, AllocError]`. Up to seven **UTF-8 bytes** fit inline. For longer results it writes both ranges directly into one block from `out`, even if one input is empty. The result can outlive both inputs and the allocator handle. Refusal leaves both inputs usable, without a system retry. Ordinary `+` and `.concat()` keep their system-storage policy.

@@ -948,17 +948,31 @@ fn repeated_length(length: u64, count: i64) -> Result<u64, AllocError> {
 
 pub(crate) unsafe fn try_repeat(text: *const Text, count: i64) -> Result<*mut Text, AllocError> {
     // SAFETY: the caller keeps the string word live through the call.
-    unsafe { repeat_range(bytes(&text), scalar_len(text), count) }
+    unsafe { repeat_range(bytes(&text), scalar_len(text), count, None) }
 }
 
-pub(crate) fn try_repeat_range(source: &str, count: i64) -> Result<*mut Text, AllocError> {
-    repeat_range(source.as_bytes(), source.chars().count() as u64, count)
+pub(crate) fn try_repeat_range(
+    source: &str,
+    count: i64,
+    allocator: Option<&Allocator>,
+) -> Result<*mut Text, AllocError> {
+    repeat_range(
+        source.as_bytes(),
+        source.chars().count() as u64,
+        count,
+        allocator,
+    )
 }
 
-fn repeat_range(source: &[u8], scalar_len: u64, count: i64) -> Result<*mut Text, AllocError> {
+fn repeat_range(
+    source: &[u8],
+    scalar_len: u64,
+    count: i64,
+    allocator: Option<&Allocator>,
+) -> Result<*mut Text, AllocError> {
     let total = repeated_length(source.len() as u64, count)?;
     let scalars = repeated_length(scalar_len, count)?;
-    try_build(total, scalars, |out| {
+    try_build_in(allocator, total, scalars, |out| {
         if out.is_empty() {
             return;
         }

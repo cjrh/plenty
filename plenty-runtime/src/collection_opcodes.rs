@@ -40,6 +40,8 @@ pub const ALLOCATOR_TEXT_CONCAT: i64 = 670;
 pub const ALLOCATOR_TEXT_JOIN: i64 = 671;
 /// Finish the UTF-8 scratch buffer of a streaming join.
 pub const ALLOCATOR_TEXT_FINISH: i64 = 672;
+/// Repeat borrowed UTF-8 directly into the selected result.
+pub const ALLOCATOR_TEXT_REPEAT: i64 = 673;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

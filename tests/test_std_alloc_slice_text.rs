@@ -110,6 +110,38 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn repeat_text_checks_size_before_requesting_selected_storage() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("repeat", 1)
+    source = ("x🙂界" + "y")?
+    print(out.repeat_text(&source[1:3], 1)?, out.repeat_text(source, i64.MIN)?.byte_len(), out.repeat_text(source, 0)?.byte_len(), out.repeat_text("", i64.MAX)?.byte_len())?
+    match out.repeat_text("ab", i64.MAX):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    saved = out.repeat_text(&source[1:2], 2)?
+    match out.repeat_text(source, 1):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(source)?
+    drop(source)
+    drop(out)
+    print(saved, len(saved), saved.byte_len())?
+    drop(saved)
+    Ok(())
+"#
+        ),
+        "🙂界 0 0 0\nAllocError.CapacityOverflow\nrefused repeat\nAllocError.OutOfMemory\nx🙂界y\n🙂🙂 2 8\nrepeat 0 1\n",
+    );
+}
+
+#[test]
 fn concat_text_writes_utf8_directly_to_selected_storage() {
     assert_stdout(
         &format!(

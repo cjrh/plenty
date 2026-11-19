@@ -134,6 +134,9 @@ pub class Allocator:
     pub def join_text(self, separator: &strview, parts: &[str]) -> Result[str, AllocError]:
         __allocator_text_join(self._handle, separator, parts)
 
+    pub def repeat_text(self, source: &strview, count: i64) -> Result[str, AllocError]:
+        __allocator_text_repeat(self._handle, source, count)
+
     pub def concat_text(self, left: &strview, right: &strview) -> Result[str, AllocError]:
         __allocator_text_concat(self._handle, left, right)
 
