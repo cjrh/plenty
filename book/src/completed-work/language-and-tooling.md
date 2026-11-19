@@ -1633,6 +1633,21 @@ transfer remain unsupported. `Shared` contents and hidden executor/future, chann
 erased-callback payloads are conservatively rejected. See the
 [implemented contract](../design/language/07-generics/boxed-protocols.md).
 
+### Static protocol associated types
+
+A structural protocol can name a type determined by its required method
+signatures. Generic functions can project the type through a bound and require
+exact equality between projections without exposing another type parameter.
+The compiler resolves the projection during specialization. The
+[reference](../design/language/07-generics/protocols.md#associated-types)
+documents the inference and visibility rules. The executable tutorial
+covers both reading and transferring through a bound. Integration tests cover
+explicit and inferred calls, equality conflicts, unused requirements, built-in
+bounds, and cross-module visibility.
+
+Generic method requirements, protocol boxes, anonymous-sum forwarding, and
+recursive associated constraints remain outside this subset.
+
 ## B32: Callback storage
 
 Owned concrete reusable/consuming environments and worker eligibility work in

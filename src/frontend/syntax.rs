@@ -55,6 +55,12 @@ pub(super) struct TypeMetadata {
     pub(super) value_parameter: bool,
     /// Substitutes a source type parameter, rather than a written concrete type.
     pub(super) parameter: bool,
+    /// A named equality argument on a protocol bound. This node is its RHS.
+    pub(super) associated_binding: Option<String>,
+    /// A lexically scoped `Parameter.Member` type projection.
+    pub(super) projection: bool,
+    /// A protocol member used as a type, including after substitution.
+    pub(super) associated_type: bool,
     /// Std-only check of a statically known argument; resolved types and
     /// layout are unchanged.
     pub(super) check: Option<StaticCheck>,
@@ -71,6 +77,20 @@ pub(super) enum StaticCheck {
 }
 
 impl TypeRef {
+    pub(super) fn associated_binding(&self) -> Option<&str> {
+        self.metadata.as_ref()?.associated_binding.as_deref()
+    }
+
+    pub(super) fn projection(&self) -> bool {
+        self.metadata.as_ref().is_some_and(|m| m.projection)
+    }
+
+    pub(super) fn associated_type(&self) -> bool {
+        self.metadata
+            .as_ref()
+            .is_some_and(|m| m.associated_type || m.projection)
+    }
+
     pub(super) fn static_check(&self) -> Option<StaticCheck> {
         self.metadata.as_ref().and_then(|m| m.check)
     }

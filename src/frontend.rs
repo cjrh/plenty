@@ -1375,7 +1375,7 @@ impl Lower<'_> {
             }
             Expression::GenericCall(name, types, _) => self
                 .generics
-                .explicit_output(name, types, self.aliases, &e.at)
+                .explicit_output(name, types, self.aliases, self.access, &e.at)
                 .filter(Ty::is_numeric),
             Expression::Number(n) if numeric_suffix(n) => {
                 self.number(n, false, &e.at, &mut Vec::new()).ok()

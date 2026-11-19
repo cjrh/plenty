@@ -103,12 +103,55 @@ A protocol alone is not a runtime value type. `bytes` has one
 method, `len(self) -> i64`; other built-in types have none to offer. Protocol
 parameters cannot have their own bounds; protocol arguments can be unit but exclude
 references, generators, and closure environments. Fields, inheritance, multiple
-bounds, defaults, associated types, and lifecycle requirements are unsupported.
+bounds, defaults, and lifecycle requirements are unsupported.
 
 Generic bodies are checked per concrete instance. Requirements express the
 minimum interface rather than a separately checked abstract body. `IntType`,
 `FloatType`, [`CopyType`](index.md#copytype), and [`KeyType`](index.md#keytype)
 remain separate built-in constraints.
+
+## Associated types
+
+A protocol can declare a type determined by its required methods. Write
+`type Item` in the protocol and use `Item` in its requirements. Within a
+generic signature or body, `S.Item` denotes the member of the protocol
+bound on `S`.
+
+```plenty fragment
+protocol Source:
+    type Item: KeyType
+
+    def read(self) -> Option[Item]:
+        pass
+
+def read_once[S: Source](source: &S) -> Option[S.Item]:
+    source.read()
+```
+
+The implementing type's accessible method signatures determine each
+associated type. Every requirement must match after substitution, even if the
+generic body never calls it. A declaration needs at least one occurrence of
+each member in a position that can determine it, such as a return type, a
+parameter, or an argument of `Option`. A member inside an anonymous sum or
+dimension formula needs another occurrence to determine it. The inferred type
+cannot contain references, views, generators, or closure environments.
+
+A bound can require the inferred type to satisfy `IntType`, `FloatType`,
+`CopyType`, or `KeyType`. Write `S: Source[Item = i64]` to require an exact
+associated type, or `D: Sink[Input = S.Item]` to require agreement with another
+projection. Ordinary protocol arguments come first, as in
+`S: TaggedSource[str, Item = i64]`. Equalities and a call's expected result
+check the type already determined by method signatures. Projection types in
+inferred call arguments use the normal default types for literals until the
+implementing type is known.
+
+Associated types on a static bound add no runtime storage or dispatch.
+Protocols declaring associated types cannot form protocol boxes, forward over
+anonymous sums, or declare generic method requirements. A generic method
+requirement also cannot use a bound whose protocol declares associated types.
+Associated type defaults and explicit class bindings are unsupported.
+The [protocol tutorial](../../../tutorial/09-generics/generic-protocols.md#name-a-type-determined-by-a-method)
+shows two bounds that share an item type.
 
 ## Anonymous sums
 

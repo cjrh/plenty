@@ -133,6 +133,11 @@ pub(super) fn resolve_arguments(
     let mut actual = Vec::with_capacity(args.len());
     for ((name, bound), arg) in params.iter().zip(args) {
         let value = if let Some(bound) = bound.as_ref().filter(|b| b.value_parameter()) {
+            if arg.associated_type() {
+                return Err(arg
+                    .at
+                    .error("an associated type cannot be used as a const argument"));
+            }
             let mut bound = bound.clone();
             generics::substitute(&mut bound, &replacements)?;
             let ty = bound.resolve(aliases)?.ok_or_else(|| {

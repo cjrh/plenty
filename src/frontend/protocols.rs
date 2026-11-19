@@ -7,7 +7,15 @@ pub(super) struct Protocol {
     pub(super) at: Token,
     pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) methods: Vec<Function>,
+    pub(super) associated: Vec<AssociatedType>,
     pub(super) arguments: Vec<Ty>,
+}
+
+#[derive(Clone)]
+pub(super) struct AssociatedType {
+    pub(super) at: Token,
+    pub(super) name: String,
+    pub(super) bound: Option<TypeRef>,
 }
 
 impl Parser {
@@ -31,13 +39,33 @@ impl Parser {
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented protocol declaration")?;
         let mut methods = Vec::new();
+        let mut associated = Vec::new();
         let mut seen = HashSet::default();
         while self.peek().kind != Kind::Dedent && self.peek().kind != Kind::Eof {
             self.misplaced_annotations("protocol members")?;
+            if self.eat("type") {
+                let at = self.peek().clone();
+                let member = self.name()?;
+                if builtin(&member)
+                    || member == name
+                    || type_params.iter().any(|(n, _)| n == &member)
+                    || !seen.insert(member.clone())
+                {
+                    return Err(at.error("duplicate, builtin, or shadowing associated type name"));
+                }
+                let bound = self.eat(":").then(|| self.ty()).transpose()?;
+                self.kind(Kind::Newline, "the end of the associated type declaration")?;
+                associated.push(AssociatedType {
+                    at,
+                    name: member,
+                    bound,
+                });
+                continue;
+            }
             if !self.peek().is("def") {
-                return Err(self
-                    .peek()
-                    .error("protocols contain method signatures with pass bodies"));
+                return Err(self.peek().error(
+                    "protocols contain associated types and method signatures with pass bodies",
+                ));
             }
             let mut f = self.function_in(Some(&name))?;
             if f.defaults.iter().any(Option::is_some) {
@@ -110,14 +138,214 @@ impl Parser {
         if methods.is_empty() {
             return Err(at.error("a protocol requires at least one method"));
         }
+        if !associated.is_empty()
+            && let Some(method) = methods.iter().find(|method| !method.type_params.is_empty())
+        {
+            return Err(method.at.error(
+                "protocols with associated types do not support generic method requirements",
+            ));
+        }
         Ok(Protocol {
             name,
             at,
             type_params,
             methods,
+            associated,
             arguments: vec![],
         })
     }
+}
+
+pub(super) fn positional_arguments(bound: &TypeRef) -> impl Iterator<Item = &TypeRef> {
+    bound
+        .args
+        .iter()
+        .filter(|arg| arg.associated_binding().is_none())
+}
+
+pub(super) fn validate_application(protocol: &Protocol, bound: &TypeRef) -> Result<()> {
+    if positional_arguments(bound).count() != protocol.type_params.len() {
+        return Err(bound.at.error(format!(
+            "protocol `{}` requires {} type arguments",
+            protocol.name,
+            protocol.type_params.len()
+        )));
+    }
+    let mut named = HashSet::default();
+    for argument in &bound.args {
+        if let Some(member) = argument.associated_binding() {
+            if !protocol.associated.iter().any(|m| m.name == member) {
+                return Err(argument.at.error(format!(
+                    "protocol `{}` has no associated type `{member}`",
+                    protocol.name
+                )));
+            }
+            if !named.insert(member) {
+                return Err(argument.at.error(format!(
+                    "duplicate equality constraint for `{}.{member}`",
+                    protocol.name
+                )));
+            }
+        } else if !named.is_empty() {
+            return Err(argument
+                .at
+                .error("ordinary protocol arguments must precede associated type equalities"));
+        }
+    }
+    Ok(())
+}
+
+/// A variable under an anonymous sum or dimension formula cannot be
+/// extracted by a unique positional match. Such occurrences can still
+/// participate in exact conformance after another use determines the type.
+pub(super) fn nonpositional(ty: &TypeRef) -> bool {
+    ty.name
+        .as_deref()
+        .is_some_and(|n| n == "|" || dimensions::expression(n))
+}
+
+fn determines(ty: &TypeRef, member: &str) -> bool {
+    !nonpositional(ty)
+        && (ty.name.as_deref() == Some(member) || ty.args.iter().any(|t| determines(t, member)))
+}
+
+pub(super) fn validate_associated(protocol: &Protocol) -> Result<()> {
+    for member in &protocol.associated {
+        if let Some(bound) = &member.bound
+            && (!bound.args.is_empty()
+                || !matches!(
+                    bound.name.as_deref(),
+                    Some("IntType" | "FloatType" | "CopyType" | "KeyType")
+                ))
+        {
+            return Err(bound.at.error(
+                "an associated type bound must be IntType, FloatType, CopyType, or KeyType",
+            ));
+        }
+        if !protocol.methods.iter().any(|method| {
+            method
+                .inputs
+                .iter()
+                .any(|(_, t)| determines(t, &member.name))
+                || determines(&method.output, &member.name)
+        }) {
+            return Err(member.at.error(format!(
+                "associated type `{}.{name}` must be determined by a required method signature",
+                protocol.name,
+                name = member.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Keep projected or masked types out of ordinary argument inference.
+pub(super) fn unknown_associated(at: &Token) -> TypeRef {
+    let mut pattern = generics::type_ref(&Ty::Unit, at);
+    pattern
+        .metadata
+        .get_or_insert_with(Default::default)
+        .projection = true;
+    pattern
+}
+
+/// Resolve each member using only visible method signatures. Ordinary
+/// protocol arguments are checked separately, once their values are known.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn project(
+    protocol: &Protocol,
+    actual: &Ty,
+    methods: &HashMap<String, generics::Signature>,
+    templates: &HashMap<String, Arc<Function>>,
+    aliases: &TypeAliases,
+    access: &modules::AccessMap,
+    bound: &Token,
+    call: &Token,
+) -> Result<Vec<Ty>> {
+    let builtin = builtin_methods(actual);
+    let owner = classes::method_owner(actual);
+    if matches!(actual, Ty::BoxedProtocol(_)) || matches!(actual, Ty::Enum(sum) if sum.anonymous())
+    {
+        return Err(call.error(format!(
+            "`{}` has associated types and requires a concrete implementation, got {actual}",
+            protocol.name
+        )));
+    }
+    if builtin.is_none() && owner.is_none() {
+        return Err(call.error(format!(
+            "{actual} does not satisfy {}; protocols currently require classes, enums, or `bytes`",
+            protocol.name
+        )));
+    }
+    let mut evidence = HashMap::default();
+    for requirement in &protocol.methods {
+        let name = &requirement.name;
+        let found = if let Some(owner) = owner {
+            modules::check_member_at(access, owner, name, bound, call)?;
+            let key = crate::record::method(owner, name);
+            if templates.contains_key(&key) {
+                return Err(call.error(format!(
+                    "{actual} does not satisfy {}: method `{name}` must have a concrete signature",
+                    protocol.name
+                )));
+            }
+            methods.get(&key)
+        } else {
+            builtin
+                .as_ref()
+                .and_then(|methods| methods.iter().find(|(n, _)| n == name).map(|(_, sig)| sig))
+        };
+        let Some(found) = found else {
+            return Err(call.error(format!(
+                "{actual} does not satisfy {}: missing method `{name}`",
+                protocol.name
+            )));
+        };
+        generics::infer_associated(protocol, requirement, found, &mut evidence, aliases, call)?;
+    }
+    protocol.associated.iter().map(|member| {
+        let ty = evidence.remove(&member.name).and_then(|a| a.as_type().cloned()).ok_or_else(|| {
+            call.error(format!(
+                "{actual} does not determine associated type `{}.{name}` from its method signatures",
+                protocol.name,
+                name = member.name
+            ))
+        })?;
+        if ty.restricted_storage() {
+            return Err(call.error(format!(
+                "associated type `{}.{name}` cannot contain references, generators, or closures, got {ty}",
+                protocol.name,
+                name = member.name
+            )));
+        }
+        if let Some(bound) = &member.bound
+            && !generics::builtin_bound(bound).unwrap()(&ty)
+        {
+            return Err(call.error(format!(
+                "associated type `{}.{name}`: {}",
+                protocol.name,
+                generics::unsatisfied_builtin(bound, &ty),
+                name = member.name
+            )));
+        }
+        Ok(ty)
+    }).collect()
+}
+
+pub(super) fn bind_associated(protocol: &mut Protocol, evidence: &[Ty]) -> Result<()> {
+    let substitutions = protocol
+        .associated
+        .iter()
+        .zip(evidence)
+        .map(|(member, ty)| (member.name.clone(), generics::type_ref(ty, &member.at)))
+        .collect();
+    for method in &mut protocol.methods {
+        for (_, ty) in &mut method.inputs {
+            generics::substitute(ty, &substitutions)?;
+        }
+        generics::substitute(&mut method.output, &substitutions)?;
+    }
+    Ok(())
 }
 
 pub(super) fn signature(f: &Function, aliases: &TypeAliases) -> Result<generics::Signature> {
@@ -560,6 +788,12 @@ fn resolve_boxed_type(
     aliases: &TypeAliases,
     declaration: &Protocol,
 ) -> Result<Option<Arc<crate::boxed::ProtocolType>>> {
+    if !declaration.associated.is_empty() {
+        return Err(reference.at.error(format!(
+            "cannot box protocol `{}` with associated types",
+            declaration.name
+        )));
+    }
     let protocol = instantiate(declaration, &reference.args, aliases, &reference.at)?;
     let marker = placeholder(&protocol.name);
     let mut scope = aliases.clone();

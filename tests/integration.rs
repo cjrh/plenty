@@ -81,6 +81,8 @@ mod test_anonymous_functions;
 mod test_anonymous_sums;
 #[path = "test_arm_stack_probes.rs"]
 mod test_arm_stack_probes;
+#[path = "test_associated_types.rs"]
+mod test_associated_types;
 #[path = "test_augmented_assignment.rs"]
 mod test_augmented_assignment;
 #[path = "test_benchmarks_game.rs"]

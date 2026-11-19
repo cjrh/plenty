@@ -2003,6 +2003,9 @@ struct Scope {
     /// Type parameters in scope: a declaration has few, so a scan beats
     /// building a hash set per function (issue #436).
     type_params: Vec<String>,
+    associated_parameters: Vec<String>,
+    associated_members: Arc<HashMap<String, HashSet<String>>>,
+    projection_bounds: Vec<(String, String)>,
     dimension_bindings: dimension_diagnostics::Bindings,
     dimension_shadows: Arc<std::sync::Mutex<dimension_diagnostics::Shadows>>,
 }
@@ -2122,8 +2125,35 @@ impl Scope {
                 self.ty(arg)?;
             }
         }
+        let associated_binding = ty.associated_binding().is_some();
         if let Some(name) = &mut ty.name {
+            let projection = name
+                .split_once('.')
+                .filter(|(parameter, _)| self.type_param(parameter))
+                .map(|(parameter, member)| {
+                    let protocol = self
+                        .projection_bounds
+                        .iter()
+                        .find_map(|(n, protocol)| (n == parameter).then_some(protocol));
+                    (parameter, member, protocol)
+                });
+            if let Some((_, member, Some(protocol))) = projection
+                && self.associated_members[protocol].contains(member)
+            {
+                if !ty.args.is_empty() {
+                    return Err(ty
+                        .at
+                        .error("an associated type projection cannot take type arguments"));
+                }
+                ty.metadata.get_or_insert_with(Default::default).projection = true;
+                return Ok(());
+            }
             if self.type_param(name) {
+                if self.associated_parameters.contains(name) {
+                    ty.metadata
+                        .get_or_insert_with(Default::default)
+                        .associated_type = true;
+                }
                 return Ok(());
             }
             // Imports can bind a builtin spelling only to that same identity.
@@ -2134,7 +2164,20 @@ impl Scope {
                 }
                 return Ok(());
             }
-            if let Some(symbol) = self.symbol(name, &ty.at)? {
+            let symbol = match (self.symbol(name, &ty.at), projection) {
+                (Ok(None), Some((parameter, member, protocol))) => {
+                    let message = if let Some(protocol) = protocol {
+                        format!("protocol `{protocol}` has no associated type `{member}`")
+                    } else {
+                        format!(
+                            "type parameter `{parameter}` has no protocol bound with associated types"
+                        )
+                    };
+                    return Err(ty.at.error(message));
+                }
+                (result, _) => result?,
+            };
+            if let Some(symbol) = symbol {
                 // The implicit `self` type is anchored at the `def` keyword,
                 // where no type name is written.
                 if super::ide::active() && ty.at.text() == name.split('.').next() {
@@ -2142,6 +2185,11 @@ impl Scope {
                     super::ide::refer(&ty.at, Find::At(written), super::ide::global(&symbol));
                 }
                 if let Some(getter) = self.constants.get(&symbol) {
+                    if associated_binding {
+                        return Err(ty.at.error(
+                            "an associated type equality requires a type, found a constant",
+                        ));
+                    }
                     if !ty.args.is_empty() {
                         return Err(ty.at.error(format!(
                             "module constant `{name}` cannot take arguments; use its bare name as a value argument"
@@ -2186,6 +2234,30 @@ impl Scope {
         scope
             .type_params
             .extend(f.type_params.iter().map(|(n, _)| n.clone()));
+        // A bound may refer to a projection on a later parameter. Resolve
+        // the protocol name for each parameter before visiting any bound's RHS.
+        if !scope.associated_members.is_empty() && !f.type_params.is_empty() {
+            for (parameter, bound) in &f.type_params {
+                scope.projection_bounds.retain(|(n, _)| n != parameter);
+                let Some(bound) = bound else { continue };
+                let Some(name) = &bound.name else { continue };
+                if scope.type_param(name) || builtin(name) {
+                    continue;
+                }
+                let protocol = scope.symbol(name, &bound.at)?.or_else(|| {
+                    // Editor recovery can revisit an already qualified bound.
+                    scope
+                        .associated_members
+                        .contains_key(name)
+                        .then(|| name.clone())
+                });
+                if let Some(protocol) =
+                    protocol.filter(|p| scope.associated_members.contains_key(p))
+                {
+                    scope.projection_bounds.push((parameter.clone(), protocol));
+                }
+            }
+        }
         for (_, bound) in &mut f.type_params {
             if let Some(bound) = bound {
                 scope.ty(bound)?;
@@ -2986,6 +3058,25 @@ fn resolve(
             })
             .collect(),
     );
+    let associated_members: Arc<HashMap<String, HashSet<String>>> = Arc::new(
+        modules
+            .iter()
+            .flat_map(|m| {
+                m.protocols
+                    .iter()
+                    .filter(|p| !p.associated.is_empty())
+                    .map(|p| {
+                        (
+                            qualified(&m.name, &p.name),
+                            p.associated
+                                .iter()
+                                .map(|member| member.name.clone())
+                                .collect(),
+                        )
+                    })
+            })
+            .collect(),
+    );
     let exports: Vec<Arc<HashMap<String, String>>> = modules
         .iter()
         .map(|m| {
@@ -3120,6 +3211,9 @@ fn resolve(
             captures: HashSet::default(),
             uncaptured: HashSet::default(),
             type_params: Vec::new(),
+            associated_parameters: Vec::new(),
+            associated_members: Arc::clone(&associated_members),
+            projection_bounds: Vec::new(),
             module: m.name.clone(),
             declared: Arc::new(m.names().cloned().collect()),
             imported: Arc::default(),
@@ -3354,6 +3448,14 @@ fn resolve(
                 .extend(p.type_params.iter().map(|(n, _)| n.clone()));
             let mut parameters = p.type_params.clone();
             parameters.push((p.name.clone(), None));
+            for member in &mut p.associated {
+                if let Some(bound) = &mut member.bound {
+                    scope.ty(bound)?;
+                }
+                scope.type_params.push(member.name.clone());
+                scope.associated_parameters.push(member.name.clone());
+                parameters.push((member.name.clone(), member.bound.clone()));
+            }
             result.access.protocols.insert(p.name.clone());
             result.access.types.insert(
                 p.name.clone(),
@@ -3650,10 +3752,11 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
         return;
     }
     fn mentions(t: &TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
-        params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
+        t.projection()
+            || params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
             || t.args.iter().any(|t| mentions(t, params))
     }
-    if params.iter().any(|(n, _)| t.name.as_ref() == Some(n)) {
+    if t.projection() || params.iter().any(|(n, _)| t.name.as_ref() == Some(n)) {
         return;
     }
     if !mentions(t, params) {
@@ -3661,6 +3764,7 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
     } else {
         if t.name.as_ref().is_some_and(|n| {
             !builtin(n)
+                && n != crate::atomic::ATOMIC
                 && !dimensions::syntax(n)
                 && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
         }) {
@@ -3745,7 +3849,8 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                     visible(ty, at, access, aliases)?;
                 }
             }
-            Ty::List(t)
+            Ty::Array(t, _)
+            | Ty::List(t)
             | Ty::Clist(t)
             | Ty::Set(t)
             | Ty::Ref(t, _)
