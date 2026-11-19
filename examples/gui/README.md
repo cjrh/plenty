@@ -1,5 +1,7 @@
 # Source-built GUI packages
 
+To refresh the widget reference screenshots, build both widget packages with `plenty build --locked --offline`, then run `python3 -B examples/gui/capture_widget_examples.py` from the repository root. It needs Weston, Xwayland, xauth, Python Xlib and Pillow, and captures only the example windows on a new private display. The book uses checked-in PNGs; building it does not require a display.
+
 Start with [setup and build commands](../../book/src/design/stdlib/gui-build.md)
 and the [counter walkthrough](../../book/src/tutorial/special-purpose/gui-counters.md).
 `iced_counter/`, `egui_counter/` and `egui_command_picker/` are independent ordinary Plenty packages.

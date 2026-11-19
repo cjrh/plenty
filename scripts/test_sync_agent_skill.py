@@ -175,7 +175,7 @@ class BuildTests(unittest.TestCase):
     def test_version_is_stamped_everywhere(self):
         for path in self.out.rglob("*"):
             if path.is_file():
-                self.assertNotIn("@VERSION@", path.read_text(), path)
+                self.assertNotIn(b"@VERSION@", path.read_bytes(), path)
         plugin = json.loads((self.out / ".claude-plugin/plugin.json").read_text())
         self.assertEqual(plugin["version"], "9.8.7")
         self.assertIn("Plenty 9.8.7", (self.out / "skills/plenty/SKILL.md").read_text())

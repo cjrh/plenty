@@ -15,8 +15,9 @@ legacy-application = ["application"]
 application = ["dep:eframe", "dep:plenty-runtime", "plenty-runtime/executable"]
 
 [dependencies]
+url = "=2.5.8"
 egui = { version = "=0.37.0", default-features = false, features = ["default_fonts"] }
-eframe = { optional = true, version = "=0.37.0", default-features = false, features = ["glow", "x11", "default_fonts"] }
+eframe = { optional = true, version = "=0.37.0", default-features = false, features = ["glow", "x11", "default_fonts", "links"] }
 plenty-runtime = { path = "../../../../plenty-runtime", optional = true }
 
 [build-dependencies]

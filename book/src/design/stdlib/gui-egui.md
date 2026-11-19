@@ -102,5 +102,6 @@ the same abort limitation as for labels and buttons. See the
 ## Acknowledgements
 
 - [egui](https://www.egui.rs/) by Emil Ernerfeldt and contributors (MIT OR Apache-2.0), pinned to 0.37.0: immediate-mode widgets, responses, text and layout.
+- [url](https://docs.rs/url/) and [webbrowser](https://docs.rs/webbrowser/) (MIT OR Apache-2.0): parse web links and request the system browser.
 - [eframe](https://docs.rs/eframe/0.37.0/) (MIT OR Apache-2.0): native X11 event loop and glow renderer.
 - [epaint_default_fonts](https://docs.rs/epaint_default_fonts/0.37.0/): embedded font assets with individual notices, including Hack, Ubuntu Light and the egui icon subset of emoji-icon-font. The crate's dual license does not replace the font licenses.

@@ -534,6 +534,7 @@
                     - [Checkbox](design/stdlib/gui-egui-widgets/checkbox.md)
                     - [RadioButton](design/stdlib/gui-egui-widgets/radio.md)
                     - [Image](design/stdlib/gui-egui-widgets/image.md)
+                    - [Hyperlink](design/stdlib/gui-egui-widgets/hyperlink.md)
                     - [Link](design/stdlib/gui-egui-widgets/link.md)
                     - [Separator](design/stdlib/gui-egui-widgets/separator.md)
                     - [Spinner](design/stdlib/gui-egui-widgets/spinner.md)

@@ -1,5 +1,7 @@
 # Container
 
+![iced Container example window](screenshots/container.png)
+
 Wrap one child in padding measured in logical pixels. Close the group with `end()`.
 
 From `examples/gui/iced_widgets`, run `plenty run --bin container`.

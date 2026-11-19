@@ -81,7 +81,7 @@ def published_pages(repo=REPO):
         source = repo / book_path
         if source.is_dir():
             found = {}
-            for page in sorted(source.rglob("*.md")):
+            for page in sorted((*source.rglob("*.md"), *source.glob("gui-*-widgets/screenshots/*.png"))):
                 relative = page.relative_to(source).as_posix()
                 found[f"{book_path}/{relative}"] = f"{output}/{relative}"
         elif source.is_file():
@@ -151,7 +151,7 @@ def rewrite_links(markdown, page, pages):
             relative = posixpath.relpath(pages[resolved], output_dir)
             replacement = f"[{text}]({relative}{fragment})"
         else:
-            # Images would be lost; the published pages have none today.
+            # An image must have a bundled file; plain link text is not a substitute.
             if opening > 0 and markdown[opening - 1] == "!":
                 raise ValueError(f"{page}: image {target} is not bundled")
             replacement = text

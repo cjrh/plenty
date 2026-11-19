@@ -33,6 +33,10 @@ name = "link"
 path = "src/link.plenty"
 
 [[bin]]
+name = "hyperlink"
+path = "src/hyperlink.plenty"
+
+[[bin]]
 name = "separator"
 path = "src/separator.plenty"
 

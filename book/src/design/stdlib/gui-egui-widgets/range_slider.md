@@ -1,5 +1,7 @@
 # RangeSlider
 
+![egui RangeSlider example window](screenshots/range_slider.png)
+
 Use two handles to edit an inclusive interval. Supply distinct mutable endpoints
 with finite values satisfying `minimum <= low <= high <= maximum`.
 The boolean reports a change in this pass. A checked rejection leaves both
