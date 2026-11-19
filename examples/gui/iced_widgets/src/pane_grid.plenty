@@ -1,0 +1,28 @@
+import std.gui.retained.iced as iced
+
+class State:
+    expanded: bool
+    def __init__(self) -> ():
+        self.expanded = False
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    share = 60u16 if state.expanded else 35u16
+    frame.pane_grid(side_by_side=True, first_percent=share)?
+    frame.column()?
+    frame.text(&"Contents")?
+    frame.button(&"Toggle width", 1u64)?
+    frame.end()?
+    frame.text(&"Reading pane")?
+    frame.end()
+
+def update(state: &mut State, action: u64) -> Result[(), iced.IcedError]:
+    if action != 1u64:
+        return Err(iced.IcedError.InvalidArgument)
+    state.expanded = not state.expanded
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view, update=update)

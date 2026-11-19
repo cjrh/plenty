@@ -22,6 +22,7 @@ extern def native_canvas(token: u64, width: u16, height: u16) -> u32 = "plic_v1_
 extern def native_fill_rect(token: u64, x: u16, y: u16, width: u16, height: u16, rgb: u32) -> u32 = "plic_v1_fill_rect"
 extern def native_slider(token: u64, vertical: bool, value: u16, minimum: u16, maximum: u16, id: u64) -> u32 = "plic_v1_slider"
 extern def slider_value(out: &mut u16) -> bool = "plic_v1_slider_value"
+extern def native_pane_grid(token: u64, side_by_side: bool, first_percent: u16) -> u32 = "plic_v1_pane_grid"
 extern def native_grid(token: u64, columns: u16) -> u32 = "plic_v1_grid"
 extern def native_float_scaled(token: u64, percent: u16) -> u32 = "plic_v1_float_scaled"
 extern def native_mouse_area(token: u64, action: u64) -> u32 = "plic_v1_mouse_area"
@@ -102,6 +103,8 @@ pub class Frame:
         checked(native_slider(self.token, False, value, minimum, maximum, id))
     pub def vertical_slider(self, value: u16, minimum: u16, maximum: u16, id: u64) -> Result[(), IcedError]:
         checked(native_slider(self.token, True, value, minimum, maximum, id))
+    pub def pane_grid(self, side_by_side: bool, first_percent: u16) -> Result[(), IcedError]:
+        checked(native_pane_grid(self.token, side_by_side, first_percent))
     pub def grid(self, columns: u16) -> Result[(), IcedError]:
         checked(native_grid(self.token, columns))
     pub def float_scaled(self, percent: u16) -> Result[(), IcedError]:
