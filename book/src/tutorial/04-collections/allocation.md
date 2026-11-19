@@ -333,6 +333,22 @@ def main() -> Result[(), AllocError | IoError]:
 Daily reports
 ```
 
+For a borrowed list range, join its elements directly rather than repeatedly concatenating a growing string:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    parts = ["root", "reports", "daily"]?
+    path = alloc.system().join_text("/", &parts[1:])?
+    print(path)?
+    Ok(())
+```
+
+```output
+reports/daily
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

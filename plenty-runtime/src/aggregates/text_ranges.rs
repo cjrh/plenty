@@ -4,6 +4,31 @@ use super::{Collection, Type, fallible, text_views, try_text_pieces, wrap};
 use crate::collection_opcodes::{TEXT_RANGE_BASE, TEXT_SLICE};
 use crate::strings::{self, Text};
 
+/// The caller keeps a dense view of string words live for both passes.
+pub(super) unsafe fn join_view(
+    separator: &str,
+    view: u128,
+    element: &Type,
+    allocator: Option<&crate::allocator::Allocator>,
+) -> Result<*mut Text, crate::memory::AllocError> {
+    let stride = crate::list_layout::row_bytes(
+        element.kind,
+        element.inline_bytes as usize,
+        element.has_inline_range(),
+    );
+    let rows = view as u64 as *const u8;
+    unsafe {
+        let pieces = (0..(view >> 64) as usize)
+            .map(|i| crate::entries::dense_element(rows.add(i * stride), element) as *const Text);
+        strings::join_range(
+            separator,
+            separator.chars().count() as u64,
+            pieces,
+            allocator,
+        )
+    }
+}
+
 /// The original builtin's input types, result metadata and trap site apply.
 /// Every text operand is instead a live, scalar-aligned UTF-8 range.
 ///
@@ -31,20 +56,7 @@ pub(super) unsafe fn call(
                         source,
                         b as *mut crate::generators::Generator,
                     ),
-                    b'V' => {
-                        let element = (*descriptor).key();
-                        let stride = crate::list_layout::row_bytes(
-                            element.kind,
-                            element.inline_bytes as usize,
-                            element.has_inline_range(),
-                        );
-                        let rows = b as u64 as *const u8;
-                        let pieces = (0..(b >> 64) as usize).map(|i| {
-                            crate::entries::dense_element(rows.add(i * stride), element)
-                                as *const Text
-                        });
-                        strings::try_join_range(source, pieces)
-                    }
+                    b'V' => join_view(source, b, (*descriptor).key(), None),
                     _ => {
                         let collection = &*(b as *const Collection);
                         strings::try_join_range(

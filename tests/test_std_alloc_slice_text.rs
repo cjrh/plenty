@@ -26,6 +26,35 @@ def main() -> Result[(), AllocError | IoError | RangeError]:
 }
 
 #[test]
+fn join_text_borrows_ranges_and_retains_only_result_storage() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("join", 1, AllocError.CapacityOverflow)
+    pieces = ["skip", "🙂", "", "界", "skip"]?
+    separator = "x·y"
+    saved = out.join_text(&separator[1:2], &pieces[1:-1])?
+    print(out.join_text("", &pieces[1:-1])?, out.join_text("unused", &pieces[2:2])?.byte_len(), out.join_text("/", &pieces[3:4])?)?
+    match out.join_text("a", &pieces[1:-1]):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(pieces[1], separator)?
+    drop(pieces)
+    drop(separator)
+    drop(out)
+    print(saved, len(saved), saved.byte_len())?
+    drop(saved)
+    Ok(())
+"#
+        ),
+        "🙂界 0 界\nrefused join\nAllocError.CapacityOverflow\n🙂 x·y\n🙂··界 4 11\njoin 0 1\n",
+    );
+}
+
+#[test]
 fn concat_text_writes_utf8_directly_to_selected_storage() {
     assert_stdout(
         &format!(

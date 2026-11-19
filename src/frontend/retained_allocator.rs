@@ -130,6 +130,16 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_text_join" => (
+                code::ALLOCATOR_TEXT_JOIN,
+                vec![
+                    handle,
+                    Ty::View(Arc::new(Ty::Text), false),
+                    Ty::View(Arc::new(Ty::Str), false),
+                ],
+                Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                Some(Ty::Str),
+            ),
             "__allocator_text_concat" => {
                 let view = Ty::View(Arc::new(Ty::Text), false);
                 (

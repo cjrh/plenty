@@ -3,7 +3,7 @@
 use crate::clist::ClistOp;
 use crate::collection::CollectionOp;
 use crate::collection_opcodes::{
-    ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_SLICE,
+    ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_JOIN, ALLOCATOR_TEXT_SLICE,
 };
 use crate::hash::HashSet;
 use crate::op::{CallableSig, Op, Ty};
@@ -20,7 +20,7 @@ enum Owner {
 impl Owner {
     fn producer(op: &Op) -> Option<Self> {
         match crate::foreign::allocator_opcode(op)? {
-            ALLOCATOR_TEXT_CONCAT | ALLOCATOR_TEXT_SLICE => Some(Self::Text),
+            ALLOCATOR_TEXT_JOIN | ALLOCATOR_TEXT_CONCAT | ALLOCATOR_TEXT_SLICE => Some(Self::Text),
             ALLOCATOR_CLIST_SLICE => Some(Self::Clist),
             _ => None,
         }
