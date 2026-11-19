@@ -130,6 +130,15 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_text_replace" => {
+                let view = Ty::View(Arc::new(Ty::Text), false);
+                (
+                    code::ALLOCATOR_TEXT_REPLACE,
+                    vec![handle, view.clone(), view.clone(), view],
+                    Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                    None,
+                )
+            }
             "__allocator_text_repeat" => (
                 code::ALLOCATOR_TEXT_REPEAT,
                 vec![handle, Ty::View(Arc::new(Ty::Text), false), Ty::I64],

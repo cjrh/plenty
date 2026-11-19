@@ -383,6 +383,23 @@ def main() -> Result[(), AllocError | IoError]:
 ────
 ```
 
+## Replace a literal in a label
+
+Choose the allocator for the edited label without changing the original:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    label = "reports/daily"
+    print(alloc.system().replace_text(label, "/", " · ")?)?
+    Ok(())
+```
+
+```output
+reports · daily
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

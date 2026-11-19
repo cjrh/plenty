@@ -109,7 +109,7 @@ pub(super) unsafe fn call(
                 )
             }
             47 => fallible(
-                strings::try_replace_range(source, text_views::text(b), text_views::text(c))
+                strings::try_replace_range(source, text_views::text(b), text_views::text(c), None)
                     .map(|t| t as u128),
             ),
             48 => source.starts_with(text_views::text(b)) as u128,
