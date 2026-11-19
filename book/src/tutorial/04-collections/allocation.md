@@ -349,6 +349,24 @@ def main() -> Result[(), AllocError | IoError]:
 reports/daily
 ```
 
+If the names arrive one at a time, pass the generator itself. The join consumes it and uses the same allocator for temporary bytes and the final path.
+
+```plenty
+import std.alloc as alloc
+
+def names() -> Generator[str]:
+    yield "reports"
+    yield "daily"
+
+def main() -> Result[(), AllocError | IoError]:
+    print(alloc.system().join_text_stream("/", names())?)?
+    Ok(())
+```
+
+```output
+reports/daily
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

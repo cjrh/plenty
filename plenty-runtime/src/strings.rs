@@ -241,6 +241,17 @@ pub(crate) fn new(bytes: &[u8]) -> *mut Text {
     try_new(text).unwrap_or_else(|_| crate::fail("string allocation failed"))
 }
 
+pub(crate) fn try_new_in(text: &str, allocator: &Allocator) -> Result<*mut Text, AllocError> {
+    try_build_in(
+        Some(allocator),
+        text.len() as u64,
+        text.chars().count() as u64,
+        |out| {
+            out.write_copy_of_slice(text.as_bytes());
+        },
+    )
+}
+
 pub(crate) fn try_new(text: &str) -> Result<*mut Text, AllocError> {
     let bytes = text.as_bytes();
     if bytes.len() <= INLINE_MAX {

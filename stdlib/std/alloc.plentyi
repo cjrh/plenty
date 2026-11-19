@@ -120,6 +120,17 @@ pub class Allocator:
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def join_text_stream(self, separator: &strview, source: Generator[str]) -> Result[str, AllocError]:
+        mut scratch = self.slice_bytes(b"")?
+        mut first = True
+        for piece in source:
+            if not first:
+                scratch.extend(separator.as_bytes())?
+            scratch.extend(piece.as_bytes())?
+            drop(piece)
+            first = False
+        __allocator_text_finish(self._handle, &scratch[:])
+
     pub def join_text(self, separator: &strview, parts: &[str]) -> Result[str, AllocError]:
         __allocator_text_join(self._handle, separator, parts)
 

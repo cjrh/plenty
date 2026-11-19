@@ -602,7 +602,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
         ALLOCATOR_BOX, ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE, ALLOCATOR_COPY,
         ALLOCATOR_DICT_SET, ALLOCATOR_KEY_VIEW_TO_SET, ALLOCATOR_LIST, ALLOCATOR_LIST_SLICE,
         ALLOCATOR_SET_SYMMETRIC_DIFFERENCE, ALLOCATOR_SET_UNION, ALLOCATOR_SYSTEM,
-        ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_JOIN, ALLOCATOR_TEXT_SLICE,
+        ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_FINISH, ALLOCATOR_TEXT_JOIN, ALLOCATOR_TEXT_SLICE,
     };
     const PROBE: &str = "PLENTY_SELECTED_BOX_ARENA_PROBE";
     if let Ok(probe) = std::env::var(PROBE) {
@@ -622,6 +622,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
                         | ALLOCATOR_BYTES_SLICE
                         | ALLOCATOR_TEXT_CONCAT
                         | ALLOCATOR_TEXT_JOIN
+                        | ALLOCATOR_TEXT_FINISH
                         | ALLOCATOR_TEXT_SLICE
                         | ALLOCATOR_CLIST_SLICE
                 ) {
@@ -647,6 +648,7 @@ fn allocator_dispatch_rejects_arena_before_operand_access() {
             ALLOCATOR_BYTES_SLICE,
             ALLOCATOR_TEXT_CONCAT,
             ALLOCATOR_TEXT_JOIN,
+            ALLOCATOR_TEXT_FINISH,
             ALLOCATOR_TEXT_SLICE,
             ALLOCATOR_CLIST_SLICE,
         ])

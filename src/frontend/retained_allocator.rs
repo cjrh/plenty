@@ -130,6 +130,12 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_text_finish" => (
+                code::ALLOCATOR_TEXT_FINISH,
+                vec![handle, crate::bytes::byte_view()],
+                Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                None,
+            ),
             "__allocator_text_join" => (
                 code::ALLOCATOR_TEXT_JOIN,
                 vec![
