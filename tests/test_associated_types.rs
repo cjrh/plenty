@@ -411,7 +411,7 @@ pub def pass_atomic[T: IntType](value: Atomic[T]) -> Atomic[T]:
 import api
 from std.atomic import Atomic
 
-class Counter:
+pub class Counter:
     pub def read(self) -> Atomic[i64]:
         Atomic[i64](42)
 
