@@ -222,6 +222,12 @@ By contrast, `buf[a:b:k]?` uses the same bounds but ordinary output storage,
 regardless of `buf`'s provider. `buf.slice(a, b)?` also uses ordinary storage,
 but takes no step and traps unless `0 <= a <= b <= buf.len()`.
 
+### Join a generator of strings
+
+`out.join_text_stream(separator, source)` borrows a `&strview` and consumes a `Generator[str]`. It returns `Result[str, AllocError]`. The join copies each piece into a growable UTF-8 byte buffer, inserting the separator only between pieces. It releases its handle to the piece before resuming the generator. The generator's own allocations keep their original policy.
+
+Both the scratch buffer and any non-inline result use `out`. Even an empty stream can fail when creating scratch. During finalization, scratch and the result can both be live. Refusal drops the scratch, current item and generator (including its captures); it neither retries nor returns a resumable generator. Use `join_text` for an existing view to avoid scratch entirely.
+
 ### Join a borrowed view of strings
 
 `out.join_text(separator, parts)` borrows a `&strview` and a `&[str]`, returning `Result[str, AllocError]`. The separator goes **between** elements, including empty elements. An empty view yields empty text. Even a single long element is copied into `out`, not retained from the input. The method measures the borrowed pieces, then writes directly into inline text (up to seven UTF-8 bytes) or one selected block. It uses no scratch buffer or system fallback. Failure leaves both inputs unchanged. This method does not accept one-pass generators; ordinary `separator.join(parts)` is unchanged.

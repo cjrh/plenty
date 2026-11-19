@@ -38,6 +38,8 @@ pub const ALLOCATOR_CLIST_SLICE: i64 = 669;
 pub const ALLOCATOR_TEXT_CONCAT: i64 = 670;
 /// Join a dense borrowed view of string words into selected storage.
 pub const ALLOCATOR_TEXT_JOIN: i64 = 671;
+/// Finish the UTF-8 scratch buffer of a streaming join.
+pub const ALLOCATOR_TEXT_FINISH: i64 = 672;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

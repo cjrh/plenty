@@ -26,6 +26,61 @@ def main() -> Result[(), AllocError | IoError | RangeError]:
 }
 
 #[test]
+fn stream_join_releases_each_piece_before_resuming() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def piece() -> str:
+    owner = budget("piece", 1)
+    owner.concat_text("🙂", "🙂").unwrap()
+
+def words() -> Generator[str]:
+    yield piece()
+    print("resumed").unwrap()
+    yield ""
+    yield "界"
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    text = out.join_text_stream("·", words())?
+    print(text, len(text), text.byte_len())?
+    Ok(())
+"#
+        ),
+        "piece 0 1\nresumed\n🙂🙂··界 5 15\n",
+    );
+}
+
+#[test]
+fn stream_join_unwinds_before_poll_during_append_and_at_finish() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+class Capture:
+    def __del__(self) -> ():
+        print("capture dropped").unwrap()
+
+def words(capture: Capture) -> Generator[str]:
+    print("poll").unwrap()
+    yield "12345678"
+    print("end").unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    for count in range(4):
+        out = budget("storage", count, AllocError.CapacityOverflow)
+        match out.join_text_stream("-", words(Capture())):
+            case Err(error):
+                print(error)?
+            case Ok(text):
+                print(text)?
+    Ok(())
+"#
+        ),
+        "refused storage\ncapture dropped\nAllocError.CapacityOverflow\nstorage 0 0\npoll\nrefused storage\ncapture dropped\nAllocError.CapacityOverflow\nstorage 0 1\npoll\nend\ncapture dropped\nrefused storage\nAllocError.CapacityOverflow\nstorage 0 2\npoll\nend\ncapture dropped\n12345678\nstorage 0 3\n",
+    );
+}
+
+#[test]
 fn join_text_borrows_ranges_and_retains_only_result_storage() {
     assert_stdout(
         &format!(
