@@ -522,6 +522,8 @@
                     - [Responsive](design/stdlib/gui-iced-widgets/responsive.md)
                     - [PickList](design/stdlib/gui-iced-widgets/pick_list.md)
                     - [Canvas](design/stdlib/gui-iced-widgets/canvas.md)
+                    - [Slider](design/stdlib/gui-iced-widgets/slider.md)
+                    - [VerticalSlider](design/stdlib/gui-iced-widgets/vertical_slider.md)
                     - [Grid](design/stdlib/gui-iced-widgets/grid.md)
                     - [Float](design/stdlib/gui-iced-widgets/float_scaled.md)
                     - [MouseArea](design/stdlib/gui-iced-widgets/mouse_area.md)

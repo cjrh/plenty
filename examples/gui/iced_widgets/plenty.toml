@@ -53,6 +53,14 @@ name = "grid"
 path = "src/grid.plenty"
 
 [[bin]]
+name = "slider"
+path = "src/slider.plenty"
+
+[[bin]]
+name = "vertical_slider"
+path = "src/vertical_slider.plenty"
+
+[[bin]]
 name = "canvas"
 path = "src/canvas.plenty"
 

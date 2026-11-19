@@ -80,27 +80,70 @@ impl Session {
         let scene = state.render()?;
         Ok(Self { state, scene })
     }
-    fn dispatch(&mut self, action: u64) -> Result<(), Error> {
-        if !self.scene.has_action(action) {
+    fn dispatch(&mut self, event: Message) -> Result<(), Error> {
+        let (action, slider) = match event {
+            Message::Pressed(id) => (id, None),
+            Message::Slider(id, n) => (id, Some(n)),
+        };
+        let valid = self
+            .scene
+            .nodes
+            .iter()
+            .any(|node| match (&node.kind, slider) {
+                (Kind::Slider { id, min, max, .. }, Some(n)) => {
+                    *id == action && (*min..=*max).contains(&n)
+                }
+                (Kind::Slider { .. }, None) => false,
+                (kind, None) => kind.action() == Some(action),
+                (_, Some(_)) => false,
+            });
+        if !valid {
             diagnostic(format_args!("unknown action ID: {action}"));
             return Err(Error::InvalidArgument);
         }
-        self.state.event(action)?;
+        let result = SLIDER.with(|slot| {
+            slot.set(slider);
+            struct Reset<'a>(&'a Cell<Option<u16>>);
+            impl Drop for Reset<'_> {
+                fn drop(&mut self) {
+                    self.0.set(None)
+                }
+            }
+            let _guard = Reset(slot);
+            self.state.event(action)
+        });
+        result?;
         self.scene = self.state.render()?;
         Ok(())
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-struct Pressed(u64);
+enum Message {
+    Pressed(u64),
+    Slider(u64, u16),
+}
+use Message::Pressed;
+thread_local! {static SLIDER:Cell<Option<u16>>=const{Cell::new(None)};}
+#[unsafe(no_mangle)]
+unsafe extern "C" fn plic_v1_slider_value(out: *mut u16) -> bool {
+    if let Some(value) = SLIDER.get()
+        && !out.is_null()
+    {
+        unsafe { out.write(value) };
+        true
+    } else {
+        false
+    }
+}
 
 // `run` and iced updates share the process main thread. Report the original
 // error after iced's asynchronous exit without allocating an error channel.
 thread_local! { static FAILURE: Cell<Option<Error>> = const { Cell::new(None) }; }
 
-fn update(session: &mut Session, Pressed(id): Pressed) -> Task<Pressed> {
+fn update(session: &mut Session, message: Message) -> Task<Message> {
     if FAILURE.get().is_none()
-        && let Err(e) = session.dispatch(id)
+        && let Err(e) = session.dispatch(message)
     {
         FAILURE.set(Some(e));
         return iced::exit();
@@ -109,7 +152,7 @@ fn update(session: &mut Session, Pressed(id): Pressed) -> Task<Pressed> {
 }
 
 struct Drawing<'a>(&'a Scene, &'a [usize]);
-impl iced::widget::canvas::Program<Pressed> for Drawing<'_> {
+impl iced::widget::canvas::Program<Message> for Drawing<'_> {
     type State = ();
     fn draw(
         &self,
@@ -141,8 +184,8 @@ impl std::fmt::Display for Choice<'_> {
         f.write_str(self.0)
     }
 }
-fn view(session: &Session) -> Element<'_, Pressed> {
-    fn element(scene: &Scene, i: usize) -> Element<'_, Pressed> {
+fn view(session: &Session) -> Element<'_, Message> {
+    fn element(scene: &Scene, i: usize) -> Element<'_, Message> {
         let node = &scene.nodes[i];
         let children = node.children.iter().map(|&i| element(scene, i));
         // The builder validates wrapper arity before publishing the snapshot.
@@ -182,6 +225,22 @@ fn view(session: &Session) -> Element<'_, Pressed> {
                 .height(u32::from(*h))
                 .into(),
             Kind::FillRect { .. } => unreachable!("canvas commands render inside their canvas"),
+            Kind::Slider {
+                vertical,
+                value,
+                min,
+                max,
+                id,
+            } => {
+                let changed = move |n| Message::Slider(*id, n);
+                if *vertical {
+                    iced::widget::vertical_slider(*min..=*max, *value, changed)
+                        .height(144)
+                        .into()
+                } else {
+                    iced::widget::slider(*min..=*max, *value, changed).into()
+                }
+            }
             Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
             Kind::FloatScaled(n) => iced::widget::float(child(0))
                 .scale(f32::from(*n) / 100.0)
@@ -264,11 +323,16 @@ fn run(create: impl FnOnce() -> Result<StateOwner, Error>) -> Result<(), Error> 
         let mut session = Session::new(create()?)?;
         show(&session.scene);
         for arg in args {
-            session.dispatch(
-                arg.to_str()
-                    .and_then(|a| a.parse().ok())
-                    .ok_or(Error::InvalidArgument)?,
-            )?;
+            let arg = arg.to_str().ok_or(Error::InvalidArgument)?;
+            let event = if let Some((id, value)) = arg.split_once('=') {
+                Message::Slider(
+                    id.parse().map_err(|_| Error::InvalidArgument)?,
+                    value.parse().map_err(|_| Error::InvalidArgument)?,
+                )
+            } else {
+                Pressed(arg.parse().map_err(|_| Error::InvalidArgument)?)
+            };
+            session.dispatch(event)?;
             show(&session.scene);
         }
         return Ok(());

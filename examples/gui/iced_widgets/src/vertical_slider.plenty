@@ -1,0 +1,34 @@
+import std.gui.retained.iced as iced
+
+class State:
+    volume: u16
+    def __init__(self) -> ():
+        self.volume = 25u16
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.vertical_slider(state.volume, 0u16, 100u16, 1u64)?
+    if state.volume >= 50u16:
+        frame.text(&"High volume")?
+    else:
+        frame.text(&"Low volume")?
+    frame.button(&"Reset", 2u64)?
+    frame.end()
+
+def update(state: &mut State, event: iced.Event) -> Result[(), iced.IcedError]:
+    match event:
+        case iced.Event.SliderChanged(id, value):
+            if id != 1u64:
+                return Err(iced.IcedError.InvalidArgument)
+            state.volume = value
+        case iced.Event.Action(id):
+            if id != 2u64:
+                return Err(iced.IcedError.InvalidArgument)
+            state.volume = 25u16
+    Ok(())
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run_events(create=create, view=view, update=update)
