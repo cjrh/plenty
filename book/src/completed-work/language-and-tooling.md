@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected borrowed text join
+
+[`Allocator.join_text`](../design/stdlib/alloc.md#join-a-borrowed-view-of-strings) joins a borrowed view of strings directly into inline or selected result storage. Generator input and formatting are not part of this operation.
+
 ### Selected text concatenation
 
 [`Allocator.concat_text`](../design/stdlib/alloc.md#concatenate-text-with-an-output-allocator) copies two borrowed UTF-8 ranges directly into inline or allocator-selected result storage. It does not change ordinary concatenation, joining or formatting.

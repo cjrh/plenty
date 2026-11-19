@@ -564,7 +564,7 @@ pub(crate) unsafe fn try_join(
     unsafe {
         let between = separator.as_ref().map_or("", |word| utf8(word));
         let scalars = separator.map_or(0, |word| scalar_len(word));
-        join_range(between, scalars, pieces)
+        join_range(between, scalars, pieces, None)
     }
 }
 
@@ -573,13 +573,14 @@ pub(crate) unsafe fn try_join_range(
     pieces: impl Clone + Iterator<Item = *const Text>,
 ) -> Result<*mut Text, AllocError> {
     // SAFETY: the caller keeps every piece word live for both passes.
-    unsafe { join_range(separator, separator.chars().count() as u64, pieces) }
+    unsafe { join_range(separator, separator.chars().count() as u64, pieces, None) }
 }
 
-unsafe fn join_range(
+pub(crate) unsafe fn join_range(
     separator: &str,
     separator_scalars: u64,
     pieces: impl Clone + Iterator<Item = *const Text>,
+    allocator: Option<&Allocator>,
 ) -> Result<*mut Text, AllocError> {
     // SAFETY: each iterator pass yields live borrowed owning string words.
     unsafe {
@@ -594,7 +595,7 @@ unsafe fn join_range(
             scalars = add_length(scalars, scalar_len(piece))?;
             first = false;
         }
-        try_build(total, scalars, |out| {
+        try_build_in(allocator, total, scalars, |out| {
             let mut offset = 0;
             let mut first = true;
             for piece in pieces {

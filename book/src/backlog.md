@@ -459,7 +459,7 @@ The [submitting-worker callback check](completed-work/language-and-tooling.md#su
 Implement the remaining work in staged PRs:
 
 3. **Complete the migration.** Migrate remaining independent collection results,
-   string operations beyond [two-part concatenation](completed-work/language-and-tooling.md#selected-text-concatenation) and slicing, formatting, scratch buffers
+   string operations beyond [two-part concatenation](completed-work/language-and-tooling.md#selected-text-concatenation) and slicing (including one-pass generator joins, distinct from the [borrowed join](completed-work/language-and-tooling.md#selected-borrowed-text-join)), formatting, scratch buffers
    and allocating std APIs. Extend the [allocation-site inventory](design/toolchain/02-architecture/allocation-sites.md)
    beyond the audited copy, key-view result and slice paths. Verify routing, ownership and failure behavior
    for each migrated operation. Update syntax, reference, tutorial and runnable
