@@ -1,0 +1,18 @@
+import std.gui.retained.iced as iced
+
+class State:
+    title: str
+    def __init__(self) -> ():
+        self.title = "Two-color swatch"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.text(&state.title)?
+    frame.image_rgba(b"\xff\x80\x00\xff\x00\x80\xff\xff", width=2u16, height=1u16, scale=16u16)?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)

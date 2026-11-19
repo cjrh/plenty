@@ -30,6 +30,9 @@ pub enum Kind {
     Column,
     Stack,
     Grid(u16),
+    Responsive(u16),
+    #[cfg(feature = "application")]
+    Image(iced::widget::image::Handle, u32, u32),
     Container(u16),
     FloatScaled(u16),
     Themer(bool),
@@ -222,6 +225,10 @@ pub extern "C" fn plic_v1_row(token: u64) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_column(token: u64) -> u32 {
     group(token, Kind::Column)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_responsive(token: u64, row_min_width: u16) -> u32 {
+    group(token, Kind::Responsive(row_min_width))
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_grid(token: u64, columns: u16) -> u32 {
@@ -451,6 +458,9 @@ unsafe fn leaf(
         Ok(())
     })
 }
+
+#[cfg(feature = "application")]
+mod image;
 
 #[cfg(test)]
 mod tests;
