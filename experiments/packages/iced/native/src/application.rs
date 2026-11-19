@@ -177,6 +177,13 @@ impl iced::widget::canvas::Program<Message> for Drawing<'_> {
         vec![frame.into_geometry()]
     }
 }
+#[derive(Clone, Debug)]
+pub(super) struct ComboChoice(String, u64);
+impl std::fmt::Display for ComboChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 #[derive(Clone, Copy, PartialEq)]
 struct Choice<'a>(&'a str, u64);
 impl std::fmt::Display for Choice<'_> {
@@ -205,6 +212,21 @@ fn view(session: &Session) -> Element<'_, Message> {
                 }
             })
             .into(),
+            Kind::ComboBox(selected, cache) => {
+                let state = cache.state.get_or_init(|| {
+                    let options = node
+                        .children
+                        .iter()
+                        .map(|i| match &scene.nodes[*i].kind {
+                            Kind::Choice(s, id) => ComboChoice(s.clone(), *id),
+                            _ => unreachable!("validated combo-box child"),
+                        })
+                        .collect();
+                    iced::widget::combo_box::State::new(options)
+                });
+                let value = state.options().iter().find(|c| c.1 == *selected);
+                iced::widget::combo_box(state, "Type to filter…", value, |c| Pressed(c.1)).into()
+            }
             Kind::PickList(selected) => {
                 let options: Vec<_> = node
                     .children

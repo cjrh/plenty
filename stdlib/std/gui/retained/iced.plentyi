@@ -16,6 +16,7 @@ extern def native_rule(token: u64) -> u32 = "plic_v1_rule"
 extern def native_space(token: u64, width: u16, height: u16) -> u32 = "plic_v1_space"
 extern def native_responsive(token: u64, row_min_width: u16) -> u32 = "plic_v1_responsive"
 extern def native_image_rgba(token: u64, pixels: &[u8] as strided, width: u16, height: u16, scale: u16) -> u32 = "plic_v1_image_rgba"
+extern def native_combo_box(token: u64, selected: u64) -> u32 = "plic_v1_combo_box"
 extern def native_pick_list(token: u64, selected: u64) -> u32 = "plic_v1_pick_list"
 extern def native_choice(token: u64, label: &str as utf8, action: u64) -> u32 = "plic_v1_choice"
 extern def native_canvas(token: u64, width: u16, height: u16) -> u32 = "plic_v1_canvas"
@@ -91,6 +92,8 @@ pub class Frame:
         checked(native_responsive(self.token, row_min_width))
     pub def image_rgba(self, pixels: &[u8], width: u16, height: u16, scale: u16 = 1u16) -> Result[(), IcedError]:
         checked(native_image_rgba(self.token, pixels, width, height, scale))
+    pub def combo_box(self, selected: u64) -> Result[(), IcedError]:
+        checked(native_combo_box(self.token, selected))
     pub def pick_list(self, selected: u64) -> Result[(), IcedError]:
         checked(native_pick_list(self.token, selected))
     pub def choice(self, label: &str, action: u64) -> Result[(), IcedError]:

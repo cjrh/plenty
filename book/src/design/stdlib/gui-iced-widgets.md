@@ -19,6 +19,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Rule](gui-iced-widgets/rule.md)
 - [Image](gui-iced-widgets/image.md)
 - [Responsive](gui-iced-widgets/responsive.md)
+- [ComboBox](gui-iced-widgets/combo_box.md)
 - [PickList](gui-iced-widgets/pick_list.md)
 - [Canvas](gui-iced-widgets/canvas.md)
 - [Slider](gui-iced-widgets/slider.md)

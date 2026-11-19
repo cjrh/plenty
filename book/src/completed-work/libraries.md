@@ -679,6 +679,8 @@ remain intact. No release/distribution support or changes to GPUI.
 
 MouseArea presses and Sensor visibility notifications send validated actions to the iced update callback.
 
+Iced ComboBox filters choices as the user types; only selection sends an update action.
+
 Iced PickList choices send distinct validated action IDs; the model owns the selection.
 
 Iced Slider and VerticalSlider deliver checked `u16` values to `run_events`; the original `run` keeps its action-only update signature.

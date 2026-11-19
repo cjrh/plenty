@@ -520,6 +520,7 @@
                     - [Rule](design/stdlib/gui-iced-widgets/rule.md)
                     - [Image](design/stdlib/gui-iced-widgets/image.md)
                     - [Responsive](design/stdlib/gui-iced-widgets/responsive.md)
+                    - [ComboBox](design/stdlib/gui-iced-widgets/combo_box.md)
                     - [PickList](design/stdlib/gui-iced-widgets/pick_list.md)
                     - [Canvas](design/stdlib/gui-iced-widgets/canvas.md)
                     - [Slider](design/stdlib/gui-iced-widgets/slider.md)
