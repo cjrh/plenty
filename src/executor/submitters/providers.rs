@@ -68,7 +68,7 @@ impl Callbacks {
         let has = |op| self.producers.contains(&op);
         match ty {
             Ty::Clist(_) => has(ALLOCATOR_CLIST_SLICE),
-            Ty::Str => has(ALLOCATOR_TEXT_SLICE),
+            Ty::Str => has(ALLOCATOR_TEXT_SLICE) || has(ALLOCATOR_TEXT_CONCAT),
             Ty::ByteStorage => has(ALLOCATOR_BYTES_SLICE),
             Ty::Box(_) => has(ALLOCATOR_BOX) || has(ALLOCATOR_COPY) || has(ALLOCATOR_LIST_SLICE),
             Ty::List(_) | Ty::Dict(..) | Ty::Set(_) => self.producers.iter().any(|&c| {
@@ -109,7 +109,7 @@ impl Callbacks {
                     ALLOCATOR_BLOCK_RELEASE => release = true,
                     ALLOCATOR_LIST
                     | ALLOCATOR_BLOCK
-                    | ALLOCATOR_REGISTER..=ALLOCATOR_CLIST_SLICE => {
+                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_CONCAT => {
                         alloc = true;
                         release = true;
                     }

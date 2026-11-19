@@ -34,6 +34,8 @@ pub const ALLOCATOR_TEXT_SLICE: i64 = 668;
 
 /// Same bounds as ALLOCATOR_LIST_SLICE; borrowed clist owner word and clist[T] descriptor.
 pub const ALLOCATOR_CLIST_SLICE: i64 = 669;
+/// Concatenate two borrowed text ranges into selected storage.
+pub const ALLOCATOR_TEXT_CONCAT: i64 = 670;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

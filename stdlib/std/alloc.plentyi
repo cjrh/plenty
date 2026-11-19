@@ -120,6 +120,9 @@ pub class Allocator:
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def concat_text(self, left: &strview, right: &strview) -> Result[str, AllocError]:
+        __allocator_text_concat(self._handle, left, right)
+
     pub def slice_text(self, source: &strview, start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[str, AllocError]:
         __allocator_text_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 

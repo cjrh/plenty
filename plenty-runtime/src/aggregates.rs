@@ -3452,7 +3452,7 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606 608 609 612
     613 614 615 616
-    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666 667 668 669
+    650 651 652 653 654 655 656 657 658 659 660 661 662 663 664 665 666 667 668 669 670
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3576,6 +3576,7 @@ pub(crate) unsafe fn operation(
                 | ALLOCATOR_BYTES_SLICE
                 | ALLOCATOR_TEXT_SLICE
                 | ALLOCATOR_CLIST_SLICE
+                | ALLOCATOR_TEXT_CONCAT
         ) {
             // Reject an ambient context before reading even the operand buffer.
             crate::allocator::bindings::require_supported_context();
@@ -3812,6 +3813,17 @@ pub(crate) unsafe fn collection_at(
             // inspect a descriptor/operand if a host uses the wrong entry.
             crate::allocator::bindings::require_supported_context();
             crate::fail("selected slice requires five operands");
+        }
+        if op == ALLOCATOR_TEXT_CONCAT {
+            let allocator = crate::allocator::bindings::borrow_handle(a);
+            return fallible(
+                strings::try_concat_range_in(
+                    text_views::text(b),
+                    text_views::text(value),
+                    Some(&allocator),
+                )
+                .map(|text| text as u128),
+            );
         }
         if op == ALLOCATOR_COPY {
             let allocator = crate::allocator::bindings::borrow_handle(a);
