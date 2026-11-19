@@ -134,6 +134,15 @@ pub class Allocator:
     pub def join_text(self, separator: &strview, parts: &[str]) -> Result[str, AllocError]:
         __allocator_text_join(self._handle, separator, parts)
 
+    pub def strip_text(self, source: &strview) -> Result[str, AllocError]:
+        __allocator_text_strip(self._handle, source, 3)
+
+    pub def lstrip_text(self, source: &strview) -> Result[str, AllocError]:
+        __allocator_text_strip(self._handle, source, 1)
+
+    pub def rstrip_text(self, source: &strview) -> Result[str, AllocError]:
+        __allocator_text_strip(self._handle, source, 2)
+
     pub def replace_text(self, source: &strview, old: &strview, new: &strview) -> Result[str, AllocError]:
         __allocator_text_replace(self._handle, source, old, new)
 

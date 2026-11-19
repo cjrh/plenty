@@ -400,6 +400,21 @@ def main() -> Result[(), AllocError | IoError]:
 reports · daily
 ```
 
+To keep a cleaned label, borrow the original and choose storage for the trimmed text:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    label = "  daily report  "
+    print(alloc.system().strip_text(label)?)?
+    Ok(())
+```
+
+```output
+daily report
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The
