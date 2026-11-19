@@ -24,12 +24,27 @@ pub enum Error {
     NativeFailure = 7,
 }
 
+#[derive(Debug)]
+pub struct PaneSplit {
+    side_by_side: bool,
+    first_percent: u16,
+    #[cfg(all(feature = "application", not(test)))]
+    layout: std::cell::OnceCell<iced::widget::pane_grid::State<usize>>,
+}
+
+impl PartialEq for PaneSplit {
+    fn eq(&self, other: &Self) -> bool {
+        (self.side_by_side, self.first_percent) == (other.side_by_side, other.first_percent)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Kind {
     Row,
     Column,
     Stack,
     Grid(u16),
+    PaneGrid(PaneSplit),
     Slider {
         vertical: bool,
         value: u16,
@@ -91,7 +106,7 @@ impl Kind {
             | Self::FloatScaled(_)
             | Self::Pin(_, _)
             | Self::Scrollable(_) => Some(1),
-            Self::Tooltip => Some(2),
+            Self::Tooltip | Self::PaneGrid(_) => Some(2),
             _ => None,
         }
     }
@@ -315,6 +330,18 @@ pub extern "C" fn plic_v1_slider(
     })
 }
 #[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_pane_grid(token: u64, side_by_side: bool, first_percent: u16) -> u32 {
+    group(
+        token,
+        Kind::PaneGrid(PaneSplit {
+            side_by_side,
+            first_percent,
+            #[cfg(all(feature = "application", not(test)))]
+            layout: Default::default(),
+        }),
+    )
+}
+#[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_grid(token: u64, columns: u16) -> u32 {
     group(token, Kind::Grid(columns))
 }
@@ -370,6 +397,9 @@ fn group(token: u64, kind: Kind) -> u32 {
             if w > 2048 || h > 2048 {
                 return Err(Error::LimitExceeded);
             }
+        }
+        if matches!(&kind, Kind::PaneGrid(s) if !(1..100).contains(&s.first_percent)) {
+            return Err(Error::InvalidArgument);
         }
         if matches!(kind, Kind::FloatScaled(n) if !(100..=400).contains(&n)) {
             return Err(Error::InvalidArgument);

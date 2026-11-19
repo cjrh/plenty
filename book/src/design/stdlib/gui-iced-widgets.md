@@ -23,6 +23,7 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 - [Canvas](gui-iced-widgets/canvas.md)
 - [Slider](gui-iced-widgets/slider.md)
 - [VerticalSlider](gui-iced-widgets/vertical_slider.md)
+- [PaneGrid](gui-iced-widgets/pane_grid.md)
 - [Grid](gui-iced-widgets/grid.md)
 - [Float](gui-iced-widgets/float_scaled.md)
 - [MouseArea](gui-iced-widgets/mouse_area.md)

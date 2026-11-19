@@ -105,6 +105,15 @@ fn fixed_child_counts_and_grid_bounds() {
             Err(Error::InvalidArgument)
         );
     }
+    for percent in [0, 100] {
+        assert_eq!(
+            build_scene(|t| {
+                plic_v1_pane_grid(t, true, percent);
+                Ok(())
+            }),
+            Err(Error::InvalidArgument)
+        );
+    }
     for columns in [0, 257] {
         assert_eq!(
             build_scene(|t| {
@@ -124,6 +133,7 @@ fn fixed_child_counts_and_grid_bounds() {
         (1, |t| plic_v1_pin(t, 2, 4)),
         (1, |t| plic_v1_scrollable(t, 12)),
         (2, |t| plic_v1_tooltip(t)),
+        (2, |t| plic_v1_pane_grid(t, true, 35)),
     ] {
         for count in [expected - 1, expected, expected + 1] {
             let result = build_scene(|t| {

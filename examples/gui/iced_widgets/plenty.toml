@@ -53,6 +53,10 @@ name = "grid"
 path = "src/grid.plenty"
 
 [[bin]]
+name = "pane_grid"
+path = "src/pane_grid.plenty"
+
+[[bin]]
 name = "slider"
 path = "src/slider.plenty"
 

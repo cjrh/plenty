@@ -241,6 +241,24 @@ fn view(session: &Session) -> Element<'_, Message> {
                     iced::widget::slider(*min..=*max, *value, changed).into()
                 }
             }
+            Kind::PaneGrid(split) => {
+                use iced::widget::pane_grid::{Axis, Configuration, Content, State};
+                let layout = split.layout.get_or_init(|| {
+                    State::with_configuration(Configuration::Split {
+                        axis: if split.side_by_side {
+                            Axis::Vertical
+                        } else {
+                            Axis::Horizontal
+                        },
+                        ratio: f32::from(split.first_percent) / 100.0,
+                        a: Box::new(Configuration::Pane(0)),
+                        b: Box::new(Configuration::Pane(1)),
+                    })
+                });
+                iced::widget::pane_grid(layout, |_, i, _| Content::new(child(*i)))
+                    .spacing(8)
+                    .into()
+            }
             Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
             Kind::FloatScaled(n) => iced::widget::float(child(0))
                 .scale(f32::from(*n) / 100.0)
