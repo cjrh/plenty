@@ -468,6 +468,14 @@ there is no automatic `+=` fallback. Equality remains structural. Other
 [rejected](../language/04-expressions/operators.md#reserved-method-names):
 write `display`/`debug` for formatting and named methods for the rest.
 
+## Protocol associated types
+
+Declare an [associated type](../language/07-generics/protocols.md#associated-types)
+with `type Item` inside `protocol Source:`. In `def read_once[S: Source]`,
+`S.Item` is the type determined by the conforming type's method signatures.
+Write `S: Source[Item = i64]` for exact equality with `i64`, or
+`D: Sink[Input = S.Item]` for equality with another projection.
+
 ## Compile-time dimensions
 
 Use `dimension` for a base or a derived dimension, and `D: Dimension` for an
