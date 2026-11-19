@@ -108,6 +108,32 @@ fn update(session: &mut Session, Pressed(id): Pressed) -> Task<Pressed> {
     Task::none()
 }
 
+struct Drawing<'a>(&'a Scene, &'a [usize]);
+impl iced::widget::canvas::Program<Pressed> for Drawing<'_> {
+    type State = ();
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &iced::Renderer,
+        _: &iced::Theme,
+        bounds: iced::Rectangle,
+        _: iced::mouse::Cursor,
+    ) -> Vec<iced::widget::canvas::Geometry> {
+        let mut frame = iced::widget::canvas::Frame::new(renderer, bounds.size());
+        for &i in self.1 {
+            let Kind::FillRect { x, y, w, h, rgb } = self.0.nodes[i].kind else {
+                unreachable!("validated canvas child")
+            };
+            let [_, r, g, b] = rgb.to_be_bytes();
+            frame.fill_rectangle(
+                iced::Point::new(x.into(), y.into()),
+                iced::Size::new(w.into(), h.into()),
+                iced::Color::from_rgb8(r, g, b),
+            );
+        }
+        vec![frame.into_geometry()]
+    }
+}
 #[derive(Clone, Copy, PartialEq)]
 struct Choice<'a>(&'a str, u64);
 impl std::fmt::Display for Choice<'_> {
@@ -151,6 +177,11 @@ fn view(session: &Session) -> Element<'_, Pressed> {
                     .into()
             }
             Kind::Choice(..) => unreachable!("choices render inside their list"),
+            Kind::Canvas(w, h) => iced::widget::canvas(Drawing(scene, &node.children))
+                .width(u32::from(*w))
+                .height(u32::from(*h))
+                .into(),
+            Kind::FillRect { .. } => unreachable!("canvas commands render inside their canvas"),
             Kind::Grid(n) => iced::widget::grid(children).columns(usize::from(*n)).into(),
             Kind::FloatScaled(n) => iced::widget::float(child(0))
                 .scale(f32::from(*n) / 100.0)

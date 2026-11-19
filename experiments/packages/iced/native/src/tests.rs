@@ -215,6 +215,40 @@ fn choice_membership_and_selected_action_are_checked() {
     );
 }
 #[test]
+fn canvas_checks_commands_and_dimensions() {
+    let rect = |t, rgb| plic_v1_fill_rect(t, 0, 0, 1, 1, rgb);
+    assert_eq!(
+        build_scene(|t| {
+            rect(t, 0);
+            Ok(())
+        }),
+        Err(Error::InvalidLayout)
+    );
+    assert_eq!(
+        build_scene(|t| {
+            plic_v1_canvas(t, 20, 20);
+            text(t, b"oops", 0);
+            Ok(())
+        }),
+        Err(Error::InvalidLayout)
+    );
+    assert_eq!(
+        build_scene(|t| {
+            plic_v1_canvas(t, 20, 20);
+            rect(t, 0x1000000);
+            Ok(())
+        }),
+        Err(Error::InvalidArgument)
+    );
+    assert_eq!(
+        build_scene(|t| {
+            plic_v1_canvas(t, 2049, 1);
+            Ok(())
+        }),
+        Err(Error::LimitExceeded)
+    );
+}
+#[test]
 fn node_depth_and_text_limits() {
     assert_eq!(
         build_scene(|token| {
