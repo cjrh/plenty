@@ -15,6 +15,7 @@ extern def reject_edit(token: u64, status: u32) -> u32 = "pleg_v1_reject_edit"
 
 extern def native_checkbox(token: u64, text: &str as utf8, value: &mut bool) -> u32 = "pleg_v1_checkbox"
 extern def native_radio(token: u64, text: &str as utf8, selected: bool) -> u32 = "pleg_v1_radio"
+extern def native_image_rgba(token: u64, pixels: &[u8] as strided, width: u16, height: u16, scale: u16) -> u32 = "pleg_v1_image_rgba"
 extern def native_link(token: u64, text: &str as utf8) -> u32 = "pleg_v1_link"
 extern def native_separator(token: u64) -> u32 = "pleg_v1_separator"
 extern def native_spinner(token: u64) -> u32 = "pleg_v1_spinner"
@@ -82,6 +83,8 @@ pub class Ui:
         response(native_checkbox(self.token, text, value))
     pub def radio(self, text: &str, selected: bool) -> Result[bool, EguiError]:
         response(native_radio(self.token, text, selected))
+    pub def image_rgba(self, pixels: &[u8], width: u16, height: u16, scale: u16 = 1u16) -> Result[(), EguiError]:
+        checked(native_image_rgba(self.token, pixels, width, height, scale))
     pub def link(self, text: &str) -> Result[bool, EguiError]:
         response(native_link(self.token, text))
     pub def separator(self) -> Result[(), EguiError]:

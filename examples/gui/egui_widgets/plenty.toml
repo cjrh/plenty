@@ -9,6 +9,10 @@ name = "label"
 path = "src/label.plenty"
 
 [[bin]]
+name = "image"
+path = "src/image.plenty"
+
+[[bin]]
 name = "button"
 path = "src/button.plenty"
 

@@ -1,0 +1,16 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    message: str
+    def __init__(self) -> ():
+        self.message = "Two-color swatch"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    ui.label(&state.message)?
+    ui.image_rgba(b"\xff\x80\x00\xff\x00\x80\xff\xff", width=2u16, height=1u16, scale=16u16)
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)
