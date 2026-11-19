@@ -10,6 +10,7 @@ data is an optional extension at the end.
 - [Parameterize a class](generic-classes.md)
 - [Parameterize an enum](generic-enums.md)
 - [Parameterize a protocol](generic-protocols.md)
+- [Use associated types in generic code](associated-types.md)
 - [Store different implementations of a protocol](boxed-protocols.md)
 - [Give a method its own type parameters](generic-methods.md)
 - [Keep a numeric bound in the type](value-parameters.md)
