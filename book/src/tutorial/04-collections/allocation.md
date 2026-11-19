@@ -367,6 +367,22 @@ def main() -> Result[(), AllocError | IoError]:
 reports/daily
 ```
 
+## Repeat a text pattern
+
+To make a divider, repeat the pattern directly into the chosen storage rather than building a list of pieces to join:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    print(alloc.system().repeat_text("─", 4)?)?
+    Ok(())
+```
+
+```output
+────
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

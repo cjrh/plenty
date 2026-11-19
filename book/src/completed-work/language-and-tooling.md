@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected text repetition
+
+[`Allocator.repeat_text`](../design/stdlib/alloc.md#repeat-text-with-an-output-allocator) repeats borrowed text directly into inline or selected storage after checking the total length. Ordinary repetition is unchanged.
+
 ### Selected streaming text join
 
 [`Allocator.join_text_stream`](../design/stdlib/alloc.md#join-a-generator-of-strings) consumes a generator, releases each yielded string before resuming it, and routes both its growable UTF-8 buffer and the final text through the chosen allocator.

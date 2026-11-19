@@ -130,6 +130,12 @@ impl Lower<'_> {
                     Some(collection),
                 )
             }
+            "__allocator_text_repeat" => (
+                code::ALLOCATOR_TEXT_REPEAT,
+                vec![handle, Ty::View(Arc::new(Ty::Text), false), Ty::I64],
+                Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                None,
+            ),
             "__allocator_text_finish" => (
                 code::ALLOCATOR_TEXT_FINISH,
                 vec![handle, crate::bytes::byte_view()],
