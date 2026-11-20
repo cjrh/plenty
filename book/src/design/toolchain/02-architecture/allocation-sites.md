@@ -61,6 +61,21 @@ tests do not exercise a selected formatting API.
   view borrows the original text; only the packed result needs selected storage.
   This is encoding an already-valid text range, not decoding arbitrary bytes.
 
+## Packed byte case and strip copies
+
+Ordinary `std.bytes.lower` and `upper` copy with `from_bytes` and map ASCII in
+that buffer. `strip`, `lstrip` and `rstrip` scan borrowed input and construct
+ordinary `Bytes` from the surviving range (or return a new empty buffer).
+
+The corresponding `Allocator.*_bytes` methods in `stdlib/std/alloc.plentyi`
+use [`slice_bytes`](#owning-slices-and-their-non-owning-lookalikes) for their
+only allocation. Case conversion edits the selected copy; trimming computes
+indices by testing membership in the borrowed set, then copies only the
+surviving range. Neither needs a materialized set, temporary list or text.
+Even an empty range uses the selected owner path. Compiled tests in
+`tests/test_std_alloc_byte_case_strip.rs` cover refusal, cleanup, growth of an
+empty result after the allocator handle drops, and disabled ordinary allocation.
+
 ## Copy
 
 | Entry | Destination and ownership |
