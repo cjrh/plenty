@@ -156,13 +156,19 @@ that can coalesce with the next iteration's parameter. This runs after
 constant-phi cleanup, which would otherwise remove the single-predecessor
 argument.
 
+The multiply and square must run in the defining header or in its direct
+latch with only terminating alternatives. This rules out a multiply that uses
+the same outer parameter on every pass through an inner loop. The split tail
+inherits the cold flag. Candidate discovery indexes each backedge's arguments
+once and searches for at most one successful square move per block.
+
 The rewrite preserves operation grouping and moves the square only across
 independent arithmetic within its original block. Commuting the multiply can
 change an arithmetic NaN's unspecified payload. AVX and unoptimized builds
 bypass the rewrite.
 
 Measured from Plenty `f8c061b2` with Cranelift `94ed85d10c`, compared with
-the same compiler built against the local backend commit `b9f617a9aa`.
+the same compiler built against the local backend commit `2986d9c583`.
 
 | Kernel or loop | Locked SSE2 | Candidate SSE2 | GCC SSE2 |
 |---|---:|---:|---:|
@@ -186,30 +192,38 @@ bytes match the locked backend. Another 480,000 comparisons cover the current
 benchmark's bottom-tested form and its operand and scheduling variants.
 The same variant comparison in single precision passes 480,000 cases.
 
-Mandelbrot at size 4000 retires a median of **6,794.109 million instructions**
-with the candidate, compared with **8,292.161 million** with the locked backend
+Mandelbrot at size 4000 retires a median of **6,794.110 million instructions**
+with the candidate, compared with **8,292.162 million** with the locked backend
 and **6,289.015 million** with the C reference. The reduction is **18.07%**.
 All outputs match the reference at sizes 1, 7, 8, 9, 200 and 4000, including
 the checked-in size-200 bitmap. The 14 Benchmarks Game variants produce
 identical output across three runs each. The other variants' median instruction
-counts shift by at most 0.051%, within the spread observed in the hash workloads.
+counts shift by at most 0.085%, within the spread observed in the hash workloads.
 
 Uncached compilation retired the following instruction counts in three
 alternating runs. Counts are in millions, with the sample range in parentheses.
 
 | Workload | Locked compiler | Candidate compiler |
 |---|---:|---:|
-| `compile_bench 1000 10 --workload aot` | 129,912.637 (129,908.323–129,913.039) | 128,873.190 (128,867.782–128,873.769) |
-| Spectral norm | 388.745 (388.718–388.753) | 388.349 (388.339–388.370) |
-| Bounded spectral norm | 388.706 (388.704–388.730) | 388.369 (388.355–388.372) |
-| Fasta | 396.904 (396.897–396.919) | 396.619 (396.578–396.634) |
+| `compile_bench 1000 10 --workload aot` | 129,914.834 (129,913.704–129,915.220) | 128,977.633 (128,974.661–128,978.115) |
+| Spectral norm | 388.761 (388.750–388.776) | 388.483 (388.468–388.509) |
+| Bounded spectral norm | 388.740 (388.732–388.753) | 388.492 (388.481–388.515) |
+| Fasta | 396.914 (396.880–396.915) | 396.710 (396.697–396.771) |
 
 The [raw instruction counts and output hashes](backend-measurements.json)
 cover the runtime and compilation comparisons. Cranelift's registry allocator
-passes all 210 x64 filetests and 19 x64-only runtime tests. The new regression
-fails on the locked backend and passes with the candidate. Plenty's pinned
-allocator produces the same 15 assembly-output mismatches and identical diff
-hunks as the locked backend.
+passes all 211 x64 filetests and 19 x64-only runtime tests. The new regression
+fails on the locked backend and passes with the candidate. The nested-loop
+and cold-layout regressions fail with the original patch and pass after the
+revision. Plenty's pinned allocator produces the same 15 assembly-output
+mismatches and identical diff hunks as the locked backend.
+
+A 4,096-accumulator loop whose backedge carries only the squares exposed
+the repeated scan. The harness retires 22,457.074 million instructions
+with the revision, down from 22,912.543 million with the original
+candidate, while emitting identical machine code. These counts include
+the harness and allocator. The membership lookup now takes one pass
+over the edge arguments.
 
 ### Reproduce the candidate
 

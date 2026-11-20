@@ -1882,6 +1882,9 @@ unsquared update directly in the register used on the next pass. The unchanged
 kernel and both the standalone and inlined benchmark loops go from six to
 three scalar copies per pass, matching GCC. The backedge also becomes a direct
 conditional branch, reducing the total from 20 to 16 instructions per pass.
+The rewrite preserves cold layout and requires a fresh header parameter
+for each execution. A backedge's values are indexed once, including for
+wide loops whose candidates are rejected.
 The candidate patch, reproduction and validation are retained in
 `experiments/kernels/escape-copies/`.
 Publishing the fork commit and updating the production pins remain under
