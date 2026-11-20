@@ -332,6 +332,12 @@ fn view(session: &Session) -> Element<'_, Message> {
             }
             Kind::Row => row(children).spacing(8).into(),
             Kind::Column => column(children).spacing(12).into(),
+            Kind::Svg(s) => iced::widget::svg(iced::widget::svg::Handle::from_memory(
+                s.as_bytes().to_vec(),
+            ))
+            .width(iced::Length::Shrink)
+            .height(iced::Length::Shrink)
+            .into(),
             Kind::Text(s) => text(s.as_str()).into(),
             Kind::Button(s, id) => button(text(s.as_str())).on_press(Pressed(*id)).into(),
         }

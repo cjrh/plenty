@@ -519,6 +519,7 @@
                     - [ProgressBar](design/stdlib/gui-iced-widgets/progress_bar.md)
                     - [Space](design/stdlib/gui-iced-widgets/space.md)
                     - [Rule](design/stdlib/gui-iced-widgets/rule.md)
+                    - [Svg](design/stdlib/gui-iced-widgets/svg.md)
                     - [Image](design/stdlib/gui-iced-widgets/image.md)
                     - [Responsive](design/stdlib/gui-iced-widgets/responsive.md)
                     - [ComboBox](design/stdlib/gui-iced-widgets/combo_box.md)
