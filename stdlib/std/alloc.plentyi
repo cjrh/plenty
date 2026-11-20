@@ -147,6 +147,11 @@ pub class Allocator:
             return self.slice_text(source, stop=stop)
         self.slice_text(source)
 
+    pub def split_text(self, source: &strview, separator: &strview) -> Result[list[str], AllocError]:
+        if separator.byte_len() == 0:
+            __trap("string split requires a nonempty separator")
+        __allocator_text_split(self._handle, source, separator)
+
     pub def lower_text(self, source: &strview) -> Result[str, AllocError]:
         __allocator_text_case(self._handle, source, False)
 

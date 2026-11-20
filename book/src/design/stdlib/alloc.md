@@ -236,6 +236,12 @@ Both the scratch buffer and any non-inline result use `out`. Even an empty strea
 
 `out.removeprefix_text(source, prefix)` and `out.removesuffix_text(source, suffix)` borrow whole strings or substrings (`&strview`) and return `Result[str, AllocError]`. They remove at most one exact match at the named end. An empty or absent affix leaves the contents unchanged, but the result is still independent: up to seven UTF-8 bytes fit inline, otherwise one block comes from `out`. No scratch or fallback is used. Ordinary `.removeprefix()` and `.removesuffix()` are unchanged.
 
+### Split text on an explicit separator
+
+`out.split_text(source, separator)` borrows two whole strings or substrings (`&strview`) and returns `Result[list[str], AllocError]`. Like ordinary `.split(separator)`, it matches literally from left to right and preserves empty fields. Empty input gives one empty field. A literal empty separator is rejected at compile time; a computed empty separator traps before allocation rather than returning `AllocError`.
+
+The list uses `out`, as does each field longer than seven UTF-8 bytes. Even when nothing matches, a long field is copied rather than shared with the source. On allocation failure the list and all completed fields are released, both inputs remain usable, and there is no system retry. Whitespace and line splitting are not part of this method.
+
 ### Convert text case with an output allocator
 
 `out.lower_text(source)` and `out.upper_text(source)` borrow a whole string or substring (`&strview`) and return `Result[str, AllocError]`. They use the same per-scalar Unicode mappings as `.lower()` and `.upper()`: `ß` uppercases to `SS`, and `İ` lowercases to `i` plus a combining dot. The **mapped** UTF-8 length determines storage. Up to seven bytes fit inline; longer results use one block from `out`, even when no character changes. Neither method needs scratch storage or retries on the system; refusal leaves the source usable. Ordinary case conversion retains its system-storage policy.

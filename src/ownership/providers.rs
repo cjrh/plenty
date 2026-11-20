@@ -5,7 +5,7 @@ use crate::collection::CollectionOp;
 use crate::collection_opcodes::{
     ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_CASE, ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_FINISH,
     ALLOCATOR_TEXT_JOIN, ALLOCATOR_TEXT_REPEAT, ALLOCATOR_TEXT_REPLACE, ALLOCATOR_TEXT_SLICE,
-    ALLOCATOR_TEXT_STRIP,
+    ALLOCATOR_TEXT_SPLIT, ALLOCATOR_TEXT_STRIP,
 };
 use crate::hash::HashSet;
 use crate::op::{CallableSig, Op, Ty};
@@ -25,6 +25,7 @@ impl Owner {
             ALLOCATOR_TEXT_FINISH
             | ALLOCATOR_TEXT_JOIN
             | ALLOCATOR_TEXT_CONCAT
+            | ALLOCATOR_TEXT_SPLIT
             | ALLOCATOR_TEXT_CASE
             | ALLOCATOR_TEXT_STRIP
             | ALLOCATOR_TEXT_REPLACE
