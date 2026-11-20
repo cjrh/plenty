@@ -135,7 +135,7 @@ defect whose cause is in either can be fixed there:
 
 | Crate | Repository | Branch | Base |
 |---|---|---|---|
-| `cranelift-*` | <https://github.com/plentylang/wasmtime> (Cranelift is in `cranelift/`) | `fork` | Wasmtime 50.0.0, Cranelift 0.137.0, with scalar loads folded through register-only uses (issue #980), integer backedge arguments elaborated before their condition (issue #977), upstream #14717 (issue #934), loads merged into a block's branch and into the left operand of an x86-64 integer compare (issue #935), and optional spill-reload folding and forwarding after register allocation (settings `regalloc_fold_reloads` and `regalloc_forward_spills`, issue #930) |
+| `cranelift-*` | <https://github.com/plentylang/wasmtime> (Cranelift is in `cranelift/`) | `fork` | Wasmtime 50.0.0, Cranelift 0.137.0, with SSE2 scalar loop recurrences coalesced (issue #978), scalar loads folded through register-only uses (issue #980), integer backedge arguments elaborated before their condition (issue #977), upstream #14717 (issue #934), loads merged into a block's branch and into the left operand of an x86-64 integer compare (issue #935), and optional spill-reload folding and forwarding after register allocation (settings `regalloc_fold_reloads` and `regalloc_forward_spills`, issue #930) |
 | `regalloc2` | <https://github.com/plentylang/regalloc2> | `fork` | 0.15.2 and later upstream commits, with the loop-exit block fix (`docs/cold-exit-block-splits.md` in the fork), split bundles moved into their spill bundle's register (`docs/spill-bundle-registers.md`, issue #939), and a spilled value's register extended over its loop when one is free (`docs/loop-extension.md`, issue #939) |
 
 `Cargo.toml` names the `cranelift-*` crates as Git dependencies. Cranelift

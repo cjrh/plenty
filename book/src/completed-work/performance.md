@@ -1875,7 +1875,7 @@ and increases the count in a rotated control.
 The probes and measurements live in `experiments/kernels/escape-copies/`.
 The fixed benchmark remains the compiler regression input.
 
-A local Cranelift candidate recognizes scalar floating-point recurrences on
+The pinned Cranelift backend recognizes scalar floating-point recurrences on
 optimized x86-64 without AVX. It keeps the imaginary update in its incoming
 register, delays the real square past independent arithmetic, and saves the
 unsquared update directly in the register used on the next pass. The unchanged
@@ -1885,10 +1885,9 @@ conditional branch, reducing the total from 20 to 16 instructions per pass.
 The rewrite preserves cold layout and requires a fresh header parameter
 for each execution. A backedge's values are indexed once, including for
 wide loops whose candidates are rejected.
-The candidate patch, reproduction and validation are retained in
-`experiments/kernels/escape-copies/`.
-Publishing the fork commit and updating the production pins remain under
-issue #978.
+The compiler and standalone CLIF harness both pin the published Cranelift
+revision `2986d9c583`. The retained patch, reproduction and measurements are
+in `experiments/kernels/escape-copies/`.
 
 ## Rejected declared-vector adoption (issue #967)
 
