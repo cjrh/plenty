@@ -37,3 +37,36 @@ def main() -> Result[(), BytesError | AllocError | IoError]:
         "12345é\nstd.bytes.BytesError.InvalidUtf8\nstd.bytes.BytesError.InvalidUtf8\nrefused none\nstd.bytes.BytesError.Allocation(AllocError.CapacityOverflow)\n0\n12345é!\nfield 0 1\nnone 0 0\n",
     );
 }
+
+#[test]
+fn lossy_decode_matches_ordinary_grouping_and_allocates_only_final_text() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+import std.bytes as binary
+
+def main() -> Result[(), AllocError | IoError]:
+    mut frame = binary.from_bytes(b"[ab\xff\xc3\xa9\xe2\x82\xac]")?
+    none = budget("none", 0, AllocError.CapacityOverflow)
+    print(none.decode_text_lossy(b"")?, none.decode_text_lossy(b"1234567")?)?
+    print(none.decode_text_lossy(b"a\xff\xff")?)?
+    out = budget("field", 1)
+    field = out.decode_text_lossy(&frame[1:8])?
+    print(field == frame.to_text_lossy_range(1, 8)?, len(field))?
+    match none.decode_text_lossy(&frame[1:8]):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(frame.get(3))?
+    drop(out)
+    frame.clear()
+    drop(frame)
+    print(field)?
+    drop(field)
+    Ok(())
+"#
+        ),
+        " 1234567\na��\nTrue 5\nrefused none\nAllocError.CapacityOverflow\n255\nab�é�\nfield 0 1\nnone 0 0\n",
+    );
+}

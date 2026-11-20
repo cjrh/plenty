@@ -13,6 +13,8 @@ Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-co
 
 ### Decoding borrowed byte ranges
 
+`Allocator.decode_text_lossy` replaces malformed subparts without intermediate storage, including when a borrowed field cuts a UTF-8 sequence.
+
 `Allocator.decode_text` accepts a byte view directly, preserving whole-buffer calls and avoiding a temporary packed copy. Invalid UTF-8 is reported before allocation.
 
 ### Selected byte replacement

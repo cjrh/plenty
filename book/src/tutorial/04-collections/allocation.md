@@ -548,6 +548,22 @@ def main() -> Result[(), BytesError | IoError]:
 café noir
 ```
 
+For a display label, you may prefer to keep readable bytes rather than reject
+the whole field. Use lossy decoding only when replacing malformed input is
+acceptable:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    frame = b"[port \xe2\x82]"
+    print(alloc.system().decode_text_lossy(&frame[1:-1])?)?
+    Ok(())
+```
+```output
+port �
+```
+
 ## Keep the UTF-8 bytes of a text field
 
 Borrow the text’s bytes before copying them. Converting to an ordinary

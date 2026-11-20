@@ -360,6 +360,30 @@ pub(crate) fn quoted_scalar(c: char, buf: &mut [u8; 6]) -> &[u8] {
     }
 }
 
+// Borrow valid runs in place and replace each maximal invalid subpart once.
+// Both passes see the same fragments; no intermediate String or Bytes.
+pub(crate) fn try_decode_lossy_in(
+    source: &[u8],
+    allocator: &Allocator,
+) -> Result<*mut Text, AllocError> {
+    let fragments = || {
+        source.utf8_chunks().flat_map(|chunk| {
+            std::iter::once(chunk.valid()).chain((!chunk.invalid().is_empty()).then_some("�"))
+        })
+    };
+    let (mut bytes, mut scalars) = (0, 0);
+    for fragment in fragments() {
+        bytes = add_length(bytes, fragment.len() as u64)?;
+        scalars = add_length(scalars, fragment.chars().count() as u64)?;
+    }
+    try_build_in(Some(allocator), bytes, scalars, |out| {
+        let mut offset = 0;
+        for fragment in fragments() {
+            offset = put(out, offset, fragment.as_bytes());
+        }
+    })
+}
+
 pub(crate) fn try_quote_in(source: &str, allocator: &Allocator) -> Result<*mut Text, AllocError> {
     let (mut bytes, mut scalars) = (2, 2); // Surrounding quotes.
     for c in source.chars() {

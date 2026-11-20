@@ -3915,10 +3915,15 @@ pub(crate) unsafe fn collection_at(
         }
         if op == ALLOCATOR_TEXT_FINISH {
             let allocator = crate::allocator::bindings::borrow_handle(a);
-            // The trusted join appends only complete separator and piece bytes.
-            let text = std::str::from_utf8(byte_storage::view_bytes(b))
-                .unwrap_or_else(|_| crate::fail("invalid UTF-8 in text join scratch"));
-            return fallible(strings::try_new_in(text, &allocator).map(|t| t as u128));
+            let bytes = byte_storage::view_bytes(b);
+            let result = if value != 0 {
+                strings::try_decode_lossy_in(bytes, &allocator)
+            } else {
+                let text = std::str::from_utf8(bytes)
+                    .unwrap_or_else(|_| crate::fail("invalid UTF-8 in text join scratch"));
+                strings::try_new_in(text, &allocator)
+            };
+            return fallible(result.map(|t| t as u128));
         }
         if op == ALLOCATOR_TEXT_JOIN {
             let allocator = crate::allocator::bindings::borrow_handle(a);
