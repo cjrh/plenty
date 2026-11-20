@@ -2,7 +2,7 @@ use std::{env, path::PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-env-changed=PLENTY_ICED_APP_DIR");
-    if env::var_os("CARGO_FEATURE_APPLICATION").is_none() {
+    if env::var_os("CARGO_FEATURE_DRIVER").is_none() {
         return;
     }
     let path = PathBuf::from(env::var_os("PLENTY_ICED_APP_DIR").expect(

@@ -436,6 +436,13 @@ fn view(session: &Session) -> Element<'_, Message> {
             Kind::Row => row(children).spacing(8).into(),
             Kind::Column => column(children).spacing(12).into(),
             Kind::QrCode(qr) => iced::widget::qr_code(&qr.data).cell_size(4).into(),
+            #[cfg(feature = "shader")]
+            Kind::Shader(source, w, h) => {
+                iced::widget::shader(crate::shader::Fragment(source.clone()))
+                    .width(f32::from(*w))
+                    .height(f32::from(*h))
+                    .into()
+            }
             Kind::Svg(s) => iced::widget::svg(iced::widget::svg::Handle::from_memory(
                 s.as_bytes().to_vec(),
             ))

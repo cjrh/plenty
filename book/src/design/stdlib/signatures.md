@@ -18,100 +18,101 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 116-193
-- [`std.actor.net`](#stdactornet): 195-258
-- [`std.actor.tls`](#stdactortls): 260-289
-- [`std.actor.http.server`](#stdactorhttpserver): 291-354
-- [`std.alloc`](#stdalloc): 356-420
-- [`std.archive`](#stdarchive): 422-488
-- [`std.atomic`](#stdatomic): 490-499
-- [`std.bigint`](#stdbigint): 501-535
-- [`std.bytes`](#stdbytes): 537-609
-- [`std.cache.lru`](#stdcachelru): 611-633
-- [`std.channel`](#stdchannel): 635-639
-- [`std.cli`](#stdcli): 641-671
-- [`std.cli.fileinput`](#stdclifileinput): 673-682
-- [`std.cli.progress`](#stdcliprogress): 684-708
-- [`std.collections`](#stdcollections): 710-737
-- [`std.complex`](#stdcomplex): 739-765
-- [`std.compress`](#stdcompress): 767-797
-- [`std.concurrent`](#stdconcurrent): 799-803
-- [`std.crypto`](#stdcrypto): 805-886
-- [`std.csv`](#stdcsv): 888-951
-- [`std.dataframe`](#stddataframe): 953-1152
-- [`std.db.kv`](#stddbkv): 1154-1186
-- [`std.db.sqlite`](#stddbsqlite): 1188-1252
-- [`std.deque`](#stddeque): 1254-1268
-- [`std.experimental.alloc`](#stdexperimentalalloc): 1270-1316
-- [`std.diff`](#stddiff): 1318-1347
-- [`std.encoding`](#stdencoding): 1349-1416
-- [`std.env`](#stdenv): 1418-1432
-- [`std.error`](#stderror): 1434-1455
-- [`std.fmt`](#stdfmt): 1457-1524
-- [`std.fs`](#stdfs): 1526-1627
-- [`std.fs.dirs`](#stdfsdirs): 1629-1639
-- [`std.fs.lock`](#stdfslock): 1641-1656
-- [`std.fs.watch`](#stdfswatch): 1658-1693
-- [`std.graph`](#stdgraph): 1695-1783
-- [`std.gui.immediate.egui`](#stdguiimmediateegui): 1785-1811
-- [`std.gui.retained.iced`](#stdguiretainediced): 1813-1862
-- [`std.http`](#stdhttp): 1864-1935
-- [`std.http.decoder`](#stdhttpdecoder): 1937-1954
-- [`std.http.body`](#stdhttpbody): 1956-1991
-- [`std.http.client`](#stdhttpclient): 1993-2103
-- [`std.http.cookie`](#stdhttpcookie): 2105-2137
-- [`std.http.files`](#stdhttpfiles): 2139-2152
-- [`std.http.https`](#stdhttphttps): 2154-2168
-- [`std.http.proxy`](#stdhttpproxy): 2170-2191
-- [`std.http.server`](#stdhttpserver): 2193-2294
-- [`std.http.sse`](#stdhttpsse): 2296-2315
-- [`std.http.tls`](#stdhttptls): 2317-2334
-- [`std.http.typed`](#stdhttptyped): 2336-2369
-- [`std.http.websocket`](#stdhttpwebsocket): 2371-2406
-- [`std.http.wss`](#stdhttpwss): 2408-2414
-- [`std.image`](#stdimage): 2416-2462
-- [`std.io`](#stdio): 2464-2570
-- [`std.io.typed`](#stdiotyped): 2572-2610
-- [`std.serial`](#stdserial): 2612-2678
-- [`std.json`](#stdjson): 2680-2832
-- [`std.jwt`](#stdjwt): 2834-2881
-- [`std.log`](#stdlog): 2883-2950
-- [`std.markdown`](#stdmarkdown): 2952-2986
-- [`std.template`](#stdtemplate): 2988-3025
-- [`std.math`](#stdmath): 3027-3098
-- [`std.mime`](#stdmime): 3100-3126
-- [`std.net`](#stdnet): 3128-3210
-- [`std.path`](#stdpath): 3212-3229
-- [`std.process`](#stdprocess): 3231-3290
-- [`std.random`](#stdrandom): 3292-3313
-- [`std.ready`](#stdready): 3315-3346
-- [`std.regex`](#stdregex): 3348-3401
-- [`std.report`](#stdreport): 3403-3414
-- [`std.secrets`](#stdsecrets): 3416-3442
-- [`std.shlex`](#stdshlex): 3444-3453
-- [`std.sketch`](#stdsketch): 3455-3493
-- [`std.sketch.xor`](#stdsketchxor): 3495-3506
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3508-3523
-- [`std.signal`](#stdsignal): 3525-3542
-- [`std.simd`](#stdsimd): 3544-3703
-- [`std.stat`](#stdstat): 3705-3738
-- [`std.plot`](#stdplot): 3740-3829
-- [`std.linalg`](#stdlinalg): 3831-3872
-- [`std.sync`](#stdsync): 3874-3906
-- [`std.system`](#stdsystem): 3908-3967
-- [`std.tempfile`](#stdtempfile): 3969-4001
-- [`std.test`](#stdtest): 4003-4045
-- [`std.text`](#stdtext): 4047-4090
-- [`std.thread`](#stdthread): 4092-4096
-- [`std.time`](#stdtime): 4098-4142
-- [`std.tls`](#stdtls): 4144-4226
-- [`std.toml`](#stdtoml): 4228-4327
-- [`std.unicode`](#stdunicode): 4329-4341
-- [`std.units`](#stdunits): 4343-4580
-- [`std.units.catalogue`](#stdunitscatalogue): 4582-5360
-- [`std.url`](#stdurl): 5362-5390
-- [`std.uuid`](#stduuid): 5392-5415
-- [`std.xml`](#stdxml): 5417-5450
+- [`std.actor`](#stdactor): 117-194
+- [`std.actor.net`](#stdactornet): 196-259
+- [`std.actor.tls`](#stdactortls): 261-290
+- [`std.actor.http.server`](#stdactorhttpserver): 292-355
+- [`std.alloc`](#stdalloc): 357-421
+- [`std.archive`](#stdarchive): 423-489
+- [`std.atomic`](#stdatomic): 491-500
+- [`std.bigint`](#stdbigint): 502-536
+- [`std.bytes`](#stdbytes): 538-610
+- [`std.cache.lru`](#stdcachelru): 612-634
+- [`std.channel`](#stdchannel): 636-640
+- [`std.cli`](#stdcli): 642-672
+- [`std.cli.fileinput`](#stdclifileinput): 674-683
+- [`std.cli.progress`](#stdcliprogress): 685-709
+- [`std.collections`](#stdcollections): 711-738
+- [`std.complex`](#stdcomplex): 740-766
+- [`std.compress`](#stdcompress): 768-798
+- [`std.concurrent`](#stdconcurrent): 800-804
+- [`std.crypto`](#stdcrypto): 806-887
+- [`std.csv`](#stdcsv): 889-952
+- [`std.dataframe`](#stddataframe): 954-1153
+- [`std.db.kv`](#stddbkv): 1155-1187
+- [`std.db.sqlite`](#stddbsqlite): 1189-1253
+- [`std.deque`](#stddeque): 1255-1269
+- [`std.experimental.alloc`](#stdexperimentalalloc): 1271-1317
+- [`std.diff`](#stddiff): 1319-1348
+- [`std.encoding`](#stdencoding): 1350-1417
+- [`std.env`](#stdenv): 1419-1433
+- [`std.error`](#stderror): 1435-1456
+- [`std.fmt`](#stdfmt): 1458-1525
+- [`std.fs`](#stdfs): 1527-1628
+- [`std.fs.dirs`](#stdfsdirs): 1630-1640
+- [`std.fs.lock`](#stdfslock): 1642-1657
+- [`std.fs.watch`](#stdfswatch): 1659-1694
+- [`std.graph`](#stdgraph): 1696-1784
+- [`std.gui.immediate.egui`](#stdguiimmediateegui): 1786-1812
+- [`std.gui.retained.iced.shader`](#stdguiretainedicedshader): 1814-1820
+- [`std.gui.retained.iced`](#stdguiretainediced): 1822-1872
+- [`std.http`](#stdhttp): 1874-1945
+- [`std.http.decoder`](#stdhttpdecoder): 1947-1964
+- [`std.http.body`](#stdhttpbody): 1966-2001
+- [`std.http.client`](#stdhttpclient): 2003-2113
+- [`std.http.cookie`](#stdhttpcookie): 2115-2147
+- [`std.http.files`](#stdhttpfiles): 2149-2162
+- [`std.http.https`](#stdhttphttps): 2164-2178
+- [`std.http.proxy`](#stdhttpproxy): 2180-2201
+- [`std.http.server`](#stdhttpserver): 2203-2304
+- [`std.http.sse`](#stdhttpsse): 2306-2325
+- [`std.http.tls`](#stdhttptls): 2327-2344
+- [`std.http.typed`](#stdhttptyped): 2346-2379
+- [`std.http.websocket`](#stdhttpwebsocket): 2381-2416
+- [`std.http.wss`](#stdhttpwss): 2418-2424
+- [`std.image`](#stdimage): 2426-2472
+- [`std.io`](#stdio): 2474-2580
+- [`std.io.typed`](#stdiotyped): 2582-2620
+- [`std.serial`](#stdserial): 2622-2688
+- [`std.json`](#stdjson): 2690-2842
+- [`std.jwt`](#stdjwt): 2844-2891
+- [`std.log`](#stdlog): 2893-2960
+- [`std.markdown`](#stdmarkdown): 2962-2996
+- [`std.template`](#stdtemplate): 2998-3035
+- [`std.math`](#stdmath): 3037-3108
+- [`std.mime`](#stdmime): 3110-3136
+- [`std.net`](#stdnet): 3138-3220
+- [`std.path`](#stdpath): 3222-3239
+- [`std.process`](#stdprocess): 3241-3300
+- [`std.random`](#stdrandom): 3302-3323
+- [`std.ready`](#stdready): 3325-3356
+- [`std.regex`](#stdregex): 3358-3411
+- [`std.report`](#stdreport): 3413-3424
+- [`std.secrets`](#stdsecrets): 3426-3452
+- [`std.shlex`](#stdshlex): 3454-3463
+- [`std.sketch`](#stdsketch): 3465-3503
+- [`std.sketch.xor`](#stdsketchxor): 3505-3516
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3518-3533
+- [`std.signal`](#stdsignal): 3535-3552
+- [`std.simd`](#stdsimd): 3554-3713
+- [`std.stat`](#stdstat): 3715-3748
+- [`std.plot`](#stdplot): 3750-3839
+- [`std.linalg`](#stdlinalg): 3841-3882
+- [`std.sync`](#stdsync): 3884-3916
+- [`std.system`](#stdsystem): 3918-3977
+- [`std.tempfile`](#stdtempfile): 3979-4011
+- [`std.test`](#stdtest): 4013-4055
+- [`std.text`](#stdtext): 4057-4100
+- [`std.thread`](#stdthread): 4102-4106
+- [`std.time`](#stdtime): 4108-4152
+- [`std.tls`](#stdtls): 4154-4236
+- [`std.toml`](#stdtoml): 4238-4337
+- [`std.unicode`](#stdunicode): 4339-4351
+- [`std.units`](#stdunits): 4353-4590
+- [`std.units.catalogue`](#stdunitscatalogue): 4592-5370
+- [`std.url`](#stdurl): 5372-5400
+- [`std.uuid`](#stduuid): 5402-5425
+- [`std.xml`](#stdxml): 5427-5460
 
 ## `std.actor`
 
@@ -1810,6 +1811,14 @@ class Ui
 def run[S](create: Callable[[], Result[S, AllocError]], draw: Callable[[&mut S, &Ui], Result[(), EguiError]]) -> Result[(), EguiError]
 ```
 
+## `std.gui.retained.iced.shader`
+
+Opt-in wgpu fragment expressions. Errors: `IcedError`. [Reference](gui-iced-widgets/shader.md).
+
+```text
+def fragment(frame: &iced.Frame, source: &str, width: u16, height: u16) -> Result[(), iced.IcedError]
+```
+
 ## `std.gui.retained.iced`
 
 Retained model updates and validated row, column, text and button snapshots. Errors: `IcedError`. [Reference](gui-iced.md).
@@ -1820,6 +1829,7 @@ enum IcedError
 def allocation(error: AllocError) -> IcedError
 class Frame
     def __init__(self, token: u64) -> ()
+    def check_active(self) -> Result[(), IcedError]
     def checkbox(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]
     def toggler(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]
     def radio(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]

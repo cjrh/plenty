@@ -693,6 +693,8 @@ The egui completion popup replaces the current word with an accepted prefix matc
 
 The [retained command picker](../tutorial/special-purpose/gui-counters.md#a-retained-command-picker) filters four commands in view and records the selected button in update without executing it.
 
+Importing [iced Shader](../design/stdlib/gui-iced-widgets/shader.md) selects wgpu for a trusted WGSL fragment expression; ordinary iced keeps tiny-skia.
+
 Iced QRCode encodes a nonempty text payload into a scannable symbol.
 
 Iced TextEditor keeps cursor state by editor ID and proposes a bounded multiline document to Plenty update.

@@ -226,7 +226,7 @@ fn choice_membership_and_selected_action_are_checked() {
         );
     }
 }
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 #[test]
 fn qr_checks_payload() {
     for (bytes, error) in [
@@ -412,7 +412,7 @@ fn scope_clears_on_callback_error_or_panic() {
     .unwrap();
 }
 
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 #[test]
 fn callback_failure_precedes_a_native_loop_error_during_exit() {
     assert_eq!(
