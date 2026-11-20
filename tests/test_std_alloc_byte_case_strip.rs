@@ -24,6 +24,30 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn ordinary_results_do_not_inherit_the_source_provider() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+import std.bytes as binary
+
+def main() -> Result[(), AllocError | IoError]:
+    owner = budget("input", 2)
+    source = owner.slice_bytes(b" A ")?
+    mut lower = binary.lower(&source)?
+    mut stripped = binary.strip(&source)?
+    lower.reserve(1000)?
+    stripped.reserve(1000)?
+    drop(source)
+    drop(owner)
+    print(lower, stripped)?
+    Ok(())
+"#
+        ),
+        "input 0 2\nb\" a \" b\"A\"\n",
+    );
+}
+
+#[test]
 fn strip_limits_the_copy_to_surviving_view_bytes() {
     assert_stdout(
         r#"import std.alloc as alloc

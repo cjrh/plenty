@@ -141,15 +141,18 @@ pub class Allocator:
     def _strip_bytes(self, source: &[u8], set: &[u8], left: bool, right: bool) -> Result[Bytes, AllocError]:
         mut start = 0
         mut stop = len(source)
+        mut trim = array[bool, 256].filled(False)
+        for byte in set:
+            trim[i64(*byte)] = True
         if left:
-            while start < stop and source[start] in set:
+            while start < stop and trim[i64(source[start])]:
                 unchecked:
                     start += 1
         if right:
             while stop > start:
                 last = unchecked:
                     stop - 1
-                if source[last] not in set:
+                if not trim[i64(source[last])]:
                     break
                 stop = last
         self.slice_bytes(&source[start:stop])
