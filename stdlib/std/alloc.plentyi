@@ -147,6 +147,12 @@ pub class Allocator:
             return self.slice_text(source, stop=stop)
         self.slice_text(source)
 
+    pub def lower_text(self, source: &strview) -> Result[str, AllocError]:
+        __allocator_text_case(self._handle, source, False)
+
+    pub def upper_text(self, source: &strview) -> Result[str, AllocError]:
+        __allocator_text_case(self._handle, source, True)
+
     pub def strip_text(self, source: &strview) -> Result[str, AllocError]:
         __allocator_text_strip(self._handle, source, 3)
 

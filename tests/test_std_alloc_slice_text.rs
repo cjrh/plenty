@@ -139,6 +139,36 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn case_text_sizes_mapped_unicode_and_copies_unchanged_text() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("case", 2)
+    source = ("x" + "İABCDEy")?
+    view = &source[1:-1]
+    print(out.upper_text("straße")?, out.lower_text("")?.byte_len())?
+    mapped = out.lower_text(view)?
+    unchanged = out.upper_text("ABCDEFGH")?
+    match out.lower_text(view):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(mapped == view.lower()?, source)?
+    drop(source)
+    drop(out)
+    print(mapped, len(mapped), mapped.byte_len(), unchanged)?
+    drop(mapped)
+    drop(unchanged)
+    Ok(())
+"#
+        ),
+        "STRASSE 0\nrefused case\nAllocError.OutOfMemory\nTrue xİABCDEy\ni\u{307}abcde 7 8 ABCDEFGH\ncase 0 2\n",
+    );
+}
+
+#[test]
 fn strip_text_selects_unicode_ends_and_copies_unchanged_text() {
     assert_stdout(
         &format!(

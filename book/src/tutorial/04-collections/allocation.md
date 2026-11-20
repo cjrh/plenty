@@ -429,6 +429,23 @@ def main() -> Result[(), AllocError | IoError]:
 notes.bak
 ```
 
+## Choose storage for an uppercase label
+
+A Unicode letter can map to more than one output letter. The allocator is charged for the result, not the input length:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    label = "die Straße"
+    print(alloc.system().upper_text(label)?)?
+    Ok(())
+```
+
+```output
+DIE STRASSE
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

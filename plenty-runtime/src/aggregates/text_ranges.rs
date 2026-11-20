@@ -165,7 +165,9 @@ pub(super) unsafe fn call(
                         _ => byte.is_ascii_alphanumeric(),
                     })) as u128
             }
-            135 | 136 => fallible(strings::try_case_range(source, op == 136).map(|t| t as u128)),
+            135 | 136 => {
+                fallible(strings::try_case_range(source, op == 136, None).map(|t| t as u128))
+            }
             TEXT_SLICE => {
                 let positions = super::slice_positions(
                     source.chars().count(),

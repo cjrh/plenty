@@ -26,9 +26,9 @@ fn signature(mut sig: Signature, allocate: bool) -> Signature {
 /// after their factory returns. Only needed when a compiled provider exists.
 pub(super) fn selected_owners(ops: &[Op]) -> ProviderEffects {
     use crate::collection_opcodes::{
-        ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_CONCAT, ALLOCATOR_TEXT_FINISH,
-        ALLOCATOR_TEXT_JOIN, ALLOCATOR_TEXT_REPEAT, ALLOCATOR_TEXT_REPLACE, ALLOCATOR_TEXT_SLICE,
-        ALLOCATOR_TEXT_STRIP,
+        ALLOCATOR_BYTES_SLICE, ALLOCATOR_CLIST_SLICE, ALLOCATOR_TEXT_CASE, ALLOCATOR_TEXT_CONCAT,
+        ALLOCATOR_TEXT_FINISH, ALLOCATOR_TEXT_JOIN, ALLOCATOR_TEXT_REPEAT, ALLOCATOR_TEXT_REPLACE,
+        ALLOCATOR_TEXT_SLICE, ALLOCATOR_TEXT_STRIP,
     };
     let mut effects = ProviderEffects::default();
     crate::threading::walk(ops, &mut |op| {
@@ -40,6 +40,7 @@ pub(super) fn selected_owners(ops: &[Op]) -> ProviderEffects {
                 ALLOCATOR_TEXT_FINISH
                     | ALLOCATOR_TEXT_JOIN
                     | ALLOCATOR_TEXT_CONCAT
+                    | ALLOCATOR_TEXT_CASE
                     | ALLOCATOR_TEXT_STRIP
                     | ALLOCATOR_TEXT_REPLACE
                     | ALLOCATOR_TEXT_REPEAT
