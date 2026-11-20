@@ -289,6 +289,30 @@ payload no longer borrows the frame, and `push` uses its retained provider.
 Use [`copy_view`](../../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)
 instead when you want all the viewed bytes in a `list[u8]`.
 
+## Normalize a padded byte label
+
+A binary field may contain bytes that aren't valid text. To save a label with
+its padding removed and its ASCII letters in lower case, select storage for
+both copies:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    label = out.strip_bytes(b"\x00\xffID \x00", b"\x00 ")?
+    saved = out.lower_bytes(&label)?
+    print(saved)?
+    Ok(())
+```
+```output
+b"\xffid"
+```
+
+The trim set removes NUL or space at either edge, in any order. The byte
+`0xff` is neither padding nor an ASCII letter, so it survives both copies.
+See [case and strip copies](../../design/stdlib/alloc.md#change-ascii-case-or-strip-byte-edges).
+
 ## Keep text from a borrowed label
 
 To keep a piece after the label changes, copy it into a `str`. Use

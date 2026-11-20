@@ -120,6 +120,52 @@ pub class Allocator:
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def lower_bytes(self, source: &[u8]) -> Result[Bytes, AllocError]:
+        mut result = self.slice_bytes(source)?
+        for at in range(len(source)):
+            byte = source[at]
+            if byte >= 65u8 and byte <= 90u8:
+                unchecked:
+                    result.set(at, byte + 32u8)
+        Ok(result)
+
+    pub def upper_bytes(self, source: &[u8]) -> Result[Bytes, AllocError]:
+        mut result = self.slice_bytes(source)?
+        for at in range(len(source)):
+            byte = source[at]
+            if byte >= 97u8 and byte <= 122u8:
+                unchecked:
+                    result.set(at, byte - 32u8)
+        Ok(result)
+
+    def _strip_bytes(self, source: &[u8], set: &[u8], left: bool, right: bool) -> Result[Bytes, AllocError]:
+        mut start = 0
+        mut stop = len(source)
+        mut trim = array[bool, 256].filled(False)
+        for byte in set:
+            trim[i64(*byte)] = True
+        if left:
+            while start < stop and trim[i64(source[start])]:
+                unchecked:
+                    start += 1
+        if right:
+            while stop > start:
+                last = unchecked:
+                    stop - 1
+                if not trim[i64(source[last])]:
+                    break
+                stop = last
+        self.slice_bytes(&source[start:stop])
+
+    pub def strip_bytes(self, source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
+        self._strip_bytes(source, set, True, True)
+
+    pub def lstrip_bytes(self, source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
+        self._strip_bytes(source, set, True, False)
+
+    pub def rstrip_bytes(self, source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
+        self._strip_bytes(source, set, False, True)
+
     pub def decode_text(self, source: &Bytes) -> Result[str, BytesError]:
         if source.utf8_run(0, source.len()) != source.len():
             return Err(BytesError.InvalidUtf8)

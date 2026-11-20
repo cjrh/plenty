@@ -64,6 +64,10 @@ Inputs bound classification, copying, splitting and replacement work; splitting
 creates at most one more field than input bytes, and replacement inserts only
 at nonoverlapping matches or byte boundaries for an empty old pattern.
 
+Ordinary case and strip operations do not inherit an input allocator. To choose
+storage for their copies, use [`Allocator.lower_bytes`, `upper_bytes`,
+`strip_bytes`, `lstrip_bytes` or `rstrip_bytes`](alloc.md#change-ascii-case-or-strip-byte-edges).
+
 `split(b"")` is a caller error and traps with `bytes.split: separator is empty`.
 Whitespace splitting of empty/all-whitespace input returns an empty list;
 explicit-separator splitting of empty input returns one empty buffer.

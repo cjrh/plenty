@@ -94,6 +94,15 @@ The [slice inventory](../design/toolchain/02-architecture/allocation-sites.md#ow
 records routing, rollback and regression coverage. This selects byte-slice
 results, not storage for all allocating `std.bytes` operations.
 
+### Selected ASCII byte case and strip copies
+
+[Selected case and strip operations](../design/stdlib/alloc.md#change-ascii-case-or-strip-byte-edges)
+produce packed byte buffers without first allocating an ordinary result. They
+preserve arbitrary binary data outside the ASCII mappings or selected trim
+set. The [padded label example](../tutorial/04-collections/allocation.md#normalize-a-padded-byte-label)
+uses both operations without decoding. Tests cover allocation refusal, release
+of provisional backing, and retained growth even when all bytes were trimmed.
+
 ### Public selected view-to-list copies
 
 [`Allocator.copy_view`](../design/stdlib/alloc.md#copy-a-slice-view-into-a-list)

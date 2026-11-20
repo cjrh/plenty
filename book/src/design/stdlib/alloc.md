@@ -222,6 +222,25 @@ By contrast, `buf[a:b:k]?` uses the same bounds but ordinary output storage,
 regardless of `buf`'s provider. `buf.slice(a, b)?` also uses ordinary storage,
 but takes no step and traps unless `0 <= a <= b <= buf.len()`.
 
+### Change ASCII case or strip byte edges
+
+`out.lower_bytes(source)` and `out.upper_bytes(source)` copy a borrowed `&[u8]`
+into independent packed storage, mapping only ASCII `A`–`Z` or `a`–`z`.
+High bytes and NUL are data, with no UTF-8 validation.
+
+`out.strip_bytes(source, set)`, `out.lstrip_bytes(source, set)` and
+`out.rstrip_bytes(source, set)` copy the bytes left after trimming both ends,
+the left end or the right end. Omit `set` for ASCII whitespace (space, tab,
+LF, CR, vertical tab and form feed), or supply a `&[u8]` of individual bytes
+to remove. An empty set removes nothing. Neither input is changed or retained.
+
+All five return `Result[Bytes, AllocError]`. They allocate only the final owner
+and up to `len(source)` bytes of payload through `out`, even if the bytes
+are unchanged. An empty result still needs a selected owner. As with
+[`slice_bytes`](#copy-a-byte-slice-into-packed-storage), growth and release use
+the retained provider. Size overflow or provider refusal is reported without
+system fallback; provisional storage is released.
+
 ### Join a generator of strings
 
 `out.join_text_stream(separator, source)` borrows a `&strview` and consumes a `Generator[str]`. It returns `Result[str, AllocError]`. The join copies each piece into a growable UTF-8 byte buffer, inserting the separator only between pieces. It releases its handle to the piece before resuming the generator. The generator's own allocations keep their original policy.
