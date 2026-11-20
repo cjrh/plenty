@@ -76,6 +76,7 @@ impl Callbacks {
                     || has(ALLOCATOR_TEXT_REPEAT)
                     || has(ALLOCATOR_TEXT_REPLACE)
                     || has(ALLOCATOR_TEXT_STRIP)
+                    || has(ALLOCATOR_TEXT_CASE)
             }
             Ty::ByteStorage => has(ALLOCATOR_BYTES_SLICE),
             Ty::Box(_) => has(ALLOCATOR_BOX) || has(ALLOCATOR_COPY) || has(ALLOCATOR_LIST_SLICE),
@@ -115,9 +116,7 @@ impl Callbacks {
                 match code {
                     ALLOCATOR_RELEASE => final_handle = true,
                     ALLOCATOR_BLOCK_RELEASE => release = true,
-                    ALLOCATOR_LIST
-                    | ALLOCATOR_BLOCK
-                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_STRIP => {
+                    ALLOCATOR_LIST | ALLOCATOR_BLOCK | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_CASE => {
                         alloc = true;
                         release = true;
                     }

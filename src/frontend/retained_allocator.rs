@@ -139,6 +139,12 @@ impl Lower<'_> {
                     None,
                 )
             }
+            "__allocator_text_case" => (
+                code::ALLOCATOR_TEXT_CASE,
+                vec![handle, Ty::View(Arc::new(Ty::Text), false), Ty::Bool],
+                Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                None,
+            ),
             "__allocator_text_strip" | "__allocator_text_repeat" => (
                 if name == "__allocator_text_strip" {
                     code::ALLOCATOR_TEXT_STRIP

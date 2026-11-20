@@ -46,6 +46,8 @@ pub const ALLOCATOR_TEXT_REPEAT: i64 = 673;
 pub const ALLOCATOR_TEXT_REPLACE: i64 = 674;
 /// Copy trimmed UTF-8 into selected storage (left/right end bits).
 pub const ALLOCATOR_TEXT_STRIP: i64 = 675;
+/// Map Unicode scalars to lower or upper case into selected text storage.
+pub const ALLOCATOR_TEXT_CASE: i64 = 676;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

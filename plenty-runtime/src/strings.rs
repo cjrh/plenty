@@ -319,24 +319,31 @@ pub(crate) fn from_codepoint(code: u32) -> Option<*mut Text> {
 
 pub(crate) unsafe fn try_case(text: *const Text, upper: bool) -> Result<*mut Text, AllocError> {
     // SAFETY: the caller lends a live string word for this call.
-    try_case_range(unsafe { utf8(&text) }, upper)
+    try_case_range(unsafe { utf8(&text) }, upper, None)
 }
 
-pub(crate) fn try_case_range(source: &str, upper: bool) -> Result<*mut Text, AllocError> {
+pub(crate) fn try_case_range(
+    source: &str,
+    upper: bool,
+    allocator: Option<&Allocator>,
+) -> Result<*mut Text, AllocError> {
     if upper {
-        try_characters(source.chars().flat_map(char::to_uppercase))
+        try_characters(source.chars().flat_map(char::to_uppercase), allocator)
     } else {
-        try_characters(source.chars().flat_map(char::to_lowercase))
+        try_characters(source.chars().flat_map(char::to_lowercase), allocator)
     }
 }
 
-fn try_characters(characters: impl Iterator<Item = char> + Clone) -> Result<*mut Text, AllocError> {
+fn try_characters(
+    characters: impl Iterator<Item = char> + Clone,
+    allocator: Option<&Allocator>,
+) -> Result<*mut Text, AllocError> {
     let (mut bytes, mut scalars) = (0, 0);
     for character in characters.clone() {
         bytes = add_length(bytes, character.len_utf8() as u64)?;
         scalars = add_length(scalars, 1)?;
     }
-    try_build(bytes, scalars, |out| {
+    try_build_in(allocator, bytes, scalars, |out| {
         let mut offset = 0;
         for character in characters {
             offset = put(out, offset, character.encode_utf8(&mut [0; 4]).as_bytes());

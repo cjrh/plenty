@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected Unicode case conversion
+
+[`Allocator.lower_text` and `upper_text`](../design/stdlib/alloc.md#convert-text-case-with-an-output-allocator) size and write the mapped Unicode result directly into inline or selected storage.
+
 ### Selected exact affix removal
 
 [`Allocator.removeprefix_text` and `removesuffix_text`](../design/stdlib/alloc.md#remove-a-text-prefix-or-suffix) remove one exact prefix or suffix and use the selected allocator for the independent result. Both reuse `slice_text` in Plenty.

@@ -236,6 +236,10 @@ Both the scratch buffer and any non-inline result use `out`. Even an empty strea
 
 `out.removeprefix_text(source, prefix)` and `out.removesuffix_text(source, suffix)` borrow whole strings or substrings (`&strview`) and return `Result[str, AllocError]`. They remove at most one exact match at the named end. An empty or absent affix leaves the contents unchanged, but the result is still independent: up to seven UTF-8 bytes fit inline, otherwise one block comes from `out`. No scratch or fallback is used. Ordinary `.removeprefix()` and `.removesuffix()` are unchanged.
 
+### Convert text case with an output allocator
+
+`out.lower_text(source)` and `out.upper_text(source)` borrow a whole string or substring (`&strview`) and return `Result[str, AllocError]`. They use the same per-scalar Unicode mappings as `.lower()` and `.upper()`: `ß` uppercases to `SS`, and `İ` lowercases to `i` plus a combining dot. The **mapped** UTF-8 length determines storage. Up to seven bytes fit inline; longer results use one block from `out`, even when no character changes. Neither method needs scratch storage or retries on the system; refusal leaves the source usable. Ordinary case conversion retains its system-storage policy.
+
 ### Trim text with an output allocator
 
 `out.strip_text(source)` removes Unicode `White_Space` from both ends; `out.lstrip_text(source)` and `out.rstrip_text(source)` remove it only from the left or right. All three borrow a whole string or substring (`&strview`) and return `Result[str, AllocError]`. Interior whitespace is preserved. Empty or all-whitespace input yields empty text. Up to seven retained UTF-8 bytes fit inline; longer results use one block from `out` even if nothing was trimmed. There is no scratch or fallback, and refusal leaves the source usable. Ordinary `.strip()`, `.lstrip()`, and `.rstrip()` keep their system-storage policy.
