@@ -1,0 +1,704 @@
+diff --git a/cranelift/codegen/src/isa/x64/mod.rs b/cranelift/codegen/src/isa/x64/mod.rs
+index e3b70a23396321dddf68510fd90e498193929612..c0db25b1e6232ecb661ba06ebd82505b56ed941a 100644
+--- a/cranelift/codegen/src/isa/x64/mod.rs
++++ b/cranelift/codegen/src/isa/x64/mod.rs
+@@ -26,6 +26,7 @@ mod abi;
+ mod inst;
+ mod lower;
+ pub mod settings;
++mod sse2_loops;
+ mod ymm;
+
+ #[cfg(feature = "unwind")]
+@@ -94,6 +95,22 @@ impl TargetIsa for X64Backend {
+         ctrl_plane: &mut ControlPlane,
+     ) -> CodegenResult<CompiledCodeStencil> {
+         ymm::check_function(func, &self.flags, &self.x64_flags, &self.triple)?;
++        let rewritten = if self.flags.opt_level() != shared_settings::OptLevel::None
++            && self.flags.regalloc_algorithm() == shared_settings::RegallocAlgorithm::Backtracking
++            && !self.x64_flags.has_avx()
++        {
++            sse2_loops::rewrite_recurrences(func, domtree)
++        } else {
++            None
++        };
++        let rewritten_domtree;
++        let (func, domtree) = if let Some(func) = &rewritten {
++            let cfg = crate::flowgraph::ControlFlowGraph::with_function(func);
++            rewritten_domtree = DominatorTree::with_function(func, &cfg);
++            (func, &rewritten_domtree)
++        } else {
++            (func, domtree)
++        };
+         let vcode = self.compile_vcode(func, domtree, regalloc_ctx, ctrl_plane)?;
+
+         let emit_result = vcode.emit(&regalloc_ctx.output, want_disasm, &self.flags, ctrl_plane)?;
+diff --git a/cranelift/codegen/src/isa/x64/sse2_loops.rs b/cranelift/codegen/src/isa/x64/sse2_loops.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..033180254036c0ba043b39f92ed439b411a5aaab
+--- /dev/null
++++ b/cranelift/codegen/src/isa/x64/sse2_loops.rs
+@@ -0,0 +1,239 @@
++//! Keep scalar floating-point recurrences in their loop-header registers.
++//! SSE2 arithmetic overwrites its left operand.
++
++use crate::FxHashSet;
++use crate::cursor::{Cursor, FuncCursor};
++use crate::dominator_tree::DominatorTree;
++use crate::entity::{EntitySet, SecondaryMap};
++use crate::ir::{BlockArg, Function, Inst, InstBuilder, Opcode, Value, types};
++use alloc::vec::Vec;
++
++enum Edit {
++    Commute {
++        product: Inst,
++        previous: Value,
++    },
++    SaveBeforeSquare {
++        square: Inst,
++        original: Value,
++        branch: Inst,
++        successor: usize,
++    },
++}
++
++/// Select destructive operands before lowering. Splitting the live range
++/// with a block argument gives the allocator a copy it can merge with the
++/// next iteration's unsquared parameter. This runs after phi simplification,
++/// which would otherwise discard the single-predecessor argument.
++pub(super) fn rewrite_recurrences(func: &Function, domtree: &DominatorTree) -> Option<Function> {
++    let mut edits = Vec::new();
++    for block in func.layout.blocks() {
++        let branch = func.layout.last_inst(block).unwrap();
++        let data = &func.dfg.insts[branch];
++        if !matches!(data.opcode(), Opcode::Jump | Opcode::Brif) {
++            continue;
++        }
++
++        let pool = &func.dfg.value_lists;
++        let destinations =
++            data.branch_destination(&func.dfg.jump_tables, &func.dfg.exception_tables);
++        for (successor, call) in destinations.iter().enumerate() {
++            let header = call.block(pool);
++            let params = func.dfg.block_params(header);
++            if params.is_empty() || !domtree.dominates(header, block, &func.layout) {
++                continue;
++            }
++            // The header redefines its parameters on entry. Its latch also
++            // executes at most once per entry if all other exits terminate.
++            // A single static use elsewhere could execute in a nested loop.
++            let latch_is_once_per_entry = block != header
++                && destinations.iter().all(|destination| {
++                    let target = destination.block(pool);
++                    target == header
++                        || func.layout.last_inst(target).is_some_and(|inst| {
++                            matches!(func.dfg.insts[inst].opcode(), Opcode::Return | Opcode::Trap)
++                        })
++                });
++            let executes_once_per_entry = |inst| {
++                func.layout.inst_block(inst).is_some_and(|location| {
++                    location == header || (location == block && latch_is_once_per_entry)
++                })
++            };
++
++            let mut edge_values = None;
++            for (&previous, arg) in params.iter().zip(call.args(pool)) {
++                let BlockArg::Value(next) = arg else { continue };
++                if !matches!(func.dfg.value_type(next), types::F32 | types::F64) {
++                    continue;
++                }
++                if let Some(product) = recurrence_product(func, next, previous)
++                    && executes_once_per_entry(product)
++                {
++                    edits.push(Edit::Commute { product, previous });
++                }
++                if let Some((square, original)) = square_of_accumulator(func, next, previous)
++                    && executes_once_per_entry(square)
++                    && edge_values
++                        .get_or_insert_with(|| {
++                            call.args(pool)
++                                .filter_map(|arg| match arg {
++                                    BlockArg::Value(value) => Some(value),
++                                    _ => None,
++                                })
++                                .collect::<FxHashSet<_>>()
++                        })
++                        .contains(&original)
++                {
++                    edits.push(Edit::SaveBeforeSquare {
++                        square,
++                        original,
++                        branch,
++                        successor,
++                    });
++                }
++            }
++        }
++    }
++
++    if edits.is_empty() {
++        return None;
++    }
++
++    // Count actual IR uses, including branch arguments. A preserved value can
++    // only be overwritten when its square and one backedge are its sole users.
++    // Likewise prefer a right operand only when this multiply consumes it.
++    let mut uses = SecondaryMap::<Value, u8>::new();
++    for inst in func
++        .layout
++        .blocks()
++        .flat_map(|block| func.layout.block_insts(block))
++    {
++        for arg in func.dfg.inst_values(inst) {
++            uses[arg] = uses[arg].saturating_add(1);
++        }
++    }
++    let mut commuted = EntitySet::new();
++    let mut rewritten = None;
++    let mut split_blocks = EntitySet::new();
++    for edit in edits {
++        match edit {
++            Edit::Commute { product, previous }
++                if uses[previous] == 1 && commuted.insert(product) =>
++            {
++                let rewritten = rewritten.get_or_insert_with(|| func.clone());
++                rewritten.dfg.inst_args_mut(product).swap(0, 1);
++            }
++            Edit::SaveBeforeSquare {
++                square,
++                original,
++                branch,
++                successor,
++            } if uses[original] == 3 => {
++                let block = func.layout.inst_block(square).unwrap();
++                // A failed search stops at the next instruction. A successful
++                // search reserves the block, bounding the total scan length.
++                if !split_blocks.contains(block)
++                    && let Some(before) = square_insertion_point(func, square)
++                {
++                    split_blocks.insert(block);
++                    split_before_square(
++                        rewritten.get_or_insert_with(|| func.clone()),
++                        square,
++                        before,
++                        original,
++                        branch,
++                        successor,
++                    );
++                }
++            }
++            _ => {}
++        }
++    }
++    rewritten
++}
++
++fn recurrence_product(func: &Function, next: Value, previous: Value) -> Option<Inst> {
++    let update = func.dfg.value_def(next).inst()?;
++    let product = match func.dfg.insts[update].opcode() {
++        Opcode::Fmul => update,
++        Opcode::Fadd | Opcode::Fsub => func.dfg.value_def(func.dfg.inst_args(update)[0]).inst()?,
++        _ => return None,
++    };
++    // CLIF leaves the payload of noncanonical arithmetic NaNs unspecified.
++    (func.dfg.insts[product].opcode() == Opcode::Fmul
++        && func.dfg.inst_args(product)[1] == previous
++        && func.dfg.inst_args(product)[0] != previous)
++        .then_some(product)
++}
++
++/// The incoming square is the destructive left operand of the update.
++fn square_of_accumulator(func: &Function, next: Value, previous: Value) -> Option<(Inst, Value)> {
++    let square = func.dfg.value_def(next).inst()?;
++    if func.dfg.insts[square].opcode() != Opcode::Fmul {
++        return None;
++    }
++    let &[original, rhs] = func.dfg.inst_args(square) else {
++        unreachable!("fmul is binary");
++    };
++    let update = func.dfg.value_def(original).inst()?;
++    if original != rhs || !matches!(func.dfg.insts[update].opcode(), Opcode::Fadd | Opcode::Fsub) {
++        return None;
++    }
++    let lhs = func.dfg.inst_args(update)[0];
++    (lhs == previous
++        || func.dfg.value_def(lhs).inst().is_some_and(|inst| {
++            func.dfg.insts[inst].opcode() == Opcode::Fsub && func.dfg.inst_args(inst)[0] == previous
++        }))
++    .then_some((square, original))
++}
++
++/// Sink the square past independent scalar arithmetic so those instructions
++/// can finish using the old unsquared value before the preservation copy.
++fn square_insertion_point(func: &Function, square: Inst) -> Option<Inst> {
++    let result = func.dfg.first_result(square);
++    let next = func.layout.next_inst(square)?;
++    let mut before = next;
++    while matches!(
++        func.dfg.insts[before].opcode(),
++        Opcode::Fadd | Opcode::Fsub | Opcode::Fmul
++    ) && !func.dfg.inst_args(before).contains(&result)
++    {
++        before = func.layout.next_inst(before)?;
++    }
++    (before != next).then_some(before)
++}
++
++fn split_before_square(
++    func: &mut Function,
++    square: Inst,
++    before: Inst,
++    original: Value,
++    branch: Inst,
++    successor: usize,
++) {
++    let block = func.layout.inst_block(before).unwrap();
++    let tail = func.dfg.make_block();
++    let ty = func.dfg.value_type(original);
++    let saved = func.dfg.append_block_param(tail, ty);
++    func.layout.split_block(tail, before);
++    if func.layout.is_cold(block) {
++        func.layout.set_cold(tail);
++    }
++    func.layout.remove_inst(square);
++    func.layout.insert_inst(square, before);
++    let loc = func.srcloc(square);
++    let mut cursor = FuncCursor::new(func).with_srcloc(loc);
++    cursor.goto_bottom(block);
++    cursor.ins().jump(tail, &[BlockArg::Value(original)]);
++
++    let dfg = &mut cursor.func.dfg;
++    let call = &mut dfg.insts[branch]
++        .branch_destination_mut(&mut dfg.jump_tables, &mut dfg.exception_tables)[successor];
++    call.update_args(&mut dfg.value_lists, |arg| {
++        if arg == BlockArg::Value(original) {
++            BlockArg::Value(saved)
++        } else {
++            arg
++        }
++    });
++}
+diff --git a/cranelift/filetests/filetests/isa/x64/sse2-scalar-recurrence-boundaries.clif b/cranelift/filetests/filetests/isa/x64/sse2-scalar-recurrence-boundaries.clif
+new file mode 100644
+index 0000000000000000000000000000000000000000..ebaefaf100e0b8cb62e04a4ea3e18e15afd33fb7
+--- /dev/null
++++ b/cranelift/filetests/filetests/isa/x64/sse2-scalar-recurrence-boundaries.clif
+@@ -0,0 +1,243 @@
++test compile precise-output
++set opt_level=speed
++set regalloc_checker=true
++target x86_64
++
++;; The outer parameter is reused in every inner iteration. The product
++;; must keep accumulating in the inner parameter's register.
++function %nested(f64, f64, i64, i64) -> f64 {
++block0(v0: f64, v1: f64, v2: i64, v3: i64):
++    v12 = iconst.i64 1
++    jump block1(v0, v2)
++block1(v4: f64, v5: i64):
++    jump block2(v1, v3)
++block2(v6: f64, v7: i64):
++    v8 = fadd v6, v6
++    v9 = fmul v8, v4
++    v10 = isub v7, v12
++    brif v10, block2(v9, v10), block3
++block3:
++    v11 = isub v5, v12
++    brif v11, block1(v9, v11), block4
++block4:
++    return v9
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   movdqa %xmm0, %xmm2
++;   jmp     label1
++; block1:
++;   movq %rsi, %rax
++;   movdqa %xmm1, %xmm0
++;   jmp     label2
++; block2:
++;   subq $0x1, %rax
++;   addsd %xmm0, %xmm0
++;   mulsd %xmm2, %xmm0
++;   testq %rax, %rax
++;   jnz     label3; j label4
++; block3:
++;   jmp     label2
++; block4:
++;   subq $0x1, %rdi
++;   testq %rdi, %rdi
++;   jnz     label5; j label6
++; block5:
++;   movdqa %xmm0, %xmm2
++;   jmp     label1
++; block6:
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   movdqa %xmm0, %xmm2
++; block2: ; offset 0x8
++;   movq %rsi, %rax
++;   movdqa %xmm1, %xmm0
++; block3: ; offset 0xf
++;   subq $1, %rax
++;   addsd %xmm0, %xmm0
++;   mulsd %xmm2, %xmm0
++;   testq %rax, %rax
++;   jne 0xf
++; block4: ; offset 0x24
++;   subq $1, %rdi
++;   testq %rdi, %rdi
++;   je 0x3a
++; block5: ; offset 0x31
++;   movdqa %xmm0, %xmm2
++;   jmp 8
++; block6: ; offset 0x3a
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++
++;; Both halves of the split loop body must stay in the cold layout,
++;; after the hot return.
++function %cold_escape(f64, f64) -> i8 tail {
++    const0 = 0x00000000000000004010000000000000
++
++block0(v0: f64, v1: f64):
++    jump block2
++
++block3:
++    v4 = f64const 0.0
++    v9 = iconst.i64 50
++    v41 = f64const 0x1.0000000000000p2
++    v10 = iconst.i64 1
++    jump block4(v4, v4, v4, v4, v9)
++
++block4(v27: f64, v29: f64, v33: f64, v34: f64, v43: i64) cold:
++    v35 = fsub v33, v34
++    v37 = fadd v35, v0
++    v38 = fmul v37, v37
++    v28 = fadd v27, v27
++    v30 = fmul v28, v29
++    v32 = fadd v30, v1
++    v39 = fmul v32, v32
++    v40 = fadd v38, v39
++    v105 = f64const 0x1.0000000000000p2
++    v106 = fcmp gt v40, v105
++    brif v106, block7, block8
++
++block7:
++    jump block1(v38, v39)
++
++block8:
++    jump block6
++
++block6:
++    jump block5
++
++block5:
++    v107 = iconst.i64 1
++    v108 = isub.i64 v43, v107
++    brif v108, block4(v37, v32, v38, v39, v108), block1(v38, v39)
++
++block2:
++    jump block3
++
++block1(v59: f64, v60: f64):
++    v61 = fadd v59, v60
++    v63 = vconst.f64x2 const0
++    v64 = extractlane v63, 0
++    v65 = fcmp le v61, v64
++    return v65
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   jmp     label1
++; block1:
++;   jmp     label2
++; block2:
++;   uninit  %xmm2
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movdqa %xmm2, %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   jmp     label3
++; block5:
++;   jmp     label6
++; block6:
++;   jmp     label7
++; block7:
++;   subq $0x1, %rax
++;   testq %rax, %rax
++;   jnz     label8; j label9
++; block9:
++;   jmp     label11
++; block10:
++;   jmp     label11
++; block11:
++;   movupd (%rip), %xmm0
++;   ucomisd %xmm6, %xmm0
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++; block3:
++;   subsd %xmm5, %xmm4
++;   addsd %xmm0, %xmm4
++;   addsd %xmm2, %xmm2
++;   mulsd %xmm2, %xmm3
++;   addsd %xmm1, %xmm3
++;   movdqa %xmm3, %xmm5
++;   mulsd %xmm3, %xmm5
++;   jmp     label4
++; block4:
++;   movdqa %xmm4, %xmm2
++;   mulsd %xmm4, %xmm4
++;   movdqa %xmm4, %xmm6
++;   addsd %xmm5, %xmm6
++;   ucomisd (%rip), %xmm6
++;   jnbe    label10; j label5
++; block8:
++;   jmp     label3
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movdqa %xmm2, %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   jmp 0x3f
++; block2: ; offset 0x1e
++;   subq $1, %rax
++;   testq %rax, %rax
++;   jne 0x3f
++; block3: ; offset 0x2b
++;   movupd 0x4d(%rip), %xmm0
++;   ucomisd %xmm6, %xmm0
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++; block4: ; offset 0x3f
++;   subsd %xmm5, %xmm4
++;   addsd %xmm0, %xmm4
++;   addsd %xmm2, %xmm2
++;   mulsd %xmm2, %xmm3
++;   addsd %xmm1, %xmm3
++;   movdqa %xmm3, %xmm5
++;   mulsd %xmm3, %xmm5
++; block5: ; offset 0x5b
++;   movdqa %xmm4, %xmm2
++;   mulsd %xmm4, %xmm4
++;   movdqa %xmm4, %xmm6
++;   addsd %xmm5, %xmm6
++;   ucomisd 0x1d(%rip), %xmm6
++;   ja 0x2b
++;   jmp 0x1e
++; block6: ; offset 0x7e
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   adcb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %dl, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
+diff --git a/cranelift/filetests/filetests/isa/x64/sse2-scalar-recurrences.clif b/cranelift/filetests/filetests/isa/x64/sse2-scalar-recurrences.clif
+new file mode 100644
+index 0000000000000000000000000000000000000000..9167335e2fea0b94c25722a71b0ad83754d22f8f
+--- /dev/null
++++ b/cranelift/filetests/filetests/isa/x64/sse2-scalar-recurrences.clif
+@@ -0,0 +1,169 @@
++test compile precise-output
++set opt_level=speed
++set regalloc_checker=true
++target x86_64
++
++;; The original and the square both cross the backedge. Keep the square in
++;; the real accumulator's register, save the unsquared update in its next
++;; iteration's register, and reuse the old imaginary register for the multiply.
++function %escape(f64, f64) -> i8 tail {
++    const0 = 0x00000000000000004010000000000000
++
++block0(v0: f64, v1: f64):
++    jump block2
++
++block3:
++    v4 = f64const 0.0
++    v9 = iconst.i64 50
++    v41 = f64const 0x1.0000000000000p2
++    v10 = iconst.i64 1
++    jump block4(v4, v4, v4, v4, v9)
++
++block4(v27: f64, v29: f64, v33: f64, v34: f64, v43: i64):
++    v35 = fsub v33, v34
++    v37 = fadd v35, v0
++    v38 = fmul v37, v37
++    v28 = fadd v27, v27
++    v30 = fmul v28, v29
++    v32 = fadd v30, v1
++    v39 = fmul v32, v32
++    v40 = fadd v38, v39
++    v105 = f64const 0x1.0000000000000p2
++    v106 = fcmp gt v40, v105
++    brif v106, block7, block8
++
++block7:
++    jump block1(v38, v39)
++
++block8:
++    jump block6
++
++block6:
++    jump block5
++
++block5:
++    v107 = iconst.i64 1
++    v108 = isub.i64 v43, v107
++    brif v108, block4(v37, v32, v38, v39, v108), block1(v38, v39)
++
++block2:
++    jump block3
++
++block1(v59: f64, v60: f64):
++    v61 = fadd v59, v60
++    v63 = vconst.f64x2 const0
++    v64 = extractlane v63, 0
++    v65 = fcmp le v61, v64
++    return v65
++}
++
++; VCode:
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block0:
++;   jmp     label1
++; block1:
++;   jmp     label2
++; block2:
++;   uninit  %xmm2
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movdqa %xmm2, %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++;   jmp     label3
++; block3:
++;   subsd %xmm5, %xmm4
++;   addsd %xmm0, %xmm4
++;   addsd %xmm2, %xmm2
++;   mulsd %xmm2, %xmm3
++;   addsd %xmm1, %xmm3
++;   movdqa %xmm3, %xmm5
++;   mulsd %xmm3, %xmm5
++;   jmp     label4
++; block4:
++;   movdqa %xmm4, %xmm2
++;   mulsd %xmm4, %xmm4
++;   movdqa %xmm4, %xmm6
++;   addsd %xmm5, %xmm6
++;   ucomisd (%rip), %xmm6
++;   jnbe    label10; j label5
++; block5:
++;   jmp     label6
++; block6:
++;   jmp     label7
++; block7:
++;   subq $0x1, %rax
++;   testq %rax, %rax
++;   jnz     label8; j label9
++; block8:
++;   jmp     label3
++; block9:
++;   jmp     label11
++; block10:
++;   jmp     label11
++; block11:
++;   movupd (%rip), %xmm0
++;   ucomisd %xmm6, %xmm0
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;
++; Disassembled:
++; block0: ; offset 0x0
++;   pushq %rbp
++;   movq %rsp, %rbp
++; block1: ; offset 0x4
++;   xorpd %xmm2, %xmm2
++;   movl $0x32, %eax
++;   movdqa %xmm2, %xmm3
++;   movdqa %xmm2, %xmm4
++;   movdqa %xmm2, %xmm5
++; block2: ; offset 0x19
++;   subsd %xmm5, %xmm4
++;   addsd %xmm0, %xmm4
++;   addsd %xmm2, %xmm2
++;   mulsd %xmm2, %xmm3
++;   addsd %xmm1, %xmm3
++;   movdqa %xmm3, %xmm5
++;   mulsd %xmm3, %xmm5
++; block3: ; offset 0x35
++;   movdqa %xmm4, %xmm2
++;   mulsd %xmm4, %xmm4
++;   movdqa %xmm4, %xmm6
++;   addsd %xmm5, %xmm6
++;   ucomisd 0x33(%rip), %xmm6
++;   ja 0x60
++; block4: ; offset 0x53
++;   subq $1, %rax
++;   testq %rax, %rax
++;   jne 0x19
++; block5: ; offset 0x60
++;   movupd 0x28(%rip), %xmm0
++;   ucomisd %xmm6, %xmm0
++;   setae %al
++;   movq %rbp, %rsp
++;   popq %rbp
++;   retq
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   adcb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %dl, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)
++;   addb %al, (%rax)

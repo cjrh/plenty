@@ -1,0 +1,272 @@
+{
+  "plenty_revision": "f8c061b2c5a2ab39e5296914c5fe375e73528dd4",
+  "baseline_cranelift": "94ed85d10cc0396c1db231061642fd3d72d2fb3c",
+  "candidate_cranelift": "2986d9c5835ba6d03878312f8ef49703130bc65f",
+  "regalloc2": "b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1",
+  "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+  "runtime_cpu_affinity": "0-7",
+  "compile_cpu_affinity": "3",
+  "runtime_instructions": {
+    "binary-trees-idiomatic": {
+      "baseline": [
+        7284812470,
+        7284812205,
+        7284813537
+      ],
+      "candidate": [
+        7284812184,
+        7284812307,
+        7284812012
+      ]
+    },
+    "fannkuch-redux-idiomatic": {
+      "baseline": [
+        1623093491,
+        1623094357,
+        1623093491
+      ],
+      "candidate": [
+        1623093648,
+        1623093407,
+        1623093431
+      ]
+    },
+    "fannkuch-redux-parallel": {
+      "baseline": [
+        1485074136,
+        1485075165,
+        1485079300
+      ],
+      "candidate": [
+        1485073733,
+        1485076865,
+        1485075237
+      ]
+    },
+    "fasta-idiomatic": {
+      "baseline": [
+        1025930819,
+        1025930379,
+        1025931044
+      ],
+      "candidate": [
+        1025929662,
+        1025931432,
+        1025929927
+      ]
+    },
+    "k-nucleotide-idiomatic": {
+      "baseline": [
+        2368288903,
+        2368791883,
+        2370069117
+      ],
+      "candidate": [
+        2367974137,
+        2369123557,
+        2368773540
+      ]
+    },
+    "k-nucleotide-parallel": {
+      "baseline": [
+        2373721033,
+        2368661763,
+        2369336848
+      ],
+      "candidate": [
+        2367318581,
+        2367729726,
+        2362735157
+      ]
+    },
+    "mandelbrot-idiomatic": {
+      "baseline": [
+        8292162569,
+        8292162438,
+        8292162257
+      ],
+      "candidate": [
+        6794110189,
+        6794109973,
+        6794110110
+      ]
+    },
+    "n-body-clist": {
+      "baseline": [
+        2400698719,
+        2400698640,
+        2400698700
+      ],
+      "candidate": [
+        2400698965,
+        2400698775,
+        2400698939
+      ]
+    },
+    "n-body-idiomatic": {
+      "baseline": [
+        2355731826,
+        2355731405,
+        2355731750
+      ],
+      "candidate": [
+        2355731079,
+        2355731726,
+        2355730974
+      ]
+    },
+    "pidigits-idiomatic": {
+      "baseline": [
+        12758319055,
+        12758318300,
+        12758318507
+      ],
+      "candidate": [
+        12758319257,
+        12758318949,
+        12758318586
+      ]
+    },
+    "regex-redux-idiomatic": {
+      "baseline": [
+        636789189,
+        636796388,
+        636797335
+      ],
+      "candidate": [
+        636786067,
+        636794022,
+        636796561
+      ]
+    },
+    "regex-redux-parallel": {
+      "baseline": [
+        637005667,
+        636976700,
+        637013730
+      ],
+      "candidate": [
+        637033196,
+        636944040,
+        637044348
+      ]
+    },
+    "reverse-complement-idiomatic": {
+      "baseline": [
+        1691603312,
+        1692048742,
+        1692009039
+      ],
+      "candidate": [
+        1691789589,
+        1691986465,
+        1692018792
+      ]
+    },
+    "spectral-norm-idiomatic": {
+      "baseline": [
+        2244908708,
+        2244908751,
+        2244908650
+      ],
+      "candidate": [
+        2244908742,
+        2244909030,
+        2244908747
+      ]
+    }
+  },
+  "runtime_output_sha256": {
+    "binary-trees-idiomatic": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+    "fannkuch-redux-idiomatic": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+    "fannkuch-redux-parallel": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+    "fasta-idiomatic": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+    "k-nucleotide-idiomatic": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+    "k-nucleotide-parallel": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+    "mandelbrot-idiomatic": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+    "n-body-clist": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+    "n-body-idiomatic": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+    "pidigits-idiomatic": "fffa76efea29ad89ff0bfe661f469218fffa154a1ed8774a7a75dd5e488c6ea1",
+    "regex-redux-idiomatic": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+    "regex-redux-parallel": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+    "reverse-complement-idiomatic": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+    "spectral-norm-idiomatic": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f"
+  },
+  "gcc_16_2_1_mandelbrot_4000_instructions": [
+    6289014925,
+    6289015009,
+    6289015255
+  ],
+  "uncached_compile_instructions": {
+    "aot-1000x10": {
+      "baseline": [
+        129915220397,
+        129913703595,
+        129914833704
+      ],
+      "candidate": [
+        128977632764,
+        128978114710,
+        128974660535
+      ]
+    },
+    "spectral": {
+      "baseline": [
+        388775635,
+        388761427,
+        388750266
+      ],
+      "candidate": [
+        388468323,
+        388483430,
+        388509232
+      ]
+    },
+    "bounded": {
+      "baseline": [
+        388753357,
+        388732315,
+        388740165
+      ],
+      "candidate": [
+        388514996,
+        388491891,
+        388481031
+      ]
+    },
+    "fasta": {
+      "baseline": [
+        396880302,
+        396914630,
+        396914273
+      ],
+      "candidate": [
+        396771313,
+        396710082,
+        396697355
+      ]
+    }
+  },
+  "wide_backedge_harness_instructions": {
+    "original_candidate_cranelift": "b9f617a9aab6db54b2596bdd503cdb92b6db67d6",
+    "cpu_affinity": "3",
+    "samples": {
+      "512": {
+        "original_candidate": 425397040,
+        "revised_candidate": 432585778
+      },
+      "1024": {
+        "original_candidate": 1476035407,
+        "revised_candidate": 1505311063
+      },
+      "2048": {
+        "original_candidate": 5657068531,
+        "revised_candidate": 5770601657
+      },
+      "4096": {
+        "original_candidate": 22457074059,
+        "revised_candidate": 22912543008
+      }
+    }
+  }
+}
