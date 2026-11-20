@@ -301,8 +301,9 @@ The cost is 12.0% more n-body compilation instructions and `advance` growing
 from 6,259 to 14,286 bytes, including its fallback. Limits bound expansion,
 promoted cells and added locals. Complete-state checks include the original
 initial state and eighty randomized cases; fallback and allocation-failure
-checks retain their original behavior. Broader aggregate eligibility, automatic
-SIMD packing and backend register use remain issue #930 in the [backlog](../backlog.md).
+checks retain their original behavior. The
+[n-body follow-up](#n-body-residual-optimization-issue-930) records
+the subsequent SIMD and backend work.
 
 ### Paired divisions and square roots
 
@@ -352,9 +353,9 @@ by such operands in memory for its whole life. Rewriting the allocated code
 of a hand-written kernel instead, folding a reload into the next instruction
 when the reloaded register is not read again, gave 612 instructions and 220
 cycles against 645 and 231; also retargeting reloads that feed a copy gave 569
-and 213. That post-allocation fold in the Cranelift fork
-and keeping pair data in vectors (a hand-written IR with `x`/`y` pairs runs at
-187 cycles) remain issue #930.
+and 213. The later [spill reload rewrite](#spill-reloads-folded-after-register-allocation-issue-930)
+adopted memory-operand folding and store forwarding. The hand-written IR with
+`x`/`y` pairs ran at 187 cycles and led to [keeping pairs in vector rows](#rows-of-pair-data-in-vectors).
 
 ### Clist columns as numerical state
 
@@ -733,6 +734,30 @@ the convention's stack alignment. Plenty's own functions use `tail`; `main`,
 runtime entry points, thread adapters, generators and FFI callbacks use the
 host C convention. `plenty_actor_enter` realigns before its call and
 compiled programs do not switch stacks.
+
+### n-body residual optimization (issue #930)
+
+Guarded numerical state, paired magnitudes, vector rows and the spill
+rewrites address the original hot path. On the optimized compiler at
+`4465a43e`, the unchanged list benchmark retires 471 instructions per
+step at x86-64 and 393 at x86-64-v3. The corresponding `clist` counts
+are 480 and 393. The guarded steps have no per-pair collection checks
+or collection address calculations. The isolated general-size velocity
+kernel still takes 58 instructions per pair on the path with proved body
+bounds and 69 on the fallback, against 34 for GCC's C kernel.
+
+The residual work is deferred. The guarded list step still has 147
+explicit stack moves at x86-64 and 142 at v3. Folding a reload into a
+read/write operand needs a legal operand form that preserves its
+register result, and extending the current pass across blocks needs
+liveness and spill-slot proofs at each relevant edge. The native
+three-component vector probe ran in 5.5% fewer cycles on Zen 4
+with its private AVX2 kernel boundary. The
+[measured source-level prototype](#rejected-declared-vector-adoption-issue-967)
+failed the adoption gate. Revisit source packing or another spill
+rewrite when an isolated case yields a representative source-level
+improvement. The comparison and reproduction are in
+`experiments/nbody-spills/README.md`.
 
 ## Value bounds and loop conditions
 
