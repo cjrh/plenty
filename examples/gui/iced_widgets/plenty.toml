@@ -13,6 +13,10 @@ name = "text_input"
 path = "src/text_input.plenty"
 
 [[bin]]
+name = "text_editor"
+path = "src/text_editor.plenty"
+
+[[bin]]
 name = "button"
 path = "src/button.plenty"
 

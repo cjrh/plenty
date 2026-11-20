@@ -8,6 +8,7 @@ extern def native_end(token: u64) -> u32 = "plic_v1_end"
 extern def native_svg(token: u64, source: &str as utf8) -> u32 = "plic_v1_svg"
 import std.bytes as buffers
 
+extern def native_text_editor(token: u64, text: &str as utf8, id: u64) -> u32 = "plic_v1_text_editor"
 extern def native_text_input(token: u64, text: &str as utf8, id: u64) -> u32 = "plic_v1_text_input"
 extern def event_text_len() -> i64 = "plic_v1_event_text_len"
 extern def event_text_copy(data: &mut list[u8] as strided) -> u32 = "plic_v1_event_text_copy"
@@ -142,6 +143,8 @@ pub class Frame:
         checked(native_end(self.token))
     pub def svg(self, source: &str) -> Result[(), IcedError]:
         checked(native_svg(self.token, source))
+    pub def text_editor(self, text: &str, id: u64) -> Result[(), IcedError]:
+        checked(native_text_editor(self.token, text, id))
     pub def text_input(self, text: &str, id: u64) -> Result[(), IcedError]:
         checked(native_text_input(self.token, text, id))
     pub def text(self, text: &str) -> Result[(), IcedError]:
