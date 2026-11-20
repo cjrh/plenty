@@ -36,6 +36,7 @@ mod test_std_alloc_slice;
 mod test_std_alloc_slice_bytes;
 mod test_std_alloc_slice_clist;
 mod test_std_alloc_slice_text;
+mod test_std_alloc_split_bytes;
 
 #[path = "test_pipelines.rs"]
 mod test_pipelines;

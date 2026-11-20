@@ -313,6 +313,32 @@ The trim set removes NUL or space at either edge, in any order. The byte
 `0xff` is neither padding nor an ASCII letter, so it survives both copies.
 See [case and strip copies](../../design/stdlib/alloc.md#change-ascii-case-or-strip-byte-edges).
 
+## Keep fields from a byte frame
+
+If an empty field marks a missing value, split on an explicit separator.
+For a command whose arguments are separated by runs of ASCII whitespace, use
+`split_whitespace_bytes` instead. Neither operation requires valid UTF-8:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    fields = out.split_bytes(b"name||\xff", b"|")?
+    words = out.split_whitespace_bytes(b" GET\t\xff\r\n")?
+    print(len(&fields), fields[1], fields[2])?
+    print(len(&words), words[0], words[1])?
+    Ok(())
+```
+```output
+3 b"" b"\xff"
+2 b"GET" b"\xff"
+```
+
+The [list and its fields](../../design/stdlib/alloc.md#split-byte-views-into-fields)
+are independent owners. If you take the empty field out and push bytes into
+it later, it still uses `out`.
+
 ## Keep text from a borrowed label
 
 To keep a piece after the label changes, copy it into a `str`. Use

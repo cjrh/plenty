@@ -71,6 +71,9 @@ storage for their copies, use [`Allocator.lower_bytes`, `upper_bytes`,
 `split(b"")` is a caller error and traps with `bytes.split: separator is empty`.
 Whitespace splitting of empty/all-whitespace input returns an empty list;
 explicit-separator splitting of empty input returns one empty buffer.
+To choose storage for both the list and every field, use
+[`out.split_bytes` or `out.split_whitespace_bytes`](alloc.md#split-byte-views-into-fields).
+
 Replacing an empty pattern inserts the replacement before, between and after
 source bytes. For example, `b"ab".replace(b"", b"-")?` is `b"-a-b-"`.
 
