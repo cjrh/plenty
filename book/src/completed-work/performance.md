@@ -1873,9 +1873,19 @@ loop-edge coalescing in an allocator probe leaves the original loop unchanged
 and increases the count in a rotated control.
 
 The probes and measurements live in `experiments/kernels/escape-copies/`.
-The fixed benchmark remains the compiler regression input. Adopting a general
-lowering improvement for the imaginary multiply and avoiding the two real-value
-backedge copies remain open under issue #978.
+The fixed benchmark remains the compiler regression input.
+
+A local Cranelift candidate recognizes scalar floating-point recurrences on
+optimized x86-64 without AVX. It keeps the imaginary update in its incoming
+register, delays the real square past independent arithmetic, and saves the
+unsquared update directly in the register used on the next pass. The unchanged
+kernel and both the standalone and inlined benchmark loops go from six to
+three scalar copies per pass, matching GCC. The backedge also becomes a direct
+conditional branch, reducing the total from 20 to 16 instructions per pass.
+The candidate patch, reproduction and validation are retained in
+`experiments/kernels/escape-copies/`.
+Publishing the fork commit and updating the production pins remain under
+issue #978.
 
 ## Rejected declared-vector adoption (issue #967)
 

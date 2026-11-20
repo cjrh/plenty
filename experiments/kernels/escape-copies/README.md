@@ -93,10 +93,9 @@ instructions for the default profile (329.354M–329.385M), 329.351M for the
 commuted source (329.335M–329.364M), and 329.882M for x86-64-v3
 (329.866M–329.888M). Raw samples are in `measurements.json`.
 
-This work retains the idiomatic benchmark as a fixed compiler regression
-input. Issue #978 remains open for compiler or backend promotion of the
-imaginary multiply's register choice and for the two remaining real-value
-backedge copies. No generic allocator or compiler change is proposed.
+The investigation kept the idiomatic benchmark as a fixed compiler regression
+input. The [backend candidate](#backend-candidate) uses the same source to
+check the imaginary multiply and real-value backedge.
 
 ## Reproduction
 
@@ -143,3 +142,88 @@ For the allocator control, apply the retained patch to an isolated copy of
 regalloc2 at the pin above and build a separate copy of the harness with its
 `[patch.crates-io]` `regalloc2` entry pointing to that copy. Reuse the SSE2
 harness and C checker commands with the resulting executable.
+
+## Backend candidate
+
+The [local Cranelift patch](sse2-recurrences.patch) implements the operand
+choice and real-value reuse on optimized SSE2 with the backtracking allocator.
+It recognizes natural loop backedges whose scalar updates feed their own block
+parameters. The imaginary multiply can destroy its right operand when that
+operand is a header parameter with one use. The real square can destroy the
+register already used for the real update. The backend delays the square past
+independent arithmetic, then saves the unsquared value through a block argument
+that can coalesce with the next iteration's parameter. This runs after
+constant-phi cleanup, which would otherwise remove the single-predecessor
+argument.
+
+The rewrite preserves operation grouping and moves the square only across
+independent arithmetic within its original block. Commuting the multiply can
+change an arithmetic NaN's unspecified payload. AVX and unoptimized builds
+bypass the rewrite.
+
+Measured from Plenty `f8c061b2` with Cranelift `94ed85d10c`, compared with
+the same compiler built against the local backend commit `b9f617a9aa`.
+
+| Kernel or loop | Locked SSE2 | Candidate SSE2 | GCC SSE2 |
+|---|---:|---:|---:|
+| Isolated escape kernel | 20 | 16 | 15 |
+| Benchmark `in_set` | 20 | 16 | |
+| Inlined escape loop in `render_row` | 20 | 16 | |
+| Scalar register copies in each `escape` pass | 6 | 3 | 3 |
+
+The three backedge copies disappear. The three remaining copies preserve the
+unsquared real and imaginary values and form their squared magnitude sum.
+Both Plenty builds perform eight floating-point operations, a comparison, a
+countdown subtraction, and two conditional branches. The candidate also drops
+the unconditional backedge jump because the edge has no copies to place.
+Its countdown still uses a separate test, which accounts for the remaining
+one-instruction difference from GCC 16.2.1.
+
+All 12 retained CLIF variants reach 16 instructions on the candidate. The C
+oracle passes 480,000 comparisons on each of the SSE2 and AVX harness builds,
+including signed zeros, subnormals, infinities and NaNs. The AVX machine-code
+bytes match the locked backend. Another 480,000 comparisons cover the current
+benchmark's bottom-tested form and its operand and scheduling variants.
+The same variant comparison in single precision passes 480,000 cases.
+
+Mandelbrot at size 4000 retires a median of **6,794.109 million instructions**
+with the candidate, compared with **8,292.161 million** with the locked backend
+and **6,289.015 million** with the C reference. The reduction is **18.07%**.
+All outputs match the reference at sizes 1, 7, 8, 9, 200 and 4000, including
+the checked-in size-200 bitmap. The 14 Benchmarks Game variants produce
+identical output across three runs each. The other variants' median instruction
+counts shift by at most 0.051%, within the spread observed in the hash workloads.
+
+Uncached compilation retired the following instruction counts in three
+alternating runs. Counts are in millions, with the sample range in parentheses.
+
+| Workload | Locked compiler | Candidate compiler |
+|---|---:|---:|
+| `compile_bench 1000 10 --workload aot` | 129,912.637 (129,908.323–129,913.039) | 128,873.190 (128,867.782–128,873.769) |
+| Spectral norm | 388.745 (388.718–388.753) | 388.349 (388.339–388.370) |
+| Bounded spectral norm | 388.706 (388.704–388.730) | 388.369 (388.355–388.372) |
+| Fasta | 396.904 (396.897–396.919) | 396.619 (396.578–396.634) |
+
+The [raw instruction counts and output hashes](backend-measurements.json)
+cover the runtime and compilation comparisons. Cranelift's registry allocator
+passes all 210 x64 filetests and 19 x64-only runtime tests. The new regression
+fails on the locked backend and passes with the candidate. Plenty's pinned
+allocator produces the same 15 assembly-output mismatches and identical diff
+hunks as the locked backend.
+
+### Reproduce the candidate
+
+Apply the patch in an isolated Cranelift checkout at `94ed85d10c`.
+Build Plenty and the CLIF harness with path overrides pointing at that
+checkout and keep the compiled-function cache off. Use the
+[repository fork procedure](../../../book/src/development/workflow.md#cranelift-and-regalloc2-forks)
+for the Plenty override. The harness overrides `cranelift-codegen`,
+`cranelift-control` and `cranelift-reader` under the same patch table.
+Run the commands in [Reproduction](#reproduction) with the patched tools
+and then repeat with the locked tools. For the unchanged benchmark, dump
+`in_set` and `render_row` separately with `--dump-filter` and pass
+`asm.txt` to `loops.py -v`. The new Cranelift filetest checks the complete
+SSE2 sequence with the register-allocation checker.
+
+The candidate is available locally. It needs fork publication and lockfile
+updates before release builds use it.

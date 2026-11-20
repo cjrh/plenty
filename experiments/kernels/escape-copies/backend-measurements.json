@@ -1,0 +1,250 @@
+{
+  "plenty_revision": "f8c061b2c5a2ab39e5296914c5fe375e73528dd4",
+  "baseline_cranelift": "94ed85d10cc0396c1db231061642fd3d72d2fb3c",
+  "candidate_cranelift": "b9f617a9aab6db54b2596bdd503cdb92b6db67d6",
+  "regalloc2": "b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1",
+  "cpu": "AMD Ryzen 7 7840HS w/ Radeon 780M Graphics",
+  "runtime_cpu_affinity": "0-7",
+  "compile_cpu_affinity": "3",
+  "runtime_instructions": {
+    "binary-trees-idiomatic": {
+      "baseline": [
+        7284810932,
+        7284811197,
+        7284811780
+      ],
+      "candidate": [
+        7284810637,
+        7284811469,
+        7284811186
+      ]
+    },
+    "fannkuch-redux-idiomatic": {
+      "baseline": [
+        1623092270,
+        1623092167,
+        1623092218
+      ],
+      "candidate": [
+        1623092309,
+        1623092157,
+        1623092598
+      ]
+    },
+    "fannkuch-redux-parallel": {
+      "baseline": [
+        1485074920,
+        1485073908,
+        1485075500
+      ],
+      "candidate": [
+        1485074014,
+        1485075109,
+        1485074675
+      ]
+    },
+    "fasta-idiomatic": {
+      "baseline": [
+        1025928431,
+        1025929145,
+        1025928769
+      ],
+      "candidate": [
+        1025929345,
+        1025931722,
+        1025929386
+      ]
+    },
+    "k-nucleotide-idiomatic": {
+      "baseline": [
+        2368036762,
+        2366466325,
+        2367870855
+      ],
+      "candidate": [
+        2369236147,
+        2364887210,
+        2366665248
+      ]
+    },
+    "k-nucleotide-parallel": {
+      "baseline": [
+        2363632227,
+        2365999026,
+        2371335444
+      ],
+      "candidate": [
+        2381006419,
+        2366879622,
+        2365466730
+      ]
+    },
+    "mandelbrot-idiomatic": {
+      "baseline": [
+        8292161147,
+        8292161045,
+        8292161492
+      ],
+      "candidate": [
+        6794109565,
+        6794109292,
+        6794109436
+      ]
+    },
+    "n-body-clist": {
+      "baseline": [
+        2400697355,
+        2400697260,
+        2400697353
+      ],
+      "candidate": [
+        2400697354,
+        2400697324,
+        2400697312
+      ]
+    },
+    "n-body-idiomatic": {
+      "baseline": [
+        2355730387,
+        2355730207,
+        2355730364
+      ],
+      "candidate": [
+        2355730641,
+        2355730223,
+        2355730378
+      ]
+    },
+    "pidigits-idiomatic": {
+      "baseline": [
+        12758317881,
+        12758317564,
+        12758317834
+      ],
+      "candidate": [
+        12758318041,
+        12758317018,
+        12758317583
+      ]
+    },
+    "regex-redux-idiomatic": {
+      "baseline": [
+        636783489,
+        636783695,
+        636783577
+      ],
+      "candidate": [
+        636783392,
+        636783428,
+        636783456
+      ]
+    },
+    "regex-redux-parallel": {
+      "baseline": [
+        637028374,
+        637027953,
+        636964350
+      ],
+      "candidate": [
+        636965576,
+        637030729,
+        637000319
+      ]
+    },
+    "reverse-complement-idiomatic": {
+      "baseline": [
+        1691380396,
+        1691380161,
+        1691380459
+      ],
+      "candidate": [
+        1691380290,
+        1691380015,
+        1691380327
+      ]
+    },
+    "spectral-norm-idiomatic": {
+      "baseline": [
+        2244907482,
+        2244907492,
+        2244907514
+      ],
+      "candidate": [
+        2244907457,
+        2244907597,
+        2244907548
+      ]
+    }
+  },
+  "runtime_output_sha256": {
+    "binary-trees-idiomatic": "3b9e63e2b3523d282d08c35b889a2343c0ee7a24a2540ce6a41bc58f782cd7ff",
+    "fannkuch-redux-idiomatic": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+    "fannkuch-redux-parallel": "26f4debed9b9f8db7609e17f35756a3f72c1d85d40977a4377a1ef34ffc4d4c8",
+    "fasta-idiomatic": "e3600e481ef68b6cd9ac155f93f40ff06a4094128f62895eb37b28ebad7cab72",
+    "k-nucleotide-idiomatic": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+    "k-nucleotide-parallel": "33e7b57c6ccc770087d6142cbf8fc396644be22621652a3dcb48af73e64154a5",
+    "mandelbrot-idiomatic": "d7c903ec07c9bbbb7747b58cd1f174d7ba88b61ad172fb306288bd0fe9140a07",
+    "n-body-clist": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+    "n-body-idiomatic": "a209785651d3f855b56ffcac6bce1eda49dff67124f34418aedd4ddb91c384c8",
+    "pidigits-idiomatic": "fffa76efea29ad89ff0bfe661f469218fffa154a1ed8774a7a75dd5e488c6ea1",
+    "regex-redux-idiomatic": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+    "regex-redux-parallel": "24ade570ad697631733bca6ecb310817cd6caed181d8471a68b74005bd75f970",
+    "reverse-complement-idiomatic": "20e415fd7728fc8f1bf18fa27513f31b408f937c0e044d50e8bc97e235b9d204",
+    "spectral-norm-idiomatic": "a1c719a1eb113f34314469d275635aa2dbdc6aa02020cd8a6aa4503813e8528f"
+  },
+  "gcc_16_2_1_mandelbrot_4000_instructions": [
+    6289014948,
+    6289014919,
+    6289015145
+  ],
+  "uncached_compile_instructions": {
+    "aot-1000x10": {
+      "baseline": [
+        129913038750,
+        129908322747,
+        129912636629
+      ],
+      "candidate": [
+        128867782374,
+        128873189931,
+        128873768811
+      ]
+    },
+    "spectral": {
+      "baseline": [
+        388745491,
+        388753126,
+        388718178
+      ],
+      "candidate": [
+        388339272,
+        388348538,
+        388369916
+      ]
+    },
+    "bounded": {
+      "baseline": [
+        388703891,
+        388706025,
+        388729952
+      ],
+      "candidate": [
+        388369098,
+        388371790,
+        388354517
+      ]
+    },
+    "fasta": {
+      "baseline": [
+        396919459,
+        396904072,
+        396896694
+      ],
+      "candidate": [
+        396578209,
+        396633532,
+        396619007
+      ]
+    }
+  }
+}
