@@ -521,6 +521,7 @@
                     - [ProgressBar](design/stdlib/gui-iced-widgets/progress_bar.md)
                     - [Space](design/stdlib/gui-iced-widgets/space.md)
                     - [Rule](design/stdlib/gui-iced-widgets/rule.md)
+                    - [QRCode](design/stdlib/gui-iced-widgets/qr_code.md)
                     - [Svg](design/stdlib/gui-iced-widgets/svg.md)
                     - [Image](design/stdlib/gui-iced-widgets/image.md)
                     - [Responsive](design/stdlib/gui-iced-widgets/responsive.md)

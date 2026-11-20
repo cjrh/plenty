@@ -226,6 +226,34 @@ fn choice_membership_and_selected_action_are_checked() {
         );
     }
 }
+#[cfg(feature = "application")]
+#[test]
+fn qr_checks_payload() {
+    for (bytes, error) in [
+        (vec![], Error::InvalidArgument),
+        (vec![0xff], Error::InvalidArgument),
+        (vec![b'a'; 4096], Error::LimitExceeded),
+    ] {
+        assert_eq!(
+            build_scene(|t| {
+                unsafe { plic_v1_qr_code(t, bytes.as_ptr(), bytes.len()) };
+                Ok(())
+            }),
+            Err(error)
+        );
+    }
+    let scene = build_scene(|t| {
+        let s = String::from("ticket:猫");
+        unsafe { plic_v1_qr_code(t, s.as_ptr(), s.len()) };
+        Ok(())
+    })
+    .unwrap();
+    let Kind::QrCode(q) = &scene.nodes[0].kind else {
+        panic!("missing QR code")
+    };
+    assert_eq!(q.payload, "ticket:猫");
+    let _widget: iced::widget::QRCode<'_, iced::Theme> = iced::widget::qr_code(&q.data);
+}
 #[test]
 fn svg_copies_markup_and_rejects_oversize_before_reading() {
     let scene = build_scene(|t| {

@@ -24,6 +24,19 @@ pub enum Error {
     NativeFailure = 7,
 }
 
+#[cfg(feature = "application")]
+#[derive(Debug)]
+pub struct Qr {
+    payload: String,
+    data: iced::widget::qr_code::Data,
+}
+#[cfg(feature = "application")]
+impl PartialEq for Qr {
+    fn eq(&self, other: &Self) -> bool {
+        self.payload == other.payload
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ComboCache {
     #[cfg(all(feature = "application", not(test)))]
@@ -96,6 +109,8 @@ pub enum Kind {
     TextInput(String, u64),
     TextEditor(String, u64),
     Svg(String),
+    #[cfg(feature = "application")]
+    QrCode(Qr),
     Button(String, u64),
 }
 
@@ -646,6 +661,38 @@ unsafe fn leaf(
             children: Vec::new(),
         })?;
         builder.text_bytes += len;
+        Ok(())
+    })
+}
+
+/// # Safety
+/// The caller lends `len` readable UTF-8 bytes for this call.
+#[cfg(feature = "application")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_qr_code(token: u64, text: *const u8, len: usize) -> u32 {
+    command(token, |b| {
+        if len > MAX_TEXT || b.text_bytes + len > MAX_FRAME_TEXT {
+            return Err(Error::LimitExceeded);
+        }
+        if len == 0 || text.is_null() {
+            return Err(Error::InvalidArgument);
+        }
+        let s = std::str::from_utf8(unsafe { std::slice::from_raw_parts(text, len) })
+            .map_err(|_| Error::InvalidArgument)?;
+        let data = iced::widget::qr_code::Data::new(s).map_err(|e| match e {
+            iced::widget::qr_code::Error::DataTooLong => Error::LimitExceeded,
+            _ => Error::NativeFailure,
+        })?;
+        let mut payload = String::new();
+        payload
+            .try_reserve_exact(len)
+            .map_err(|_| Error::OutOfMemory)?;
+        payload.push_str(s);
+        b.add(Node {
+            kind: Kind::QrCode(Qr { payload, data }),
+            children: Vec::new(),
+        })?;
+        b.text_bytes += len;
         Ok(())
     })
 }
