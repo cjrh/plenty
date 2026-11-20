@@ -35,6 +35,32 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+#[test]
+fn second_match_refusal_releases_populated_backing() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+import std.bytes as binary
+
+def main() -> Result[(), AllocError | IoError]:
+    src = binary.from_bytes(b"aa")?
+    old = binary.from_bytes(b"a")?
+    replacement = binary.from_bytes(b"12345678")?
+    out = budget("partial", 2, AllocError.CapacityOverflow)
+    match out.replace_bytes(&src, &old, &replacement):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    drop(out)
+    print(src, old, replacement)?
+    Ok(())
+"#
+        ),
+        "refused partial\nAllocError.CapacityOverflow\npartial 0 2\nb\"aa\" b\"a\" b\"12345678\"\n",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn selected_result_uses_no_system_buffer() {
@@ -56,14 +82,18 @@ def main() -> Result[(), AllocError | IoError]:
         blocks.append(root.block(&layout)?)?
     out = alloc.allocator(&root, Preallocated(blocks)).unwrap()
     parts = root.split_bytes(b"a|\xff", b"|")?
+    frame = b"<a::b::c>"
+    needle = b"!::?"
+    repl = b"[\xff]"
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?
     result = out.replace_bytes(&parts[1], b"", b"+")
+    sliced = out.replace_bytes(&frame[1:-1], &needle[1:3], &repl[1:2])
     print("__test_end_no_allocations__")?
     print("__test_restore_allocations__")?
-    print(result?)?
+    print(result?, sliced?)?
     Ok(())
 "#,
-        "__test_fail_allocations_after_0__\n__test_begin_no_allocations__\n__test_end_no_allocations__\n__test_restore_allocations__\nb\"+\\xff+\"\n",
+        "__test_fail_allocations_after_0__\n__test_begin_no_allocations__\n__test_end_no_allocations__\n__test_restore_allocations__\nb\"+\\xff+\" b\"a\\xffb\\xffc\"\n",
     );
 }

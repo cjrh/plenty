@@ -243,7 +243,7 @@ system fallback; provisional storage is released.
 
 ### Replace bytes in a frame
 
-`out.replace_bytes(source, old, replacement)` returns `Result[Bytes, AllocError]`. Matches are nonoverlapping. An empty needle inserts the replacement before, between and after the source bytes. Even when nothing matches, the result is an independent copy. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
+`out.replace_bytes(source, old, replacement)` returns `Result[Bytes, AllocError]`. Matches are nonoverlapping. An empty needle inserts the replacement before, between and after the source bytes. Even when nothing matches, the result is an independent copy. Capacity is checked as the output grows, not preflighted; an unrepresentable capacity returns `AllocError.CapacityOverflow`. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
 
 ### Split byte views into fields
 
