@@ -2423,19 +2423,35 @@ impl Lowerer<'_, '_> {
         if let Some((_, below)) = relation.take() {
             self.leave_relation(below);
         }
-        if !self.terminated {
+        // With no continue edge, the ordinary fallthrough is the only
+        // route to the next test. Keep that test in the body's last block
+        // so instruction selection can merge its loads into arithmetic
+        // (issue #980). Rotation and its body-only facts stay unchanged.
+        // A continue, including one through a cleanup ladder, still needs
+        // the shared latch. Nested loops have their own continue targets.
+        let coalesced = rotated
+            && self.module.folds_scalar_float_loads()
+            && !self.terminated
+            && !crate::op::continues_loop(body)
+            && self.has_float_reduction_load(iteration);
+        if !self.terminated && !coalesced {
             self.bcx.ins().jump(latch, &[]);
         }
-        // The shared `break` blocks are still inside the iteration.
-        self.finish_loop_exits()?;
-        self.loop_targets.pop();
+        // A coalesced fallthrough still needs its condition terminator
+        // before cleanup lowering can switch to the shared break blocks.
+        if !coalesced {
+            self.finish_loop_exits()?;
+            self.loop_targets.pop();
+        }
         if rotated {
             // The latch's condition runs where the header's did; the code
             // after the loop continues from the body's state, as without
             // rotation.
             let after = (self.position.clone(), self.bcx.srcloc());
             self.bcx.seal_block(latch);
-            self.bcx.switch_to_block(latch);
+            if !coalesced {
+                self.bcx.switch_to_block(latch);
+            }
             let (stack, position, srcloc) = entry;
             self.stack = stack;
             self.position = position;
@@ -2453,6 +2469,10 @@ impl Lowerer<'_, '_> {
                 };
                 self.bcx.ins().brif(test, iteration, &[], exit, &[]);
             }
+            if coalesced {
+                self.finish_loop_exits()?;
+                self.loop_targets.pop();
+            }
             self.bcx.seal_block(iteration);
             self.position = after.0;
             self.bcx.set_srcloc(after.1);
@@ -2460,6 +2480,44 @@ impl Lowerer<'_, '_> {
             self.tags.loaded = None;
         }
         Ok(rotated && seal)
+    }
+
+    /// A scalar load feeding a multiply and then an add to a loop-carried
+    /// sum can become a memory operand when the test shares its body block.
+    /// Keep the separate latch for multiple reductions. Folding several
+    /// loads can add operand copies and change the counter backedge, as in
+    /// the clist n-body momentum loop (issue #980).
+    fn has_float_reduction_load(&self, iteration: cranelift_codegen::ir::Block) -> bool {
+        use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
+        let Some(block) = self.bcx.current_block() else {
+            return false;
+        };
+        let dfg = &self.bcx.func.dfg;
+        let layout = &self.bcx.func.layout;
+        let def = |value| dfg.value_def(dfg.resolve_aliases(value));
+        let load = |value| {
+            matches!(def(value), ValueDef::Result(inst, _)
+                if dfg.insts[inst].opcode() == Opcode::Load
+                    && layout.inst_block(inst) == Some(block))
+        };
+        let product = |value| match def(value) {
+            ValueDef::Result(inst, _) if layout.inst_block(inst) == Some(block) => {
+                matches!(dfg.insts[inst], InstructionData::Binary {
+                    opcode: Opcode::Fmul, args,
+                } if load(args[0]) || load(args[1]))
+            }
+            _ => false,
+        };
+        let carried = |value| matches!(def(value), ValueDef::Param(owner, _) if owner == iteration);
+        let mut reductions = layout.block_insts(block).filter(|&inst| {
+            matches!(dfg.insts[inst], InstructionData::Binary {
+                opcode: Opcode::Fadd, args,
+            } if (dfg.value_type(args[0]) == cranelift_codegen::ir::types::F64
+                || dfg.value_type(args[0]) == cranelift_codegen::ir::types::F32)
+                && ((carried(args[0]) && product(args[1]))
+                    || (carried(args[1]) && product(args[0]))))
+        });
+        reductions.next().is_some() && reductions.next().is_none()
     }
 
     /// Lowers one copy of a rotated loop's condition and returns its test.

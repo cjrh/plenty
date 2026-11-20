@@ -1,4 +1,8 @@
-# Scalar floating-load folding (issue #980)
+# Scalar floating-load folding experiment (issue #980)
+
+The [adoption record](../../../book/src/completed-work/performance.md#scalar-floating-load-folding-issue-980)
+reports the complete compiler with the combined backend and the single-reduction
+frontend guard. This page records the earlier standalone experiment.
 
 This evidence-only experiment separates two prerequisites for folding the input
 load into spectral norm's multiply. The matched Plenty/C source is in

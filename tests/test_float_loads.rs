@@ -226,3 +226,29 @@ fn float_loads_are_typed() {
         }
     }
 }
+
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn spectral_reductions_fold_load_into_multiply() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = include_str!("../experiments/kernels/bounded-arguments/kernels.plenty");
+    std::fs::write(dir.path().join("kernels.plenty"), source).unwrap();
+    for (cpu, multiply) in [("x86-64", "mulsd"), ("x86-64-v3", "vmulsd")] {
+        plenty(
+            dir.path(),
+            &["--cpu", cpu, "--dump", "asm", "kernels.plenty", "-o", cpu],
+        );
+        let assembly = std::fs::read_to_string(dir.path().join(cpu).join("asm.txt")).unwrap();
+        for name in ["a_times_u", "at_times_u"] {
+            let body = support::asm_body(&assembly, name);
+            assert!(
+                body.lines().any(|line| {
+                    let mut words = line.split_whitespace().skip(1);
+                    words.next() == Some(multiply)
+                        && words.next().is_some_and(|operands| operands.contains("(%"))
+                }),
+                "{cpu} {name}:\n{body}"
+            );
+        }
+    }
+}

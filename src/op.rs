@@ -1565,11 +1565,22 @@ pub fn forever_condition(condition: &[Op]) -> bool {
 /// Whether `body` has a `break` for the loop that runs it. Nested loops are
 /// skipped. An explicit work list keeps deep nesting off the call stack.
 pub(crate) fn breaks_out(body: &[Op]) -> bool {
+    transfers_out(body, false)
+}
+
+/// Whether a continue in this body targets its own loop, including checked
+/// cleanup paths. Continues inside nested loops target only those loops.
+pub(crate) fn continues_loop(body: &[Op]) -> bool {
+    transfers_out(body, true)
+}
+
+fn transfers_out(body: &[Op], continuing: bool) -> bool {
     let mut pending = vec![body];
     while let Some(ops) = pending.pop() {
         for op in ops {
             match op {
-                Op::Break => return true,
+                Op::Break if !continuing => return true,
+                Op::Continue if continuing => return true,
                 Op::Match(arms) => pending.extend(arms.iter().map(|arm| &arm.body[..])),
                 Op::If {
                     then,
@@ -1705,6 +1716,25 @@ pub(crate) fn mark_tail_calls(body: &mut [Op]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loop_continue_targets_skip_nested_loops_but_include_checked_suites() {
+        let inner = Op::Loop {
+            condition: vec![Op::PushBool(true)].into(),
+            body: vec![Op::Continue].into(),
+        };
+        assert!(!continues_loop(&[inner]));
+        assert!(!continues_loop(&[Op::Break]));
+        assert!(continues_loop(&[Op::CheckedBlock {
+            body: vec![Op::If {
+                then: vec![Op::Continue].into(),
+                elifs: vec![].into(),
+                otherwise: vec![].into(),
+            }]
+            .into(),
+            result: Ty::Bool,
+        }]));
+    }
 
     /// Later passes read the lifetime fact from the op stream, so its position
     /// is part of the contract: directly before the call it describes.

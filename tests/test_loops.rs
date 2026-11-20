@@ -420,3 +420,50 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
         );
     }
 }
+
+/// The outer loop can use its last body block for the latch while nested
+/// continues and shared break cleanup still follow their own paths.
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn fallthrough_latch_keeps_nested_continues_and_break_cleanup(#[case] narrow: bool) {
+    let source = r#"
+class Marker:
+    value: i64
+    def __del__(self) -> ():
+        print("drop", self.value).unwrap()
+
+def walk(n: i64, stop: i64, values: &[f64]) -> Result[f64, OverflowError[i64]]:
+    mut i = 0
+    mut total = 0.0
+    while i < n:
+        held = Marker(i)
+        i += 1
+        if i == stop:
+            break
+        if i == 4:
+            break
+        for j in range(2):
+            continue
+        total += values[i - 1] * 2.0
+    Ok(total)
+
+def main() -> Result[(), IoError | AllocError | OverflowError[i64]]:
+    values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]?
+    print(walk(0, 2, &values)? == 0.0)?
+    print(walk(3, 2, &values)? == 2.0)?
+    print(walk(6, 99, &values)? == 12.0)?
+    Ok(())
+"#;
+    let source = if narrow {
+        source.replace("f64", "f32").replace(".0", ".0f32")
+    } else {
+        source.to_owned()
+    };
+    let (code, stdout, stderr) = run_both(&source);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        stdout,
+        "True\ndrop 0\ndrop 1\nTrue\ndrop 0\ndrop 1\ndrop 2\ndrop 3\nTrue\n"
+    );
+}
