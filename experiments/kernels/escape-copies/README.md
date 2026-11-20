@@ -239,5 +239,6 @@ and then repeat with the locked tools. For the unchanged benchmark, dump
 `asm.txt` to `loops.py -v`. The new Cranelift filetest checks the complete
 SSE2 sequence with the register-allocation checker.
 
-The candidate is available locally. It needs fork publication and lockfile
-updates before release builds use it.
+The compiler and harness lockfiles now select the published backend revision
+`2986d9c583`. Their ordinary `--locked` builds exercise the revised backend.
+Use `94ed85d10c` separately when reproducing the baseline measurements.
