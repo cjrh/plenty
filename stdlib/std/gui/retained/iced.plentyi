@@ -2,6 +2,7 @@
 # Linked by name. None of these calls is certified for worker entry.
 extern def admit() -> u32 = "plic_v2_admit"
 extern def drive(driver: &mut Box[Driver] as scoped_box) -> u32 = "plic_v2_drive"
+extern def check_frame(token: u64) -> u32 = "plic_v1_check_frame"
 extern def native_row(token: u64) -> u32 = "plic_v1_row"
 extern def native_column(token: u64) -> u32 = "plic_v1_column"
 extern def native_end(token: u64) -> u32 = "plic_v1_end"
@@ -85,6 +86,8 @@ pub class Frame:
     token: u64
     pub def __init__(self, token: u64) -> ():
         self.token = token
+    pub def check_active(self) -> Result[(), IcedError]:
+        checked(check_frame(self.token))
     pub def checkbox(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]:
         checked(native_checkbox(self.token, caption, selected, action))
     pub def toggler(self, caption: &str, selected: bool, action: u64) -> Result[(), IcedError]:

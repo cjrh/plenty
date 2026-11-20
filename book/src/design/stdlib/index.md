@@ -53,6 +53,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.fs.watch`](fs/watch.md) | Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits | `WatchError`, `WaitError` |
 | [`std.graph`](graph.md) | Directed and undirected graphs with node and edge data, stable handles, traversal, shortest paths, topological order, components and spanning trees | `AllocError`, `GraphError` |
 | [`std.gui.immediate.egui`](gui-egui.md) | Single-pass labels, buttons and bounded editable text with checked responses | `EguiError` |
+| [`std.gui.retained.iced.shader`](gui-iced-widgets/shader.md) | Opt-in wgpu fragment expressions | `IcedError` |
 | [`std.gui.retained.iced`](gui-iced.md) | Retained model updates and validated row, column, text and button snapshots | `IcedError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |
 | [`std.http.decoder`](http-decoder.md) | Resumable bounded HTTP/1.x request framing over caller-supplied bytes, without I/O | `HttpError` |

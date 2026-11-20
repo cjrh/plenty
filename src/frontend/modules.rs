@@ -22,6 +22,10 @@ enum ModuleSource {
 /// the unknown-module diagnostic lists them.
 const STANDARD_MODULES: &[(&str, &str)] = &[
     (
+        "std.gui.retained.iced.shader",
+        include_str!("../../stdlib/std/gui/retained/iced/shader.plentyi"),
+    ),
+    (
         "std.gui.retained.iced",
         include_str!("../../stdlib/std/gui/retained/iced.plentyi"),
     ),

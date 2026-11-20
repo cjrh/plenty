@@ -1,0 +1,19 @@
+import std.gui.retained.iced as iced
+import std.gui.retained.iced.shader as shader
+
+class State:
+    expression: str
+    def __init__(self) -> ():
+        self.expression = "select(vec4f(0,0,1,1), vec4f(1,1,0,1), uv.x > uv.y)"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.text(&"Diagonal from UV coordinates")?
+    shader.fragment(frame, &state.expression, 180u16, 100u16)?
+    frame.end()
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run(create=create, view=view)

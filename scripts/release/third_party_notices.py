@@ -40,6 +40,7 @@ COMPONENTS = {
     "linalg": ("plenty-linalg/Cargo.toml", ("plenty-linalg-engine",)),
     # Source-only GUI executables, never compiler release components.
     "iced": ("experiments/packages/iced/native/Cargo.toml", ("plenty-iced",)),
+    "iced-shader": ("experiments/packages/iced/native/Cargo.toml", ("plenty-iced",)),
     "egui": ("experiments/packages/egui/native/Cargo.toml", ("plenty-egui",)),
     "gpui": ("experiments/packages/gpui/native/Cargo.toml", ("plenty-gpui",)),
 }
@@ -426,7 +427,8 @@ def main():
                 "cargo", "metadata", "--locked", "--format-version", "1",
                 "--filter-platform", args.target,
                 "--manifest-path", str(manifest),
-                *(["--features", "application"] if args.component in ("iced", "egui") else []),
+                *(["--features", "shader"] if args.component == "iced-shader" else
+                  ["--features", "application"] if args.component in ("iced", "egui") else []),
             ],
             check=True,
             capture_output=True,
@@ -434,6 +436,8 @@ def main():
         ).stdout
     )
     packages = shipped_packages(metadata, roots)
+    if args.component == "iced-shader":
+        args.component = "iced"  # Same native/runtime notice policy after resolving the shader graph.
     if args.component == "compiler":
         packages = embedded_vendor_packages(args.repo, packages)
         uncovered = uncovered_vendor_dirs(args.repo, packages)

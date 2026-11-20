@@ -1,0 +1,21 @@
+# Opt-in wgpu fragment expressions (iced, wgpu, Naga: MIT/Apache-2.0).
+import std.gui.retained.iced as iced
+extern def native_fragment(source: &str as utf8, width: u16, height: u16) -> u32 = "plic_v1_fragment"
+
+pub def fragment(frame: &iced.Frame, source: &str, width: u16, height: u16) -> Result[(), iced.IcedError]:
+    frame.check_active()?
+    match native_fragment(source, width, height):
+        case 0u32:
+            Ok(())
+        case 1u32:
+            Err(iced.IcedError.OutOfMemory)
+        case 3u32:
+            Err(iced.IcedError.InvalidContext)
+        case 4u32:
+            Err(iced.IcedError.LimitExceeded)
+        case 5u32:
+            Err(iced.IcedError.InvalidLayout)
+        case 6u32:
+            Err(iced.IcedError.InvalidArgument)
+        case _:
+            Err(iced.IcedError.NativeFailure)

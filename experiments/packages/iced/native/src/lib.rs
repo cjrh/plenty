@@ -24,13 +24,13 @@ pub enum Error {
     NativeFailure = 7,
 }
 
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 #[derive(Debug)]
 pub struct Qr {
     payload: String,
     data: iced::widget::qr_code::Data,
 }
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 impl PartialEq for Qr {
     fn eq(&self, other: &Self) -> bool {
         self.payload == other.payload
@@ -39,7 +39,7 @@ impl PartialEq for Qr {
 
 #[derive(Debug, Default)]
 pub struct ComboCache {
-    #[cfg(all(feature = "application", not(test)))]
+    #[cfg(all(feature = "driver", not(test)))]
     state: std::cell::OnceCell<iced::widget::combo_box::State<application::ComboChoice>>,
 }
 // Cached toolkit state does not participate in snapshot equality.
@@ -53,7 +53,7 @@ impl PartialEq for ComboCache {
 pub struct PaneSplit {
     side_by_side: bool,
     first_percent: u16,
-    #[cfg(all(feature = "application", not(test)))]
+    #[cfg(all(feature = "driver", not(test)))]
     layout: std::cell::OnceCell<iced::widget::pane_grid::State<usize>>,
 }
 
@@ -89,7 +89,7 @@ pub enum Kind {
     ComboBox(u64, ComboCache),
     Choice(String, u64),
     Responsive(u16),
-    #[cfg(feature = "application")]
+    #[cfg(feature = "driver")]
     Image(iced::widget::image::Handle, u32, u32),
     Container(u16),
     FloatScaled(u16),
@@ -108,8 +108,10 @@ pub enum Kind {
     Text(String),
     TextInput(String, u64),
     TextEditor(String, u64),
+    #[cfg(feature = "shader")]
+    Shader(std::sync::Arc<str>, u16, u16),
     Svg(String),
-    #[cfg(feature = "application")]
+    #[cfg(feature = "driver")]
     QrCode(Qr),
     Button(String, u64),
 }
@@ -305,6 +307,10 @@ fn command(token: u64, f: impl FnOnce(&mut Builder) -> Result<(), Error>) -> u32
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn plic_v1_check_frame(token: u64) -> u32 {
+    command(token, |_| Ok(()))
+}
+#[unsafe(no_mangle)]
 pub extern "C" fn plic_v1_row(token: u64) -> u32 {
     group(token, Kind::Row)
 }
@@ -378,7 +384,7 @@ pub extern "C" fn plic_v1_pane_grid(token: u64, side_by_side: bool, first_percen
         Kind::PaneGrid(PaneSplit {
             side_by_side,
             first_percent,
-            #[cfg(all(feature = "application", not(test)))]
+            #[cfg(all(feature = "driver", not(test)))]
             layout: Default::default(),
         }),
     )
@@ -667,7 +673,7 @@ unsafe fn leaf(
 
 /// # Safety
 /// The caller lends `len` readable UTF-8 bytes for this call.
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn plic_v1_qr_code(token: u64, text: *const u8, len: usize) -> u32 {
     command(token, |b| {
@@ -697,24 +703,26 @@ pub unsafe extern "C" fn plic_v1_qr_code(token: u64, text: *const u8, len: usize
     })
 }
 
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 mod image;
+#[cfg(feature = "shader")]
+mod shader;
 
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(feature = "application", not(test)))]
+#[cfg(all(feature = "driver", not(test)))]
 mod application;
 
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 fn loop_outcome(native: Result<(), Error>, callback: Option<Error>) -> Result<(), Error> {
     callback.map_or(native, Err)
 }
 
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 static MAIN_THREAD: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 
-#[cfg(feature = "application")]
+#[cfg(feature = "driver")]
 fn begin_application() -> Result<(), Error> {
     use std::sync::atomic::{AtomicBool, Ordering};
     static STARTED: AtomicBool = AtomicBool::new(false);
@@ -726,7 +734,7 @@ fn begin_application() -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(all(test, feature = "application"))]
+#[cfg(all(test, feature = "driver"))]
 #[test]
 fn application_only_enters_on_registered_thread_once() {
     MAIN_THREAD.set(std::thread::current().id()).unwrap();
@@ -738,7 +746,7 @@ fn application_only_enters_on_registered_thread_once() {
     assert_eq!(begin_application(), Err(Error::InvalidContext));
 }
 
-#[cfg(all(feature = "application", not(test)))]
+#[cfg(all(feature = "driver", not(test)))]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn main(argc: i32, argv: *const *const u8) -> i32 {
     MAIN_THREAD

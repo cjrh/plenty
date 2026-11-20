@@ -11,12 +11,14 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Backend {
     Iced,
+    IcedShader,
     Egui,
 }
 
 impl Backend {
     pub(crate) fn for_module(module: &str) -> Option<Self> {
         match module {
+            "std.gui.retained.iced.shader" => Some(Self::IcedShader),
             "std.gui.retained.iced" => Some(Self::Iced),
             "std.gui.immediate.egui" => Some(Self::Egui),
             _ => None,
@@ -26,6 +28,13 @@ impl Backend {
     pub(crate) fn selected(inputs: &Inputs) -> Result<Option<Self>> {
         let mut selected = None;
         for backend in inputs.standard_imports().filter_map(Self::for_module) {
+            if matches!((selected, backend), (Some(Self::IcedShader), Self::Iced)) {
+                continue;
+            }
+            if matches!((selected, backend), (Some(Self::Iced), Self::IcedShader)) {
+                selected = Some(backend);
+                continue;
+            }
             if selected.is_some_and(|previous| previous != backend) {
                 return Err("mixing std.gui.retained.iced and std.gui.immediate.egui in one executable is unsupported".into());
             }
@@ -36,7 +45,7 @@ impl Backend {
 
     pub(crate) fn exports(self) -> &'static str {
         match self {
-            Self::Iced => "iced_app",
+            Self::Iced | Self::IcedShader => "iced_app",
             Self::Egui => "egui_app",
         }
     }
@@ -65,7 +74,7 @@ impl Backend {
             return Err("std.gui package builds are unsupported with a runtime-checks compiler; build plenty without runtime-checks".into());
         }
         let (name, include_var, guard) = match self {
-            Self::Iced => (
+            Self::Iced | Self::IcedShader => (
                 "iced",
                 "PLENTY_ICED_APP_DIR",
                 include_str!("../../experiments/packages/iced/native/expected-contract.txt").trim(),
@@ -84,7 +93,11 @@ impl Backend {
         let sources: Vec<_> = inputs.sources().map(Path::to_owned).collect();
         crate::library::publication::validate(&[output], &sources)?;
         let native = root.join("experiments/packages").join(name).join("native");
-        let cargo_target = target.join("std-gui").join(name);
+        let cargo_target = target.join("std-gui").join(if self == Self::IcedShader {
+            "iced-shader"
+        } else {
+            name
+        });
         // Cargo releases its own lock before the final driver opens the
         // archive. Hold this backend's lock across *both* commands so a
         // second consumer cannot replace its bytes under our link arguments.
@@ -102,7 +115,14 @@ impl Backend {
             .args(["--target", native_target()])
             .arg("--lib-name")
             .arg(format!("plenty_{name}"))
-            .args(["--features", "application"])
+            .args([
+                "--features",
+                if self == Self::IcedShader {
+                    "shader"
+                } else {
+                    "application"
+                },
+            ])
             .env(include_var, native.join("reviewed"))
             .env("CARGO_NET_OFFLINE", "true")
             .current_dir("/")

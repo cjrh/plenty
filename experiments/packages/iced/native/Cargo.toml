@@ -12,10 +12,13 @@ crate-type = ["rlib", "staticlib"]
 
 [features]
 legacy-application = ["application"]
-application = ["dep:iced", "dep:plenty-runtime", "plenty-runtime/executable"]
+application = ["driver", "iced/tiny-skia"]
+shader = ["driver", "iced/wgpu", "dep:naga"]
+driver = ["dep:iced", "dep:plenty-runtime", "plenty-runtime/executable"]
 
 [dependencies]
-iced = { optional = true, version = "=0.14.0", default-features = false, features = ["tiny-skia", "x11", "thread-pool", "image-without-codecs", "canvas", "svg", "qr_code"] }
+naga = { version = "=27.0.3", optional = true, features = ["wgsl-in"] }
+iced = { optional = true, version = "=0.14.0", default-features = false, features = ["x11", "thread-pool", "image-without-codecs", "canvas", "svg", "qr_code"] }
 plenty-runtime = { path = "../../../../plenty-runtime", optional = true }
 
 [build-dependencies]
