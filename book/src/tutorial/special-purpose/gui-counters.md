@@ -61,3 +61,20 @@ you were typing; the string in `State` is the source of truth. There is no
 second filtered list to allocate and synchronize. `?` propagates a rejected
 edit; it does not overwrite the query with an empty string. See the
 [single-line editing contract](../../design/stdlib/gui-egui.md#editing-a-single-line).
+
+## A retained command picker
+
+![The iced command picker with four available commands](screenshots/iced_command_picker.png)
+
+Run `plenty run` in `examples/gui/iced_command_picker`. Type **file** and click
+**Save file**. Now type a query with no matches: the rows disappear but
+**Selected: Save file** remains. Selecting a command records its name; it never executes it.
+
+The field sends a `TextChanged` event. Only `update` changes the query or selection;
+`view` derives the matching buttons without storing another list. Each command
+keeps its action ID when other rows disappear. To try the same transitions
+without a window, run `plenty run -- --headless 1:file 4 1:zzz`.
+
+```plenty build
+{{#include ../../../../examples/gui/iced_command_picker/src/main.plenty}}
+```
