@@ -334,6 +334,48 @@ pub(crate) fn try_case_range(
     }
 }
 
+/// UTF-8 spelling of one scalar inside ordinary double-quoted text.
+pub(crate) fn quoted_scalar(c: char, buf: &mut [u8; 6]) -> &[u8] {
+    match c {
+        '"' => br#"\""#,
+        '\\' => br"\\",
+        '\n' => br"\n",
+        '\r' => br"\r",
+        '\t' => br"\t",
+        '\0' => br"\0",
+        c if c < ' ' => {
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            let n = c as usize;
+            buf[..3].copy_from_slice(br"\u{");
+            let mut i = 3;
+            if n >= 16 {
+                buf[i] = HEX[n >> 4];
+                i += 1;
+            }
+            buf[i] = HEX[n & 15];
+            buf[i + 1] = b'}';
+            &buf[..i + 2]
+        }
+        c => c.encode_utf8(buf).as_bytes(),
+    }
+}
+
+pub(crate) fn try_quote_in(source: &str, allocator: &Allocator) -> Result<*mut Text, AllocError> {
+    let (mut bytes, mut scalars) = (2, 2); // Surrounding quotes.
+    for c in source.chars() {
+        let len = quoted_scalar(c, &mut [0; 6]).len() as u64;
+        bytes = add_length(bytes, len)?;
+        scalars = add_length(scalars, if c.is_ascii() { len } else { 1 })?;
+    }
+    try_build_in(Some(allocator), bytes, scalars, |out| {
+        let mut offset = put(out, 0, b"\"");
+        for c in source.chars() {
+            offset = put(out, offset, quoted_scalar(c, &mut [0; 6]));
+        }
+        put(out, offset, b"\"");
+    })
+}
+
 fn try_characters(
     characters: impl Iterator<Item = char> + Clone,
     allocator: Option<&Allocator>,

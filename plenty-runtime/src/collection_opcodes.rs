@@ -54,6 +54,8 @@ pub const ALLOCATOR_TEXT_SPLIT: i64 = 677;
 pub const ALLOCATOR_TEXT_SPLIT_WHITESPACE: i64 = 678;
 /// Split borrowed text at line boundaries into selected list and text storage.
 pub const ALLOCATOR_TEXT_SPLITLINES: i64 = 679;
+/// Quote plain borrowed text directly into selected storage.
+pub const ALLOCATOR_TEXT_QUOTE: i64 = 680;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

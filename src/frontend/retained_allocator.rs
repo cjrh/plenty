@@ -163,6 +163,12 @@ impl Lower<'_> {
                     Some(list),
                 )
             }
+            "__allocator_text_quote" => (
+                code::ALLOCATOR_TEXT_QUOTE,
+                vec![handle, Ty::View(Arc::new(Ty::Text), false)],
+                Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
+                None,
+            ),
             "__allocator_text_case" => (
                 code::ALLOCATOR_TEXT_CASE,
                 vec![handle, Ty::View(Arc::new(Ty::Text), false), Ty::Bool],

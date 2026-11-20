@@ -139,18 +139,7 @@ pub(crate) fn repr_text(text: &str, out: &mut crate::render_buffer::Buffer) {
         if out.failed() {
             return;
         }
-        match c {
-            '"' => out.extend_from_slice(b"\\\""),
-            '\\' => out.extend_from_slice(b"\\\\"),
-            '\n' => out.extend_from_slice(b"\\n"),
-            '\r' => out.extend_from_slice(b"\\r"),
-            '\t' => out.extend_from_slice(b"\\t"),
-            '\0' => out.extend_from_slice(b"\\0"),
-            c if c < ' ' => {
-                write!(out, "\\u{{{:x}}}", u32::from(c)).unwrap();
-            }
-            c => out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes()),
-        }
+        out.extend_from_slice(crate::strings::quoted_scalar(c, &mut [0; 6]));
     }
     out.push(b'"');
 }

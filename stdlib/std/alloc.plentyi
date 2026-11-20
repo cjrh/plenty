@@ -158,6 +158,9 @@ pub class Allocator:
     pub def splitlines_text(self, source: &strview, keepends: bool = False) -> Result[list[str], AllocError]:
         __allocator_text_splitlines(self._handle, source, keepends)
 
+    pub def quote_text(self, source: &strview) -> Result[str, AllocError]:
+        __allocator_text_quote(self._handle, source)
+
     pub def lower_text(self, source: &strview) -> Result[str, AllocError]:
         __allocator_text_case(self._handle, source, False)
 

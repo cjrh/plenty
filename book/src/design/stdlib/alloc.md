@@ -250,6 +250,10 @@ The list uses `out`, as does each field longer than seven UTF-8 bytes. Even when
 
 The list uses `out` even for empty input, so later growth of that empty list also uses `out`. Each line is copied independently: up to seven UTF-8 bytes (including any retained ending) fit inline; longer lines use `out`. There is no intermediate list or system retry. Refusal releases partial output and leaves the source usable.
 
+### Quote plain text
+
+`out.quote_text(source)` borrows text and returns its double-quoted `str.repr` spelling. It measures escapes before writing directly into the result. Up to seven UTF-8 bytes including quotes fit inline; otherwise it requests one block from `out`. Refusal leaves the source usable. This is not a general formatter and never calls a user-defined debug method.
+
 ### Convert text case with an output allocator
 
 `out.lower_text(source)` and `out.upper_text(source)` borrow a whole string or substring (`&strview`) and return `Result[str, AllocError]`. They use the same per-scalar Unicode mappings as `.lower()` and `.upper()`: `ß` uppercases to `SS`, and `İ` lowercases to `i` plus a combining dot. The **mapped** UTF-8 length determines storage. Up to seven bytes fit inline; longer results use one block from `out`, even when no character changes. Neither method needs scratch storage or retries on the system; refusal leaves the source usable. Ordinary case conversion retains its system-storage policy.

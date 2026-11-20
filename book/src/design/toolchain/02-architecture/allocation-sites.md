@@ -35,8 +35,8 @@ There are two distinct storage decisions:
 
 Copying this result into selected storage afterwards would not give the caller
 control over the original buffer or text allocation. For **plain quoted text**,
-escape lengths depend only on the borrowed input: an implementation could count
-the escaped bytes and scalars, then fill the final selected text directly. That
+escape lengths depend only on the borrowed input: `out.quote_text(source)` (opcode 680) counts
+the escaped bytes and scalars, then fills the final inline or selected text directly. That
 argument does not extend to arbitrary values: rendering them twice could invoke
 a user-defined debug method twice. This trace does not establish the storage
 policy of f-strings, print destinations or custom formatting hooks.
