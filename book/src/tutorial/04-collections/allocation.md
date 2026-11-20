@@ -446,6 +446,28 @@ def main() -> Result[(), AllocError | IoError]:
 DIE STRASSE
 ```
 
+## Keep the UTF-8 bytes of a text field
+
+Borrow the text’s bytes before copying them. Converting to an ordinary
+`Bytes` first would allocate an unnecessary intermediate buffer.
+
+```plenty
+import std.alloc as alloc
+
+def save(out: &alloc.Allocator, field: &strview) -> Result[i64, AllocError]:
+    data = out.slice_bytes(field.as_bytes())?
+    Ok(data.len())
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    print(save(&out, "café")?)?
+    Ok(())
+```
+
+```output
+5
+```
+
 ## Quote a text field
 
 Use `quote_text` to keep embedded newlines and quotes visible in plain text:
