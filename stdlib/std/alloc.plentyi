@@ -120,6 +120,39 @@ pub class Allocator:
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
 
+    pub def split_bytes(self, source: &[u8], separator: &[u8]) -> Result[list[Bytes], AllocError]:
+        if len(separator) == 0:
+            __trap("bytes.split: separator is empty")
+        mut fields = self.empty_list[Bytes]()?
+        mut start = 0
+        while start < len(source):
+            match (&source[start:]).find(separator):
+                case Some(offset):
+                    # The entire nonempty separator lies inside the remaining view.
+                    stop = unchecked:
+                        start + offset
+                    fields.append(self.slice_bytes(&source[start:stop])?)?
+                    unchecked:
+                        start = stop + len(separator)
+                case Nothing:
+                    break
+        # Explicit separators keep the final field, even when it's empty.
+        fields.append(self.slice_bytes(&source[start:])?)?
+        Ok(fields)
+
+    pub def split_whitespace_bytes(self, source: &[u8]) -> Result[list[Bytes], AllocError]:
+        mut fields = self.empty_list[Bytes]()?
+        mut start = 0
+        for at in range(len(source)):
+            byte = source[at]
+            if byte == 0x20u8 or (byte >= 0x09u8 and byte <= 0x0du8):
+                if start < at:
+                    fields.append(self.slice_bytes(&source[start:at])?)?
+                start = at + 1
+        if start < len(source):
+            fields.append(self.slice_bytes(&source[start:])?)?
+        Ok(fields)
+
     pub def decode_text(self, source: &Bytes) -> Result[str, BytesError]:
         if source.utf8_run(0, source.len()) != source.len():
             return Err(BytesError.InvalidUtf8)

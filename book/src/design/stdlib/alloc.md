@@ -222,6 +222,26 @@ By contrast, `buf[a:b:k]?` uses the same bounds but ordinary output storage,
 regardless of `buf`'s provider. `buf.slice(a, b)?` also uses ordinary storage,
 but takes no step and traps unless `0 <= a <= b <= buf.len()`.
 
+### Split byte views into fields
+
+`out.split_bytes(source, separator)` borrows two `&[u8]` views and returns
+`Result[list[Bytes], AllocError]`. It matches the whole separator from left
+to right without overlap, keeping leading, adjacent and trailing empty fields.
+Empty input gives one empty `Bytes`. An empty separator traps before the first
+provider request.
+
+`out.split_whitespace_bytes(source)` borrows a `&[u8]` and returns the same
+type. It skips runs of ASCII space, tab, LF, vertical tab, form feed and CR;
+empty or all-whitespace input gives an empty list. Neither operation decodes
+text. NUL and high bytes can occur in fields or in an explicit separator.
+
+As with [ordinary byte splitting](bytes-stringlike.md), at most `len(source)`
+bytes are copied across at most one more field than input bytes. Here the list
+and **every field**, including an empty `Bytes`, retain `out` for later growth
+and release. Inputs need not outlive the result. On allocation failure the
+operation returns the `AllocError`, releases partial output and leaves the
+inputs usable. There is no scratch buffer or system fallback.
+
 ### Join a generator of strings
 
 `out.join_text_stream(separator, source)` borrows a `&strview` and consumes a `Generator[str]`. It returns `Result[str, AllocError]`. The join copies each piece into a growable UTF-8 byte buffer, inserting the separator only between pieces. It releases its handle to the piece before resuming the generator. The generator's own allocations keep their original policy.
