@@ -691,6 +691,8 @@ Iced PaneGrid splits two child subtrees at a model-supplied ratio.
 
 The egui completion popup replaces the current word with an accepted prefix match from a Plenty list.
 
+The [retained command picker](../tutorial/special-purpose/gui-counters.md#a-retained-command-picker) filters four commands in view and records the selected button in update without executing it.
+
 Iced TextInput sends a bounded, owned UTF-8 replacement to the model in update.
 
 Iced Svg renders trusted inline SVG markup at its intrinsic size.

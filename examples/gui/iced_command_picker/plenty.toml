@@ -1,0 +1,5 @@
+manifest-version = 1
+
+[package]
+name = "iced_command_picker"
+version = "0.1.0"

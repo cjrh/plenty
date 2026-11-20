@@ -1,0 +1,46 @@
+import std.gui.retained.iced as iced
+
+class State:
+    query: str
+    commands: list[tuple[u64, str]]
+    selected: str
+    def __init__(self) -> Result[(), AllocError]:
+        self.query = ""
+        self.commands = [(2u64, "Open file"), (3u64, "Open folder"), (4u64, "Save file"), (5u64, "Close tab")]?
+        self.selected = "None"
+        Ok(())
+
+def create() -> Result[State, AllocError]:
+    State()
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.text(&"Filter commands, then choose a match")?
+    frame.text_input(&state.query, 1u64)?
+    mut found = False
+    for id, command in &state.commands:
+        if state.query in *command:
+            frame.button(command, *id)?
+            found = True
+    if not found:
+        frame.text(&"No matches")?
+    label = f"Selected: {state.selected}".map_error(iced.allocation)?
+    frame.text(&label)?
+    frame.end()
+
+def update(state: &mut State, event: iced.Event) -> Result[(), iced.IcedError]:
+    match event:
+        case iced.Event.TextChanged(1u64, query):
+            state.query = query
+            Ok(())
+        case iced.Event.Action(action):
+            for id, command in &state.commands:
+                if *id == action:
+                    state.selected = *command
+                    return Ok(())
+            Err(iced.IcedError.InvalidArgument)
+        case _:
+            Err(iced.IcedError.InvalidArgument)
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run_events(create=create, view=view, update=update)
