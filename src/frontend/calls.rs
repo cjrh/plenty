@@ -76,6 +76,23 @@ impl Lower<'_> {
         method: bool,
     ) -> Result<Option<(String, Vec<Expr>)>> {
         self.check_call_ceilings(name, args)?;
+        if name == "__plenty_class_std.alloc.Allocator.split_text" {
+            for (position, arg) in args.iter().enumerate() {
+                let separator = match &arg.kind {
+                    Expression::NamedArgument(label, value) if label == "separator" => {
+                        Some(&**value)
+                    }
+                    Expression::NamedArgument(..) => None,
+                    _ if position == 2 => Some(arg),
+                    _ => None,
+                };
+                if let Some(value) = separator
+                    && matches!(&ungroup(value).kind, Expression::Text(t) if t.is_empty())
+                {
+                    return Err(value.at.error("split requires a nonempty separator"));
+                }
+            }
+        }
         let named = args
             .iter()
             .any(|arg| matches!(arg.kind, Expression::NamedArgument(..)));

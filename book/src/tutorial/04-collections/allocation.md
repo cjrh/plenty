@@ -446,6 +446,23 @@ def main() -> Result[(), AllocError | IoError]:
 DIE STRASSE
 ```
 
+## Keep delimited fields
+
+Use `split_text` when the caller supplies storage for both the list and its text. Empty fields still have positions:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    fields = alloc.system().split_text("name||status", "|")?
+    print(len(&fields), fields[1].byte_len(), fields[2])?
+    Ok(())
+```
+
+```output
+3 0 status
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The

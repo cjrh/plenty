@@ -139,6 +139,65 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn selected_split_text_releases_partial_list_and_fields() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    source = ("x界abcdefgh" + "界🙂🙂界界y")?
+    sep = "x界y"
+    partial = budget("partial", 4, AllocError.CapacityOverflow)
+    match partial.split_text(&source[1:-1], &sep[1:2]):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    drop(partial)
+    out = budget("output", 5)
+    fields = out.split_text(&source[1:-1], &sep[1:2])?
+    drop(source)
+    drop(sep)
+    drop(out)
+    print(len(&fields), fields[0].byte_len(), fields[1], fields[2], fields[3].byte_len(), fields[4].byte_len())?
+    drop(fields)
+    root = alloc.system()
+    print(len(&root.split_text("", ",")?), root.split_text("aaa", "aa")?[1])?
+    Ok(())
+"#
+        ),
+        "refused partial\nAllocError.CapacityOverflow\npartial 0 4\n5 0 abcdefgh 🙂🙂 0 0\noutput 0 5\n1 a\n",
+    );
+}
+
+#[test]
+fn selected_split_text_traps_before_allocating_for_computed_empty_separator() {
+    let output = crate::test_support::run(&format!(
+        r#"{POLICY}
+def main() -> ():
+    out = budget("unexpected", 0)
+    sep = ""
+    drop(out.split_text("abc", sep))
+"#
+    ));
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("string split requires a nonempty separator")
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("refused"));
+}
+
+#[test]
+fn selected_split_text_rejects_literal_empty_separator() {
+    for args in [r#""abc", ("")"#, r#"separator="", source="abc""#] {
+        let e = check_error(&format!(
+            "import std.alloc as alloc\ndef main() -> ():\n    drop(alloc.system().split_text({args}))\n"
+        ));
+        assert!(e.contains("split requires a nonempty separator"), "{e}");
+    }
+}
+
+#[test]
 fn case_text_sizes_mapped_unicode_and_copies_unchanged_text() {
     assert_stdout(
         &format!(
