@@ -33,4 +33,6 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 
 ## Single-line text editor
 
+[Completion popup example](gui-egui-widgets/completion.md) · `completion`
+
 [Single-line text editor example](gui-egui-widgets/text_edit.md) · `text_edit`

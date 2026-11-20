@@ -553,6 +553,7 @@
                     - [RangeSlider](design/stdlib/gui-egui-widgets/range_slider.md)
                     - [DragValue](design/stdlib/gui-egui-widgets/drag_value.md)
                     - [Button](design/stdlib/gui-egui-widgets/button.md)
+                    - [Completion popup](design/stdlib/gui-egui-widgets/completion.md)
                     - [Single-line text editor](design/stdlib/gui-egui-widgets/text_edit.md)
         - [`std.linalg`](design/stdlib/linalg.md)
             - [Install and ship the linear algebra engine](design/stdlib/linalg-engine.md)

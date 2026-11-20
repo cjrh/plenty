@@ -6,7 +6,7 @@ import time
 import tomllib
 
 from PIL import Image
-from Xlib import X
+from Xlib import X, XK
 from Xlib.ext import xtest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,6 +34,21 @@ def capture(server, binary, title, png, logs):
             return image if image.getextrema() != tuple((c, c) for c in image.getpixel((0, 0))) else None
 
         image = wait_for(painted, app)
+        if binary.name == 'completion':
+            win.set_input_focus(X.RevertToParent, X.CurrentTime)
+            point = root.translate_coords(win, 45, 38)
+            for event, detail in [(X.MotionNotify, 0), (X.ButtonPress, 1), (X.ButtonRelease, 1)]:
+                xtest.fake_input(server, event, detail, x=point.x, y=point.y)
+                server.sync()
+                time.sleep(0.1)
+            for char in 'ap':
+                code = server.keysym_to_keycode(XK.string_to_keysym(char))
+                for event in [X.KeyPress, X.KeyRelease]:
+                    xtest.fake_input(server, event, code)
+                    server.sync()
+                    time.sleep(0.1)
+            time.sleep(0.3)
+            image = wait_for(painted, app)
         png.parent.mkdir(parents=True, exist_ok=True)
         image.save(png, optimize=True)
         print(png.relative_to(ROOT), flush=True)

@@ -1,0 +1,21 @@
+import std.gui.immediate.egui as egui
+
+class State:
+    word: str
+    suggestions: list[str]
+    def __init__(self) -> Result[(), AllocError]:
+        self.word = ""
+        self.suggestions = ["apricot", "apple", "pear"]?
+        Ok(())
+
+def create() -> Result[State, AllocError]:
+    State()
+
+def draw(state: &mut State, ui: &egui.Ui) -> Result[(), egui.EguiError]:
+    ui.label(&"Type ap, then choose a fruit")?
+    if ui.completion(1u64, &mut state.word, &state.suggestions)?:
+        ui.label(&"Accepted")?
+    ui.label(&state.word)
+
+def main() -> Result[(), egui.EguiError]:
+    egui.run(create=create, draw=draw)

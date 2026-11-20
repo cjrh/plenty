@@ -21,6 +21,10 @@ name = "text_edit"
 path = "src/text_edit.plenty"
 
 [[bin]]
+name = "completion"
+path = "src/completion.plenty"
+
+[[bin]]
 name = "checkbox"
 path = "src/checkbox.plenty"
 

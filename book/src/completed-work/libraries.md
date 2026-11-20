@@ -689,6 +689,8 @@ Iced Canvas paints checked rectangle commands from the immutable view snapshot.
 
 Iced PaneGrid splits two child subtrees at a model-supplied ratio.
 
+The egui completion popup replaces the current word with an accepted prefix match from a Plenty list.
+
 Iced Svg renders trusted inline SVG markup at its intrinsic size.
 
 Iced Image copies borrowed RGBA pixels into the immutable snapshot. Responsive lays out the same children horizontally or vertically according to available width.
