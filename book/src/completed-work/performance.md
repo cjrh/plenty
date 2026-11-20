@@ -7,6 +7,18 @@ an optimization queue. Workloads, methods and current measurements belong to
 [profiling](../development/profiling.md); remaining B19/B23/B74 scope belongs
 only to the [backlog](../backlog.md).
 
+## Buffered regex replacement (issue #971)
+
+`std.regex.replace` and `replace_all` build output in one growing byte buffer.
+Each append checks the existing byte cap, and capture, UTF-8 boundary, and
+matcher work semantics stay the same. The experiment in
+`experiments/regex/` isolates matcher and output costs. At FASTA size 5,000,000,
+both Plenty variants of [regex-redux](../development/benchmarks-game/regex-redux.md)
+use about 35% fewer instructions and 55% less peak resident memory, with
+identical output to the pinned Rust reference. Issue #1016 tracks the matcher
+and iteration costs that still account for most instructions in the dense
+passes.
+
 ## Parallel regex-redux (2026-11-12)
 
 The [regex-redux benchmark](../development/benchmarks-game/regex-redux.md)

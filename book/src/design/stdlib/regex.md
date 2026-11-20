@@ -146,6 +146,10 @@ nothing. Any other `$`, including `$name`, an unknown group, or an unclosed
 `${`, is a `Syntax` error at the `$`. The template is checked before any
 search.
 
+Replacement appends the unmatched text and expanded template to a contiguous
+buffer, checking the output byte limit before adding each span. It builds the
+returned `str` from the completed buffer.
+
 ### Bytes
 
 `is_match_bytes(data)`, `find_bytes(data, start)`,

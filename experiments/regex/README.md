@@ -462,3 +462,104 @@ That is −1.76%. Application compilation with `PLENTY_CACHE=off` retires
 versioned loop. Programs without such loops change by less than 1%:
 n-body 443.7M/445.4M → 446.2M/451.4M, fannkuch-redux 359.5M/360.7M →
 361.6M/363.3M.
+
+## Issue #971: buffered replacement
+
+`std.regex.replace` and `replace_all` previously built a list of owned
+strings and joined it at the end. In the dense regex-redux passes, the
+list representation and final join take substantial work even when
+the replacement string fits in an inline string. The new accumulator
+copies borrowed UTF-8 spans into an amortized `Bytes` buffer. It
+checks the byte cap before each append, then validates and copies the
+buffer once when publishing the final string. The matcher, its work
+accounting, and template expansion follow the same paths.
+
+### One phase at a time
+
+The [phase driver](replacement-phase.plenty) takes an index from 0
+(cleaning) through 5, and either `match` or `replace`. Each phase
+reads its own input, which is the previous phase's output, or the
+original FASTA file for phase 0. The match driver counts spans and
+computes the output size from the matched and replacement lengths.
+`replace` writes the entire resulting text. The Rust control does the
+same replacement with the benchmark's pinned `regex::bytes::Regex` and
+writes the result. It reads into a byte vector. Plenty reads into
+`Bytes` and converts to text.
+
+Retired user instructions in billions, measured with `perf stat` on
+one Zen 4 core. Each column includes input, pattern compilation, and
+output. The match-only driver measures the matcher and cursor
+interface without constructing the result. It reports two integers
+instead of writing the text, so subtracting this column also includes
+the difference in output handling.
+
+| Phase | Matches | Plenty match only | Plenty before | Plenty buffered | Rust replace |
+|---|---:|---:|---:|---:|---:|
+| Strip headers and newlines | 833,337 | 2.896 | 4.268 | 3.206 | 1.161 |
+| `tHa[Nt]` | 6,220 | 0.136 | 0.232 | 0.215 | 0.114 |
+| `aND\|caN\|Ha[DS]\|WaS` | 15,867 | 0.303 | 0.431 | 0.389 | 0.106 |
+| `a[NSt]\|BY` | 3,522,378 | 9.743 | 19.794 | 12.381 | 1.370 |
+| `<[^>]*>` | 3,544,465 | 7.981 | 18.029 | 10.617 | 3.441 |
+| `\|[^\|][^\|]*\|` | 1,690,880 | 4.732 | 9.543 | 6.000 | 1.629 |
+
+Every replacement output matches the Rust control byte for byte. The two
+priority passes retire 37.45% and 41.11% fewer instructions. Their
+match-only runs already account for roughly three quarters of the
+buffered replacement counts. On a dense one-million-byte suffix of the
+old pass-3 input, Callgrind attributes 107.2M instructions to aggregate
+payload inspection and record handling, and 55.5M to list reserve,
+push and insertion. The corresponding pass-4 suffix also shows the
+one-pass matcher and repeated list reserve and insertion among the
+largest symbols. Callgrind identifies instruction sites independently
+of the full-input hardware counts.
+
+The sparse first two substitution passes retired fewer instructions
+with buffering but took more cycles in the isolated runs. The final
+buffer validation and copy remain, so sparse substitutions see little
+of the benefit from eliminating many fragments.
+
+### Full workload and compiler cost
+
+Both compilers are locked optimized builds of Plenty 0.8.32. The baseline
+is `bc620d00`. The Rust reference uses regex 1.12.3 and Rust 1.100.0
+with `-C target-cpu=native`. The benchmark uses the FASTA reference at
+5,000,000 (50,833,411 input bytes) and the suite runner's CPU mask
+`0,2,4,6,8,10,12,14`.
+
+| Program | Instructions before | Instructions buffered | Median seconds before / buffered | Peak RSS KiB before / buffered |
+|---|---:|---:|---:|---:|
+| Plenty serial | 55,896,728,367 | 36,408,134,862 | 4.093 / 2.763 | 344,192 / 155,780 |
+| Plenty parallel | 55,897,631,196 | 36,399,204,921 | 3.747 / 2.377 | 345,620 / 157,072 |
+| Rust reference | 8,411,348,496 | 8,411,346,719 | 0.761 / 0.756 | 153,956 / 154,200 |
+
+The runner compares the committed small output and checks full-size
+output against the unchanged Rust reference. Wall times are medians of
+three runs per build. With `PLENTY_CACHE=off`, three application builds
+of serial regex-redux retire 1,167.81–1,167.84M instructions before and
+1,168.75–1,168.88M buffered. The n-body control spans 499.11–499.15M
+before and 499.12–499.14M buffered. The production change is confined to
+the library's output construction.
+
+To reproduce the phase comparison, compile the driver with each compiler.
+Use the FASTA reference executable to generate `input-0`. Feed both
+drivers the same saved input at each phase, compare their output, and
+use the old output as the next input.
+
+```sh
+"$baseline" --no-strip --compile experiments/regex/replacement-phase.plenty -o old-phase
+"$candidate" --no-strip --compile experiments/regex/replacement-phase.plenty -o new-phase
+"$fasta" 5000000 > input-0
+for phase in 0 1 2 3 4 5; do
+    perf stat -e instructions:u,cycles:u taskset -c 0 ./old-phase "$phase" match < "input-$phase"
+    perf stat -e instructions:u,cycles:u taskset -c 0 ./old-phase "$phase" replace < "input-$phase" > "input-$((phase + 1))"
+    perf stat -e instructions:u,cycles:u taskset -c 0 ./new-phase "$phase" replace < "input-$phase" > new-output
+    cmp "input-$((phase + 1))" new-output || exit 1
+done
+```
+
+For the Rust control, build a single-phase variant of
+`benchmarks/game/regex-redux/reference/regexredux.rs` against the same
+manifest and lockfile. Write the selected `Regex::replace_all` result to
+stdout, including the header-cleaning expression as phase 0. The local
+measurement scripts, control source, profiles, and raw counts are under
+`target/issue-971-evidence/`.
