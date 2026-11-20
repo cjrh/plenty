@@ -529,6 +529,25 @@ def main() -> Result[(), AllocError | IoError]:
 DIE STRASSE
 ```
 
+## Decode one field of a binary frame
+
+Pass just the UTF-8 field, not the binary header or trailer. The decoded text
+does not borrow the frame.
+
+```plenty
+import std.alloc as alloc
+from std.bytes import BytesError
+
+def main() -> Result[(), BytesError | IoError]:
+    frame = b"\xffcaf\xc3\xa9 noir\xfe"
+    name = alloc.system().decode_text(&frame[1:-1])?
+    print(name)?
+    Ok(())
+```
+```output
+café noir
+```
+
 ## Keep the UTF-8 bytes of a text field
 
 Borrow the text’s bytes before copying them. Converting to an ordinary

@@ -394,7 +394,7 @@ class Allocator
     def split_bytes(self, source: &[u8], separator: &[u8]) -> Result[list[Bytes], AllocError]
     def split_whitespace_bytes(self, source: &[u8]) -> Result[list[Bytes], AllocError]
     def join_bytes[T](self, separator: &[u8], parts: &list[T]) -> Result[Bytes, AllocError]
-    def decode_text(self, source: &Bytes) -> Result[str, BytesError]
+    def decode_text(self, source: &[u8]) -> Result[str, BytesError]
     def join_text_stream(self, separator: &strview, source: Generator[str]) -> Result[str, AllocError]
     def join_text(self, separator: &strview, parts: &[str]) -> Result[str, AllocError]
     def removeprefix_text(self, source: &strview, prefix: &strview) -> Result[str, AllocError]
