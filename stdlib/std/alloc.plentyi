@@ -155,6 +155,9 @@ pub class Allocator:
             __trap("string split requires a nonempty separator")
         __allocator_text_split(self._handle, source, separator)
 
+    pub def splitlines_text(self, source: &strview, keepends: bool = False) -> Result[list[str], AllocError]:
+        __allocator_text_splitlines(self._handle, source, keepends)
+
     pub def lower_text(self, source: &strview) -> Result[str, AllocError]:
         __allocator_text_case(self._handle, source, False)
 

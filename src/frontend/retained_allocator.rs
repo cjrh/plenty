@@ -154,6 +154,15 @@ impl Lower<'_> {
                     Some(list),
                 )
             }
+            "__allocator_text_splitlines" => {
+                let list = Ty::List(Arc::new(Ty::Str));
+                (
+                    code::ALLOCATOR_TEXT_SPLITLINES,
+                    vec![handle, Ty::View(Arc::new(Ty::Text), false), Ty::Bool],
+                    Some(crate::sum::result(list.clone(), crate::sum::alloc_error())),
+                    Some(list),
+                )
+            }
             "__allocator_text_case" => (
                 code::ALLOCATOR_TEXT_CASE,
                 vec![handle, Ty::View(Arc::new(Ty::Text), false), Ty::Bool],

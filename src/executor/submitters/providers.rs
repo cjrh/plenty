@@ -66,7 +66,9 @@ impl Callbacks {
 
     fn selected(&self, ty: &Ty) -> bool {
         let has = |op| self.producers.contains(&op);
-        let split = has(ALLOCATOR_TEXT_SPLIT) || has(ALLOCATOR_TEXT_SPLIT_WHITESPACE);
+        let split = has(ALLOCATOR_TEXT_SPLIT)
+            || has(ALLOCATOR_TEXT_SPLIT_WHITESPACE)
+            || has(ALLOCATOR_TEXT_SPLITLINES);
         match ty {
             Ty::Clist(_) => has(ALLOCATOR_CLIST_SLICE),
             Ty::Str => {
@@ -121,7 +123,7 @@ impl Callbacks {
                     ALLOCATOR_BLOCK_RELEASE => release = true,
                     ALLOCATOR_LIST
                     | ALLOCATOR_BLOCK
-                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_SPLIT_WHITESPACE => {
+                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_SPLITLINES => {
                         alloc = true;
                         release = true;
                     }

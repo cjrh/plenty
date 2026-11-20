@@ -52,6 +52,8 @@ pub const ALLOCATOR_TEXT_CASE: i64 = 676;
 pub const ALLOCATOR_TEXT_SPLIT: i64 = 677;
 /// Split on Unicode White_Space, omitting empty fields.
 pub const ALLOCATOR_TEXT_SPLIT_WHITESPACE: i64 = 678;
+/// Split borrowed text at line boundaries into selected list and text storage.
+pub const ALLOCATOR_TEXT_SPLITLINES: i64 = 679;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

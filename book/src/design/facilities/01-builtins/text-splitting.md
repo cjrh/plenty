@@ -36,3 +36,6 @@ Recognized boundaries are LF, CR, CRLF, vertical tab, form feed, U+001C–U+001E
 U+0085, U+2028, and U+2029. Empty text yields no lines; interior blank lines are
 retained; a final terminator adds no extra empty line. This is broader than
 [file universal-newline reading](../02-io/reading.md), which recognizes CR/LF only.
+
+To choose storage for both the list and its non-inline lines, use
+[`Allocator.splitlines_text`](../../stdlib/alloc.md#split-text-into-lines).

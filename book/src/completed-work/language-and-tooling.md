@@ -15,6 +15,10 @@ Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-co
 
 Omitting the separator in [`Allocator.split_text`](../design/stdlib/alloc.md#split-text-into-selected-storage) skips runs of Unicode whitespace. Even an empty result retains its growth allocator.
 
+### Selected line splitting
+
+[`Allocator.splitlines_text`](../design/stdlib/alloc.md#split-text-into-lines) builds a selected list and independent lines directly from the ordinary line iterator, optionally retaining each original terminator.
+
 ### Selected explicit-separator split
 
 [`Allocator.split_text`](../design/stdlib/alloc.md#split-text-into-selected-storage) routes the list and its independently owned fields through the selected allocator. Partial output is released on refusal.
