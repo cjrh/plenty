@@ -1,0 +1,61 @@
+# Isolate one regex-redux replacement on stdin without the counting jobs.
+# Pass a phase number (0: cleaning, 1–5: substitutions) and match or replace.
+# Match mode reports the match count and predicted output byte length.
+import std.bytes
+import std.io
+import std.regex
+
+const READ_CHUNK: i64 = 1048576
+
+type AppError = AllocError | IoError | OverflowError[i64] | std.bytes.BytesError | std.regex.RegexError | RangeError | std.io.Partial
+
+
+def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
+    mut buffer = std.bytes.with_capacity(READ_CHUNK)?
+    mut end = 0
+    while True:
+        if end == buffer.len():
+            buffer.resize(end + READ_CHUNK, 0u8)?
+        count = buffer.read_stdin(end, buffer.len())?
+        if count == 0:
+            break
+        end += count
+    buffer.truncate(end)
+    Ok(buffer)
+
+
+def main() -> Result[(), AppError]:
+    input = read_all_stdin()?
+    text = input.to_text()?
+    drop(input)
+    mut bounds = std.regex.limits()
+    bounds.max_work = NonNegative.try_from(i64.MAX)?
+    substitutions = [
+        (">[^\n]*\n|\n", ""),
+        ("tHa[Nt]", "<4>"),
+        ("aND|caN|Ha[DS]|WaS", "<3>"),
+        ("a[NSt]|BY", "<2>"),
+        ("<[^>]*>", "|"),
+        ("\\|[^|][^|]*\\|", "-"),
+    ]?
+    argv = args()?
+    index = i64.parse(argv[1]).unwrap()
+    expression, replacement = substitutions[index]
+    pattern = std.regex.compile(&expression, &bounds)?
+    if argv[2] == "match":
+        mut cursor = pattern.cursor()?
+        mut count = 0
+        mut size = text.byte_len()
+        while True:
+            match pattern.next_match(&text, &mut cursor)?:
+                case Some(item):
+                    count += 1
+                    size += replacement.byte_len() - (item.end - item.start)
+                case Nothing:
+                    break
+        print(count, size)?
+        return Ok(())
+    result = pattern.replace_all(&text, &replacement, i64.MAX)?
+    mut out = std.io.stdout()
+    std.io.write_all(&mut out, result.as_bytes())?
+    Ok(())

@@ -568,6 +568,10 @@ print(len(words.split("", 1)?))?
 empty = std.regex.compile("", &limits)?
 print(empty.replace_all("añb", "-", 100)?)?
 print("|".join(empty.split("añ", 10)?)?)?
+word = std.regex.compile("(?P<word>é)x", &limits)?
+dense = repeated("éx", 128)?
+print(word.replace_all(dense, "${word}🙂", 768)? == repeated("é🙂", 128)?)?
+print(shown(word.replace_all(dense, "${word}🙂", 767))?)?
 "#,
         r#"
 5 Option[i64].Some(2) Option[i64].Nothing
@@ -586,6 +590,8 @@ LimitExceeded(Matches)
 1
 -a-ñ-b-
 |a|ñ|
+True
+LimitExceeded(Output)
 "#,
     );
 }

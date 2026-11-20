@@ -8,7 +8,7 @@
 # uses memchr 2.8.0 (https://docs.rs/memchr/2.8.0/), MIT OR Unlicense; parsing,
 # extraction, matching policy and limits remain Plenty.
 import std.bytes
-from std.bytes import Bytes
+from std.bytes import Bytes, BytesError
 
 @copy
 pub enum Limit:
@@ -1354,19 +1354,28 @@ class Template:
         Ok(())
 
 class Output:
-    pieces: list[str]
+    bytes: Bytes
     size: i64
     max: i64
 
-    def add(self: &mut Output, source: &strview, start: i64, stop: i64) -> Result[(), RegexError]:
+    def add(self: &mut Output, source: &[u8], start: i64, stop: i64) -> Result[(), RegexError]:
         if start == stop:
             return Ok(())
         # Source spans are validated match/template ranges within held text.
         count = unchecked:
             stop - start
         self.size = output_extent(self.size, count, self.max)?
-        held(self.pieces.append(held(__regex_text_slice(source, start, stop))?))?
-        Ok(())
+        held(self.bytes.extend(&source[start:stop]))
+
+    def finish(self: Output) -> Result[str, RegexError]:
+        match self.bytes.to_text():
+            case Ok(text):
+                Ok(text)
+            case Err(BytesError.Allocation(cause)):
+                Err(RegexError.Allocation(cause))
+            case Err(BytesError.InvalidUtf8):
+                # Every appended span starts and ends at a scalar boundary.
+                __trap("regex replacement produced invalid UTF-8")
 
 pub class Regex:
     _pattern: str
@@ -1940,16 +1949,18 @@ pub class Regex:
         slots = unchecked:
             2 * len(self._names)
         mut cursor = self.scan(slots)?
-        mut out = Output(held(list[str].new())?, 0, max_bytes)
+        mut out = Output(no_bytes()?, 0, max_bytes)
+        text_bytes = text.as_bytes()
+        template_bytes = template.as_bytes()
         mut last = 0
         mut replaced = 0
         while limit < 0 or replaced < limit:
             match self.advance(&mut cursor, text, &self._empty, True)?:
                 case Some(item):
-                    out.add(text, last, item.start)?
+                    out.add(text_bytes, last, item.start)?
                     for index in range(len(parts.kind)):
                         if parts.kind[index] == 0:
-                            out.add(template, parts.start[index], parts.stop[index])?
+                            out.add(template_bytes, parts.start[index], parts.stop[index])?
                         else:
                             group = parts.start[index]
                             # template validated group < _names.len(); compile's
@@ -1958,7 +1969,7 @@ pub class Regex:
                                 (cursor._vm._found[group * 2], cursor._vm._found[group * 2 + 1])
                             start, stop = span
                             if start >= 0 and stop >= 0:
-                                out.add(text, start, stop)?
+                                out.add(text_bytes, start, stop)?
                     last = item.end
                     # Unlimited replacement needs no lifetime counter. A finite
                     # call uses limit=1 and enters only while replaced < limit.
@@ -1967,8 +1978,8 @@ pub class Regex:
                             replaced += 1
                 case Nothing:
                     break
-        out.add(text, last, text.byte_len())?
-        held("".join(out.pieces))
+        out.add(text_bytes, last, len(text_bytes))?
+        out.finish()
 
     def template(self, template: &strview) -> Result[Template, RegexError]:
         # Each cursor advance consumes observed scalar/ASCII bytes. at < size
