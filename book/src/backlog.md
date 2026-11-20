@@ -471,6 +471,19 @@ Implement the remaining work in staged PRs:
    provider without fallback, and owners grow and release through their retained
    provider. Both interfaces keep allocation failure explicit.
 
+### B13 coverage checklist
+
+Use the [allocation-site inventory](design/toolchain/02-architecture/allocation-sites.md)
+for verified paths. This is a family checklist, not a count of unaudited methods.
+
+| Order | Family | What remains to check or implement |
+| --- | --- | --- |
+| 1 | Collected formatting | Trace `std.fmt.string_formatter` scratch, cursor growth and `finish` separately. Cover refusal at each stage, invalid UTF-8 in a public cursor and continued use after failed finish. Do not count streaming into an existing writer as a selected string result. |
+| 2 | Packed bytes and text conversions | Reuse selected slicing for byte copies, including a text view’s UTF-8 bytes. Audit the reverse conversion (preserve decoding errors), ASCII case/strip, split fields, replacement and joins in `stdlib/std/bytes.plenty`. Check nested fields and scratch, not just the outer buffer. |
+| 3 | Other builtin results and temporary storage | Compare collection constructors, transforms and text-producing methods against the documented selected paths. Distinguish independent output from borrowing, sharing and growth of an existing owner. Inspect temporary work even when the result is inline or written in place. |
+| 4 | Library and package boundaries | Walk the [public module and signature index](design/stdlib/signatures.md), including encoding, parsing, serialization, file/stream I/O and native wrappers. Record which outputs and temporaries the caller can control, which belong to a writer or callback, and which belong to a foreign library. An output parameter alone is not evidence about internal allocations. |
+| 5 | Reconcile and close | Cross-check the public inventory against compiler-generated operations, runtime allocation sites and transitive helpers. For every allocating path, record ordinary policy and evidence for selection or the reason it does not need selection. Exercise refusal without fallback, cleanup, growth and release. Unclassified paths keep B13 open. |
+
 Ordinary system allocation and explicit selection are both permanent choices.
 There is no ambient allocator, and neither input chooses the allocator for an
 independent result. Callers can also obtain the system allocator explicitly. This is a language/API contract,

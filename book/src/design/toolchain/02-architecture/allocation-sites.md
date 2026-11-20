@@ -45,6 +45,22 @@ policy of f-strings, print destinations or custom formatting hooks.
 on failure and allocation budgets across rendering and finalization. Those
 tests do not exercise a selected formatting API.
 
+## Formatter buffers and packed UTF-8 copies
+
+* `std.fmt.formatter(writer, scratch, ...)` accepts the scratch `Bytes` from
+  its caller. Scratch growth uses that owner; output storage is the writer’s
+  responsibility. This does not change allocations inside a user's formatting
+  method or the temporary `str.repr` used by `std.fmt.represent`.
+* `std.fmt.string_formatter` creates both a 32-byte scratch buffer and an empty
+  cursor buffer with ordinary `with_capacity`. Collected bytes grow in the
+  cursor. `std.fmt.finish` borrows it and calls `Bytes.to_text`: the cursor is
+  not transferred into the returned string. Supplying a selected streaming
+  writer would not select this final conversion.
+* `std.bytes.from_text(view)` returns an ordinary packed buffer. For the same
+  bytes in selected storage, use `out.slice_bytes(view.as_bytes())`. The UTF-8
+  view borrows the original text; only the packed result needs selected storage.
+  This is encoding an already-valid text range, not decoding arbitrary bytes.
+
 ## Copy
 
 | Entry | Destination and ownership |
