@@ -77,6 +77,18 @@ impl Lower<'_> {
     ) -> Result<Option<(String, Vec<Expr>)>> {
         self.check_call_ceilings(name, args)?;
         if name == "__plenty_class_std.alloc.Allocator.split_text" {
+            // An omitted view is not an empty view. Bind the one-source form
+            // to its own typed body; normal call lowering checks both loans.
+            if method
+                && let [_, source] = args
+                && !matches!(&source.kind,
+                Expression::NamedArgument(label, _) if label != "source")
+            {
+                return Ok(Some((
+                    "__plenty_class_std.alloc.Allocator._split_text_whitespace".into(),
+                    args.to_vec(),
+                )));
+            }
             for (position, arg) in args.iter().enumerate() {
                 let separator = match &arg.kind {
                     Expression::NamedArgument(label, value) if label == "separator" => {

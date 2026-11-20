@@ -147,6 +147,9 @@ pub class Allocator:
             return self.slice_text(source, stop=stop)
         self.slice_text(source)
 
+    def _split_text_whitespace(self, source: &strview) -> Result[list[str], AllocError]:
+        __allocator_text_split_whitespace(self._handle, source)
+
     pub def split_text(self, source: &strview, separator: &strview) -> Result[list[str], AllocError]:
         if separator.byte_len() == 0:
             __trap("string split requires a nonempty separator")

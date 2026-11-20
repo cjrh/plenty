@@ -50,6 +50,8 @@ pub const ALLOCATOR_TEXT_STRIP: i64 = 675;
 pub const ALLOCATOR_TEXT_CASE: i64 = 676;
 /// Split borrowed text into a selected list of independently owned fields.
 pub const ALLOCATOR_TEXT_SPLIT: i64 = 677;
+/// Split on Unicode White_Space, omitting empty fields.
+pub const ALLOCATOR_TEXT_SPLIT_WHITESPACE: i64 = 678;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

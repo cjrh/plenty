@@ -103,6 +103,15 @@ fn declarations(module: &str, symbols: &[Symbol]) -> Vec<String> {
         let Some(owner) = owners.iter().find(|o| o.name == owner) else {
             continue;
         };
+        // split_text has one compiler-bound arity in addition to its written
+        // declaration. Index the typed body under its public call spelling.
+        if symbol.name == "std.alloc.Allocator._split_text_whitespace" {
+            lines.push(format!(
+                "    {}",
+                shown.replacen("_split_text_whitespace", "split_text", 1)
+            ));
+            continue;
+        }
         // Variants and protocol requirements are public with their owner.
         let member_public = public(symbol)
             || symbol.kind == SymbolKind::Variant
