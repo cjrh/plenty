@@ -15,7 +15,7 @@ Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-co
 
 Omitting the separator in [`Allocator.split_text`](../design/stdlib/alloc.md#split-text-into-selected-storage) skips runs of Unicode whitespace. Even an empty result retains its growth allocator.
 
-The [quoted-text formatting audit](../design/toolchain/02-architecture/allocation-sites.md#formatting-quoted-text-from-strrepr) traces ordinary `str.repr` scratch and result storage. It does not add a selected formatting API.
+The [quoted-text formatting audit](../design/toolchain/02-architecture/allocation-sites.md#formatting-quoted-text-from-strrepr) traces ordinary `str.repr` scratch and result storage. [`Allocator.quote_text`](../design/stdlib/alloc.md#quote-plain-text) now quotes borrowed text directly into inline or selected storage without a growable buffer.
 
 ### Selected line splitting
 

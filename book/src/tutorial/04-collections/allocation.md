@@ -446,6 +446,23 @@ def main() -> Result[(), AllocError | IoError]:
 DIE STRASSE
 ```
 
+## Quote a text field
+
+Use `quote_text` to keep embedded newlines and quotes visible in plain text:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    print(out.quote_text("first\nsecond")?)?
+    Ok(())
+```
+
+```output
+"first\nsecond"
+```
+
 ## Keep delimited fields
 
 Use `split_text` when the caller supplies storage for both the list and its text. Omit the separator to read words across runs of whitespace. Pass a separator when empty fields have positions you need to keep:

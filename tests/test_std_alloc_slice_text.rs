@@ -259,6 +259,33 @@ fn selected_split_text_rejects_literal_empty_separator() {
 }
 
 #[test]
+fn quote_text_routes_only_the_final_block() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("quote", 1)
+    print(out.quote_text("12345")?, out.quote_text("")?)?
+    source = ("x" + "é\n\0\"\\y")?
+    view = &source[1:-1]
+    quoted = out.quote_text(view)?
+    match out.quote_text("123456"):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(quoted == str.repr("é\n\0\"\\")?, len(quoted), quoted.byte_len(), source.byte_len())?
+    drop(source)
+    drop(out)
+    drop(quoted)
+    Ok(())
+"#
+        ),
+        "\"12345\" \"\"\nrefused quote\nAllocError.OutOfMemory\nTrue 11 12 8\nquote 0 1\n",
+    );
+}
+
+#[test]
 fn case_text_sizes_mapped_unicode_and_copies_unchanged_text() {
     assert_stdout(
         &format!(

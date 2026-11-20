@@ -80,6 +80,7 @@ impl Callbacks {
                     || has(ALLOCATOR_TEXT_REPLACE)
                     || has(ALLOCATOR_TEXT_STRIP)
                     || has(ALLOCATOR_TEXT_CASE)
+                    || has(ALLOCATOR_TEXT_QUOTE)
                     || split
             }
             Ty::ByteStorage => has(ALLOCATOR_BYTES_SLICE),
@@ -123,7 +124,7 @@ impl Callbacks {
                     ALLOCATOR_BLOCK_RELEASE => release = true,
                     ALLOCATOR_LIST
                     | ALLOCATOR_BLOCK
-                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_SPLITLINES => {
+                    | ALLOCATOR_REGISTER..=ALLOCATOR_TEXT_QUOTE => {
                         alloc = true;
                         release = true;
                     }
