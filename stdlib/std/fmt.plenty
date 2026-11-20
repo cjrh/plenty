@@ -696,6 +696,19 @@ pub def string_formatter(max_bytes: NonNegative[i64], max_depth: NonNegative[i64
     scratch.resize(32, 0u8).map_error(FormatError.Allocation)?
     Ok(Formatter(cursor(with_capacity(0).map_error(FormatError.Allocation)?), Some(scratch), Destination.Collected, False, max_bytes.get(), 0, 0, max_depth.get()))
 
+# Generic so importing ordinary formatting does not import retained allocators
+# into actor programs. Only a selected call specializes this body.
+pub def string_formatter_in[A](out: &A, max_bytes: NonNegative[i64], max_depth: NonNegative[i64] __max(64)) -> Result[Formatter[Cursor], FormatError]:
+    if max_depth.get() > depth_ceiling:
+        __trap("std.fmt.string_formatter_in: max_depth is above 64")
+    mut scratch = out.slice_bytes(b"").map_error(FormatError.Allocation)?
+    scratch.resize(32, 0u8).map_error(FormatError.Allocation)?
+    data = out.slice_bytes(b"").map_error(FormatError.Allocation)?
+    Ok(Formatter(cursor(data), Some(scratch), Destination.Collected, False, max_bytes.get(), 0, 0, max_depth.get()))
+
+pub def finish_in[A](out: &A, output: &Formatter[Cursor]) -> Result[str, FormatError]:
+    stored(out.decode_text(&output.writer.data))
+
 pub def finish(output: &Formatter[Cursor]) -> Result[str, FormatError]:
     stored(output.writer.data.to_text())
 

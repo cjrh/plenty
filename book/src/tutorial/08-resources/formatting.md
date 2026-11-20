@@ -23,6 +23,27 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 count=  12, label="one\ntwo"
 ```
 
+To choose storage, pass an allocator when constructing the formatter and again
+when finishing. The result can outlive the formatter.
+
+```plenty
+import std.alloc as alloc
+import std.fmt as fmt
+
+def main() -> Result[(), fmt.FormatError | IoError]:
+    storage = alloc.system()
+    mut output = fmt.string_formatter_in(&storage, 80, 8)?
+    output.text("ready to send")?
+    message = fmt.finish_in(&storage, &output)?
+    drop(output)
+    print(message)?
+    Ok(())
+```
+
+```output
+ready to send
+```
+
 Your type chooses separate display and debug methods. Both can be generic over
 the output writer; callers need no trait object or format-string parser.
 `print` and `f"{x}"` call `display`; `str.repr`, `f"{x!r}"` and the elements
