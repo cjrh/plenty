@@ -110,6 +110,35 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn affix_removal_copies_only_one_exact_match_into_selected_storage() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("affix", 1)
+    source = ("x🙂" + "🙂界y")?
+    view = &source[1:-1]
+    print(out.removeprefix_text(view, &source[1:2])?, out.removesuffix_text("界🙂🙂", "🙂")?)?
+    print(out.removeprefix_text("🙂", "🙂")?.byte_len(), out.removesuffix_text("界", "")?)?
+    saved = out.removesuffix_text(view, "not present")?
+    match out.removeprefix_text(view, ""):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(source)?
+    drop(source)
+    drop(out)
+    print(saved)?
+    drop(saved)
+    Ok(())
+"#
+        ),
+        "🙂界 界🙂\n0 界\nrefused affix\nAllocError.OutOfMemory\nx🙂🙂界y\n🙂🙂界\naffix 0 1\n",
+    );
+}
+
+#[test]
 fn strip_text_selects_unicode_ends_and_copies_unchanged_text() {
     assert_stdout(
         &format!(
