@@ -93,6 +93,7 @@ pub enum Kind {
     Toggler(String, bool, u64),
     Radio(String, bool, u64),
     Text(String),
+    TextInput(String, u64),
     Svg(String),
     Button(String, u64),
 }
@@ -101,6 +102,7 @@ impl Kind {
     fn action(&self) -> Option<u64> {
         match self {
             Self::Slider { id: a, .. }
+            | Self::TextInput(_, a)
             | Self::Choice(_, a)
             | Self::MousePress(a)
             | Self::SensorShow(a)
@@ -183,6 +185,9 @@ impl Builder {
             .nodes
             .try_reserve(1)
             .map_err(|_| Error::OutOfMemory)?;
+        if matches!(&node.kind,Kind::TextInput(s,_) if s.contains(['\r','\n'])) {
+            return Err(Error::InvalidArgument);
+        }
         let index = self.scene.nodes.len();
         if let Some(&parent) = self.stack.last() {
             let p = &self.scene.nodes[parent];
@@ -488,6 +493,17 @@ pub unsafe extern "C" fn plic_v1_svg(token: u64, source: *const u8, len: usize) 
     unsafe { leaf(token, source, len, None, Kind::Svg) }
 }
 
+/// # Safety
+/// Same call-scoped UTF-8 buffer contract as `plic_v1_text`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plic_v1_text_input(
+    token: u64,
+    text: *const u8,
+    len: usize,
+    id: u64,
+) -> u32 {
+    unsafe { leaf(token, text, len, Some(id), |s| Kind::TextInput(s, id)) }
+}
 /// # Safety
 /// Same call-scoped UTF-8 buffer contract as `plic_v1_text`.
 #[unsafe(no_mangle)]

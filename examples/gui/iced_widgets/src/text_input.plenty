@@ -1,0 +1,29 @@
+import std.gui.retained.iced as iced
+
+class State:
+    name: str
+    def __init__(self) -> ():
+        self.name = "Ada"
+
+def create() -> Result[State, AllocError]:
+    Ok(State())
+
+def view(state: &State, frame: &iced.Frame) -> Result[(), iced.IcedError]:
+    frame.column()?
+    frame.text(&"Display name")?
+    frame.text_input(&state.name, 1u64)?
+    frame.text(&state.name)?
+    frame.end()
+
+def update(state: &mut State, event: iced.Event) -> Result[(), iced.IcedError]:
+    match event:
+        case iced.Event.TextChanged(id, name):
+            if id != 1u64:
+                return Err(iced.IcedError.InvalidArgument)
+            state.name = name
+            Ok(())
+        case _:
+            Err(iced.IcedError.InvalidArgument)
+
+def main() -> Result[(), iced.IcedError]:
+    iced.run_events(create=create, view=view, update=update)

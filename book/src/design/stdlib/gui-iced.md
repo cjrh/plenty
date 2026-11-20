@@ -16,7 +16,7 @@ handling, event loop and software renderer. See the [signatures](signatures.md#s
 
 The [widget catalog](gui-iced-widgets.md) also covers selection controls, progress, spacing and layered layout.
 
-Use `iced.run_events(create=create, view=view, update=update)` for value-bearing controls. Its update callback takes `(&mut State, iced.Event)`. Buttons and other action-only widgets deliver `Action(id)`; sliders deliver `SliderChanged(id, value)`. The existing `iced.run` still accepts a `u64` update and rejects value-bearing events rather than dropping the value.
+Use `iced.run_events(create=create, view=view, update=update)` for value-bearing controls. Its update callback takes `(&mut State, iced.Event)`. Buttons and other action-only widgets deliver `Action(id)`; sliders deliver `SliderChanged(id, value)` and text inputs deliver `TextChanged(id, text)`. The existing `iced.run` still accepts a `u64` update and rejects value-bearing events rather than dropping the value.
 
 ## Example: a counter
 

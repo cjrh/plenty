@@ -81,15 +81,26 @@ impl Session {
         Ok(Self { state, scene })
     }
     fn dispatch(&mut self, event: Message) -> Result<(), Error> {
-        let (action, slider) = match event {
-            Message::Pressed(id) => (id, None),
-            Message::Slider(id, n) => (id, Some(n)),
+        let (action, slider, text) = match event {
+            Message::Pressed(id) => (id, None, None),
+            Message::Slider(id, n) => (id, Some(n), None),
+            Message::Text(id, s) => {
+                if s.len() > crate::MAX_TEXT {
+                    return Err(Error::LimitExceeded);
+                }
+                if s.contains(['\r', '\n']) {
+                    return Err(Error::InvalidArgument);
+                }
+                (id, None, Some(s))
+            }
         };
         let valid = self
             .scene
             .nodes
             .iter()
             .any(|node| match (&node.kind, slider) {
+                (Kind::TextInput(_, id), _) => text.is_some() && *id == action,
+                _ if text.is_some() => false,
                 (Kind::Slider { id, min, max, .. }, Some(n)) => {
                     *id == action && (*min..=*max).contains(&n)
                 }
@@ -110,7 +121,17 @@ impl Session {
                 }
             }
             let _guard = Reset(slot);
-            self.state.event(action)
+            TEXT.with(|slot| {
+                slot.replace(text);
+                struct Clear<'a>(&'a std::cell::RefCell<Option<String>>);
+                impl Drop for Clear<'_> {
+                    fn drop(&mut self) {
+                        self.0.take();
+                    }
+                }
+                let _clear = Clear(slot);
+                self.state.event(action)
+            })
         });
         result?;
         self.scene = self.state.render()?;
@@ -118,12 +139,33 @@ impl Session {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Message {
     Pressed(u64),
     Slider(u64, u16),
+    Text(u64, String),
 }
 use Message::Pressed;
+thread_local! {static TEXT:std::cell::RefCell<Option<String>>=const{std::cell::RefCell::new(None)};}
+#[unsafe(no_mangle)]
+extern "C" fn plic_v1_event_text_len() -> i64 {
+    TEXT.with_borrow(|s| s.as_ref().map_or(-1, |s| s.len() as i64))
+}
+#[unsafe(no_mangle)]
+unsafe extern "C" fn plic_v1_event_text_copy(out: *mut u8, len: usize, stride: usize) -> u32 {
+    TEXT.with_borrow(|s| {
+        let Some(s) = s else {
+            return Error::InvalidContext as u32;
+        };
+        if len != s.len() || (len != 0 && (stride == 0 || out.is_null())) {
+            return Error::InvalidArgument as u32;
+        }
+        for (i, b) in s.bytes().enumerate() {
+            unsafe { out.add(i * stride).write(b) }
+        }
+        0
+    })
+}
 thread_local! {static SLIDER:Cell<Option<u16>>=const{Cell::new(None)};}
 #[unsafe(no_mangle)]
 unsafe extern "C" fn plic_v1_slider_value(out: *mut u16) -> bool {
@@ -338,6 +380,13 @@ fn view(session: &Session) -> Element<'_, Message> {
             .width(iced::Length::Shrink)
             .height(iced::Length::Shrink)
             .into(),
+            Kind::TextInput(s, id) => iced::widget::keyed_column([(
+                *id,
+                iced::widget::text_input("", s)
+                    .on_input(move |s| Message::Text(*id, s))
+                    .into(),
+            )])
+            .into(),
             Kind::Text(s) => text(s.as_str()).into(),
             Kind::Button(s, id) => button(text(s.as_str())).on_press(Pressed(*id)).into(),
         }
@@ -370,7 +419,15 @@ fn run(create: impl FnOnce() -> Result<StateOwner, Error>) -> Result<(), Error> 
         show(&session.scene);
         for arg in args {
             let arg = arg.to_str().ok_or(Error::InvalidArgument)?;
-            let event = if let Some((id, value)) = arg.split_once('=') {
+            let event = if let Some((id, s)) = arg
+                .split_once(':')
+                .filter(|(id, _)| id.bytes().all(|b| b.is_ascii_digit()))
+            {
+                Message::Text(
+                    id.parse().map_err(|_| Error::InvalidArgument)?,
+                    s.to_owned(),
+                )
+            } else if let Some((id, value)) = arg.split_once('=') {
                 Message::Slider(
                     id.parse().map_err(|_| Error::InvalidArgument)?,
                     value.parse().map_err(|_| Error::InvalidArgument)?,
