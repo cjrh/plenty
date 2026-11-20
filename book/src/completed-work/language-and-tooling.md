@@ -15,6 +15,10 @@ Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-co
 
 [`Allocator.replace_bytes`](../design/stdlib/alloc.md#replace-bytes-in-a-frame) returns independent selected packed bytes. Matches are nonoverlapping. An empty needle inserts the replacement before, between and after the source bytes. Even when nothing matches, the result is an independent copy.
 
+### Selected byte joining
+
+[`Allocator.join_bytes`](../design/stdlib/alloc.md#join-byte-fields) returns independent selected packed bytes. The method borrows the list and its byte parts. It checks the total length, including separators, before requesting storage, then reserves the result and writes directly into it.
+
 ### Selected byte splitting
 
 [`Allocator.split_bytes` and `split_whitespace_bytes`](../design/stdlib/alloc.md#split-byte-views-into-fields) split borrowed binary data without a system temporary. Each packed field and the list retain the allocator, including empty results. A refusal releases partial output without changing the inputs.

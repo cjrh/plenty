@@ -73,6 +73,9 @@ pub enum BoxError[T]:
 pub enum Unset:
     Unset
 
+def _byte_view_len(view: &[u8]) -> i64:
+    len(view)
+
 def _slice_bound(bound: i64 | Unset) -> Option[i64]:
     match bound:
         case index: i64:
@@ -224,6 +227,33 @@ pub class Allocator:
         if start < len(source):
             fields.append(self.slice_bytes(&source[start:])?)?
         Ok(fields)
+
+    pub def join_bytes[T](self, separator: &[u8], parts: &list[T]) -> Result[Bytes, AllocError]:
+        mut size = 0
+        mut first = True
+        # Preflight every addition before allocating the result. The same checked
+        # bound also covers multiplication by the number of separators.
+        for part in parts:
+            if not first:
+                unchecked:
+                    if len(separator) > i64.MAX - size:
+                        return Err(AllocError.CapacityOverflow)
+                    size += len(separator)
+            first = False
+            part_size = _byte_view_len(part)
+            unchecked:
+                if part_size > i64.MAX - size:
+                    return Err(AllocError.CapacityOverflow)
+                size += part_size
+        mut result = self.slice_bytes(b"")?
+        result.reserve(size)?
+        first = True
+        for part in parts:
+            if not first:
+                result.extend(separator)?
+            first = False
+            result.extend(part)?
+        Ok(result)
 
     pub def decode_text(self, source: &Bytes) -> Result[str, BytesError]:
         if source.utf8_run(0, source.len()) != source.len():

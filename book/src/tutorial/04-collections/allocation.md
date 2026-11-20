@@ -329,6 +329,23 @@ def main() -> Result[(), AllocError | IoError]:
 b"\xff/end"
 ```
 
+## Join byte fields
+
+When a protocol requires a different delimiter, join the borrowed fields directly into a selected byte buffer.
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    parts = out.split_bytes(b"\xff::end", b"::")?
+    print(out.join_bytes(b"/", &parts)?)?
+    Ok(())
+```
+```output
+b"\xff/end"
+```
+
 ## Keep fields from a byte frame
 
 If an empty field marks a missing value, split on an explicit separator.

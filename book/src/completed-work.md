@@ -5,6 +5,8 @@ Delivery history and retired backlog entries live here, separate from the
 
 - [Selected byte replacement](completed-work/language-and-tooling.md#selected-byte-replacement).
 
+- [Selected byte joining](completed-work/language-and-tooling.md#selected-byte-joining).
+
 - [Language and tooling](completed-work/language-and-tooling.md): language
   foundations, ownership, calls, value parameters and bounded integers, project
   tooling and concurrency.

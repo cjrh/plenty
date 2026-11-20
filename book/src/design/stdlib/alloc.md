@@ -245,6 +245,10 @@ system fallback; provisional storage is released.
 
 `out.replace_bytes(source, old, replacement)` returns `Result[Bytes, AllocError]`. Matches are nonoverlapping. An empty needle inserts the replacement before, between and after the source bytes. Even when nothing matches, the result is an independent copy. Capacity is checked as the output grows, not preflighted; an unrepresentable capacity returns `AllocError.CapacityOverflow`. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
 
+### Join byte fields
+
+`out.join_bytes(separator, parts)` returns `Result[Bytes, AllocError]`. Each list element must be borrowable as `&[u8]` (for example, `list[u8]` or `Shared[list[u8]]`, not `str`). As in [ordinary byte joining](bytes-stringlike.md#copies-allocation-and-joining), separators appear only between parts. If the total including separators exceeds `i64.MAX`, the method returns `AllocError.CapacityOverflow` before requesting storage. Otherwise it reserves the result and writes directly into it. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
+
 ### Split byte views into fields
 
 `out.split_bytes(source, separator)` borrows two `&[u8]` views and returns
