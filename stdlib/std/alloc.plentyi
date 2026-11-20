@@ -255,10 +255,10 @@ pub class Allocator:
             result.extend(part)?
         Ok(result)
 
-    pub def decode_text(self, source: &Bytes) -> Result[str, BytesError]:
-        if source.utf8_run(0, source.len()) != source.len():
+    pub def decode_text(self, source: &[u8]) -> Result[str, BytesError]:
+        if __bytes_run(source, 1u8) != len(source):
             return Err(BytesError.InvalidUtf8)
-        __allocator_text_finish(self._handle, &source[:]).map_error(BytesError.Allocation)
+        __allocator_text_finish(self._handle, source).map_error(BytesError.Allocation)
 
     pub def join_text_stream(self, separator: &strview, source: Generator[str]) -> Result[str, AllocError]:
         mut scratch = self.slice_bytes(b"")?
