@@ -42,28 +42,28 @@ def main() -> ():
 
 #[test]
 fn refusal_unwinds_the_partial_list_and_leaves_both_inputs_usable() {
-    // Fail every request up through the last field's owner. Includes refusals
-    // during list growth and after earlier nonempty fields are in the list.
+    // Two list headers, first row block, ten field blocks. Budget 13
+    // refuses the row growth needed to append the fifth completed field.
     for call in [
         "out.split_bytes(&src, &sep)",
         "out.split_whitespace_bytes(&src)",
     ] {
         let mut expected = String::new();
-        for blocks in 0..9 {
+        for blocks in 0..14 {
             expected.push_str(&format!(
                 "refused failed\nAllocError.CapacityOverflow\nfailed 0 {blocks}\n"
             ));
         }
-        expected.push_str("b\"a b c\" b\" \"\nb\"A b c\" b\"+\"\n");
+        expected.push_str("b\"a b c d e\" b\" \"\nb\"A b c d e\" b\"+\"\n");
         assert_stdout(
             &format!(
                 r#"{POLICY}
 import std.bytes as binary
 
 def main() -> Result[(), AllocError | IoError]:
-    mut src = binary.from_bytes(b"a b c")?
+    mut src = binary.from_bytes(b"a b c d e")?
     mut sep = binary.from_bytes(b" ")?
-    for blocks in range(9):
+    for blocks in range(14):
         out = budget("failed", blocks, AllocError.CapacityOverflow)
         match {call}:
             case Err(error):
