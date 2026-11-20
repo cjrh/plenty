@@ -110,6 +110,36 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn strip_text_selects_unicode_ends_and_copies_unchanged_text() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("trim", 1)
+    label = "x　a b y"
+    view = &label[1:-1]
+    print(out.strip_text(view)?, out.lstrip_text(view)? == "a b ", out.rstrip_text(view)? == "　a b")?
+    print(out.strip_text("　🙂界 ")?, out.strip_text("　 ")?.byte_len(), out.rstrip_text("")?.byte_len())?
+    source = ("🙂" + "🙂")?
+    saved = out.strip_text(source)?
+    match out.lstrip_text(source):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    print(source)?
+    drop(source)
+    drop(out)
+    print(saved, len(saved), saved.byte_len())?
+    drop(saved)
+    Ok(())
+"#
+        ),
+        "a b True True\n🙂界 0 0\nrefused trim\nAllocError.OutOfMemory\n🙂🙂\n🙂🙂 2 8\ntrim 0 1\n",
+    );
+}
+
+#[test]
 fn replace_text_matches_scalar_boundaries_and_copies_unmatched_text() {
     assert_stdout(
         &format!(

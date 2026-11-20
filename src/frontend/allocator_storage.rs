@@ -85,6 +85,7 @@ pub(super) fn named(name: &str) -> bool {
             | "__allocator_clist_slice"
             | "__allocator_bytes_slice"
             | "__allocator_text_replace"
+            | "__allocator_text_strip"
             | "__allocator_text_repeat"
             | "__allocator_text_finish"
             | "__allocator_text_join"

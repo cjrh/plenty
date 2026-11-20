@@ -44,6 +44,8 @@ pub const ALLOCATOR_TEXT_FINISH: i64 = 672;
 pub const ALLOCATOR_TEXT_REPEAT: i64 = 673;
 /// Literal replacement across three borrowed text ranges.
 pub const ALLOCATOR_TEXT_REPLACE: i64 = 674;
+/// Copy trimmed UTF-8 into selected storage (left/right end bits).
+pub const ALLOCATOR_TEXT_STRIP: i64 = 675;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;

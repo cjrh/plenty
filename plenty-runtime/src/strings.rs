@@ -997,13 +997,14 @@ pub(crate) unsafe fn try_strip(
     right: bool,
 ) -> Result<*mut Text, AllocError> {
     // SAFETY: the caller keeps the string word live through the call.
-    try_strip_range(unsafe { utf8(&text) }, left, right)
+    try_strip_range(unsafe { utf8(&text) }, left, right, None)
 }
 
 pub(crate) fn try_strip_range(
     mut source: &str,
     left: bool,
     right: bool,
+    allocator: Option<&Allocator>,
 ) -> Result<*mut Text, AllocError> {
     if left {
         source = source.trim_start();
@@ -1011,7 +1012,10 @@ pub(crate) fn try_strip_range(
     if right {
         source = source.trim_end();
     }
-    try_new(source)
+    match allocator {
+        Some(out) => try_new_in(source, out),
+        None => try_new(source),
+    }
 }
 
 /// Copy a forward Unicode-scalar slice directly from its UTF-8 byte interval.

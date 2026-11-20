@@ -126,9 +126,9 @@ pub(super) unsafe fn call(
                 })
             }
             52 => source.matches(text_views::text(b)).count() as u128,
-            53..=55 => {
-                fallible(strings::try_strip_range(source, op != 55, op != 54).map(|t| t as u128))
-            }
+            53..=55 => fallible(
+                strings::try_strip_range(source, op != 55, op != 54, None).map(|t| t as u128),
+            ),
             56 => fallible(strings::try_repeat_range(source, b as i64, None).map(|t| t as u128)),
             71 | 72 => {
                 let needle = text_views::text(b);

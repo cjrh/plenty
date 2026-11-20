@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected whitespace trimming
+
+[`Allocator.strip_text`, `lstrip_text`, and `rstrip_text`](../design/stdlib/alloc.md#trim-text-with-an-output-allocator) trim Unicode whitespace and copy the retained text directly into inline or selected storage.
+
 ### Selected literal text replacement
 
 [`Allocator.replace_text`](../design/stdlib/alloc.md#replace-literal-text-with-an-output-allocator) copies literal replacements into inline or selected storage without scratch. Ordinary replacement is unchanged.
