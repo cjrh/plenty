@@ -30,6 +30,7 @@ mod test_std_alloc_copy_view;
 mod test_std_alloc_dict_set;
 #[path = "test_std_alloc_key_view.rs"]
 mod test_std_alloc_key_view;
+mod test_std_alloc_replace_bytes;
 #[path = "test_std_alloc_set_algebra.rs"]
 mod test_std_alloc_set_algebra;
 mod test_std_alloc_slice;

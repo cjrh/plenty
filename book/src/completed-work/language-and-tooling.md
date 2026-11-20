@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected byte replacement
+
+[`Allocator.replace_bytes`](../design/stdlib/alloc.md#replace-bytes-in-a-frame) returns independent selected packed bytes. Matches are nonoverlapping. An empty needle inserts the replacement before, between and after the source bytes. Even when nothing matches, the result is an independent copy.
+
 ### Selected byte splitting
 
 [`Allocator.split_bytes` and `split_whitespace_bytes`](../design/stdlib/alloc.md#split-byte-views-into-fields) split borrowed binary data without a system temporary. Each packed field and the list retain the allocator, including empty results. A refusal releases partial output without changing the inputs.

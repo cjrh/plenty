@@ -166,6 +166,32 @@ pub class Allocator:
     pub def rstrip_bytes(self, source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
         self._strip_bytes(source, set, False, True)
 
+    pub def replace_bytes(self, source: &[u8], old: &[u8], replacement: &[u8]) -> Result[Bytes, AllocError]:
+        # Grow the result through checked byte-buffer operations. Even an empty
+        # needle consumes a byte between insertions, so the loop always advances.
+        mut result = self.slice_bytes(b"")?
+        if len(old) == 0:
+            result.extend(replacement)?
+            for at in range(len(source)):
+                result.push(source[at])?
+                result.extend(replacement)?
+            return Ok(result)
+        mut at = 0
+        while at < len(source):
+            match (&source[at:]).find(old):
+                case Some(offset):
+                    mut stop = at
+                    unchecked:
+                        stop += offset
+                    result.extend(&source[at:stop])?
+                    result.extend(replacement)?
+                    unchecked:
+                        at = stop + len(old)
+                case Nothing:
+                    result.extend(&source[at:])?
+                    break
+        Ok(result)
+
     pub def split_bytes(self, source: &[u8], separator: &[u8]) -> Result[list[Bytes], AllocError]:
         if len(separator) == 0:
             __trap("bytes.split: separator is empty")
