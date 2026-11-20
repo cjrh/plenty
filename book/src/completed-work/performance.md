@@ -1714,8 +1714,7 @@ instructions fall 5.8726%, while CPU time is effectively unchanged. Unchecked
 spectral norm changes 16/18 to 17/17, and one small clist loop gains an
 instruction; this is not a general per-loop nonregression result. Compilation
 instruction costs rise about 0.23–0.28%. Explicit native integration with the
-independent issue #977 scheduling candidate reaches C's 14/14 instructions,
-but a complete combined Plenty compiler has not been qualified.
+independent issue #977 scheduling candidate reaches C's 14/14 instructions.
 
 The standalone candidate passes the complete uncached Plenty suite, focused
 loop/trap/alias tests, f32/f64 optimized and fast-compile probes, six backend
@@ -1725,9 +1724,34 @@ retains the same 15 existing precise-output mismatches as its baseline; no
 expectation was blessed. Fourteen benchmark output hashes match. Patches,
 CLIF controls, native verifier and counter samples retain the evidence.
 
-This delivery preserves a candidate and its qualification. Production source
-and dependency pins are unchanged; fork publication/adoption remains issue
-#980, with further performance scope in [B19](../backlog.md).
+This experiment preserved the standalone candidate and its qualification. The
+[production adoption](#scalar-floating-load-folding-issue-980) measures the
+complete compiler with both backend changes.
+
+## Scalar floating-load folding (issue #980)
+
+The production and CLIF harness lockfiles select Cranelift `94ed85d10c`, which
+keeps direct use counts and limits recursive use-count propagation to producers
+that can be merged by instruction operands. Register-only successor arguments
+and exception contexts still count as direct uses. Existing load-sinking
+constraints preserve memory effects and trap ordering.
+
+Plenty emits the latch test in the last body block for a single eligible
+[scalar reduction](../design/toolchain/02-architecture/emission.md#loop-layout).
+The bounded spectral-norm inner loops, including their inlined copies, fold
+the input load into `mulsd` or `vmulsd`. The x86-64 loops go from 15 to 14
+instructions per pass, matching GCC 16.2.1. The x86-64-v3 loops go from 14 to 13
+and retain one extra instruction compared with C, a register zeroing before
+integer-to-float conversion. The clist n-body momentum loop keeps its separate
+latch and its original instruction count.
+
+At `n = 2000`, spectral-norm retires about 160 million fewer user-mode
+instructions on each CPU profile. CPU-time samples do not establish a speedup.
+Across 38 sources, every observed loop-count change is a spectral reduction.
+The native matrix verifier checks 2,048 cases across four rounding modes,
+floating exception flags, protected span boundaries and over-limit early
+returns. The Cranelift allocator integration run retains 15 assembly-output
+mismatches with identical diagnostics at the two pins.
 
 ## Declared-vector prototype (issue #967)
 
@@ -1786,9 +1810,8 @@ selects it in the production and harness lockfiles. The
 [escape-latch continuation](#counted-escape-latch-experiment-issue-977) qualifies
 a further local reduction from 20 to 18 instructions; its publication and
 production adoption remain issue #977, while the remaining scalar copies
-belong to issue #978. Issue #980 separately
-tracks the remaining matrix floating-load instruction. The benchmark rewrite
-under issue #972 uses this scheduling change.
+belong to issue #978. The [floating-load delivery](#scalar-floating-load-folding-issue-980)
+removes the remaining matrix load from the scheduled loop.
 
 
 ## Bounded spectral-norm benchmark (issue #972)
@@ -1811,9 +1834,9 @@ Against the unchecked benchmark on the same new backend, instructions fall
 so this meets the measured nonregression gate without establishing a reliable
 CPU speedup. Uncached source-compilation instructions rise 0.168%; raw samples
 and ranges are retained with the experiment.
-This adopts only the published integer-backedge scheduling; issue #980's
-separate floating-load folding experiment remains unadopted, and issue #977's
-original escape-loop gap remains open.
+This milestone adopts the published integer-backedge scheduling. The
+[floating-load delivery](#scalar-floating-load-folding-issue-980) builds on
+it. Issue #977's original escape-loop gap remains open.
 
 
 ## Counted escape latch experiment (issue #977)
@@ -1830,7 +1853,8 @@ comparisons retain their behavior.
 The candidate is recorded in `experiments/kernels/escape-latch/`, including the
 local fork patch, baseline/candidate assembly and all 38 source-program loop
 counts. It is separate from issue #972's production adoption of d27 (local PR
-#1271), and excludes the unpublished issue #980 changes. This milestone records
+#1271) and from the [floating-load delivery](#scalar-floating-load-folding-issue-980).
+This milestone records
 local implementation and qualification, not publication or production backend
 adoption: no lockfile changes ship here. Issue #977 remains open for those
 steps; the fork needs user-authorized publication before its production pin.

@@ -20,6 +20,8 @@ Delivery history and retired backlog entries live here, separate from the
   of issue #843, and the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
+  [Scalar floating-load folding](completed-work/performance.md#scalar-floating-load-folding-issue-980)
+  removes the standalone input load from spectral-norm's inner loops.
 
 The [iced counter experiment](completed-work/libraries.md#iced-counter-experiment)
 uses checked executable callbacks and a separately selected native archive.

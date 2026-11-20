@@ -170,8 +170,6 @@ These belong to B17 and are not scheduled implementation commitments:
 ### Remaining performance work
 
 B19 is evidence-driven; these are candidates, not an approved optimization batch.
-The [scalar floating-load experiment](completed-work/performance.md#scalar-floating-load-folding-experiment-issue-980)
-qualifies a local candidate; publication/adoption remains issue #980.
 Dominated index-increment overflow elimination is [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining general-case n-body checks, spills and address work are tracked in issue #930.
 The [structural n-body study](completed-work/performance.md#n-body-structural-feasibility-issues-929-and-930)

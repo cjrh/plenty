@@ -216,6 +216,13 @@ impl Symbols {
         self.declared.isa.frontend_config()
     }
 
+    /// x86 scalar arithmetic can consume a floating load directly. Other
+    /// targets retain the ordinary loop blocks until measured separately.
+    pub(super) fn folds_scalar_float_loads(&self) -> bool {
+        self.declared.isa.triple().architecture == target_lexicon::Architecture::X86_64
+            && self.declared.isa.flags().opt_level() != cranelift_codegen::settings::OptLevel::None
+    }
+
     fn request(&mut self, request: Request) -> u32 {
         if let Some(number) = self.numbers.get(&request) {
             return *number;

@@ -604,6 +604,13 @@ reads the header's values, which reach the exit too.
 
 A body that never falls through and has no `continue` gets no latch.
 
+In optimized x86-64 code, the final body block can hold the latch test when it
+contains one scalar load–multiply–add reduction into a loop-carried sum
+(issue #980). Sharing the block lets Cranelift use the load as the multiply's
+memory operand. Loops with multiple matching reductions or a `continue`
+targeting that loop keep the separate latch. The rotation guard still runs
+before the first pass, and the arithmetic and its rounding order are preserved.
+
 For an integer-tested backedge, the Cranelift fork elaborates its successor
 arguments before the condition (issue #977). A backedge argument can still
 consume the old induction value while the condition consumes its increment;
