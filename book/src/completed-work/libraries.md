@@ -693,6 +693,8 @@ The egui completion popup replaces the current word with an accepted prefix matc
 
 The [retained command picker](../tutorial/special-purpose/gui-counters.md#a-retained-command-picker) filters four commands in view and records the selected button in update without executing it.
 
+Iced TextEditor keeps cursor state by editor ID and proposes a bounded multiline document to Plenty update.
+
 Iced TextInput sends a bounded, owned UTF-8 replacement to the model in update.
 
 Iced Svg renders trusted inline SVG markup at its intrinsic size.

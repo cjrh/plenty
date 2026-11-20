@@ -71,25 +71,81 @@ impl StateOwner {
     }
 }
 
+use iced::widget::text_editor::{self, Content};
+struct Editor {
+    id: u64,
+    content: Content,
+}
 struct Session {
+    editors: Vec<Editor>,
     state: StateOwner,
     scene: Scene,
 }
 impl Session {
     fn new(mut state: StateOwner) -> Result<Self, Error> {
         let scene = state.render()?;
-        Ok(Self { state, scene })
+        let mut session = Self {
+            state,
+            scene,
+            editors: Vec::new(),
+        };
+        session.sync_editors()?;
+        Ok(session)
+    }
+
+    fn sync_editors(&mut self) -> Result<(), Error> {
+        self.editors.retain(|e| {
+            self.scene
+                .nodes
+                .iter()
+                .any(|n| matches!(n.kind,Kind::TextEditor(_,id) if id==e.id))
+        });
+        for node in &self.scene.nodes {
+            if let Kind::TextEditor(text, id) = &node.kind {
+                if let Some(e) = self.editors.iter_mut().find(|e| e.id == *id) {
+                    if e.content.text() != *text {
+                        e.content = Content::with_text(text)
+                    }
+                } else {
+                    self.editors
+                        .try_reserve(1)
+                        .map_err(|_| Error::OutOfMemory)?;
+                    self.editors.push(Editor {
+                        id: *id,
+                        content: Content::with_text(text),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
     fn dispatch(&mut self, event: Message) -> Result<(), Error> {
+        let event = if let Message::Editor(id, action) = event {
+            let e = self
+                .editors
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or(Error::InvalidArgument)?;
+            if matches!(&action,text_editor::Action::Edit(text_editor::Edit::Paste(s)) if s.len()>crate::MAX_TEXT)
+            {
+                return Err(Error::LimitExceeded);
+            }
+            let edit = action.is_edit();
+            e.content.perform(action);
+            if !edit {
+                return Ok(());
+            }
+            Message::Text(id, e.content.text())
+        } else {
+            event
+        };
         let (action, slider, text) = match event {
+            Message::Editor(..) => unreachable!("editor action handled above"),
             Message::Pressed(id) => (id, None, None),
             Message::Slider(id, n) => (id, Some(n), None),
             Message::Text(id, s) => {
                 if s.len() > crate::MAX_TEXT {
                     return Err(Error::LimitExceeded);
-                }
-                if s.contains(['\r', '\n']) {
-                    return Err(Error::InvalidArgument);
                 }
                 (id, None, Some(s))
             }
@@ -99,7 +155,10 @@ impl Session {
             .nodes
             .iter()
             .any(|node| match (&node.kind, slider) {
-                (Kind::TextInput(_, id), _) => text.is_some() && *id == action,
+                (Kind::TextEditor(_, id), _) => text.is_some() && *id == action,
+                (Kind::TextInput(_, id), _) => {
+                    text.as_ref().is_some_and(|s| !s.contains(['\r', '\n'])) && *id == action
+                }
                 _ if text.is_some() => false,
                 (Kind::Slider { id, min, max, .. }, Some(n)) => {
                     *id == action && (*min..=*max).contains(&n)
@@ -135,7 +194,7 @@ impl Session {
         });
         result?;
         self.scene = self.state.render()?;
-        Ok(())
+        self.sync_editors()
     }
 }
 
@@ -144,6 +203,7 @@ enum Message {
     Pressed(u64),
     Slider(u64, u16),
     Text(u64, String),
+    Editor(u64, text_editor::Action),
 }
 use Message::Pressed;
 thread_local! {static TEXT:std::cell::RefCell<Option<String>>=const{std::cell::RefCell::new(None)};}
@@ -234,11 +294,12 @@ impl std::fmt::Display for Choice<'_> {
     }
 }
 fn view(session: &Session) -> Element<'_, Message> {
-    fn element(scene: &Scene, i: usize) -> Element<'_, Message> {
+    fn element(session: &Session, i: usize) -> Element<'_, Message> {
+        let scene = &session.scene;
         let node = &scene.nodes[i];
-        let children = node.children.iter().map(|&i| element(scene, i));
+        let children = node.children.iter().map(|&i| element(session, i));
         // The builder validates wrapper arity before publishing the snapshot.
-        let child = |index: usize| element(scene, node.children[index]);
+        let child = |index: usize| element(session, node.children[index]);
         match &node.kind {
             Kind::Image(handle, w, h) => iced::widget::image(handle.clone())
                 .width(*w)
@@ -246,7 +307,7 @@ fn view(session: &Session) -> Element<'_, Message> {
                 .filter_method(iced::widget::image::FilterMethod::Nearest)
                 .into(),
             Kind::Responsive(min) => iced::widget::responsive(move |size| {
-                let items = node.children.iter().map(|&i| element(scene, i));
+                let items = node.children.iter().map(|&i| element(session, i));
                 if size.width >= f32::from(*min) {
                     row(items).spacing(8).into()
                 } else {
@@ -380,6 +441,21 @@ fn view(session: &Session) -> Element<'_, Message> {
             .width(iced::Length::Shrink)
             .height(iced::Length::Shrink)
             .into(),
+            Kind::TextEditor(_, id) => {
+                let editor = session
+                    .editors
+                    .iter()
+                    .find(|e| e.id == *id)
+                    .expect("editor synchronized before view");
+                iced::widget::keyed_column([(
+                    *id,
+                    iced::widget::text_editor(&editor.content)
+                        .height(120)
+                        .on_action(move |a| Message::Editor(*id, a))
+                        .into(),
+                )])
+                .into()
+            }
             Kind::TextInput(s, id) => iced::widget::keyed_column([(
                 *id,
                 iced::widget::text_input("", s)
@@ -391,7 +467,7 @@ fn view(session: &Session) -> Element<'_, Message> {
             Kind::Button(s, id) => button(text(s.as_str())).on_press(Pressed(*id)).into(),
         }
     }
-    container(element(&session.scene, 0)).padding(24).into()
+    container(element(session, 0)).padding(24).into()
 }
 
 fn show(scene: &Scene) {
