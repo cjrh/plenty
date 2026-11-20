@@ -102,11 +102,41 @@ The restored production backend pin `98c03730` also passes all 11 focused
 range regressions with the frontend change; production manifests have no diff.
 The full suite and performance evidence above use the isolated candidate.
 
-Production adoption is pending: local PR #1271 separately adopts d27 and
-rewrites bounded spectral-norm for issue #972. This PR does not copy that code
-or change production lockfiles. Publishing the additional fork commit requires
-user authorization; a subsequent production pin depends on #1271. Issue #977
-stays open while that adoption remains outstanding.
+## Reassessment on the production pin
+
+After issue #978, production Cranelift `2986d9c583` emits a conditional backedge
+in the standalone SSE2 reproduction and both copies of the Mandelbrot escape
+loop. A separate countdown test remains. Compile the optimized Plenty CLIF dumps
+with the pinned harness, then with just the arithmetic flag hunks from
+`cranelift.patch` applied to that pin, and with the full patch. The counts below
+come from `loops.py`; the inlined reproduction counts only the escape loop
+in `unused-range/kernels.plenty`'s `main`.
+
+| SSE2 loop | Production | Flag reuse only | Full patch |
+| --- | ---: | ---: | ---: |
+| Standalone reproduction | 16 | 16 | 16 |
+| Inlined reproduction | 20 | 19 | 18 |
+| Standalone Mandelbrot | 16 | 15 | 15 |
+| Inlined Mandelbrot | 16 | 15 | 15 |
+
+Biasing the countdown to test unsigned overflow or borrow on the production
+backend reaches 15 instructions in standalone Mandelbrot, but grows the
+standalone reproduction from 16 to 19. It duplicates the decrement and adds
+a counter copy and back jump. Moving the decrement in the input CLIF leaves
+these counts unchanged. Testing the old count against one also grows the
+standalone reproduction to 19.
+
+All twelve top-tested escape variants remain at 16 instructions on SSE2 with
+either backend patch. On AVX the full patch reduces all twelve variants from
+15 to 14 and the flag-only patch leaves them at 15. The C oracle passes
+480,000 comparisons per backend and CPU profile. These are kernel checks
+against the updated pin. The runtime measurements below used the older pin.
+
+Issue #977 was closed as deferred. The full patch adds post-allocation
+physical-register liveness analysis and edge-copy movement, and the smaller
+alternatives fail to reduce the original standalone SSE2 loop. The experiment
+retains the patch and its qualification if a smaller approach or a measurable
+runtime benefit warrants revisiting it.
 
 ## Whole-program measurement
 

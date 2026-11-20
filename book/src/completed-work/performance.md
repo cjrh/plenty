@@ -1644,7 +1644,7 @@ individual-loop nonregression gate even though total retired instructions at
 `n = 2000` fall slightly (2,724.495M to 2,724.415M). Nine interleaved pinned-core
 samples give median CPU times of 162.05/160.58 ms, with overlapping ranges;
 this is evidence of no whole-program regression, not a reliable speedup claim.
-The remaining latch move/jump is tracked by issue #977. The checked-in
+Issue #977 investigated the remaining latch move and jump. The checked-in
 kernels, IR variants, raw samples and reproduction instructions in
 `experiments/kernels/bounded-arguments/README.md` record the attribution and
 x86-64-v3 comparison. This delivery removes the
@@ -1808,9 +1808,9 @@ This milestone delivers qualification and the user-authorized publication of
 `d27f16528a` to the Cranelift fork. The [issue #972 adoption](#bounded-spectral-norm-benchmark-issue-972)
 selects it in the production and harness lockfiles. The
 [escape-latch continuation](#counted-escape-latch-experiment-issue-977) qualifies
-a further local reduction from 20 to 18 instructions; its publication and
-production adoption remain issue #977, while the remaining scalar copies
-belong to issue #978. The [floating-load delivery](#scalar-floating-load-folding-issue-980)
+a further local reduction from 20 to 18 instructions. Issue #978 subsequently
+removed the excess scalar copies and back jump in the standalone kernel.
+The [floating-load delivery](#scalar-floating-load-folding-issue-980)
 removes the remaining matrix load from the scheduled loop.
 
 
@@ -1836,13 +1836,13 @@ CPU speedup. Uncached source-compilation instructions rise 0.168%; raw samples
 and ranges are retained with the experiment.
 This milestone adopts the published integer-backedge scheduling. The
 [floating-load delivery](#scalar-floating-load-folding-issue-980) builds on
-it. Issue #977's original escape-loop gap remains open.
+it.
 
 
 ## Counted escape latch experiment (issue #977)
 
-The original escape kernel now has a qualified local candidate that uses 18
-instructions per pass against the published d27 backend's 20 and C's 15. A
+The original escape kernel used 18 instructions per pass with the local
+candidate against the published d27 backend's 20 and C's 15. A
 positive-entry private countdown in a loop with an early `break` uses a nonzero
 latch; x64 reuses its decrement
 flags and hoists dead-on-exit critical-backedge register copies, allowing the
@@ -1854,10 +1854,12 @@ The candidate is recorded in `experiments/kernels/escape-latch/`, including the
 local fork patch, baseline/candidate assembly and all 38 source-program loop
 counts. It is separate from issue #972's production adoption of d27 (local PR
 #1271) and from the [floating-load delivery](#scalar-floating-load-folding-issue-980).
-This milestone records
-local implementation and qualification, not publication or production backend
-adoption: no lockfile changes ship here. Issue #977 remains open for those
-steps; the fork needs user-authorized publication before its production pin.
+Plenty shipped the private countdown lowering and retained the backend patch
+as an experiment. Issue #977 was closed as deferred after rechecking against
+production Cranelift `2986d9c583`. The full patch still leaves the original
+standalone SSE2 loop at 16 instructions. It brings the inlined reproduction
+from 20 to 18 and standalone and inlined Mandelbrot from 16 to 15. The retained
+experiment records the narrower variants and their tradeoffs.
 
 ## Mandelbrot scalar-copy investigation (issue #978)
 
