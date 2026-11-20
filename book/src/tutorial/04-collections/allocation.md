@@ -313,6 +313,22 @@ The trim set removes NUL or space at either edge, in any order. The byte
 `0xff` is neither padding nor an ASCII letter, so it survives both copies.
 See [case and strip copies](../../design/stdlib/alloc.md#change-ascii-case-or-strip-byte-edges).
 
+## Replace bytes in a frame
+
+Rewrite a binary delimiter without decoding the payload as text.
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    print(out.replace_bytes(b"\xff::end", b"::", b"/")?)?
+    Ok(())
+```
+```output
+b"\xff/end"
+```
+
 ## Keep fields from a byte frame
 
 If an empty field marks a missing value, split on an explicit separator.

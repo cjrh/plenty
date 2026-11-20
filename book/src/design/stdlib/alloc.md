@@ -241,6 +241,10 @@ are unchanged. An empty result still needs a selected owner. As with
 the retained provider. Size overflow or provider refusal is reported without
 system fallback; provisional storage is released.
 
+### Replace bytes in a frame
+
+`out.replace_bytes(source, old, replacement)` returns `Result[Bytes, AllocError]`. Matches are nonoverlapping. An empty needle inserts the replacement before, between and after the source bytes. Even when nothing matches, the result is an independent copy. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
+
 ### Split byte views into fields
 
 `out.split_bytes(source, separator)` borrows two `&[u8]` views and returns
