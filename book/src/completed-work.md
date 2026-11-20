@@ -3,6 +3,8 @@
 Delivery history and retired backlog entries live here, separate from the
 [backlog](backlog.md), which is the single maintained list of future work.
 
+- [Selected byte joining](completed-work/language-and-tooling.md#selected-byte-joining).
+
 - [Language and tooling](completed-work/language-and-tooling.md): language
   foundations, ownership, calls, value parameters and bounded integers, project
   tooling and concurrency.

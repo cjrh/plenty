@@ -199,6 +199,32 @@ pub class Allocator:
             fields.append(self.slice_bytes(&source[start:])?)?
         Ok(fields)
 
+    pub def join_bytes[T](self, separator: &[u8], parts: &list[T]) -> Result[Bytes, AllocError]:
+        mut size = 0
+        mut first = True
+        # Preflight every addition before allocating the result. The same checked
+        # bound also covers multiplication by the number of separators.
+        for part in parts:
+            if not first:
+                unchecked:
+                    if len(separator) > i64.MAX - size:
+                        return Err(AllocError.CapacityOverflow)
+                    size += len(separator)
+            first = False
+            unchecked:
+                if len(part) > i64.MAX - size:
+                    return Err(AllocError.CapacityOverflow)
+                size += len(part)
+        mut result = self.slice_bytes(b"")?
+        result.reserve(size)?
+        first = True
+        for part in parts:
+            if not first:
+                result.extend(separator)?
+            first = False
+            result.extend(part)?
+        Ok(result)
+
     pub def decode_text(self, source: &Bytes) -> Result[str, BytesError]:
         if source.utf8_run(0, source.len()) != source.len():
             return Err(BytesError.InvalidUtf8)

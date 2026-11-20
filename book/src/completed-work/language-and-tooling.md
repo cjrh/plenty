@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected byte joining
+
+[`Allocator.join_bytes`](../design/stdlib/alloc.md#join-byte-fields) returns independent selected packed bytes. The method borrows the list and its byte parts. It checks the total length, including separators, before requesting storage, then reserves the result and writes directly into it.
+
 ### Selected byte splitting
 
 [`Allocator.split_bytes` and `split_whitespace_bytes`](../design/stdlib/alloc.md#split-byte-views-into-fields) split borrowed binary data without a system temporary. Each packed field and the list retain the allocator, including empty results. A refusal releases partial output without changing the inputs.
