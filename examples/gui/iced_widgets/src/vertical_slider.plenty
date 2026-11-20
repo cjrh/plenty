@@ -24,6 +24,8 @@ def update(state: &mut State, event: iced.Event) -> Result[(), iced.IcedError]:
             if id != 1u64:
                 return Err(iced.IcedError.InvalidArgument)
             state.volume = value
+        case iced.Event.TextChanged(_, _):
+            return Err(iced.IcedError.InvalidArgument)
         case iced.Event.Action(id):
             if id != 2u64:
                 return Err(iced.IcedError.InvalidArgument)

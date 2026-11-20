@@ -509,6 +509,7 @@
         - [Source builds for GUI packages](design/stdlib/gui-build.md)
             - [`std.gui.retained.iced`](design/stdlib/gui-iced.md)
                 - [iced widget examples](design/stdlib/gui-iced-widgets.md)
+                    - [TextInput](design/stdlib/gui-iced-widgets/text_input.md)
                     - [Text](design/stdlib/gui-iced-widgets/text.md)
                     - [Button](design/stdlib/gui-iced-widgets/button.md)
                     - [Row](design/stdlib/gui-iced-widgets/row.md)

@@ -39,6 +39,8 @@ Use the binary name shown for each example. Append `-- --headless` to inspect it
 
 ## Text
 
+[TextInput example](gui-iced-widgets/text_input.md) · `text_input`
+
 [Text example](gui-iced-widgets/text.md) · `text`
 
 ## Button

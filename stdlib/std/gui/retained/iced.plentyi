@@ -6,6 +6,11 @@ extern def native_row(token: u64) -> u32 = "plic_v1_row"
 extern def native_column(token: u64) -> u32 = "plic_v1_column"
 extern def native_end(token: u64) -> u32 = "plic_v1_end"
 extern def native_svg(token: u64, source: &str as utf8) -> u32 = "plic_v1_svg"
+import std.bytes as buffers
+
+extern def native_text_input(token: u64, text: &str as utf8, id: u64) -> u32 = "plic_v1_text_input"
+extern def event_text_len() -> i64 = "plic_v1_event_text_len"
+extern def event_text_copy(data: &mut list[u8] as strided) -> u32 = "plic_v1_event_text_copy"
 extern def native_text(token: u64, text: &str as utf8) -> u32 = "plic_v1_text"
 extern def native_button(token: u64, text: &str as utf8, action: u64) -> u32 = "plic_v1_button"
 
@@ -137,6 +142,8 @@ pub class Frame:
         checked(native_end(self.token))
     pub def svg(self, source: &str) -> Result[(), IcedError]:
         checked(native_svg(self.token, source))
+    pub def text_input(self, text: &str, id: u64) -> Result[(), IcedError]:
+        checked(native_text_input(self.token, text, id))
     pub def text(self, text: &str) -> Result[(), IcedError]:
         checked(native_text(self.token, text))
     pub def button(self, text: &str, action: u64) -> Result[(), IcedError]:
@@ -162,7 +169,7 @@ pub def run[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, 
     callback = def [mut state, view, update](is_action: bool, value: u64) -> Result[(), IcedError]:
         if is_action:
             mut number = 0u16
-            if slider_value(&mut number):
+            if event_text_len() >= 0 or slider_value(&mut number):
                 return Err(IcedError.InvalidArgument)
             return update(&mut state, value)
         frame = Frame(value)
@@ -174,6 +181,7 @@ pub def run[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, 
 pub enum Event:
     Action(u64)
     SliderChanged(u64, u16)
+    TextChanged(u64, str)
 
 pub def run_events[S](create: Callable[[], Result[S, AllocError]], view: Callable[[&S, &Frame], Result[(), IcedError]], update: Callable[[&mut S, Event], Result[(), IcedError]]) -> Result[(), IcedError]:
     checked(admit())?
@@ -183,6 +191,20 @@ pub def run_events[S](create: Callable[[], Result[S, AllocError]], view: Callabl
             mut number = 0u16
             if slider_value(&mut number):
                 return update(&mut state, Event.SliderChanged(value, number))
+            size = event_text_len()
+            if size >= 0:
+                if size > 4096:
+                    return Err(IcedError.LimitExceeded)
+                mut data = [0u8 for _ in range(size)].map_error(allocation)?
+                checked(event_text_copy(&mut data))?
+                text = match buffers.to_text(&data):
+                    case Ok(s):
+                        s
+                    case Err(buffers.BytesError.Allocation(error)):
+                        return Err(allocation(error))
+                    case Err(buffers.BytesError.InvalidUtf8):
+                        return Err(IcedError.NativeFailure)
+                return update(&mut state, Event.TextChanged(value, text))
             return update(&mut state, Event.Action(value))
         frame = Frame(value)
         view(&state, &frame)
