@@ -93,6 +93,10 @@ name = "svg"
 path = "src/svg.plenty"
 
 [[bin]]
+name = "qr_code"
+path = "src/qr_code.plenty"
+
+[[bin]]
 name = "responsive"
 path = "src/responsive.plenty"
 

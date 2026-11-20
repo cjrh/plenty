@@ -5,6 +5,8 @@ extern def drive(driver: &mut Box[Driver] as scoped_box) -> u32 = "plic_v2_drive
 extern def native_row(token: u64) -> u32 = "plic_v1_row"
 extern def native_column(token: u64) -> u32 = "plic_v1_column"
 extern def native_end(token: u64) -> u32 = "plic_v1_end"
+# QRCode uses iced's qrcode-rust encoder (MIT OR Apache-2.0).
+extern def native_qr_code(token: u64, payload: &str as utf8) -> u32 = "plic_v1_qr_code"
 extern def native_svg(token: u64, source: &str as utf8) -> u32 = "plic_v1_svg"
 import std.bytes as buffers
 
@@ -141,6 +143,8 @@ pub class Frame:
         checked(native_column(self.token))
     pub def end(self) -> Result[(), IcedError]:
         checked(native_end(self.token))
+    pub def qr_code(self, payload: &str) -> Result[(), IcedError]:
+        checked(native_qr_code(self.token, payload))
     pub def svg(self, source: &str) -> Result[(), IcedError]:
         checked(native_svg(self.token, source))
     pub def text_editor(self, text: &str, id: u64) -> Result[(), IcedError]:
