@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Selected line splitting
+
+[`Allocator.splitlines_text`](../design/stdlib/alloc.md#split-text-into-lines) builds a selected list and independent lines directly from the ordinary line iterator, optionally retaining each original terminator.
+
 ### Selected explicit-separator split
 
 [`Allocator.split_text`](../design/stdlib/alloc.md#split-text-on-an-explicit-separator) routes the list and its independently owned fields through the selected allocator. Partial output is released on refusal.

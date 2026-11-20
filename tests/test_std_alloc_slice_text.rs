@@ -799,6 +799,100 @@ fn mixed_workers_do_not_attribute_local_cleanup_to_an_unrelated_borrow() {
 }
 
 #[test]
+fn selected_splitlines_text_matches_ordinary_line_boundaries() {
+    assert_stdout(
+        r#"import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    out = alloc.system()
+    source = "é\r\n\n\rA\u{b}B\u{c}C\u{1c}D\u{1d}E\u{1e}F\u{85}G\u{2028}H\u{2029}last\0\t"
+    print(out.splitlines_text(source)? == source.splitlines()?)?
+    print(out.splitlines_text(source, keepends=True)? == source.splitlines(True)?)?
+    print(out.splitlines_text("a\r\n\n", keepends=True)?, out.splitlines_text("a\r\n\n")?)?
+    Ok(())
+"#,
+        "True\nTrue\n[\"a\\r\\n\", \"\\n\"] [\"a\", \"\"]\n",
+    );
+}
+
+#[test]
+fn selected_splitlines_text_rolls_back_and_preserves_source() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    source = ("xabcdefg\n" + "🙂🙂\ry")?
+    partial = budget("partial", 4, AllocError.CapacityOverflow)
+    match partial.splitlines_text(&source[1:-1], keepends=True):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    drop(partial)
+    out = budget("saved", 5)
+    lines = out.splitlines_text(&source[1:-1], keepends=True)?
+    drop(source)
+    drop(out)
+    print(lines)?
+    drop(lines)
+    Ok(())
+"#
+        ),
+        "refused partial\nAllocError.CapacityOverflow\npartial 0 4\n[\"abcdefg\\n\", \"🙂🙂\\r\"]\nsaved 0 5\n",
+    );
+}
+
+#[test]
+fn selected_splitlines_text_empty_growth_retains_allocator() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("empty", 3, AllocError.CapacityOverflow)
+    mut lines = out.splitlines_text("")?
+    drop(out)
+    print(len(&lines))?
+    lines.append("first")?
+    match lines.reserve(100):
+        case Err(error):
+            print(error, lines[0])?
+        case Ok(_):
+            pass
+    Ok(())
+"#
+        ),
+        "0\nrefused empty\nAllocError.CapacityOverflow first\nempty 0 3\n",
+    );
+}
+
+#[test]
+fn selected_splitlines_text_worker_certifies_construction_and_line_release() {
+    let submitter = "def child(guard: Shared[Mutex[i64]]) -> ():\n    pass\ndef parent(handle: Submitter, guard: Shared[Mutex[i64]], lines: list[str]) -> ():\n    drop(lines)\n    _ = handle.submit_nowait(child, guard).drop_job()";
+    check_provider_join(
+        submitter,
+        "with ThreadPoolExecutor(1, 4).unwrap() as pool:\n        pool.submit_nowait(parent, pool.submitter(), guard.share(), picked).drop_job().unwrap()",
+        r#"out.splitlines_text("selected line").unwrap()"#,
+        true,
+        Some("locks a `Mutex[i64]`"),
+    );
+    check_provider_join(
+        r#"def work(out: &alloc.Allocator) -> ():
+    drop(out.splitlines_text("worker"))"#,
+        &JOIN.replace("ARG", "&out"),
+        ORDINARY,
+        true,
+        Some(LOCK),
+    );
+    check_provider_join(
+        "def work(line: str) -> ():\n    pass",
+        &JOIN.replace("ARG", "picked[0]"),
+        r#"out.splitlines_text("selected line").unwrap()"#,
+        true,
+        Some(LOCK),
+    );
+}
+
+#[test]
 fn selected_text_pool_result_under_provider_lock_is_rejected() {
     let caller = "with ThreadPoolExecutor(1, 1).unwrap() as pool:\n        future = pool.submit(work, picked).unwrap()\n        with guard.lock():\n            drop(future.result())";
     check_provider_join(

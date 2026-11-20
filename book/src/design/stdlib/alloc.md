@@ -242,6 +242,12 @@ Both the scratch buffer and any non-inline result use `out`. Even an empty strea
 
 The list uses `out`, as does each field longer than seven UTF-8 bytes. Even when nothing matches, a long field is copied rather than shared with the source. On allocation failure the list and all completed fields are released, both inputs remain usable, and there is no system retry. Whitespace and line splitting are not part of this method.
 
+### Split text into lines
+
+`out.splitlines_text(source, keepends=False)` borrows a whole string or substring (`&strview`) and returns `Result[list[str], AllocError]`. It uses the same [line boundaries as ordinary `.splitlines()`](../facilities/01-builtins/text-splitting.md#lines): CRLF counts once, blank lines keep their positions, and a final terminator does not add another line. Pass `keepends=True` to include the original terminator in each line.
+
+The list uses `out` even for empty input, so later growth of that empty list also uses `out`. Each line is copied independently: up to seven UTF-8 bytes (including any retained ending) fit inline; longer lines use `out`. There is no intermediate list or system retry. Refusal releases partial output and leaves the source usable.
+
 ### Convert text case with an output allocator
 
 `out.lower_text(source)` and `out.upper_text(source)` borrow a whole string or substring (`&strview`) and return `Result[str, AllocError]`. They use the same per-scalar Unicode mappings as `.lower()` and `.upper()`: `ß` uppercases to `SS`, and `İ` lowercases to `i` plus a combining dot. The **mapped** UTF-8 length determines storage. Up to seven bytes fit inline; longer results use one block from `out`, even when no character changes. Neither method needs scratch storage or retries on the system; refusal leaves the source usable. Ordinary case conversion retains its system-storage policy.

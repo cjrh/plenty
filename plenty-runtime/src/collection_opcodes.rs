@@ -50,6 +50,8 @@ pub const ALLOCATOR_TEXT_STRIP: i64 = 675;
 pub const ALLOCATOR_TEXT_CASE: i64 = 676;
 /// Split borrowed text into a selected list of independently owned fields.
 pub const ALLOCATOR_TEXT_SPLIT: i64 = 677;
+/// Split borrowed text at line boundaries into selected list and text storage.
+pub const ALLOCATOR_TEXT_SPLITLINES: i64 = 679;
 
 pub const SET_IS_SUBSET: i64 = 62;
 pub const SET_IS_SUPERSET: i64 = 63;
