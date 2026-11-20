@@ -55,7 +55,7 @@ tests do not exercise a selected formatting API.
   cursor buffer with ordinary `with_capacity`. Collected bytes grow in the
   cursor. `std.fmt.finish` borrows it and calls `Bytes.to_text`: the cursor is
   not transferred into the returned string. Supplying a selected streaming
-  writer would not select this final conversion.
+  writer would not select this final conversion. `string_formatter_in` instead creates both buffer owners with the construction allocator. `finish_in` validates the cursor and uses the independent finish allocator for non-inline text; neither pass needs another buffer.
 * `std.bytes.from_text(view)` returns an ordinary packed buffer. For the same
   bytes in selected storage, use `out.slice_bytes(view.as_bytes())`. The UTF-8
   view borrows the original text; only the packed result needs selected storage.

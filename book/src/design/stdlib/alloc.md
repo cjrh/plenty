@@ -250,6 +250,8 @@ The list uses `out`, as does each field longer than seven UTF-8 bytes. Even when
 
 The list uses `out` even for empty input, so later growth of that empty list also uses `out`. Each line is copied independently: up to seven UTF-8 bytes (including any retained ending) fit inline; longer lines use `out`. There is no intermediate list or system retry. Refusal releases partial output and leaves the source usable.
 
+`out.decode_text(&data)` validates a packed `Bytes` buffer before copying it to inline or selected text. Invalid bytes return `BytesError.InvalidUtf8` before any result allocation.
+
 ### Quote plain text
 
 `out.quote_text(source)` borrows text and returns its double-quoted `str.repr` spelling. It measures escapes before writing directly into the result. Up to seven UTF-8 bytes including quotes fit inline; otherwise it requests one block from `out`. Refusal leaves the source usable. This is not a general formatter and never calls a user-defined debug method.

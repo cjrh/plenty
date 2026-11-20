@@ -252,6 +252,10 @@ worker transfers follow the underlying writer's normal ownership/effect rules.
 The embedded module works offline with a relocated matching toolchain on the
 supported x86-64 Linux GNU target and adds no external library dependency.
 
+## Select storage for collected text
+
+`string_formatter_in(&buffers, max_bytes, max_depth)` creates a collected formatter whose scratch and cursor grow through `buffers`. `finish_in(&result_allocator, &formatter)` borrows the cursor and copies valid UTF-8 into inline or selected text. The allocators may differ. Refusal returns `FormatError.Allocation`; a failed finish leaves the formatter usable. As with `finish`, manually inserting invalid UTF-8 into the public cursor is a programmer error. These choices do not redirect allocations inside user methods or `represent`.
+
 ## Acknowledgements
 
 - Format specs follow [Python's format specification mini-language](https://docs.python.org/3/library/string.html#formatspec).

@@ -2,7 +2,7 @@
 # runtime ABI; construction wrappers and policy-independent adapters use Plenty.
 # Explicit allocator passing is modelled on Zig (https://ziglang.org/).
 # No Zig code is included.
-from std.bytes import Bytes
+from std.bytes import Bytes, BytesError
 
 @thread_shareable
 opaque Handle
@@ -119,6 +119,11 @@ pub class Allocator:
 
     pub def slice_bytes(self, source: &[u8], start: i64 | Unset = Unset.Unset, stop: i64 | Unset = Unset.Unset, step: NonZero[i64] = 1) -> Result[Bytes, AllocError]:
         __allocator_bytes_slice(self._handle, source, _slice_bound(start), _slice_bound(stop), step.get())
+
+    pub def decode_text(self, source: &Bytes) -> Result[str, BytesError]:
+        if source.utf8_run(0, source.len()) != source.len():
+            return Err(BytesError.InvalidUtf8)
+        __allocator_text_finish(self._handle, &source[:]).map_error(BytesError.Allocation)
 
     pub def join_text_stream(self, separator: &strview, source: Generator[str]) -> Result[str, AllocError]:
         mut scratch = self.slice_bytes(b"")?

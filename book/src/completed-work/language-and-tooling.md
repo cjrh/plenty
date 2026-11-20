@@ -19,6 +19,8 @@ The [quoted-text formatting audit](../design/toolchain/02-architecture/allocatio
 
 The [formatter buffer and UTF-8 copy inventory](../design/toolchain/02-architecture/allocation-sites.md#formatter-buffers-and-packed-utf-8-copies) distinguishes caller-supplied scratch from collected output and shows how to copy a text range’s UTF-8 bytes directly into selected storage.
 
+[Collected formatting](../design/stdlib/fmt.md#select-storage-for-collected-text) now accepts an allocator for scratch and cursor growth and an independent allocator for finishing valid UTF-8 into text.
+
 ### Selected line splitting
 
 [`Allocator.splitlines_text`](../design/stdlib/alloc.md#split-text-into-lines) builds a selected list and independent lines directly from the ordinary line iterator, optionally retaining each original terminator.

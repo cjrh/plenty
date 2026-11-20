@@ -259,6 +259,55 @@ fn selected_split_text_rejects_literal_empty_separator() {
 }
 
 #[test]
+fn collected_format_routes_scratch_cursor_and_final_text() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+import std.fmt as fmt
+
+def main() -> Result[(), fmt.FormatError | IoError]:
+    denied = budget("deny", 0)
+    match fmt.string_formatter_in(&denied, 128, 4):
+        case Err(error):
+            print(error)?
+        case Ok(value):
+            drop(value)
+    for blocks in range(1, 4):
+        limited = budget("limited", blocks)
+        match fmt.string_formatter_in(&limited, 128, 4):
+            case Err(error):
+                print(error)?
+            case Ok(value):
+                mut partial = value
+                match partial.text("abcdefgh"):
+                    case Err(error):
+                        print(error, partial.completed())?
+                    case Ok(_):
+                        print("unexpected success")?
+    storage = budget("buffers", 8)
+    mut output = fmt.string_formatter_in(&storage, 128, 4)?
+    print(fmt.finish_in(&denied, &output)?)?
+    output.text("hello🙂")?
+    match fmt.finish_in(&denied, &output):
+        case Err(error):
+            print(error)?
+        case Ok(value):
+            drop(value)
+    final = budget("final", 1)
+    text = fmt.finish_in(&final, &output)?
+    drop(output)
+    drop(storage)
+    drop(final)
+    print(text)?
+    drop(text)
+    Ok(())
+"#
+        ),
+        "refused deny\nstd.fmt.FormatError.Allocation(AllocError.OutOfMemory)\nrefused limited\nstd.fmt.FormatError.Allocation(AllocError.OutOfMemory)\nlimited 0 1\nrefused limited\nstd.fmt.FormatError.Allocation(AllocError.OutOfMemory)\nlimited 0 2\nrefused limited\nstd.fmt.FormatError.Allocation(AllocError.OutOfMemory) 0\nlimited 0 3\n\nrefused deny\nstd.fmt.FormatError.Allocation(AllocError.OutOfMemory)\nbuffers 4 4\nhello🙂\nfinal 0 1\ndeny 0 0\n",
+    );
+}
+
+#[test]
 fn quote_text_routes_only_the_final_block() {
     assert_stdout(
         &format!(
