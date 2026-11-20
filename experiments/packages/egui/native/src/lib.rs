@@ -42,6 +42,7 @@ struct Pass {
     bytes: usize,
     failure: Option<Error>,
     edited: Option<String>,
+    candidates: Vec<String>,
 }
 impl Pass {
     fn ui(&mut self) -> &mut egui::Ui {
@@ -76,6 +77,7 @@ fn with_ui(ui: &mut egui::Ui, draw: impl FnOnce(u64) -> Result<(), Error>) -> Re
             bytes: 0,
             failure: None,
             edited: None,
+            candidates: Vec::new(),
         });
         Ok(token)
     })?;

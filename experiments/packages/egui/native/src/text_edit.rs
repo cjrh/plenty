@@ -100,6 +100,49 @@ unsafe extern "C" fn pleg_v1_text_edit(
     len: usize,
     count: *mut i64,
 ) -> u32 {
+    unsafe { edit(token, id, input, len, count, false) }
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn pleg_v1_candidate(token: u64, input: *const u8, len: usize) -> u32 {
+    unsafe {
+        text_widget(token, input, len, |pass, s| {
+            if s.is_empty() || s.contains(['\r', '\n']) {
+                return Err(Error::InvalidArgument);
+            }
+            pass.candidates
+                .try_reserve(1)
+                .map_err(|_| Error::OutOfMemory)?;
+            let mut owned = String::new();
+            owned
+                .try_reserve_exact(len)
+                .map_err(|_| Error::OutOfMemory)?;
+            owned.push_str(s);
+            pass.candidates.push(owned);
+            Ok(false)
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn pleg_v1_completion(
+    token: u64,
+    id: u64,
+    input: *const u8,
+    len: usize,
+    count: *mut i64,
+) -> u32 {
+    unsafe { edit(token, id, input, len, count, true) }
+}
+
+unsafe fn edit(
+    token: u64,
+    id: u64,
+    input: *const u8,
+    len: usize,
+    count: *mut i64,
+    completion: bool,
+) -> u32 {
     unsafe {
         text_widget(token, input, len, |pass, original| {
             if count.is_null() {
@@ -115,21 +158,37 @@ unsafe extern "C" fn pleg_v1_text_edit(
             if let Some(e) = draft.failure {
                 return Err(e);
             }
+            let candidates = std::mem::take(&mut pass.candidates);
             let ui = pass.ui();
             let field = ui.make_persistent_id(("plenty.text_edit", id));
             if oversized_paste(ui, field, limit) {
                 return Err(Error::LimitExceeded);
             }
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut draft)
-                    .id(field)
-                    .return_key(None),
-            );
+            let editor = egui::TextEdit::singleline(&mut draft)
+                .id(field)
+                .return_key(None);
+            let submitted = if completion {
+                egui::CompletionPopup::new(field)
+                    .show(ui, editor, |query| {
+                        candidates
+                            .into_iter()
+                            .filter(|s| {
+                                !query.word.is_empty()
+                                    && s.starts_with(query.word)
+                                    && s != query.word
+                            })
+                            .map(egui::Suggestion::new)
+                            .collect()
+                    })
+                    .accepted
+                    .is_some()
+            } else {
+                submit(&ui.add(editor))
+            };
             if let Some(e) = draft.failure {
                 return Err(e);
             }
-            let submitted = submit(&response);
-            let changed = response.changed() && draft.text != original;
+            let changed = draft.text != original;
             let size = if changed { draft.text.len() as i64 } else { -1 };
             pass.bytes += draft.text.len().saturating_sub(len);
             pass.edited = changed.then_some(draft.text);
