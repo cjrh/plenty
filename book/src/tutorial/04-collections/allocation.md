@@ -415,6 +415,20 @@ def main() -> Result[(), AllocError | IoError]:
 daily report
 ```
 
+To drop a literal suffix rather than whitespace, pass the exact spelling. Only the last copy is removed:
+
+```plenty
+import std.alloc as alloc
+
+def main() -> Result[(), AllocError | IoError]:
+    print(alloc.system().removesuffix_text("notes.bak.bak", ".bak")?)?
+    Ok(())
+```
+
+```output
+notes.bak
+```
+
 ## Keep a sample of columnar rows
 
 Use `slice_clist` to save every other reading in the caller's allocator. The
