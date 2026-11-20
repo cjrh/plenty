@@ -139,12 +139,17 @@ impl Lower<'_> {
                     None,
                 )
             }
-            "__allocator_text_split" => {
+            "__allocator_text_split" | "__allocator_text_split_whitespace" => {
                 let view = Ty::View(Arc::new(Ty::Text), false);
                 let list = Ty::List(Arc::new(Ty::Str));
+                let (opcode, inputs) = if name == "__allocator_text_split" {
+                    (code::ALLOCATOR_TEXT_SPLIT, vec![handle, view.clone(), view])
+                } else {
+                    (code::ALLOCATOR_TEXT_SPLIT_WHITESPACE, vec![handle, view])
+                };
                 (
-                    code::ALLOCATOR_TEXT_SPLIT,
-                    vec![handle, view.clone(), view],
+                    opcode,
+                    inputs,
                     Some(crate::sum::result(list.clone(), crate::sum::alloc_error())),
                     Some(list),
                 )

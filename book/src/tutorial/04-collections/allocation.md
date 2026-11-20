@@ -448,18 +448,22 @@ DIE STRASSE
 
 ## Keep delimited fields
 
-Use `split_text` when the caller supplies storage for both the list and its text. Empty fields still have positions:
+Use `split_text` when the caller supplies storage for both the list and its text. Omit the separator to read words across runs of whitespace. Pass a separator when empty fields have positions you need to keep:
 
 ```plenty
 import std.alloc as alloc
 
 def main() -> Result[(), AllocError | IoError]:
-    fields = alloc.system().split_text("name||status", "|")?
+    out = alloc.system()
+    words = out.split_text("  name\t status  ")?
+    print(len(&words), words[1])?
+    fields = out.split_text("name||status", "|")?
     print(len(&fields), fields[1].byte_len(), fields[2])?
     Ok(())
 ```
 
 ```output
+2 status
 3 0 status
 ```
 

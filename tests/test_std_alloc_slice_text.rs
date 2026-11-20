@@ -170,6 +170,67 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn selected_split_text_whitespace_owns_fields_and_rolls_back() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    source = ("x\t　abcdefgh\r\n" + "🙂🙂 a\0​b　y")?
+    view = &source[1:-1]
+    partial = budget("partial", 4, AllocError.CapacityOverflow)
+    match partial.split_text(view):
+        case Err(error):
+            print(error)?
+        case Ok(unexpected):
+            drop(unexpected)
+    drop(partial)
+    out = budget("output", 5)
+    fields = out.split_text(source=view)?
+    drop(source)
+    drop(out)
+    print(len(&fields), fields[0], fields[1], fields[2] == "a\0​b")?
+    drop(fields)
+    Ok(())
+"#
+        ),
+        "refused partial\nAllocError.CapacityOverflow\npartial 0 4\n3 abcdefgh 🙂🙂 True\noutput 0 5\n",
+    );
+}
+
+#[test]
+fn selected_split_text_whitespace_empty_list_retains_growth_allocator() {
+    assert_stdout(
+        &format!(
+            r#"{POLICY}
+def main() -> Result[(), AllocError | IoError]:
+    out = budget("empty", 3)
+    mut words = out.split_text(" 　\r\n")?
+    drop(out)
+    print(len(&words))?
+    words.append("word").unwrap()
+    print(words[0])?
+    drop(words)
+    root = alloc.system()
+    print(len(&root.split_text("")?), root.split_text(separator="|", source="|a|")?[1])?
+    Ok(())
+"#
+        ),
+        "0\nword\nempty 0 3\n0 a\n",
+    );
+}
+
+#[test]
+fn selected_split_text_whitespace_worker_certifies_erased_field_provider() {
+    check_provider_join(
+        "def work(field: str) -> ():\n    drop(field)",
+        &JOIN.replace("ARG", "picked"),
+        r#"out.split_text("abcdefgh").unwrap()[0]"#,
+        true,
+        Some(LOCK),
+    );
+}
+
+#[test]
 fn selected_split_text_traps_before_allocating_for_computed_empty_separator() {
     let output = crate::test_support::run(&format!(
         r#"{POLICY}
@@ -430,7 +491,7 @@ fn text_slice_keeps_type_and_context_guards() {
 
 #[cfg(feature = "runtime-checks")]
 #[test]
-fn selected_text_slice_requires_no_ordinary_scratch() {
+fn selected_text_slice_and_whitespace_split_require_no_ordinary_scratch() {
     assert_stdout(
         r#"import std.alloc as alloc
 
@@ -444,18 +505,19 @@ pub class Preallocated:
 def main() -> Result[(), AllocError | IoError]:
     root = alloc.system()
     layout = alloc.layout(1024, 64).unwrap()
-    blocks = [root.block(&layout)?]?
+    blocks = [root.block(&layout)?, root.block(&layout)?, root.block(&layout)?, root.block(&layout)?, root.block(&layout)?]?
     out = alloc.allocator(&root, Preallocated(blocks)).unwrap()
     text = "XL🙂R界A🙂Z"
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?
     result = out.slice_text(&text[1:-1], step=-2)
+    fields = out.split_text("abcdefgh  x")
     print("__test_end_no_allocations__")?
     print("__test_restore_allocations__")?
-    print(result?)?
+    print(result?, fields?[0])?
     Ok(())
 "#,
-        "__test_fail_allocations_after_0__\n__test_begin_no_allocations__\n__test_end_no_allocations__\n__test_restore_allocations__\n🙂界🙂\n",
+        "__test_fail_allocations_after_0__\n__test_begin_no_allocations__\n__test_end_no_allocations__\n__test_restore_allocations__\n🙂界🙂 abcdefgh\n",
     );
 }
 
