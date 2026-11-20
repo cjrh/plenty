@@ -243,7 +243,7 @@ system fallback; provisional storage is released.
 
 ### Join byte fields
 
-`out.join_bytes(separator, parts)` returns `Result[Bytes, AllocError]`. The method borrows the list and its byte parts. It checks the total length, including separators, before requesting storage, then reserves the result and writes directly into it. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
+`out.join_bytes(separator, parts)` returns `Result[Bytes, AllocError]`. Each list element must be borrowable as `&[u8]` (for example, `list[u8]` or `Shared[list[u8]]`, not `str`). As in [ordinary byte joining](bytes-stringlike.md#copies-allocation-and-joining), separators appear only between parts. If the total including separators exceeds `i64.MAX`, the method returns `AllocError.CapacityOverflow` before requesting storage. Otherwise it reserves the result and writes directly into it. The returned `Bytes`, including an empty result, retains `out` for growth and release. Refusal releases partial output without consuming the inputs or retrying with system storage.
 
 ### Split byte views into fields
 
