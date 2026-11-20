@@ -1,4 +1,4 @@
-# Allocation sites: copies, key views and slices
+# Allocation sites: independent results and scratch storage
 
 This inventory covers three families of independent results. It records where
 storage is obtained, including paths that only borrow or transfer an existing
@@ -15,6 +15,35 @@ for object, backing and release contracts. A retained leaf keeps its existing
 provenance in either kind of result. Paths below are relative to the repository
 root; native aggregate functions without a path are in
 `plenty-runtime/src/aggregates.rs`.
+
+## Formatting: quoted text from `str.repr`
+
+Consider an ordinary string containing a newline. The result includes quotes
+and spells the newline as two bytes (backslash and `n`); the input is borrowed.
+There are two distinct storage decisions:
+
+1. **Temporary bytes.** Opcode 110 in `plenty-runtime/src/aggregates.rs`
+   renders the string through `io::repr_text`. Quotes, escapes and UTF-8 bytes
+   go into `render_buffer::Buffer`, a growable system-backed `Vec<u8>`.
+   It checks the new length and reserves fallibly. Even a representation short
+   enough to return inline uses this buffer.
+2. **Returned string.** After rendering succeeds, `strings::try_new` reads the
+   completed bytes. Up to seven UTF-8 bytes fit inline; longer output is copied
+   into a new system-backed text block while the temporary bytes are still live.
+   The temporary buffer is dropped on success or failure. Neither allocation
+   uses the input string’s allocator; no partial string escapes on error.
+
+Copying this result into selected storage afterwards would not give the caller
+control over the original buffer or text allocation. For **plain quoted text**,
+escape lengths depend only on the borrowed input: an implementation could count
+the escaped bytes and scalars, then fill the final selected text directly. That
+argument does not extend to arbitrary values: rendering them twice could invoke
+a user-defined debug method twice. This trace does not establish the storage
+policy of f-strings, print destinations or custom formatting hooks.
+
+`tests/test_fallible_format.rs` covers ordinary escaping, source preservation
+on failure and allocation budgets across rendering and finalization. Those
+tests do not exercise a selected formatting API.
 
 ## Copy
 
