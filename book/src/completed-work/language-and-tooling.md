@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### F-string field allocation audit
+
+The [field inventory](../design/toolchain/02-architecture/allocation-sites.md#who-pays-for-an-f-string-field) distinguishes direct integer output, staged nested representation, and storage inside and around formatting hooks. No formatting behavior or API changed.
+
 ### Decoding borrowed byte ranges
 
 `Allocator.decode_text_lossy` replaces malformed subparts without intermediate storage, including when a borrowed field cuts a UTF-8 sequence.
