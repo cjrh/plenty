@@ -965,15 +965,16 @@ def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximu
         stop = start + 64 if len(program._literals) > 0 and len(data) - start >= 1024 else len(data)
         mut state = 0
         available = maximum - used
+        bound = start + available if available < stop - start else stop
         starts = program._filter_start
         accept = program._filter_accept
-        for index, raw in enumerate(&data[start:stop]):
-            if index >= available:
-                return Err(Limit.Work)
+        for index, raw in enumerate(&data[start:bound]):
             state = ((state << 1) | starts) & program._filter[i64(*raw)]
             if state & accept != 0:
                 consumed = index + 1
                 return Ok((start + consumed - program._filter_width, used + consumed))
+        if bound < stop:
+            return Err(Limit.Work)
         if stop < len(data):
             return prefix_native_candidate(program, data, stop - program._filter_width + 1, used + (stop - start), maximum)
         Ok((-1, used + (len(data) - start)))
@@ -1251,9 +1252,52 @@ class Vm:
             return self.search_bytes(program, text, __regex_text_bytes(text), True, start, early)
         self.search_bytes(program, text, data, False, start, early)
 
+    def finish_span(self: &mut Vm, begin: i64, end: i64, early: bool) -> bool:
+        if begin < 0:
+            return False
+        if not early:
+            self._found[0] = begin
+            self._found[1] = end
+        True
+
+    # Scan forward even when no closing delimiter exists. An adjacent
+    # closing byte can itself open the next attempt.
+    def delimiter_search(self: &mut Vm, delimiters: Delimiters, data: &[u8], start: i64, early: bool) -> Result[bool, Limit]:
+        unchecked:
+            available = self._max_work - self._work
+            stop = start + available if available < len(data) - start else len(data)
+            mut at = start
+            while at < stop:
+                begin = find_delimiter(data, at, stop, delimiters.open)
+                if begin == stop:
+                    break
+                end = find_delimiter(data, begin + 1, stop, delimiters.close)
+                if end == stop:
+                    break
+                if not delimiters.nonempty or end > begin + 1:
+                    self._work += end + 1 - start
+                    return Ok(self.finish_span(begin, end + 1, early))
+                at = end if delimiters.open == delimiters.close else end + 1
+            if stop < len(data):
+                return Err(Limit.Work)
+            self._work += stop - start
+            Ok(False)
+
     # Borrow UTF-8 storage once for all ASCII accelerators; scalar decoding
     # and assertions still use the original text and its boundary semantics.
     def search_bytes(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, Limit]:
+        if program._exact_filter:
+            begin, work = prefix_candidate(program, data, start, self._work, self._max_work)?
+            self._work = work
+            end = unchecked:
+                begin + program._filter_width
+            return Ok(self.finish_span(begin, end, early))
+        if textual:
+            match &program._delimiters:
+                case Some(delimiters):
+                    return self.delimiter_search(*delimiters, data, start, early)
+                case Nothing:
+                    pass
         if not early and self._slots == 2 and len(program._one) > 0:
             end = self.one_pass(program, text, data, textual, start)?
             if end != -2:
@@ -1377,6 +1421,28 @@ class Output:
                 # Every appended span starts and ends at a scalar boundary.
                 __trap("regex replacement produced invalid UTF-8")
 
+# Examine a short prefix directly so dense, short matches avoid a native call.
+# The caller supplies an exclusive scan bound derived from the remaining work.
+def find_delimiter(data: &[u8], start: i64, stop: i64, byte: u8) -> i64:
+    unchecked:
+        probe = start + 16 if stop - start > 16 else stop
+        for index, value in enumerate(&data[start:probe]):
+            if *value == byte:
+                return start + index
+        if probe < stop:
+            relative = __bytes_find(&data[probe:stop], byte)
+            if relative >= 0:
+                return probe + relative
+        stop
+
+
+@copy
+class Delimiters:
+    open: u8
+    close: u8
+    nonempty: bool
+
+
 pub class Regex:
     _pattern: str
     _max_memory: i64
@@ -1397,6 +1463,8 @@ pub class Regex:
     _filter_start: i64
     _filter_accept: i64
     _literals: list[str]
+    _exact_filter: bool
+    _delimiters: Option[Delimiters]
     _dfa_masks: list[i64]
     _dfa_after: list[i64]
     _dfa_start: i64
@@ -1549,8 +1617,9 @@ pub class Regex:
     # Extraction is optional and bounded: excess paths or traversal work keep
     # the original conservative filter. The resulting table has the same size.
     def prepare_packed_filter(self: &mut Regex) -> Result[(), RegexError]:
-        if self._filter_width < 3:
+        if self._filter_width < 2:
             return Ok(())
+        mut exact = len(self._names) == 1
         mut pending = held(list[(i64, i64, i64)].new())?
         held(pending.append((0, 0, 0)))?
         mut paths = integers()?
@@ -1565,6 +1634,7 @@ pub class Regex:
                     if len(paths) >= 8:
                         return Ok(())
                     held(paths.append(path))?
+                    exact = exact and self.ends_after_prefix(pc)
                     continue
                 op = self._op[pc]
                 if op == op_split:
@@ -1575,13 +1645,16 @@ pub class Regex:
                 elif op == op_jump:
                     held(pending.append((self._x[pc], depth, path)))?
                 elif op == op_save or op == op_assert:
+                    exact = exact and op != op_assert
                     held(pending.append((pc + 1, depth, path)))?
                 elif self.ascii_atom(pc):
                     held(pending.append((pc + 1, depth + 1, path | (pc << (depth * 8)))))?
                 else:
                     return Ok(())
-            self.prepare_literals(&paths)?
-            if len(paths) <= 1:
+            if exact or self._filter_width >= 3:
+                self.prepare_literals(&paths)?
+            self._exact_filter = exact and len(self._literals) > 0
+            if len(paths) <= 1 or (self._filter_width == 2 and not self._exact_filter):
                 return Ok(())
             mut masks = zeros(256)?
             mut starts = 0
@@ -1598,6 +1671,57 @@ pub class Regex:
             self._filter_start = starts
             self._filter_accept = accept
         Ok(())
+
+    # Only a straight epsilon path to MATCH may follow an exact prefix.
+    # A backwards jump, branch, assertion or consumer makes it conservative.
+    def ends_after_prefix(self, start: i64) -> bool:
+        mut pc = start
+        unchecked:
+            while True:
+                op = self._op[pc]
+                if op == op_match:
+                    return True
+                if op == op_save:
+                    pc += 1
+                elif op == op_jump and self._x[pc] > pc:
+                    pc = self._x[pc]
+                else:
+                    return False
+
+    def excludes_delimiter(self, pc: i64, delimiter: i64) -> bool:
+        if self._op[pc] != op_class:
+            return False
+        id = self._x[pc]
+        if self._class_negated[id] != 1 or self._class_fold[id] != 0 or self._class_count[id] != 1:
+            return False
+        item = self._class_start[id]
+        self._item_kind[item] == item_range and self._item_low[item] == delimiter and self._item_high[item] == delimiter
+
+    # Recognize L [^R]* R and the min-one forms L [^R]+ R and
+    # L [^R][^R]* R. Check the greedy loop and its optional entry explicitly.
+    def prepare_delimiters(self) -> Option[Delimiters]:
+        n = len(self._op)
+        if len(self._names) != 1 or n < 7 or n > 9 or self._prefix.byte_len() != 1:
+            return Nothing
+        unchecked:
+            close = n - 3
+            if self._op[close] != op_char or not self.ascii_atom(close):
+                return Nothing
+            byte = self._x[close]
+            body = close - 2
+            loop = close - 1
+            if not self.excludes_delimiter(body, byte):
+                return Nothing
+            if self._op[loop] != op_split or self._x[loop] != body or self._y[loop] != close:
+                return Nothing
+            nonempty = body == 2 or body == 4
+            if body > 2:
+                entry = body - 1
+                if self._op[entry] != op_split or self._x[entry] != body or self._y[entry] != close:
+                    return Nothing
+                if body == 4 and not self.excludes_delimiter(2, byte):
+                    return Nothing
+            Some(Delimiters(u8(self._x[1]), u8(byte), nonempty))
 
     # Expand only small literal sets. A class or product exceeding eight
     # complete prefixes keeps the packed/scalar filter. Temporary and retained
@@ -2082,12 +2206,14 @@ pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
         return Err(RegexError.LimitExceeded(Limit.Memory))
     prefix = prefix_of(&compiler)?
     names = replace(compiler._names, held(list[str].new())?)
-    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
+    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, False, Nothing, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
     regex.prepare_filter()?
-    unchecked:
-        regex.prepare_dfa(budget - words)?
-        if regex._dfa_width < 0:
-            regex._one = regex.prepare_one(budget - words)?
+    regex._delimiters = regex.prepare_delimiters()
+    if not regex._exact_filter:
+        unchecked:
+            regex.prepare_dfa(budget - words)?
+            if regex._dfa_width < 0:
+                regex._one = regex.prepare_one(budget - words)?
     Ok(regex)
 
 # The case-sensitive literals that directly follow the opening SAVE: every
