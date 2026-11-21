@@ -33,7 +33,8 @@ import std.fmt as fmt
 def main() -> Result[(), fmt.FormatError | IoError]:
     storage = alloc.system()
     mut output = fmt.string_formatter_in(&storage, 80, 8)?
-    output.text("ready to send")?
+    label = "ready"
+    output.format(f"label={label!r:>9}")?
     message = fmt.finish_in(&storage, &output)?
     drop(output)
     print(message)?
@@ -41,7 +42,7 @@ def main() -> Result[(), fmt.FormatError | IoError]:
 ```
 
 ```output
-ready to send
+label=  "ready"
 ```
 
 Your type chooses separate display and debug methods. Both can be generic over

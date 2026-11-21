@@ -779,6 +779,36 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn padded_quoted_fields_use_the_existing_formatter() {
+    assert_eq!(
+        run(r#"
+import std.fmt as fmt
+
+def main() -> Result[(), FormatError | AllocError | IoError]:
+    mut out = fmt.string_formatter(128, 4)?
+    source = "xé\n\u{8f}y"
+    # Warm the writer, then forbid an independent collector during the field.
+    out.writer.data.reserve(64)?
+    print("__test_fail_allocations_after_0__")?
+    result = out.format(f"{source!r:>14.7}")
+    print("__test_restore_allocations__")?
+    result?
+    print(fmt.finish(&out)?)?
+    print(f"{source!r:🙂^18}"?)?
+    print(f"|{source!r:.0}|{source!r:.1}|"?)?
+    mut limited = fmt.string_formatter(4, 4)?
+    match limited.format(f"{source!r:s}"):
+        case Err(error):
+            print(error, limited.completed())?
+        case Ok(_):
+            print("unexpected")?
+    Ok(())
+"#),
+        "       \"xé\\n\\u\n🙂🙂\"xé\\n\\u{8f}y\"🙂🙂🙂\n||\"|\nstd.fmt.FormatError.LimitExceeded 0"
+    );
+}
+
+#[test]
 fn format_writes_an_f_string_to_an_existing_formatter() {
     assert_eq!(
         run(r#"

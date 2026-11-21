@@ -129,6 +129,8 @@ spelling of any value `str.repr` accepts, which allocates a temporary string.
 A `Bytes` buffer, `bytes` literal, or `&[u8]` view spells as a byte literal
 ([printing bytes](bytes.md#printing)); write hex with
 [`std.encoding.hex_text`](encoding.md).
+`out.debug_text_spec(text, spec)` writes the quoted spelling of plain text using text layout rules, without an intermediate string formatter. Width and precision count escaped scalars (including quotes), not UTF-8 bytes. Precision can end inside an escape. User formatting hooks are not involved.
+
 `repr_string(&value)`, `debug_string(&text)`, and `ascii_string(&text)` return
 the `str.repr`, `debug_text`, and `ascii_text` spellings as fallible strings.
 A `&T` parameter cannot take a [slice view](../language/04-expressions/slices.md#slice-views),

@@ -1817,7 +1817,9 @@ impl Lower<'_> {
             }));
         };
         Ok(with_unit(match category {
-            Category::Text if repr_text => padded(temporary("debug_string", vec![value]), spec),
+            Category::Text if repr_text => {
+                method(at, out, "debug_text_spec", vec![value, spec_value(spec)])
+            }
             Category::Text => padded(value, spec),
             Category::Bool => padded(
                 expr(
@@ -1907,7 +1909,7 @@ fn text_view_field(
         ),
         (Conversion::Repr, None) => method(at, out(), "text", vec![quoted()]),
         (Conversion::Repr, Some(spec)) => {
-            method(at, out(), "text_spec", vec![quoted(), spec_value(spec)])
+            method(at, out(), "debug_text_spec", vec![value, spec_value(spec)])
         }
         (_, None) => method(at, out(), "substr", vec![value]),
         (_, Some(spec)) => method(at, out(), "substr_spec", vec![value, spec_value(spec)]),

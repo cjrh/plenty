@@ -113,6 +113,43 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 }
 
 #[test]
+fn quoted_field_reports_partial_writer_progress() {
+    assert_eq!(
+        run(r#"
+import std.fmt as fmt
+import std.bytes as binary
+from std.io import StreamError
+
+pub class Sink:
+    left: i64
+
+    pub def flush(self: &mut Sink) -> Result[(), StreamError]:
+        Ok(())
+
+    pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
+        if self.left == 0:
+            return Ok(0)
+        unchecked:
+            self.left -= 1
+        Ok(1)
+
+def main() -> Result[(), AllocError | IoError | FormatError]:
+    mut scratch = binary.with_capacity(32)?
+    scratch.resize(32, 0u8)?
+    mut out = fmt.formatter(Sink(3), scratch, 80, 8)?
+    value = "éé"
+    match out.format(f"{value!r:>5}"):
+        case Err(error):
+            print(error, out.completed())?
+        case Ok(_):
+            print("unexpected")?
+    Ok(())
+"#),
+        "std.fmt.FormatError.Output(std.io.StreamError.WriteZero) 3"
+    );
+}
+
+#[test]
 fn short_interrupted_zero_invalid_and_failed_writers_keep_progress() {
     assert_eq!(
         run(r#"

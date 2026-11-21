@@ -84,6 +84,30 @@ def valid_layout(spec: &Spec) -> bool:
         return False
     (spec.align == "" or spec.align == "<" or spec.align == ">" or spec.align == "^" or spec.align == "=") and (spec.sign == "" or spec.sign == "+" or spec.sign == "-" or spec.sign == " ") and (spec.grouping == "" or spec.grouping == "," or spec.grouping == "_")
 
+def valid_text_layout(spec: &Spec) -> bool:
+    valid_layout(spec) and spec.align != "=" and spec.sign == "" and not spec.coerce_zero and not spec.alternate and not spec.zero and spec.grouping == "" and (spec.kind == "" or spec.kind == "s")
+
+# Every input here is one scalar. Even the longest control escape fits in
+# six ASCII bytes, so these concatenations produce only inline text.
+def quoted_piece(scalar: str) -> Result[str, AllocError]:
+    if scalar == "\"":
+        return Ok("\\\"")
+    if scalar == "\\":
+        return Ok("\\\\")
+    if scalar == "\n":
+        return Ok("\\n")
+    if scalar == "\r":
+        return Ok("\\r")
+    if scalar == "\t":
+        return Ok("\\t")
+    code = u64(ord(&scalar).unwrap())
+    if code < 32u64 or (code >= 127u64 and code <= 159u64):
+        mut prefix = "\\u{"
+        if code >= 16u64:
+            prefix = (prefix + digit(code // 16u64))?
+        return ((prefix + digit(code % 16u64))? + "}")
+    Ok(scalar)
+
 # Spec-driven numbers are spelled into scratch at this offset, above the bytes
 # that single-scalar emission reuses.
 const SPELLING: i64 = 8
@@ -417,7 +441,7 @@ pub class Formatter[W]:
     pub def text_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]:
         # width <= 4096 and shown <= len(value); counters and signed padding fit i64.
         unchecked:
-            if not valid_layout(spec) or spec.align == "=" or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.zero or spec.grouping != "" or (spec.kind != "" and spec.kind != "s"):
+            if not valid_text_layout(spec):
                 return Err(FormatError.InvalidSpec)
             mut shown = len(value)
             if spec.precision >= 0 and spec.precision < shown:
@@ -438,6 +462,68 @@ pub class Formatter[W]:
                         break
                     self.text(scalar)?
                     taken += 1
+            self.repeat_fill(&spec.fill, padding - before)
+
+    # A whole spelling has the same byte-budget check and single collected
+    # write as text_spec. A precision cut writes individual visible scalars.
+    pub def debug_text_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]:
+        # size is guarded before addition; written and offset stay within it.
+        unchecked:
+            if not valid_text_layout(spec):
+                return Err(FormatError.InvalidSpec)
+            mut length = 2
+            mut size = 2
+            for scalar in value:
+                piece = quoted_piece(scalar).map_error(FormatError.Allocation)?
+                if piece.byte_len() > 9223372036854775807 - size:
+                    return Err(FormatError.Allocation(AllocError.CapacityOverflow))
+                size += piece.byte_len()
+                length += len(piece)
+                if spec.precision >= 0 and length > spec.precision:
+                    break
+            cut = spec.precision >= 0 and spec.precision < length
+            shown = spec.precision if cut else length
+            padding = spec.width - shown
+            before = padding if spec.align == ">" else (padding // 2 if spec.align == "^" else 0)
+            self.repeat_fill(&spec.fill, before)?
+            if not cut:
+                if self._failed:
+                    return Err(FormatError.OutputClosed)
+                if size > self._limit - self._written:
+                    return Err(FormatError.LimitExceeded)
+            batch = not cut and self._destination == Destination.Collected
+            if batch:
+                self.ensure_scratch(size)?
+            mut written = 0
+            mut offset = 0
+            if shown > 0:
+                if batch:
+                    self.scratch_set(0, 34u8)
+                    offset = 1
+                else:
+                    self.text("\"")?
+                written = 1
+            for scalar in value:
+                if written == shown:
+                    break
+                piece = quoted_piece(scalar).map_error(FormatError.Allocation)?
+                if batch:
+                    for byte in piece.as_bytes():
+                        self.scratch_set(offset, *byte)
+                        offset += 1
+                    written += len(piece)
+                else:
+                    for character in piece:
+                        if written == shown:
+                            break
+                        self.text(character)?
+                        written += 1
+            if not cut:
+                if batch:
+                    self.scratch_set(offset, 34u8)
+                    self.emit(size)?
+                else:
+                    self.text("\"")?
             self.repeat_fill(&spec.fill, padding - before)
 
     # `text_spec` for a borrowed substring.
