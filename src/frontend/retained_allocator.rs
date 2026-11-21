@@ -187,7 +187,7 @@ impl Lower<'_> {
             ),
             "__allocator_text_finish" => (
                 code::ALLOCATOR_TEXT_FINISH,
-                vec![handle, crate::bytes::byte_view()],
+                vec![handle, crate::bytes::byte_view(), Ty::Bool],
                 Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())),
                 None,
             ),

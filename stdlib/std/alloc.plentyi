@@ -258,7 +258,10 @@ pub class Allocator:
     pub def decode_text(self, source: &[u8]) -> Result[str, BytesError]:
         if __bytes_run(source, 1u8) != len(source):
             return Err(BytesError.InvalidUtf8)
-        __allocator_text_finish(self._handle, source).map_error(BytesError.Allocation)
+        __allocator_text_finish(self._handle, source, False).map_error(BytesError.Allocation)
+
+    pub def decode_text_lossy(self, source: &[u8]) -> Result[str, AllocError]:
+        __allocator_text_finish(self._handle, source, True)
 
     pub def join_text_stream(self, separator: &strview, source: Generator[str]) -> Result[str, AllocError]:
         mut scratch = self.slice_bytes(b"")?
@@ -269,7 +272,7 @@ pub class Allocator:
             scratch.extend(piece.as_bytes())?
             drop(piece)
             first = False
-        __allocator_text_finish(self._handle, &scratch[:])
+        __allocator_text_finish(self._handle, &scratch[:], False)
 
     pub def join_text(self, separator: &strview, parts: &[str]) -> Result[str, AllocError]:
         __allocator_text_join(self._handle, separator, parts)

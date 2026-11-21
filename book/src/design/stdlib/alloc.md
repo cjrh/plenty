@@ -297,6 +297,8 @@ The list uses `out`, as does each field longer than seven UTF-8 bytes. Even when
 
 The list uses `out` even for empty input, so later growth of that empty list also uses `out`. Each line is copied independently: up to seven UTF-8 bytes (including any retained ending) fit inline; longer lines use `out`. There is no intermediate list or system retry. Refusal releases partial output and leaves the source usable.
 
+Use `out.decode_text_lossy(source: &[u8]) -> Result[str, AllocError]` for display when malformed UTF-8 is acceptable. Like `Bytes.to_text_lossy_range`, it emits one U+FFFD per maximal malformed subpart, including a truncated trailing sequence. Only the selected range matters. It measures the repaired output before writing, without heap scratch; up to seven output bytes fit inline, otherwise one independent block comes from `out`. Unrepresentable length returns `AllocError.CapacityOverflow`; allocator refusal is propagated without system retry.
+
 `out.decode_text(source: &[u8])` validates only the borrowed range. Both `&data` for a whole `Bytes` and `&data[start:stop]` work without an intermediate buffer. A range containing invalid or incomplete UTF-8 returns `BytesError.InvalidUtf8` before requesting storage. Up to seven UTF-8 bytes fit inline; longer text is copied into one selected block. Refusal returns `BytesError.Allocation` without system fallback.
 
 ### Quote plain text
