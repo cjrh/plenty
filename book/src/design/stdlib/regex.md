@@ -277,9 +277,11 @@ The compiler selects these accelerators without changing match semantics:
   length before fallback, preventing quadratic rescanning. The table has at
   most 62 × 129 entries and is built only with sufficient memory headroom.
 
-ASCII accelerators borrow the text's UTF-8 bytes once per search and read the
-view directly, without allocating or calling the runtime for each byte.
-Scalar decoding and assertions retain their Unicode boundary semantics.
+ASCII accelerators read the borrowed UTF-8 byte view directly. Bulk search,
+split and replacement reuse the view across matches and read offsets from
+matcher scratch. Public cursor calls still validate the start offset against
+the input they receive. Scalar decoding and assertions retain their Unicode
+boundary semantics.
 
 Captures requiring subgroup positions use the Pike VM, with prefix filtering
 where applicable. Unsupported patterns continue to use the VM. Each search

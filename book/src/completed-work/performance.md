@@ -7,6 +7,19 @@ an optimization queue. Workloads, methods and current measurements belong to
 [profiling](../development/profiling.md); remaining B19/B23/B74 scope belongs
 only to the [backlog](../backlog.md).
 
+## Regex match iteration (issue #1016)
+
+Bulk regex operations reuse one borrowed byte view and carry the next match in
+matcher scratch. Public cursors still check the regex and start offset. Search
+internals return work exhaustion directly and wrap it as `RegexError` when it
+reaches a public call. At FASTA size 5,000,000, both Plenty variants of
+[regex-redux](../development/benchmarks-game/regex-redux.md) retire about 35%
+fewer instructions with identical output to the pinned Rust reference. The
+reference still scans the dense patterns in fewer instructions. Phase
+measurements and the rejected first version are in `experiments/regex/README.md`.
+The regression tests compare spans, splits and replacements against the Rust
+crate and check exact work limits, malformed input bytes and cursor validation.
+
 ## Buffered regex replacement (issue #971)
 
 `std.regex.replace` and `replace_all` build output in one growing byte buffer.
@@ -15,9 +28,7 @@ matcher work semantics stay the same. The experiment in
 `experiments/regex/` isolates matcher and output costs. At FASTA size 5,000,000,
 both Plenty variants of [regex-redux](../development/benchmarks-game/regex-redux.md)
 use about 35% fewer instructions and 55% less peak resident memory, with
-identical output to the pinned Rust reference. Issue #1016 tracks the matcher
-and iteration costs that still account for most instructions in the dense
-passes.
+identical output to the pinned Rust reference.
 
 ## Parallel regex-redux (2026-11-12)
 

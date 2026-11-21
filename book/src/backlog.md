@@ -261,9 +261,10 @@ make the measured programs available alongside that baseline.
 A [nine-worker regex-redux variant](completed-work/performance.md#parallel-regex-redux-2026-11-12)
 now also matches the reference's parallel pattern counting.
 [Buffered replacement](completed-work/performance.md#buffered-regex-replacement-issue-971)
-delivers the output-construction improvement (issue #971). Remaining regex
-work includes reducing matcher and cursor overhead in dense substitutions
-(issue #1016).
+delivers the output-construction improvement (issue #971).
+[Regex match iteration](completed-work/performance.md#regex-match-iteration-issue-1016)
+reduces per-match overhead in dense substitutions (issue #1016). Broader regex
+acceleration remains under B48.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
 (issue #743) is concluded; its delivered fixes and rejected counting experiment
 are recorded there.

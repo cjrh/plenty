@@ -338,6 +338,89 @@ fn matches_agree_with_the_regex_crate() {
 }
 
 #[test]
+fn bulk_iteration_matches_rust_on_small_haystacks_and_substring_boundaries() {
+    let source = program(
+        r#"
+argv = args()?
+pattern = std.regex.compile(&argv[1], &std.regex.limits())?
+template = argv[2]
+for i in range(3, len(argv)):
+    # The enclosing alphanumerics must be invisible to anchors and boundaries.
+    wrapped = f"a{argv[i]}b"?
+    text = &wrapped[1:-1]
+    mut cursor = pattern.cursor()?
+    mut singles = list[Match].new()?
+    while True:
+        match pattern.next_match(text, &mut cursor)?:
+            case Some(item):
+                singles.append(item)?
+            case Nothing:
+                break
+    all = pattern.find_all(text, 256)?
+    pieces = pattern.split(text, 256)?
+    print(spans(&singles)?, "|", spans(&all)?, "|", "~".join(&pieces)?, "|",
+        pattern.replace(text, &template, 1024)?, "|", pattern.replace_all(text, &template, 1024)?)?
+"#,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, &source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None).unwrap();
+    let mut haystacks = vec![String::new()];
+    let mut level = vec![String::new()];
+    for _ in 0..=3 {
+        level = level
+            .iter()
+            .flat_map(|prefix| ['a', 'b', 'é', '<', '>'].map(|c| format!("{prefix}{c}")))
+            .collect();
+        haystacks.extend(level.iter().cloned());
+    }
+    haystacks.extend(["<a><é><>", "aNaStBYa", "a🙂bée\u{301}"].map(str::to_owned));
+    haystacks.push("é".repeat(40));
+    haystacks.push("<a><é><>aNBYaSt".repeat(8));
+
+    for (pattern, oracle, template) in [
+        ("a[NSt]|BY", "a[NSt]|BY", "[$0]"),
+        ("<[^>]*>", "<[^>]*>", "[$0]"),
+        ("<[^>]*?>", "<[^>]*?>", "[$0]"),
+        ("a|ab", "a|ab", "[$0]"),
+        ("ab|a", "ab|a", "[$0]"),
+        ("", "", "-"),
+        ("a*", "a*", "-"),
+        ("a*?", "a*?", "-"),
+        ("^|$", "^|$", "[$0]"),
+        (r"\b", r"(?-u:\b)", "-"),
+        ("(?P<item>a)?b", "(?P<item>a)?b", "${item}$$$0"),
+        ("(?P<item>é|a)*", "(?P<item>é|a)*", "[${item}]"),
+    ] {
+        let oracle = regex::Regex::new(oracle).unwrap();
+        let args = [pattern, template]
+            .into_iter()
+            .chain(haystacks.iter().map(String::as_str))
+            .collect::<Vec<_>>();
+        let actual = run_output(&executable, &args, &source);
+        let lines = actual.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), haystacks.len(), "pattern {pattern:?}");
+        for (text, actual) in haystacks.iter().zip(lines) {
+            let spans = oracle
+                .find_iter(text)
+                .map(|m| format!("{}-{}", m.start(), m.end()))
+                .collect::<Vec<_>>()
+                .join(",");
+            let split = oracle.split(text).collect::<Vec<_>>().join("~");
+            let first = oracle.replace(text, template);
+            let all = oracle.replace_all(text, template);
+            assert_eq!(
+                actual,
+                format!("{spans} | {spans} | {split} | {first} | {all}"),
+                "pattern {pattern:?}, template {template:?}, haystack {text:?}",
+            );
+        }
+    }
+}
+
+#[test]
 fn accelerators_preserve_offsets_and_fall_back_with_small_budgets() {
     native(
         r#"
@@ -434,6 +517,104 @@ print(shown(d.next_match("abxef", &mut cursor))?)?
 print(a.next_match("abxcd", &mut cursor)?.unwrap().start)?
 "#,
         "0\nOutOfRange\nOutOfRange\nOutOfRange\n3",
+    );
+}
+
+#[test]
+fn bulk_work_limits_accumulate_while_cursor_calls_reset() {
+    native(
+        r#"
+mut limits = std.regex.limits()
+limits.max_work = 9
+tight = std.regex.compile("a", &limits)?
+mut failed = tight.cursor()?
+print(shown(tight.next_match("aaa", &mut failed))?)?
+limits.max_work = 10
+mut r = std.regex.compile("a", &limits)?
+mut cursor = r.cursor()?
+for i in range(3):
+    print(r.next_match("aaa", &mut cursor)?.unwrap().start == i)?
+print(r.next_match("aaa", &mut cursor)?.is_none())?
+print(r.replace("aaa", "x", 3)?)?
+limits.max_work = 29
+r = std.regex.compile("a", &limits)?
+print(shown(r.find_all("aaa", 3))?)?
+print(shown(r.split("aaa", 4))?)?
+print(shown(r.replace_all("aaa", "x", 3))?)?
+limits.max_work = 30
+r = std.regex.compile("a", &limits)?
+print(spans(&r.find_all("aaa", 3)?)?)?
+print(r.split("aaa", 4)? == ["", "", "", ""]?)?
+print(r.replace_all("aaa", "x", 3)?)?
+print(shown(r.find_all("aaa", 2))?)?
+print(shown(r.split("aaa", 3))?)?
+print(shown(r.replace_all("aaa", "x", 2))?)?
+# Unlike the text search, byte search examines the final position without
+# using the text literal prefilter.
+limits.max_work = 33
+r = std.regex.compile("a", &limits)?
+print(shown(r.find_all_bytes(b"aaa", 3))?)?
+limits.max_work = 34
+r = std.regex.compile("a", &limits)?
+print(spans(&r.find_all_bytes(b"aaa", 3)?)?)?
+"#,
+        r#"
+LimitExceeded(Work)
+True
+True
+True
+True
+xaa
+LimitExceeded(Work)
+LimitExceeded(Work)
+LimitExceeded(Work)
+0-1,1-2,2-3
+True
+xxx
+LimitExceeded(Matches)
+LimitExceeded(Matches)
+LimitExceeded(Output)
+LimitExceeded(Work)
+0-1,1-2,2-3
+"#,
+    );
+}
+
+#[test]
+fn cursor_revalidates_changed_inputs_and_empty_matches_advance_by_decoded_units() {
+    native(
+        r#"
+r = std.regex.compile("", &std.regex.limits())?
+mut cursor = r.cursor()?
+print(r.next_match("aa", &mut cursor)?.unwrap().start)?
+print(r.next_match("aa", &mut cursor)?.unwrap().start)?
+print(shown(r.next_match("é", &mut cursor))?)?
+print(shown(r.next_match("", &mut cursor))?)?
+print(r.next_match("aa", &mut cursor)?.unwrap().start)?
+print(r.next_match("aa", &mut cursor)?.is_none())?
+data = b"Q\xc3\xa9\xff\xf0\x9f\x99\x82\xe2\x82Z"
+view = &data[1:10]
+mut byte_cursor = r.cursor()?
+mut found = list[Match].new()?
+while True:
+    match r.next_match_bytes(view, &mut byte_cursor)?:
+        case Some(item):
+            found.append(item)?
+        case Nothing:
+            break
+print(spans(&found)?)?
+print(spans(&r.find_all_bytes(view, 6)?)?)?
+"#,
+        r#"
+0
+1
+OutOfRange
+OutOfRange
+2
+True
+0-0,2-2,3-3,7-7,8-8,9-9
+0-0,2-2,3-3,7-7,8-8,9-9
+"#,
     );
 }
 
@@ -1134,9 +1315,9 @@ class Regex:
         False
 
 {vm}
-def work_error(result: Result[(), RegexError]) -> bool:
+def work_error(result: Result[(), Limit]) -> bool:
     match result:
-        case Err(RegexError.LimitExceeded(Limit.Work)):
+        case Err(Limit.Work):
             True
         case _:
             False
@@ -1237,7 +1418,7 @@ fn prefix_scan_accounts_at_the_maximum_work_counter() {
         ..library.find("# A bounded lazy DFA.").unwrap()];
     let source = format!(
         r#"import std.bytes
-from std.regex import RegexError, Limit
+from std.regex import Limit
 class Regex:
     _filter_width: i64
     _filter: list[i64]
@@ -1245,7 +1426,7 @@ class Regex:
     _filter_accept: i64
     _literals: list[str]
 {scan}
-def main() -> Result[(), AllocError | IoError | RegexError]:
+def main() -> Result[(), AllocError | IoError | Limit]:
     mut masks = list[i64].new()?
     for _ in range(256):
         masks.append(0)?
