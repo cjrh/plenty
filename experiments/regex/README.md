@@ -563,3 +563,66 @@ manifest and lockfile. Write the selected `Regex::replace_all` result to
 stdout, including the header-cleaning expression as phase 0. The local
 measurement scripts, control source, profiles, and raw counts are under
 `target/issue-971-evidence/`.
+
+## Issue #1016: match iteration
+
+Bulk search, split and replacement can keep one byte view for the whole
+operation. They create their own cursor at offset zero, and each successful
+match or skipped empty match leaves it at a valid boundary. The public cursor
+calls still verify which regex created the scratch and check offsets against
+the supplied input. Bulk consumers read the match directly from the scratch
+slots. The matcher passes a small work-limit error through its internal calls
+and builds a public `RegexError` only on failure. Work charges and the memory
+budget follow the same rules.
+
+The phase driver above separates public cursor iteration from bulk replacement.
+These are retired user instructions in billions on the same Zen 4 host, at
+FASTA size 5,000,000. All six replacement outputs match the pinned Rust reference
+byte for byte. The cursor count and predicted output size agree between builds.
+
+| Phase | Cursor before | Cursor after | Replace before | Replace after | Rust replace |
+|---|---:|---:|---:|---:|---:|
+| Strip headers and newlines | 2.895 | 2.111 | 3.204 | 1.707 | 1.161 |
+| `tHa[Nt]` | 0.134 | 0.130 | 0.213 | 0.203 | 0.114 |
+| `aND\|caN\|Ha[DS]\|WaS` | 0.302 | 0.290 | 0.388 | 0.362 | 0.106 |
+| `a[NSt]\|BY` | 9.741 | 7.018 | 12.379 | 6.645 | 1.370 |
+| `<[^>]*>` | 7.979 | 7.235 | 10.616 | 6.841 | 3.441 |
+| `\|[^\|][^\|]*\|` | 4.731 | 4.407 | 5.999 | 4.229 | 1.629 |
+
+The first experiment kept the full error type while moving validation to the
+public entry point and borrowing the view once. Replacement took about 20%
+and 23% fewer instructions for phases 3 and 4, but an extra layer of results
+made public cursor scans take 26% and 32% more. Narrowing the matching error
+removes the latter regression and reduces bulk costs further. The profile
+below uses Callgrind on a one-million-byte suffix of each phase. Counts
+are in millions of instructions attributed directly to the named function.
+
+| Function | Phase 3 before | Phase 3 after | Phase 4 before | Phase 4 after |
+|---|---:|---:|---:|---:|
+| Aggregate active-payload inspection | 47.66 | 21.53 | 37.01 | 19.70 |
+| Aggregate record lookup | 34.77 | 13.03 | 24.38 | 11.92 |
+| Cursor advance | 19.55 | 6.39 | 17.89 | 5.85 |
+| DFA search | 25.49 | 24.03 | — | — |
+| Packed prefix scan | 19.95 | 19.95 | — | — |
+| One-pass search | — | — | 32.10 | 30.43 |
+
+The transition and prefix loops remain the largest matcher costs in these
+profiles. Broader pattern coverage remains in backlog B48.
+
+### Full program and compile cost
+
+The Benchmarks Game runner checked the small and full input against the pinned
+reference. Both Plenty compilers use optimized builds against the workspace
+lockfile. The baseline is `7ad1c5d0`.
+
+| Program | Instructions before | Instructions after |
+|---|---:|---:|
+| Plenty serial | 36,408,143,355 | 23,581,586,266 |
+| Plenty parallel | 36,406,366,485 | 23,572,663,129 |
+| Rust reference | 8,411,346,845 | 8,411,341,264 |
+
+Three application builds with `PLENTY_CACHE=off` retired 1,168.70–1,168.80M
+instructions before and 1,163.12–1,163.52M after for serial regex-redux. The
+n-body control stayed within 499.00–499.05M across both builds. To rerun the
+whole-program comparison, pass each compiler and
+`run --mode full --perf regex-redux` to `benchmarks/game/bench.py`.

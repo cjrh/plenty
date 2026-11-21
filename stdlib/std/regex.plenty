@@ -957,7 +957,7 @@ pub class Captures:
 # Conservative Shift-And scan, shared by the VM and the lazy DFA. Probe a
 # short prefix in this same function so dense matches pay no helper-return
 # overhead. Only a failed probe transfers to native batches; tails stay here.
-def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
+def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), Limit]:
     # Callers maintain 0 <= used <= maximum and 0 <= start <= len(data).
     # Each start bit resets its eight-bit lane, independent of shifted bits
     # from the preceding lane. Width is 1..8; offsets are bounded by the view.
@@ -969,7 +969,7 @@ def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximu
         accept = program._filter_accept
         for index, raw in enumerate(&data[start:stop]):
             if index >= available:
-                return Err(RegexError.LimitExceeded(Limit.Work))
+                return Err(Limit.Work)
             state = ((state << 1) | starts) & program._filter[i64(*raw)]
             if state & accept != 0:
                 consumed = index + 1
@@ -984,14 +984,14 @@ def prefix_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximu
 # bounds work even for adversarial near matches; the overlap preserves prefixes
 # crossing a window boundary. The final call has less than 1024 bytes remaining,
 # so it cannot re-enter this helper: call depth is bounded independently of input.
-def prefix_native_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
+def prefix_native_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), Limit]:
     unchecked:
         mut at = start
         mut work = used
         cost = 1024 * len(program._literals)
         while len(data) - at >= 1024:
             if maximum - work < cost:
-                return Err(RegexError.LimitExceeded(Limit.Work))
+                return Err(Limit.Work)
             mut found = -1
             mut stop = at + 1024
             for literal in &program._literals:
@@ -1010,7 +1010,7 @@ def prefix_native_candidate(program: &Regex, data: &[u8], start: i64, used: i64,
 # Tail scan without native dispatch. Keeping the initial probe in its caller
 # avoids a Result-return helper on dense matches; this separate tail also
 # avoids a mutually recursive tail call carrying a borrowed view.
-def prefix_scalar_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), RegexError]:
+def prefix_scalar_candidate(program: &Regex, data: &[u8], start: i64, used: i64, maximum: i64) -> Result[(i64, i64), Limit]:
     unchecked:
         mut state = 0
         available = maximum - used
@@ -1018,7 +1018,7 @@ def prefix_scalar_candidate(program: &Regex, data: &[u8], start: i64, used: i64,
         accept = program._filter_accept
         for index, raw in enumerate(&data[start:]):
             if index >= available:
-                return Err(RegexError.LimitExceeded(Limit.Work))
+                return Err(Limit.Work)
             state = ((state << 1) | starts) & program._filter[i64(*raw)]
             if state & accept != 0:
                 consumed = index + 1
@@ -1037,7 +1037,7 @@ class Dfa:
     _enabled: bool
     _work: i64
 
-    def search(self: &mut Dfa, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, maximum: i64) -> Result[i64, RegexError]:
+    def search(self: &mut Dfa, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, maximum: i64) -> Result[i64, Limit]:
         # There are at most 64 states, 128 byte columns, and 62 NFA bits.
         # Every offset is bounded by these preallocated extents; at advances
         # below input_len. Work increments only below the configured maximum.
@@ -1048,7 +1048,7 @@ class Dfa:
             accept = 1 << (len(program._op) - 1)
             if program._dfa_start & accept != 0:
                 if self._work >= maximum:
-                    return Err(RegexError.LimitExceeded(Limit.Work))
+                    return Err(Limit.Work)
                 self._work += 1
                 return Ok(at)
             while at < end:
@@ -1063,7 +1063,7 @@ class Dfa:
                     if at < 0:
                         return Ok(-1)
                 if self._work >= maximum:
-                    return Err(RegexError.LimitExceeded(Limit.Work))
+                    return Err(Limit.Work)
                 self._work += 1
                 byte = i64(data[at])
                 if byte >= 128:
@@ -1082,7 +1082,7 @@ class Dfa:
                     mut bits = program._dfa_start
                     for pc in range(len(program._op)):
                         if self._work >= maximum:
-                            return Err(RegexError.LimitExceeded(Limit.Work))
+                            return Err(Limit.Work)
                         self._work += 1
                         if active & (1 << pc) != 0:
                             bits |= program._dfa_after[pc]
@@ -1126,7 +1126,7 @@ class Vm:
     # priority order. Each instruction enters a set once, which bounds both
     # the work and the stack. A SAVE pushes a restore frame (old value, then
     # -(slot + 1)) under its continuation so later paths see the old slot.
-    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &strview, data: &[u8], textual: bool) -> Result[(), RegexError]:
+    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &strview, data: &[u8], textual: bool) -> Result[(), Limit]:
         # machine_extents preflights 2*n, 2*n*slots and 3*n+4, then allocates
         # these arrays. set is 0/1; visited count <= n and pc < n. Each instruction
         # adds at most three stack words once; restore markers are -(slot+1)
@@ -1154,7 +1154,7 @@ class Vm:
                 self._count[set] = count + 1
                 # Inline: a call returning `Result` adds about 4% instructions here.
                 if self._work >= self._max_work:
-                    return Err(RegexError.LimitExceeded(Limit.Work))
+                    return Err(Limit.Work)
                 self._work += 1
                 op = program._op[pc]
                 if op == op_jump:
@@ -1186,7 +1186,7 @@ class Vm:
     # Shift-And over a conservative ASCII prefix. All prefixes have the same
     # width, so the first completed window is the earliest possible start.
     # Non-ASCII bytes reset the window, including invalid UTF-8 in byte input.
-    def candidate(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
+    def candidate(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[i64, Limit]:
         found, work = prefix_candidate(program, data, start, self._work, self._max_work)?
         self._work = work
         Ok(found)
@@ -1195,7 +1195,7 @@ class Vm:
     # last accepting position preserves greedy choices without backtracking.
     # Failed anchored attempts together may scan only one input length before
     # falling back to the VM, keeping adversarial searches linear.
-    def one_pass(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
+    def one_pass(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[i64, Limit]:
         unchecked:
             end = input_len(text, data, textual)
             mut remaining = end - start
@@ -1214,7 +1214,7 @@ class Vm:
                 mut last = -1
                 while True:
                     if self._work >= self._max_work:
-                        return Err(RegexError.LimitExceeded(Limit.Work))
+                        return Err(Limit.Work)
                     self._work += 1
                     if program._one[pc * 129 + 128] == 1:
                         last = at
@@ -1246,14 +1246,14 @@ class Vm:
     # Finds the leftmost-first match starting at or after `start` and leaves
     # its slots in `_found`. With `early`, stops at the first match of any
     # length without recording it.
-    def search(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+    def search(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, Limit]:
         if textual:
             return self.search_bytes(program, text, __regex_text_bytes(text), True, start, early)
         self.search_bytes(program, text, data, False, start, early)
 
     # Borrow UTF-8 storage once for all ASCII accelerators; scalar decoding
     # and assertions still use the original text and its boundary semantics.
-    def search_bytes(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+    def search_bytes(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, Limit]:
         if not early and self._slots == 2 and len(program._one) > 0:
             end = self.one_pass(program, text, data, textual, start)?
             if end != -2:
@@ -1306,7 +1306,7 @@ class Vm:
                     pc = self._dense[current * n + index]
                     index += 1
                     if self._work >= self._max_work:
-                        return Err(RegexError.LimitExceeded(Limit.Work))
+                        return Err(Limit.Work)
                     self._work += 1
                     op = program._op[pc]
                     if op == op_match:
@@ -1789,7 +1789,7 @@ pub class Regex:
         if not valid_start(text, data, textual, start):
             return Err(RegexError.OutOfRange)
         mut vm = self.machine(slots)?
-        if vm.search(self, text, data, textual, start, False)?:
+        if vm.search(self, text, data, textual, start, False).map_error(RegexError.LimitExceeded)?:
             return Ok(Some(vm))
         Ok(Nothing)
 
@@ -1821,7 +1821,7 @@ pub class Regex:
 
     def matches(self, text: &strview, data: &[u8], textual: bool) -> Result[bool, RegexError]:
         mut vm = self.machine(0)?
-        vm.search(self, text, data, textual, 0, True)
+        vm.search(self, text, data, textual, 0, True).map_error(RegexError.LimitExceeded)
 
     pub def is_match(self, text: &strview) -> Result[bool, RegexError]:
         self.matches(text, &self._empty, True)
@@ -1859,43 +1859,48 @@ pub class Regex:
     # The next match, or Nothing after the last. `max_work` applies to each
     # call. An empty match where the previous match ended is skipped.
     pub def next_match(self, text: &strview, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
-        cursor._vm._work = 0
-        self.advance(cursor, text, &self._empty, True)
+        self.next(text, text.as_bytes(), True, cursor)
 
     pub def next_match_bytes(self, data: &[u8], cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
-        cursor._vm._work = 0
-        self.advance(cursor, "", data, False)
+        self.next("", data, False, cursor)
 
-    def advance(self, cursor: &mut Cursor, text: &strview, data: &[u8], textual: bool) -> Result[Option[Match], RegexError]:
-        # A nonnegative decoded unit advances only to the next boundary <=
-        # input_len; an exhausted unit marks the cursor done instead of incrementing.
+    def next(self, text: &strview, data: &[u8], textual: bool, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
+        cursor._vm._work = 0
         if cursor._pattern != self._pattern or cursor._max_memory != self._max_memory or cursor._vm._max_work != self._max_work or cursor._vm._n != len(self._op) or cursor._vm._slots < 2:
             return Err(RegexError.OutOfRange)
+        if not cursor._done and not valid_start(text, data, textual, cursor._at):
+            return Err(RegexError.OutOfRange)
+        if self.advance(cursor, text, data, textual).map_error(RegexError.LimitExceeded)?:
+            return Ok(Some(Match(cursor._vm._found[0], cursor._vm._found[1])))
+        Ok(Nothing)
+
+    # Matching only fails on work exhaustion. The public boundary wraps that
+    # limit in RegexError; successful steps stay on the small Result path.
+    # The caller supplies bytes for the same input and a valid start. A match
+    # ends at a search boundary. Skipping an overlapping empty match consumes
+    # one decoded unit, keeping the next start in range on that same input.
+    def advance(self, cursor: &mut Cursor, text: &strview, data: &[u8], textual: bool) -> Result[bool, Limit]:
         while not cursor._done:
-            if not valid_start(text, data, textual, cursor._at):
-                return Err(RegexError.OutOfRange)
-            if not cursor._vm.search(self, text, data, textual, cursor._at, False)?:
-                cursor._done = True
-                return Ok(Nothing)
+            if not cursor._vm.search_bytes(self, text, data, textual, cursor._at, False)?:
+                break
             start = cursor._vm._found[0]
             end = cursor._vm._found[1]
-            if start == end and end == cursor._last_end:
-                unit = unit_at(text, data, textual, cursor._at)
-                if unit < 0:
-                    cursor._done = True
-                    return Ok(Nothing)
-                unchecked:
-                    cursor._at += unit & 7
-            else:
+            if start != end or end != cursor._last_end:
                 cursor._at = end
                 cursor._last_end = end
-                return Ok(Some(Match(start, end)))
-        Ok(Nothing)
+                return Ok(True)
+            unit = unit_at(text, data, textual, cursor._at)
+            if unit < 0:
+                break
+            unchecked:
+                cursor._at += unit & 7
+        cursor._done = True
+        Ok(False)
 
     # Every match in order. More than `max_matches` is an error; `max_work`
     # applies to the whole call.
     pub def find_all(self, text: &strview, max_matches: i64) -> Result[list[Match], RegexError]:
-        self.all(text, &self._empty, True, max_matches)
+        self.all(text, text.as_bytes(), True, max_matches)
 
     pub def find_all_bytes(self, data: &[u8], max_matches: i64) -> Result[list[Match], RegexError]:
         self.all("", data, False, max_matches)
@@ -1903,14 +1908,10 @@ pub class Regex:
     def all(self, text: &strview, data: &[u8], textual: bool, max_matches: i64) -> Result[list[Match], RegexError]:
         mut cursor = self.scan(2)?
         mut found = held(list[Match].new())?
-        while not cursor._done:
-            match self.advance(&mut cursor, text, data, textual)?:
-                case Some(item):
-                    if len(found) >= max_matches:
-                        return Err(RegexError.LimitExceeded(Limit.Matches))
-                    held(found.append(item))?
-                case Nothing:
-                    pass
+        while self.advance(&mut cursor, text, data, textual).map_error(RegexError.LimitExceeded)?:
+            if len(found) >= max_matches:
+                return Err(RegexError.LimitExceeded(Limit.Matches))
+            held(found.append(Match(cursor._vm._found[0], cursor._vm._found[1])))?
         Ok(found)
 
     # The text around matches. More than `max_pieces` pieces is an error.
@@ -1918,17 +1919,14 @@ pub class Regex:
         mut cursor = self.scan(2)?
         mut pieces = held(list[str].new())?
         mut last = 0
-        while not cursor._done:
-            match self.advance(&mut cursor, text, &self._empty, True)?:
-                case Some(item):
-                    # Avoid len + 1 and guard nonpositive caps before cap - 1.
-                    unchecked:
-                        if max_pieces <= 1 or len(pieces) >= max_pieces - 1:
-                            return Err(RegexError.LimitExceeded(Limit.Matches))
-                    held(pieces.append(held(__regex_text_slice(text, last, item.start))?))?
-                    last = item.end
-                case Nothing:
-                    pass
+        data = text.as_bytes()
+        while self.advance(&mut cursor, text, data, True).map_error(RegexError.LimitExceeded)?:
+            # Guard nonpositive caps before subtracting one for the final piece.
+            unchecked:
+                if max_pieces <= 1 or len(pieces) >= max_pieces - 1:
+                    return Err(RegexError.LimitExceeded(Limit.Matches))
+            held(pieces.append(held(__regex_text_slice(text, last, cursor._vm._found[0]))?))?
+            last = cursor._vm._found[1]
         if len(pieces) >= max_pieces:
             return Err(RegexError.LimitExceeded(Limit.Matches))
         held(pieces.append(held(__regex_text_slice(text, last, text.byte_len()))?))?
@@ -1955,29 +1953,27 @@ pub class Regex:
         mut last = 0
         mut replaced = 0
         while limit < 0 or replaced < limit:
-            match self.advance(&mut cursor, text, &self._empty, True)?:
-                case Some(item):
-                    out.add(text_bytes, last, item.start)?
-                    for index in range(len(parts.kind)):
-                        if parts.kind[index] == 0:
-                            out.add(template_bytes, parts.start[index], parts.stop[index])?
-                        else:
-                            group = parts.start[index]
-                            # template validated group < _names.len(); compile's
-                            # memory preflight bounds all capture slot offsets.
-                            span = unchecked:
-                                (cursor._vm._found[group * 2], cursor._vm._found[group * 2 + 1])
-                            start, stop = span
-                            if start >= 0 and stop >= 0:
-                                out.add(text_bytes, start, stop)?
-                    last = item.end
-                    # Unlimited replacement needs no lifetime counter. A finite
-                    # call uses limit=1 and enters only while replaced < limit.
-                    if limit >= 0:
-                        unchecked:
-                            replaced += 1
-                case Nothing:
-                    break
+            if not self.advance(&mut cursor, text, text_bytes, True).map_error(RegexError.LimitExceeded)?:
+                break
+            out.add(text_bytes, last, cursor._vm._found[0])?
+            for index in range(len(parts.kind)):
+                if parts.kind[index] == 0:
+                    out.add(template_bytes, parts.start[index], parts.stop[index])?
+                else:
+                    group = parts.start[index]
+                    # template validated group < _names.len(); compile's
+                    # memory preflight bounds all capture slot offsets.
+                    span = unchecked:
+                        (cursor._vm._found[group * 2], cursor._vm._found[group * 2 + 1])
+                    start, stop = span
+                    if start >= 0 and stop >= 0:
+                        out.add(text_bytes, start, stop)?
+            last = cursor._vm._found[1]
+            # Unlimited replacement needs no lifetime counter. A finite
+            # call uses limit=1 and enters only while replaced < limit.
+            if limit >= 0:
+                unchecked:
+                    replaced += 1
         out.add(text_bytes, last, len(text_bytes))?
         out.finish()
 
