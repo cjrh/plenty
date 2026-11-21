@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### Padded quoted fields
+
+Plain quoted text with a format spec writes to the existing formatter without building a second cursor or materializing the field string. Width and precision count the escaped spelling's scalars. Hook rendering is unchanged.
+
 ### F-string field allocation audit
 
 The [field inventory](../design/toolchain/02-architecture/allocation-sites.md#who-pays-for-an-f-string-field) distinguishes direct integer output, staged nested representation, and storage inside and around formatting hooks. No formatting behavior or API changed.
