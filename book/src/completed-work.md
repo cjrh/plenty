@@ -3,6 +3,7 @@
 Delivery history and retired backlog entries live here, separate from the
 [backlog](backlog.md), which is the single maintained list of future work.
 
+- [List ordering allocation audit](completed-work/language-and-tooling.md#list-ordering-allocation-audit).
 - [Padded quoted fields use the existing formatter](completed-work/language-and-tooling.md#padded-quoted-fields).
 - [F-string field allocation audit](completed-work/language-and-tooling.md#f-string-field-allocation-audit).
 - [Strict and lossy decoding of borrowed byte ranges](completed-work/language-and-tooling.md#decoding-borrowed-byte-ranges).

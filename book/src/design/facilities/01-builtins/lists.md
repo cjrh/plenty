@@ -264,8 +264,7 @@ unchanged and the call returns `AllocError`. Input already in key order is
 detected with `n - 1` comparisons and returns without allocating or moving.
 Otherwise a top-down merge sort uses insertion sort for runs of at most 16
 rows, skips merging two runs already in order, and takes O(n log n)
-comparisons, each computing two keys, plus O(log n) stack. The scratch block
-is freed before the call returns. Moves into and out of scratch repair inline
+comparisons, each computing two keys, plus O(log n) stack. The scratch block uses system storage even for a list made with a selected allocator; it is freed before the call returns. Moves into and out of scratch repair inline
 addresses, and every element stays owned exactly once, even when a key is
 inconsistent; an inconsistent key yields an unspecified order.
 A key returning `Result[K, E]` makes the result `Result[(), AllocError | E]`,
