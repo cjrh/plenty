@@ -11,6 +11,10 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 
 Issue #1014 extends the [submitting-worker wait rule](../design/facilities/03-concurrency/executors.md) to allocator callbacks and registered state destruction. The check matches coordination types rather than allocator instances; it does not ban all custom allocation on pool workers.
 
+### List ordering allocation audit
+
+The [allocation inventory](../design/toolchain/02-architecture/allocation-sites.md#list-ordering-result-versus-workspace) distinguishes the copied result of `sorted` from the workspace of in-place stable sorting and any allocations inside a key callback. No API changed.
+
 ### Padded quoted fields
 
 Plain quoted text with a format spec writes to the existing formatter without building a second cursor or materializing the field string. Width and precision count the escaped spelling's scalars. Hook rendering is unchanged.
