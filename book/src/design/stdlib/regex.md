@@ -16,7 +16,8 @@ range requires an explicit owned copy first. Match extraction and replacements
 return independent owned results.
 
 The parser, compiler and matching engines are Plenty code in the module:
-a Pike VM, bounded ASCII prefix filters, a lazy DFA and a one-pass matcher.
+a Pike VM, bounded ASCII prefix filters, direct byte searches, a lazy DFA and
+a one-pass matcher.
 The runtime supplies only primitives: Unicode properties and single-scalar
 case mappings from the Rust toolchain's Unicode tables, and reads of borrowed
 UTF-8 by byte offset. They do not allocate, except the one that copies a byte
@@ -257,13 +258,19 @@ The compiler selects these accelerators without changing match semantics:
   instructions and keeps at most 17 pending paths; exceeding those bounds
   retains the position-wise union.
 - When the extracted paths expand to at most eight ASCII literals of the same
-  three-to-eight-byte width, a 64-byte scalar probe returns nearby matches
-  promptly. Longer scans then use native substring search in windows
-  of at most 1,024 bytes. Windows overlap by `width - 1`, and all literals are
-  searched before selecting the earliest candidate. The engine still confirms
-  candidates and resolves alternative priority. Literal storage is bounded by
-  eight short strings; it is compiled metadata, not per-search scratch.
-  Wider classes or excessive path products retain the scalar filter.
+  three-to-eight-byte width, a 64-byte scalar probe returns nearby candidates
+  promptly. Longer scans use native substring search in overlapping windows
+  of at most 1,024 bytes, selecting the earliest candidate across all literals.
+  A complete two-to-eight-byte literal set can return a match directly when
+  the compiler proves that all paths finish at that width and the pattern has
+  no assertions or subgroup captures. Other prefixes still require confirmation.
+  The compiled metadata holds at most eight short strings. Wider classes or
+  excessive path products retain the scalar filter.
+- In text searches, simple greedy ASCII delimiter patterns such as
+  `<[^>]*>`, `<[^>]+>` and `\|[^|][^|]*\|` find the opening byte and the first
+  closing byte. The work budget bounds both scans, including skipped text.
+  The raw-byte search still decodes UTF-8 so malformed bytes cannot match a
+  negated character class.
 - For ASCII-only programs of at most 62 instructions without assertions, a
   lazy DFA answers existence searches. When every match has the same byte
   length, it also supplies match offsets for searches, cursors and replacements.

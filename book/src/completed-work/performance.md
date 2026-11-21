@@ -7,6 +7,22 @@ an optimization queue. Workloads, methods and current measurements belong to
 [profiling](../development/profiling.md); remaining B19/B23/B74 scope belongs
 only to the [backlog](../backlog.md).
 
+## Direct regex span searches (issue #1017)
+
+Complete short ASCII literal sets return matches from the packed filter.
+Greedy single-byte delimiter pairs scan for the two delimiters on validated
+text. Both paths reuse cursor scratch and count scan work. Patterns with
+subgroup captures or assertions still use the general matcher. Delimiter
+matching on raw bytes retains strict UTF-8 decoding.
+
+The [regex-redux benchmark](../development/benchmarks-game/regex-redux.md)
+matches the pinned Rust reference byte for byte. At FASTA size 5,000,000,
+serial and parallel runs retire 17% fewer instructions. The remaining gap
+is 2.32× Rust's instruction count. Compiling the serial program takes 3.8%
+more instructions. The regression tests compare spans, splits and replacements
+and check cumulative budgets, false candidates, UTF-8 boundaries and malformed
+bytes. Phase measurements are in `experiments/regex/README.md`.
+
 ## Regex match iteration (issue #1016)
 
 Bulk regex operations reuse one borrowed byte view and carry the next match in

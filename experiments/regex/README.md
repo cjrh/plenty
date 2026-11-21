@@ -626,3 +626,51 @@ instructions before and 1,163.12–1,163.52M after for serial regex-redux. The
 n-body control stayed within 499.00–499.05M across both builds. To rerun the
 whole-program comparison, pass each compiler and
 `run --mode full --perf regex-redux` to `benchmarks/game/bench.py`.
+
+## Issue #1017: direct literal and delimiter searches
+
+For small complete ASCII literal sets, the packed prefix filter proves the
+match and supplies its byte offsets. The compiler only enables this when
+every path consumes the same number of bytes and reaches the final match
+without an assertion or subgroup capture. For simple greedy delimiter pairs
+on validated text, one forward scan finds the opener and another finds the
+first closer. A 16-byte scalar probe handles nearby delimiters before calling
+the existing byte-search primitive. The next attempt reuses an adjacent
+closer as an opener when the two delimiters are equal and the body must be
+nonempty. Byte inputs continue to use the original Unicode decoder for these
+patterns.
+
+Optimized runs on Zen 4 use the preceding phase driver, FASTA size 5,000,000
+and baseline `f8068739`. All replacement output matched the pinned Rust
+reference byte for byte. All cursor counts and predicted output lengths
+matched the baseline.
+
+| Phase | Cursor before | Cursor after | Replace before | Replace after | Rust replace |
+|---|---:|---:|---:|---:|---:|
+| Strip headers and newlines | 2.111 | 2.032 | 1.707 | 1.629 | 1.161 |
+| `tHa[Nt]` | 0.130 | 0.122 | 0.203 | 0.195 | 0.114 |
+| `aND\|caN\|Ha[DS]\|WaS` | 0.290 | 0.278 | 0.362 | 0.351 | 0.106 |
+| `a[NSt]\|BY` | 7.018 | 5.972 | 6.645 | 5.598 | 1.370 |
+| `<[^>]*>` | 7.235 | 5.878 | 6.841 | 5.484 | 3.441 |
+| `\|[^\|][^\|]*\|` | 4.407 | 2.943 | 4.229 | 2.766 | 1.629 |
+
+Counts are in billions of retired user instructions. On a one-million-byte
+suffix of phase 3, Callgrind attributes 24.03M instructions to DFA verification
+before the change and none after. The packed scan falls from 19.95M to 19.21M
+when its work check moves out of the byte loop. On equivalent suffixes of
+phases 4 and 5, the 30.43M and 42.13M instructions in the one-pass engine
+disappear. The delimiter scans use 10.90M and 8.85M respectively, with part of
+the new search inlined in the shared dispatcher. Total instructions for those
+suffixes fall from 164.32M to 132.16M and from 121.58M to 80.90M.
+
+| Full program | Instructions before | Instructions after | Median before | Median after |
+|---|---:|---:|---:|---:|
+| Plenty serial | 23.582B | 19.557B | 1.930 s | 1.600 s |
+| Plenty parallel | 23.573B | 19.548B | 1.580 s | 1.291 s |
+| Pinned Rust reference | 8.411B | 8.411B | 0.784 s | 0.786 s |
+
+The Benchmarks Game runner verified output on both input sizes. Timings are
+three-run medians on the shared host. The instruction count fell 17% in each
+Plenty variant and remains 2.32× Rust's. Three uncached serial benchmark builds
+retired 1,163.29–1,163.39M instructions before and 1,208.07–1,208.17M after,
+a 3.8% increase.

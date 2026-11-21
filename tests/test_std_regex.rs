@@ -356,10 +356,10 @@ for i in range(3, len(argv)):
                 singles.append(item)?
             case Nothing:
                 break
-    all = pattern.find_all(text, 256)?
-    pieces = pattern.split(text, 256)?
+    all = pattern.find_all(text, 4096)?
+    pieces = pattern.split(text, 4096)?
     print(spans(&singles)?, "|", spans(&all)?, "|", "~".join(&pieces)?, "|",
-        pattern.replace(text, &template, 1024)?, "|", pattern.replace_all(text, &template, 1024)?)?
+        pattern.replace(text, &template, 8192)?, "|", pattern.replace_all(text, &template, 8192)?)?
 "#,
     );
     let dir = tempfile::tempdir().unwrap();
@@ -377,13 +377,29 @@ for i in range(3, len(argv)):
         haystacks.extend(level.iter().cloned());
     }
     haystacks.extend(["<a><é><>", "aNaStBYa", "a🙂bée\u{301}"].map(str::to_owned));
+    haystacks.extend(
+        [
+            "||a|", "|a||b|", "|||", "|🙂|", "||é||", "<<é>>", "<><a", ">><<", "aNaS", "aNBY", "ad",
+        ]
+        .map(str::to_owned),
+    );
     haystacks.push("é".repeat(40));
+    haystacks.push(format!("{}<{}><", "z".repeat(1024), "🙂".repeat(256)));
     haystacks.push("<a><é><>aNBYaSt".repeat(8));
 
     for (pattern, oracle, template) in [
         ("a[NSt]|BY", "a[NSt]|BY", "[$0]"),
         ("<[^>]*>", "<[^>]*>", "[$0]"),
         ("<[^>]*?>", "<[^>]*?>", "[$0]"),
+        ("<[^>]+>", "<[^>]+>", "[$0]"),
+        (r"\|[^|][^|]*\|", r"\|[^|][^|]*\|", "[$0]"),
+        (r"\|[^|]*\|", r"\|[^|]*\|", "[$0]"),
+        ("(a[NSt])|BY", "(a[NSt])|BY", "[$1:$0]"),
+        ("^a[NSt]|BY$", "^a[NSt]|BY$", "[$0]"),
+        ("a[NSt](?:x|)|BY", "a[NSt](?:x|)|BY", "[$0]"),
+        ("<[^x]*>", "<[^x]*>", "[$0]"),
+        ("<([^>]*)>", "<([^>]*)>", "[$1:$0]"),
+        ("<[^>]{0,2}>", "<[^>]{0,2}>", "[$0]"),
         ("a|ab", "a|ab", "[$0]"),
         ("ab|a", "ab|a", "[$0]"),
         ("", "", "-"),
@@ -426,8 +442,8 @@ fn accelerators_preserve_offsets_and_fall_back_with_small_budgets() {
         r#"
 mut bounds = std.regex.limits()
 bounds.max_memory = 4000
-slow = std.regex.compile("ab|cd", &bounds)?
-fast = std.regex.compile("ab|cd", &std.regex.limits())?
+slow = std.regex.compile("ab|cd|[0-9]x", &bounds)?
+fast = std.regex.compile("ab|cd|[0-9]x", &std.regex.limits())?
 text = "éabxcdab"
 print(spans(&slow.find_all(text, 10)?)?)?
 print(spans(&fast.find_all(text, 10)?)?)?
@@ -454,7 +470,7 @@ fn dfa_restarts_after_complete_utf8_scalars() {
     // native literal-prefix restart and the DFA without a literal prefix.
     native(
         r#"
-for pattern in ["ab[cd]", "[a]b[cd]"]?:
+for pattern in ["ab[cd0-9]", "[a]b[cd0-9]"]?:
     r = std.regex.compile(&pattern, &std.regex.limits())?
     for scalar, width in [("é", 2), ("€", 3), ("😀", 4)]?:
         text = f"ab{scalar}abcab{scalar}abd"?
@@ -1095,7 +1111,7 @@ print(str.repr(result)?)?
 def main()"#,
     );
     let (_dir, executable) = build(&source);
-    for pattern in ["ab|cd", "<[^>]*>", "abc|def"] {
+    for pattern in ["ab|cd", "<[^>]*>", "<[^>]*?>", "abc|def", "ab|cd|[0-9]x"] {
         let mut succeeded = false;
         for after in 0..512 {
             let marker = format!("__test_fail_allocations_after_{after}__");
@@ -1397,17 +1413,65 @@ fn dfa_prefix_skips_charge_every_byte_and_keep_false_candidates() {
         r#"
 mut limits = std.regex.limits()
 limits.max_work = 5
-r = std.regex.compile("ab|cd", &limits)?
+r = std.regex.compile("ab|cd|[0-9]x", &limits)?
 print(r.is_match("zzzzz")?)?
 print(shown(r.is_match("zzzzzz"))?)?
 print(r.is_match("ézzz")?)?
 print(shown(r.is_match("ézzzz"))?)?
 data = std.bytes.from_bytes(b"\xffzzzz")?
 print(r.is_match_bytes(&data)?)?
-full = std.regex.compile("ab|cd", &std.regex.limits())?
+full = std.regex.compile("ab|cd|[0-9]x", &std.regex.limits())?
 print(spans(&full.find_all("adcbcdab", 10)?)?)?
 "#,
         "False\nLimitExceeded(Work)\nFalse\nLimitExceeded(Work)\nFalse\n4-6,6-8",
+    );
+}
+
+#[test]
+fn direct_span_searches_charge_work_and_preserve_raw_byte_semantics() {
+    native(
+        r#"
+mut limits = std.regex.limits()
+limits.max_work = 2
+exact = std.regex.compile("a[NSt]|BY", &limits)?
+print(spans(&exact.find_all("aN", 10)?)?)?
+print(exact.is_match("at")?)?
+print(exact.captures("BY")?.unwrap().get(0).unwrap().end)?
+print(exact.find("aY")?.is_none())?
+print(shown(exact.find("aYa"))?)?
+print(shown(exact.find_all("aNBY", 10))?)?
+
+limits.max_work = 4
+delimited = std.regex.compile("<[^>]*>", &limits)?
+print(spans(&delimited.find_all("<é>", 10)?)?)?
+print(delimited.is_match("<é>")?)?
+print(delimited.find("<éx")?.is_none())?
+print(shown(delimited.find("<éx>"))?)?
+print(spans(&delimited.find_all("<><>", 10)?)?)?
+print(shown(delimited.find_all("<><>x", 10))?)?
+
+padding = repeated("z", 1100)?
+text = f"{padding}<é>"?
+limits.max_work = 1103
+print(shown(std.regex.compile("<[^>]*>", &limits)?.find(&text))?)?
+limits.max_work = 1104
+print(std.regex.compile("<[^>]*>", &limits)?.find(&text)?.unwrap().start)?
+same = std.regex.compile("[|][^|]+[|]", &std.regex.limits())?
+print(same.find("||é|")?.unwrap().start)?
+raw_delimited = std.regex.compile("<[^>]*>", &std.regex.limits())?
+data = std.bytes.from_bytes(b"<\xff><\xc3\xa9><><\xc3><")?
+print(spans(&raw_delimited.find_all_bytes(&data, 10)?)?)?
+data_invalid = std.bytes.from_bytes(b"<\xff>")?
+print(raw_delimited.is_match_bytes(&data_invalid)?)?
+raw_exact = std.regex.compile("a[NSt]|BY", &std.regex.limits())?
+literals = std.bytes.from_bytes(b"a\xffN\xf0BYaS\xc3\xa9aY")?
+print(spans(&raw_exact.find_all_bytes(&literals, 10)?)?)?
+"#,
+        concat!(
+            "0-2\nTrue\n2\nTrue\nLimitExceeded(Work)\nLimitExceeded(Work)\n",
+            "0-4\nTrue\nTrue\nLimitExceeded(Work)\n0-2,2-4\nLimitExceeded(Work)\n",
+            "LimitExceeded(Work)\n1100\n1\n3-7,7-9\nFalse\n4-6,6-8",
+        ),
     );
 }
 
@@ -1458,6 +1522,8 @@ fn packed_prefix_paths_agree_with_regex_on_overlaps_and_fallbacks() {
     let patterns = [
         "agggtaaa|tttaccct",
         "[cgt]gggtaaa|tttaccc[acg]",
+        "ab|bc",
+        "a[NSt]|BY",
         "(abc)|(bca)|(cab)",
         "(?:ab|bc){3}",
         "(?:ab|bc){4}",
@@ -1526,6 +1592,7 @@ fn native_literal_batches_keep_boundary_matches_priority_and_bytes() {
     let patterns = [
         "agggtaaa|tttaccct",
         "[cgt]gggtaaa|tttaccc[acg]",
+        "a[NSt]|BY",
         "(abc)|(bca)|(cab)",
         "(?:ab|bc){3}",
         "abcdefgh|ijklmnop|qrstuvwx|yzABCDEF|GHIJKLMN|OPQRSTUV|WXYZ0123|456789ab",
@@ -1539,6 +1606,11 @@ fn native_literal_batches_keep_boundary_matches_priority_and_bytes() {
             "z".repeat(offset),
             "z".repeat(2100)
         ));
+    }
+    // Width two restarts at 63 after the scalar probe and 1086 after
+    // the first native window. Exercise the byte on each side.
+    for offset in [62, 63, 64, 1085, 1086, 1087] {
+        texts.push(format!("{}aNBY{}", "z".repeat(offset), "z".repeat(2100)));
     }
     texts.push(format!("{}{}", "é😀".repeat(400), "456789ab"));
     let ps = patterns
